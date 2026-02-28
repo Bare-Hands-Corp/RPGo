@@ -6,12 +6,8 @@ import { supabase } from './supabase-config.js';
 
 export { supabase };
 
-// Em desenvolvimento (Live Server), o backend Express roda na porta 3001.
-// Em produção (Render), o frontend é servido pelo mesmo servidor, então /api funciona.
-export const API_BASE =
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-        ? 'http://localhost:3001/api'
-        : '/api';
+const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+export const API_BASE = isLocal ? '/api' : 'https://rpgo-backend.fly.dev/api';
 
 async function authHeaders() {
     const { data: { session } } = await supabase.auth.getSession();
