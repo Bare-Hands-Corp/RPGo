@@ -45,13 +45,13 @@ export function iniciarChat(user, SESSION_ID) {
     }
 
     // --- ENVIAR ROLAGEM DE DADOS (chamado externamente pelo bandeja.js) ---
-    function enviarRolagem({ total, detalhes, modificador }) {
+    function enviarRolagem({ total, detalhes, modificador, nomePreset }) {
         apiPost(`/mensagens/${SESSION_ID}`, {
             nome: nomePersonagem,
             tipo: 'rolagem',
             total,
             modificador,
-            detalhes
+            detalhes: { rolls: detalhes, nomePreset: nomePreset || null }
         }).catch((err) => console.error('Erro ao enviar rolagem:', err));
     }
 
@@ -71,7 +71,9 @@ export function iniciarChat(user, SESSION_ID) {
             const nome = msg.uid === user.id ? 'Você' : msg.nome;
 
             if (msg.tipo === 'rolagem' && msg.detalhes) {
-                const arr = Array.isArray(msg.detalhes) ? msg.detalhes : Object.values(msg.detalhes);
+                const raw = msg.detalhes;
+                const arr = Array.isArray(raw) ? raw : (Array.isArray(raw.rolls) ? raw.rolls : Object.values(raw.rolls || raw));
+                const presetLabel = raw.nomePreset || null;
                 let stringDados = '';
                 arr.forEach((dado, i) => {
                     const op = i === 0
@@ -85,9 +87,11 @@ export function iniciarChat(user, SESSION_ID) {
                 if (msg.modificador && msg.modificador !== 0) {
                     stringDados += ` ${msg.modificador >= 0 ? '+' : '-'} ${Math.abs(msg.modificador)}`;
                 }
+                const presetTag = presetLabel ? `<div class="roll-preset-tag"><i class="fas fa-bookmark"></i> ${presetLabel}</div>` : '';
                 html += `
                     <div class="chat-message roll-message">
                         <div class="roll-header">${hora} <strong>${nome}</strong></div>
+                        ${presetTag}
                         <div class="roll-box">
                             <div class="roll-total">${msg.total}</div>
                             <div class="roll-details">[${msg.total}] = ${stringDados}</div>

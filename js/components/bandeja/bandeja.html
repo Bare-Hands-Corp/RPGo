@@ -48,6 +48,50 @@
                 <div id="txtTotal" style="font-size: 2rem; font-weight: 800; color: var(--primary);">--</div>
                 <div id="txtDetalhes" style="font-size: 0.85rem; color: #555; margin-top: 5px;">Selecione dados...</div>
             </div>
+
+            <!-- BANNER: MODO GRAVAÇÃO -->
+            <div id="presetRecBanner" class="preset-rec-banner" style="display:none;">
+                <span><i class="fas fa-circle preset-rec-dot"></i> Gravando preset...</span>
+                <button id="btnCancelRec" class="preset-rec-cancel" title="Cancelar gravação">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <!-- TOGGLE PRESETS (botão que revela/esconde) -->
+            <button id="btnTogglePresets" class="preset-toggle-btn">
+                <i class="fas fa-bookmark"></i>
+                <span>Presets</span>
+                <i id="presetToggleIcon" class="fas fa-chevron-down preset-toggle-chevron"></i>
+            </button>
+
+            <!-- ÁREA DE PRESETS (escondida por padrão) -->
+            <div id="presetsWrapper" class="presets-wrapper collapsed">
+                <div id="presetsArea" class="presets-area">
+                    <div id="presetsEmpty" class="presets-empty">
+                        <i class="fas fa-bookmark" style="font-size:1.5rem; opacity:0.4;"></i>
+                        <p>Nenhum preset criado</p>
+                        <button id="btnCriarPresetEmpty" class="preset-add-btn">
+                            <i class="fas fa-plus"></i> Criar Preset
+                        </button>
+                    </div>
+                    <div id="presetsGrid" class="presets-grid" style="display:none;"></div>
+                    <button id="btnCriarPreset" class="preset-add-btn" style="display:none;">
+                        <i class="fas fa-plus"></i> Novo Preset
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: NOME DO PRESET -->
+        <div id="modalPresetNome" class="preset-name-overlay" style="display:none;">
+            <div class="preset-name-modal">
+                <h4><i class="fas fa-bookmark"></i> Nome do Preset</h4>
+                <input type="text" id="inputPresetNome" placeholder="Ex: Ataque com machado" maxlength="40" autocomplete="off" />
+                <div class="preset-name-actions">
+                    <button id="btnPresetNomeCancel" class="preset-name-btn cancel">Cancelar</button>
+                    <button id="btnPresetNomeOk" class="preset-name-btn ok">Salvar</button>
+                </div>
+            </div>
         </div>
 
         <!-- PAINEL: CHAT -->

@@ -118,6 +118,7 @@
 
 /* Corpo */
 .bandeja-body {
+    position: relative;       /* âncora para o modal de nome de preset */
     padding: 15px;
     background: var(--bg-surface);
     display: flex;
@@ -266,4 +267,305 @@ body.dark-mode .dice-grid-buttons.negative-mode .dice-btn[data-faces] {
 }
 body.dark-mode .dice-grid-buttons.negative-mode .dice-btn[data-faces]:hover {
     background-color: #c62828; color: white;
+}
+
+/* ======================================================= */
+/* --- PRESETS DE ROLAGEM --- */
+/* ======================================================= */
+
+/* Banner de gravação */
+.preset-rec-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #c62828;
+    color: white;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    animation: preset-rec-pulse 1.5s infinite;
+}
+.preset-rec-dot {
+    font-size: 0.6rem;
+    margin-right: 6px;
+    vertical-align: middle;
+    animation: preset-rec-blink 1s steps(1) infinite;
+}
+@keyframes preset-rec-blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+}
+@keyframes preset-rec-pulse {
+    0%, 100% { box-shadow: 0 0 0 rgba(198,40,40,0); }
+    50%      { box-shadow: 0 0 8px rgba(198,40,40,0.5); }
+}
+.preset-rec-cancel {
+    background: rgba(255,255,255,0.2);
+    border: none;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+.preset-rec-cancel:hover { background: rgba(255,255,255,0.35); }
+
+/* Separador */
+.preset-separator {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-sec);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.preset-separator::before,
+.preset-separator::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+}
+
+/* Botão toggle de presets */
+.preset-toggle-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    padding: 8px 0;
+    background: var(--bg-card);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 0.78rem;
+    color: var(--text-sec);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    transition: border-color 0.2s, color 0.2s;
+}
+.preset-toggle-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+.preset-toggle-chevron {
+    font-size: 0.65rem;
+    transition: transform 0.3s ease;
+}
+.preset-toggle-btn.open .preset-toggle-chevron {
+    transform: rotate(180deg);
+}
+
+/* Wrapper colapsável dos presets */
+.presets-wrapper {
+    display: grid;
+    grid-template-rows: 1fr;
+    transition: grid-template-rows 0.35s ease;
+}
+.presets-wrapper.collapsed {
+    grid-template-rows: 0fr;
+}
+.presets-wrapper > .presets-area {
+    overflow: hidden;
+    min-height: 0;
+}
+
+/* Modal de nome do preset */
+.preset-name-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    border-radius: inherit;
+    animation: preset-modal-fadein 0.2s ease;
+}
+@keyframes preset-modal-fadein {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+.preset-name-modal {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    width: 85%;
+    max-width: 280px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.25);
+    animation: preset-modal-pop 0.25s cubic-bezier(0.34,1.56,0.64,1);
+}
+@keyframes preset-modal-pop {
+    from { transform: scale(0.9); opacity: 0; }
+    to   { transform: scale(1); opacity: 1; }
+}
+.preset-name-modal h4 {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.preset-name-modal h4 i { color: var(--primary); }
+.preset-name-modal input {
+    width: 100%;
+    padding: 9px 10px;
+    border: 1.5px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    outline: none;
+    background: var(--bg-surface);
+    color: var(--text-main);
+    transition: border-color 0.15s;
+    box-sizing: border-box;
+}
+.preset-name-modal input:focus { border-color: var(--primary); }
+.preset-name-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+.preset-name-btn {
+    padding: 7px 16px;
+    border: none;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: filter 0.15s;
+}
+.preset-name-btn:hover { filter: brightness(1.1); }
+.preset-name-btn.cancel {
+    background: var(--bg-surface);
+    color: var(--text-sec);
+}
+.preset-name-btn.ok {
+    background: var(--primary);
+    color: white;
+}
+
+/* Área de presets */
+.presets-area {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.presets-empty {
+    text-align: center;
+    padding: 15px 10px;
+    color: var(--text-sec);
+    font-size: 0.85rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+.presets-empty p { margin: 0; }
+
+/* Grid de preset cards */
+.presets-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+/* Card do preset */
+.preset-card {
+    position: relative;
+    background: var(--bg-card);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.1s, box-shadow 0.15s;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+.preset-card:hover {
+    border-color: var(--primary);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+}
+.preset-card:active { transform: translateY(0); box-shadow: none; }
+
+.preset-card-name {
+    font-weight: 700;
+    font-size: 0.82rem;
+    color: var(--text-main);
+    word-break: break-word;
+    line-height: 1.2;
+}
+.preset-card-formula {
+    font-size: 0.7rem;
+    color: var(--text-sec);
+    word-break: break-all;
+}
+
+/* Botão remover no card */
+.preset-card-del {
+    position: absolute;
+    top: 3px;
+    right: 5px;
+    background: none;
+    border: none;
+    color: var(--text-sec);
+    font-size: 0.65rem;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s;
+    padding: 2px 4px;
+}
+.preset-card:hover .preset-card-del { opacity: 1; }
+.preset-card-del:hover { color: #c62828; }
+
+/* Botão Criar Preset */
+.preset-add-btn {
+    background: var(--bg-card);
+    border: 2px dashed var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    cursor: pointer;
+    color: var(--text-sec);
+    font-weight: 700;
+    font-size: 0.82rem;
+    transition: border-color 0.15s, color 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+.preset-add-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+/* Modo gravação: botão ROLAR fica diferente */
+.roll-btn.recording {
+    background: #c62828;
+    box-shadow: 0 4px 0 #8e0000;
+}
+
+/* Tag do preset no chat */
+.roll-preset-tag {
+    background: var(--primary);
+    color: white;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 2px 10px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
 }
