@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { EditableStat } from "./editable-stat";
 import { EditFichaModal } from "./edit-ficha-modal";
+import { AvatarUploadModal } from "./avatar-upload-modal";
 
 type Personagem = {
   id: string;
@@ -47,9 +48,7 @@ export function PerfilSidebar({ personagem: p }: { personagem: Personagem }) {
       </div>
 
       <div className="profile-header">
-        <div className="avatar-circle" title="Foto de perfil">
-          <img src={avatarSrc} alt={`Avatar de ${p.nome}`} />
-        </div>
+        <AvatarUploadModal personagemId={p.id} avatarAtual={avatarSrc} />
         <h2 className="char-name">{p.nome || "Sem Nome"}</h2>
         <span className="char-level">
           Nível{" "}

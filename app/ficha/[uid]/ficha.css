@@ -67,12 +67,70 @@
   border: 3px solid var(--color-power);
   overflow: hidden;
   position: relative;
+  cursor: pointer;
+  display: block;
 }
 
 .avatar-circle img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transition: filter 0.3s;
+}
+
+.avatar-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.3s;
+  color: #fff;
+  font-size: 1.4rem;
+}
+
+.avatar-circle:hover .avatar-overlay { opacity: 1; }
+.avatar-circle:hover img { filter: brightness(0.7); }
+
+/* ─── DROPZONE + CROPPER ─────────────────────────────────── */
+.avatar-dropzone {
+  border: 2px dashed var(--border);
+  padding: 30px 20px;
+  border-radius: 8px;
+  margin-bottom: 15px;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.avatar-dropzone:hover,
+.avatar-dropzone.dragover {
+  background: color-mix(in oklch, var(--primary) 6%, transparent);
+  border-color: var(--primary);
+}
+
+.avatar-dropzone i {
+  font-size: 2rem;
+  color: var(--text-sec);
+  display: block;
+  margin-bottom: 10px;
+}
+
+.avatar-dropzone p {
+  color: var(--text-sec);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.avatar-cropper-area {
+  position: relative;
+  width: 100%;
+  height: 280px;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .char-name {
