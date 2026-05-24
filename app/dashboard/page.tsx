@@ -1,40 +1,73 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
+import { CardPersonagem } from "./card-personagem";
+import { CardMesa } from "./card-mesa";
+import { BotaoNovaMesa } from "./nova-mesa";
 import { LogoutButton } from "./logout-button";
+import { RealtimeRefresher } from "./realtime-refresher";
+import "./dashboard.css";
 
-// Placeholder do dashboard — Fase 2 substitui pela lista de personagens/mesas.
-// Mantido aqui só pra validar o fluxo de login/logout da Fase 1.
 export default async function DashboardPage() {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
 
-  if (!user) {
-    redirect("/login");
-  }
+  // Duas queries em paralelo. Personagens inclui a mesa pro footer do card.
+  const [personagens, mesas] = await Promise.all([
+    prisma.personagem.findMany({
+      where: { userId: user.id },
+      include: { mesa: { select: { nome: true } } },
+      orderBy: { nome: "asc" },
+    }),
+    prisma.mesa.findMany({
+      where: { userId: user.id },
+      orderBy: { nome: "asc" },
+    }),
+  ]);
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: "1.5rem",
-        padding: "2rem",
-        textAlign: "center",
-      }}
-    >
-      <h1 style={{ color: "var(--primary)", fontSize: "2rem" }}>Dashboard</h1>
-      <p style={{ color: "var(--text-sec)" }}>
-        Logado como <strong style={{ color: "var(--text-main)" }}>{user.email}</strong>
-      </p>
-      <p style={{ color: "var(--text-sec)", fontSize: "0.9rem", maxWidth: "30rem" }}>
-        Tela em construção. Próxima fase porta a lista de personagens e mesas.
-      </p>
-      <LogoutButton />
-    </main>
+    <div className="dashboard-container">
+      <RealtimeRefresher />
+
+      <header className="dashboard-header">
+        <h1>
+          <i className="fa-solid fa-dice-d20" /> Hand Rolls
+        </h1>
+        <div style={{ display: "flex", gap: 15, alignItems: "center" }}>
+          {/* Switcher de tema vai na Fase 7. Por hora só o botão sair. */}
+          <LogoutButton />
+        </div>
+      </header>
+
+      <div className="dashboard-section-title">
+        <h2>Meus Personagens</h2>
+      </div>
+      <div id="listaPersonagens" className="cards-grid">
+        {personagens.map((p) => (
+          <CardPersonagem key={p.id} personagem={p} />
+        ))}
+        <Link href="/criacao-personagem" className="btn-criar-card">
+          <div className="plus-icon">
+            <i className="fas fa-plus" />
+          </div>
+          <div className="label">Criar novo personagem</div>
+          <div className="hint">COMECE DO ZERO</div>
+        </Link>
+      </div>
+
+      <div className="dashboard-section-title">
+        <h2>Mesas como Narrador</h2>
+      </div>
+      <div className="cards-grid">
+        {mesas.map((m) => (
+          <CardMesa key={m.id} mesa={m} />
+        ))}
+        <BotaoNovaMesa />
+      </div>
+    </div>
   );
 }

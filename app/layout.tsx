@@ -15,6 +15,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-br">
+      <head>
+        <link
+          rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+        />
+      </head>
       <body>
         {/* ThemeScript precisa rodar antes do primeiro render visual.
             Inline no body é a única forma de garantir sync execution +
