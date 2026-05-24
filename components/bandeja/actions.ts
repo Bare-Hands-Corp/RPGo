@@ -62,15 +62,17 @@ export async function listarMensagens(sessionId: string): Promise<MensagemSerial
   return lista.map(serializar);
 }
 
+// Retorna a mensagem criada pra que o cliente faça append local imediato e
+// pule o refetch via realtime (o listener filtra eventos do próprio uid).
 export async function enviarMensagemTexto(
   sessionId: string,
   nome: string,
   mensagem: string,
-): Promise<void> {
+): Promise<MensagemSerializada> {
   const user = await requireUser();
   const texto = mensagem.trim();
   if (!texto) throw new Error("Mensagem vazia.");
-  await prisma.mensagem.create({
+  const nova = await prisma.mensagem.create({
     data: {
       sessionId,
       uid: user.id,
@@ -79,6 +81,7 @@ export async function enviarMensagemTexto(
       tipo: "texto",
     },
   });
+  return serializar(nova);
 }
 
 type RolagemPayload = {
@@ -88,13 +91,18 @@ type RolagemPayload = {
   nomePreset?: string | null;
 };
 
-export async function enviarRolagem(
+// Combina envio de rolagem + persistência de ultimaRolagem no personagem (se houver)
+// numa única chamada com queries em paralelo no servidor.
+export async function registrarRolagem(
   sessionId: string,
   nome: string,
   rolagem: RolagemPayload,
-): Promise<void> {
+  personagemId: string | null,
+  ultimaRolagem: string | null,
+): Promise<MensagemSerializada> {
   const user = await requireUser();
-  await prisma.mensagem.create({
+
+  const criar = prisma.mensagem.create({
     data: {
       sessionId,
       uid: user.id,
@@ -108,6 +116,17 @@ export async function enviarRolagem(
       } as Prisma.InputJsonValue,
     },
   });
+
+  const atualizarPersonagem =
+    personagemId && ultimaRolagem
+      ? prisma.personagem.update({
+          where: { id: personagemId },
+          data: { ultimaRolagem },
+        })
+      : Promise.resolve(null);
+
+  const [nova] = await Promise.all([criar, atualizarPersonagem]);
+  return serializar(nova);
 }
 
 export async function limparMensagens(sessionId: string): Promise<void> {

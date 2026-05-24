@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PainelRolador } from "./painel-rolador";
 import { PainelChat, type PainelChatHandle } from "./painel-chat";
-import type { ResultadoRolagem } from "@/lib/dice";
+import type { MensagemSerializada } from "./actions";
 import "./bandeja.css";
 
 type Props = {
@@ -266,12 +266,11 @@ export function Bandeja({ userId, userName, sessionId, personagemId }: Props) {
     return "fas fa-chevron-up";
   }
 
-  const onRolar = useCallback(
-    (r: ResultadoRolagem, nomePreset?: string | null) => {
-      chatRef.current?.enviarRolagem(r, nomePreset || null);
-    },
-    [],
-  );
+  // Rolador → Chat: o rolador grava a rolagem no servidor (registrarRolagem) e
+  // a mensagem retornada chega aqui pra append local no chat (sem refetch).
+  const onMensagemCriada = useCallback((msg: MensagemSerializada) => {
+    chatRef.current?.appendLocal(msg);
+  }, []);
 
   return (
     <div ref={bandejaRef} className="bandeja dock-bottom collapsed" id="bandeja">
@@ -313,8 +312,10 @@ export function Bandeja({ userId, userName, sessionId, personagemId }: Props) {
         >
           <PainelRolador
             userId={userId}
+            userName={userName}
+            sessionId={sessionId}
             personagemId={personagemId || null}
-            onRolar={onRolar}
+            onMensagemCriada={onMensagemCriada}
           />
         </div>
 

@@ -2,19 +2,27 @@
 
 import { useEffect, useState } from "react";
 import Swal from "sweetalert2";
-import { type Dado, type ResultadoRolagem, formulaTexto, rolarDados } from "@/lib/dice";
+import { type Dado, formulaTexto, rolarDados } from "@/lib/dice";
 import { addPreset, getPresets, removePreset, type Preset } from "@/lib/presets";
-import { patchPersonagem } from "@/app/ficha/[uid]/actions";
+import { registrarRolagem, type MensagemSerializada } from "./actions";
 
 type Props = {
   userId: string;
+  userName: string;
+  sessionId: string;
   personagemId: string | null;
-  onRolar: (resultado: ResultadoRolagem, nomePreset?: string | null) => void;
+  onMensagemCriada: (msg: MensagemSerializada) => void;
 };
 
 const FACES = [4, 6, 8, 10, 12, 20, 100] as const;
 
-export function PainelRolador({ userId, personagemId, onRolar }: Props) {
+export function PainelRolador({
+  userId,
+  userName,
+  sessionId,
+  personagemId,
+  onMensagemCriada,
+}: Props) {
   const [dados, setDados] = useState<Dado[]>([]);
   const [modificador, setModificador] = useState(0);
   const [negativo, setNegativo] = useState(false);
@@ -81,18 +89,28 @@ export function PainelRolador({ userId, personagemId, onRolar }: Props) {
     setTotal(String(r.total));
     setDetalhesHtml(`[${r.total}] = ${stringFinal}`);
 
-    // Persiste última rolagem no personagem (se houver)
-    if (personagemId) {
-      const textoLimpo = stringFinal.replace(/<[^>]*>?/gm, "");
-      const prefixo = nomePreset ? `[${nomePreset}] ` : "";
-      patchPersonagem(personagemId, {
-        ultimaRolagem: `${prefixo}[${r.total}] = ${textoLimpo}`,
-      }).catch(() => {
-        // silencioso — a rolagem ainda foi enviada
-      });
-    }
+    // Uma única chamada: registra a mensagem no chat E salva ultimaRolagem no
+    // personagem (em paralelo no servidor). Retorna a mensagem pra append local.
+    const textoLimpo = stringFinal.replace(/<[^>]*>?/gm, "");
+    const prefixo = nomePreset ? `[${nomePreset}] ` : "";
+    const ultimaRolagemTexto = personagemId
+      ? `${prefixo}[${r.total}] = ${textoLimpo}`
+      : null;
 
-    onRolar(r, nomePreset);
+    registrarRolagem(
+      sessionId,
+      userName,
+      {
+        total: r.total,
+        detalhes: r.detalhes,
+        modificador: modUsar,
+        nomePreset: nomePreset || null,
+      },
+      personagemId,
+      ultimaRolagemTexto,
+    )
+      .then((msg) => onMensagemCriada(msg))
+      .catch((err) => console.error(err));
   }
 
   function clicarRolar() {

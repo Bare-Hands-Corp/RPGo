@@ -12,15 +12,15 @@ import Swal from "sweetalert2";
 import { createClient } from "@/lib/supabase/client";
 import {
   enviarMensagemTexto,
-  enviarRolagem,
   limparMensagens,
   listarMensagens,
   type MensagemSerializada,
 } from "./actions";
-import type { ResultadoRolagem } from "@/lib/dice";
 
 export type PainelChatHandle = {
-  enviarRolagem: (r: ResultadoRolagem, nomePreset: string | null) => void;
+  // Append local de uma mensagem já persistida (usado pelo rolador pra evitar
+  // round-trip duplo: a action retorna a mensagem e a passamos pra cá).
+  appendLocal: (msg: MensagemSerializada) => void;
 };
 
 type Props = {
@@ -48,6 +48,14 @@ export const PainelChat = forwardRef<PainelChatHandle, Props>(function PainelCha
     }
   }, [sessionId]);
 
+  const appendLocal = useCallback((msg: MensagemSerializada) => {
+    setMensagens((prev) => {
+      // Idempotência: se a mensagem já chegou via realtime (race), não duplica.
+      if (prev.some((m) => m.id === msg.id)) return prev;
+      return [...prev, msg];
+    });
+  }, []);
+
   // Carga inicial + realtime quando o painel fica ativo pela primeira vez.
   useEffect(() => {
     if (!ativo) return;
@@ -66,13 +74,21 @@ export const PainelChat = forwardRef<PainelChatHandle, Props>(function PainelCha
           table: "mensagens",
           filter: `session_id=eq.${sessionId}`,
         },
-        () => recarregar(),
+        (payload) => {
+          // Skip eventos do próprio usuário — já tratamos local via appendLocal/setMensagens.
+          // Para INSERT o uid vem em payload.new; para DELETE em payload.old.
+          const novoUid = (payload.new as { uid?: string } | null)?.uid;
+          const antigoUid = (payload.old as { uid?: string } | null)?.uid;
+          if (payload.eventType === "INSERT" && novoUid === userId) return;
+          if (payload.eventType === "DELETE" && antigoUid === userId) return;
+          recarregar();
+        },
       )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [ativo, sessionId, recarregar]);
+  }, [ativo, sessionId, userId, recarregar]);
 
   // Auto-scroll quando chegam mensagens novas.
   useEffect(() => {
@@ -80,20 +96,7 @@ export const PainelChat = forwardRef<PainelChatHandle, Props>(function PainelCha
     if (el) el.scrollTop = el.scrollHeight;
   }, [mensagens]);
 
-  useImperativeHandle(
-    ref,
-    () => ({
-      enviarRolagem: (r, nomePreset) => {
-        enviarRolagem(sessionId, userName, {
-          total: r.total,
-          detalhes: r.detalhes,
-          modificador: r.modificador,
-          nomePreset,
-        }).catch((e) => console.error(e));
-      },
-    }),
-    [sessionId, userName],
-  );
+  useImperativeHandle(ref, () => ({ appendLocal }), [appendLocal]);
 
   async function enviar() {
     const t = texto.trim();
@@ -114,6 +117,7 @@ export const PainelChat = forwardRef<PainelChatHandle, Props>(function PainelCha
       if (r.isConfirmed) {
         try {
           await limparMensagens(sessionId);
+          setMensagens([]);
         } catch (e) {
           Swal.fire({
             icon: "error",
@@ -128,8 +132,9 @@ export const PainelChat = forwardRef<PainelChatHandle, Props>(function PainelCha
     }
 
     try {
-      await enviarMensagemTexto(sessionId, userName, t);
+      const nova = await enviarMensagemTexto(sessionId, userName, t);
       setTexto("");
+      appendLocal(nova);
     } catch (e) {
       Swal.fire({
         icon: "error",
