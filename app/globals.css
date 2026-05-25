@@ -23,6 +23,10 @@
   --color-power:  #e67e22;
   --color-react:  #2ecc71;
 
+  /* Cores das barras de HP/PP — usadas em dashboard, ficha e narrador */
+  --bar-hp: #d32f2f;
+  --bar-pp: #1976d2;
+
   --bg-slot:    #f5f5f5;
   --border-slot:#ddd;
   --bg-button:  #eee;

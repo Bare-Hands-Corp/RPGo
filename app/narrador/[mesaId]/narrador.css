@@ -221,10 +221,10 @@
 }
 
 .fill-hp {
-  background: #d32f2f;
+  background: var(--bar-hp);
 }
 .fill-pp {
-  background: #1976d2;
+  background: var(--bar-pp);
 }
 
 @media (max-width: 900px) {

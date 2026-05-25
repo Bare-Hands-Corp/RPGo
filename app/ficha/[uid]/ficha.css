@@ -185,8 +185,8 @@
   transition: width 0.5s, background 0.3s;
 }
 
-.bar-hp .progress-fill { background: #e74c3c; }
-.bar-en .progress-fill { background: #f1c40f; }
+.bar-hp .progress-fill { background: var(--bar-hp); }
+.bar-en .progress-fill { background: var(--bar-pp); }
 
 /* ─── EDITÁVEIS INLINE ─────────────────────────────────────── */
 .stat-values { font-family: monospace; font-size: 0.9rem; }

@@ -256,8 +256,8 @@
   transition: width .25s ease;
 }
 
-.card-personagem .bar-hp { background: #ef4444; box-shadow: 0 0 8px rgba(239, 68, 68, .6); }
-.card-personagem .bar-pp { background: #a855f7; box-shadow: 0 0 8px rgba(168, 85, 247, .6); }
+.card-personagem .bar-hp { background: var(--bar-hp); box-shadow: 0 0 8px color-mix(in srgb, var(--bar-hp) 60%, transparent); }
+.card-personagem .bar-pp { background: var(--bar-pp); box-shadow: 0 0 8px color-mix(in srgb, var(--bar-pp) 60%, transparent); }
 
 .card-personagem .bar-text {
   font-family: 'Courier New', monospace;
