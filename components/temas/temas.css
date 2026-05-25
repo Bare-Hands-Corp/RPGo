@@ -1,0 +1,215 @@
+.btn-paleta {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-sec);
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  transition: border-color 0.15s, color 0.15s;
+  font-family: inherit;
+}
+
+.btn-paleta:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.tema-modal-box {
+  width: 90%;
+  max-width: 500px;
+}
+
+.tema-chips {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.tema-chip-wrap {
+  position: relative;
+}
+
+.tema-chip-btn {
+  width: 100%;
+  padding: 12px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.82rem;
+  transition: transform 0.15s, box-shadow 0.15s;
+  border: 2px solid transparent;
+  font-family: inherit;
+}
+
+.tema-chip-btn:hover {
+  transform: translateY(-2px);
+}
+
+.tema-chip-icone {
+  font-size: 1.5rem;
+  margin-bottom: 4px;
+}
+
+.tema-chip-pontos {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+  margin-top: 6px;
+}
+
+.tema-chip-ponto {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.tema-chip-acao {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.35);
+  color: white;
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  top: 4px;
+}
+.tema-chip-acao:hover {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.tema-meus-titulo {
+  grid-column: 1 / -1;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-sec);
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.tema-details summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-sec);
+  padding: 8px 0;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tema-preview {
+  display: flex;
+  border-radius: 8px;
+  overflow: hidden;
+  height: 115px;
+  margin: 12px 0 4px;
+  border: 1px solid var(--border);
+}
+
+.tema-preview-sidebar {
+  width: 36%;
+  padding: 8px 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.tema-preview-attr {
+  flex: 1;
+  border-radius: 4px;
+  padding: 3px 2px;
+  text-align: center;
+}
+
+.tema-preview-main {
+  flex: 1;
+  padding: 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tema-cores-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.tema-cores-grid .cores-full {
+  grid-column: 1 / -1;
+}
+
+.tema-cores-grid label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-sec);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.tema-cores-grid input[type="color"] {
+  width: 100%;
+  height: 36px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  padding: 2px;
+}
+
+.tema-sidebar-section {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-sec);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-bottom: 8px;
+}
+
+.tema-sidebar-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+
+.tema-input-nome {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-size: 0.9rem;
+}
+
+.tema-salvar-btn {
+  margin-top: 14px;
+  width: 100%;
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 10px;
+  border-radius: 8px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+}
+.tema-salvar-btn:hover {
+  filter: brightness(1.1);
+}

@@ -1,0 +1,238 @@
+.narrador-container {
+  display: block;
+  min-height: 100vh;
+  width: 100%;
+  background-color: var(--bg-page);
+}
+
+.painel-central {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  min-width: 0;
+}
+
+.narrador-topbar {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  display: flex;
+  gap: 10px;
+  z-index: 10;
+}
+
+.narrador-topbar .btn-paleta {
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  backdrop-filter: blur(5px);
+}
+.narrador-topbar .btn-paleta:hover {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.btn-voltar {
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  padding: 8px 15px;
+  border-radius: 8px;
+  text-decoration: none;
+  backdrop-filter: blur(5px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: 0.3s;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-voltar:hover {
+  background: var(--primary);
+}
+
+.mesa-header {
+  position: relative;
+  height: 250px;
+  background: #111;
+  display: flex;
+  align-items: flex-end;
+  padding: 30px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.mesa-banner {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.4;
+  filter: grayscale(0.5);
+  z-index: 1;
+}
+
+.mesa-info {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.mesa-info h1 {
+  font-size: 2.5rem;
+  margin: 0;
+  text-shadow: 0 4px 10px rgba(0, 0, 0, 1);
+  color: #fff;
+}
+
+.mesa-acoes {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.codigo-badge {
+  background: rgba(236, 126, 34, 0.2);
+  color: var(--primary);
+  font-size: 1.1rem;
+  padding: 8px 20px;
+  border-radius: 8px;
+  border: 1px solid var(--primary);
+  cursor: pointer;
+  transition: 0.3s;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: inherit;
+}
+.codigo-badge:hover {
+  background: var(--primary);
+  color: #fff;
+}
+
+.grid-personagens {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+  padding: 30px;
+}
+
+.empty-msg {
+  grid-column: 1 / -1;
+  color: var(--text-sec);
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.char-card-narrador {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  transition: 0.3s;
+  position: relative;
+  overflow: hidden;
+  text-decoration: none;
+  color: inherit;
+}
+
+.char-card-narrador::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: var(--primary);
+}
+
+.char-card-narrador:hover {
+  border-color: var(--primary);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+}
+
+.char-header {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}
+
+.char-avatar {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--border);
+  flex-shrink: 0;
+}
+
+.char-title h3 {
+  margin: 0 0 5px 0;
+  font-size: 1.2rem;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+}
+
+.char-title span {
+  font-size: 0.85rem;
+  color: var(--text-sec);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.bar-group-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.bar-label-mini {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  color: var(--text-sec);
+}
+
+.progress-track-mini {
+  width: 100%;
+  height: 8px;
+  background: var(--bg-surface);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill-mini {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.fill-hp {
+  background: var(--bar-hp);
+}
+.fill-pp {
+  background: var(--bar-pp);
+}
+
+@media (max-width: 900px) {
+  .mesa-info {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .mesa-info h1 {
+    font-size: 1.8rem;
+  }
+}

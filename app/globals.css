@@ -1,0 +1,306 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
+/* ─── TOKENS DE TEMA ─────────────────────────────────────────
+   Os valores aqui são o tema padrão (claro/marrom pirata).
+   O ThemeScript no <head> sobrescreve essas variáveis em :root
+   antes do primeiro render, evitando flash de tema errado.
+   ──────────────────────────────────────────────────────────── */
+:root {
+  --primary:    #5a3a22;
+  --bg-page:    #f0f2f5;
+  --bg-card:    #ffffff;
+  --bg-surface: #f8f9fa;
+  --text-main:  #2c3e50;
+  --text-sec:   #7f8c8d;
+  --border:     #e0e0e0;
+
+  --bg-sidebar:         var(--bg-card);
+  --sidebar-text-main:  var(--text-main);
+  --sidebar-text-sec:   var(--text-sec);
+
+  --color-padrao: #3498db;
+  --color-bonus:  #f1c40f;
+  --color-power:  #e67e22;
+  --color-react:  #2ecc71;
+
+  /* Cores das barras de HP/PP — usadas em dashboard, ficha e narrador */
+  --bar-hp: #d32f2f;
+  --bar-pp: #1976d2;
+
+  --bg-slot:    #f5f5f5;
+  --border-slot:#ddd;
+  --bg-button:  #eee;
+  --text-button:#000;
+}
+
+body.dark-mode {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  max-width: 100vw;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: var(--bg-page);
+  color: var(--text-main);
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* ─── FORMULÁRIOS / AUTH (reutilizáveis) ─────────────────── */
+.auth-wrapper {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 400px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 30px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
+}
+
+.form-group {
+  margin-bottom: 15px;
+  text-align: left;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.form-input {
+  width: 100%;
+  padding: 12px 15px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 1rem;
+  transition: all 0.2s ease;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.05);
+}
+
+body.dark-mode .form-input:focus {
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.05);
+}
+
+.btn-primary {
+  width: 100%;
+  padding: 12px;
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.1s ease;
+}
+
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-text {
+  background: none;
+  border: none;
+  color: var(--primary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.btn-text:hover {
+  opacity: 0.8;
+}
+
+/* ─── TOAST DE FEEDBACK ──────────────────────────────────── */
+.auth-toast {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-card);
+  border-left: 5px solid #e74c3c;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  padding: 15px 40px 15px 20px;
+  border-radius: 8px;
+  z-index: 9999;
+  display: none;
+  align-items: center;
+  min-width: 300px;
+  color: var(--text-main);
+  border-top: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.auth-toast.show {
+  display: flex;
+  animation: slideDownToast 0.3s ease-out forwards;
+}
+
+.auth-toast .close-toast {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  color: var(--text-sec);
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.auth-toast .close-toast:hover {
+  color: var(--text-main);
+}
+
+@keyframes slideDownToast {
+  from { top: -50px; opacity: 0; }
+  to   { top: 20px;  opacity: 1; }
+}
+
+/* ─── MODAIS (compartilhado entre rotas) ────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal-box {
+  background: var(--bg-card);
+  padding: 25px;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 400px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  color: var(--text-main);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-box-grande {
+  max-width: 720px;
+}
+
+.modal-box h2 {
+  margin-bottom: 15px;
+}
+
+.modal-box label {
+  display: block;
+  margin-top: 10px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-sec);
+}
+
+.modal-box input,
+.modal-box textarea,
+.modal-box select {
+  width: 100%;
+  padding: 10px;
+  margin-top: 5px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: inherit;
+  background: var(--bg-surface);
+  color: var(--text-main);
+}
+
+.modal-box textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.modal-actions {
+  margin-top: 20px;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.modal-actions button {
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  border: none;
+  font-family: inherit;
+}
+
+.modal-btn-cancel {
+  background: var(--bg-surface);
+  color: var(--text-main);
+  border: 1px solid var(--border) !important;
+}
+
+.modal-btn-save {
+  background: var(--primary);
+  color: white;
+}
+
+.modal-btn-save:hover {
+  filter: brightness(1.1);
+}
+
+/* ─── Input de edição inline (compartilhado) ─────────────── */
+.input-edit-stat {
+  width: 60px;
+  font-family: monospace;
+  font-size: 0.9rem;
+  padding: 2px;
+  text-align: center;
+  border: 1px solid var(--primary);
+  border-radius: 3px;
+  background: var(--bg-surface);
+  color: var(--text-main);
+}
+
