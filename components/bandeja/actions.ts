@@ -9,10 +9,6 @@ import {
 } from "@/lib/mensagens";
 import type { Prisma } from "@prisma/client";
 
-// Re-export do tipo pra que componentes client importem daqui sem precisar
-// conhecer @/lib/mensagens (que tem dependências server-only).
-export type { MensagemSerializada };
-
 async function requireUser() {
   const supabase = await createClient();
   const {

@@ -14,8 +14,8 @@ import {
   enviarMensagemTexto,
   limparMensagens,
   listarMensagens,
-  type MensagemSerializada,
 } from "./actions";
+import type { MensagemSerializada } from "@/lib/mensagens";
 
 export type PainelChatHandle = {
   // Append local de uma mensagem já persistida (usado pelo rolador pra evitar

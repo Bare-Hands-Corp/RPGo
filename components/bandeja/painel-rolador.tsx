@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import Swal from "sweetalert2";
 import { type Dado, formulaTexto, rolarDados } from "@/lib/dice";
 import { addPreset, getPresets, removePreset, type Preset } from "@/lib/presets";
-import { registrarRolagem, type MensagemSerializada } from "./actions";
+import { registrarRolagem } from "./actions";
+import type { MensagemSerializada } from "@/lib/mensagens";
 
 type Props = {
   userId: string;

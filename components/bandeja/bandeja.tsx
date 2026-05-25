@@ -3,7 +3,7 @@
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import { PainelRolador } from "./painel-rolador";
 import { PainelChat, type PainelChatHandle } from "./painel-chat";
-import type { MensagemSerializada } from "./actions";
+import type { MensagemSerializada } from "@/lib/mensagens";
 import "./bandeja.css";
 
 type Props = {
