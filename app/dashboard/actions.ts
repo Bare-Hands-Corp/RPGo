@@ -44,6 +44,34 @@ export async function criarMesa(input: { nome: string; bannerUrl?: string }) {
   revalidatePath("/dashboard");
 }
 
+export async function entrarEmMesa(input: { codigoAcesso: string; personagemId: string }) {
+  const userId = await userIdOrThrow();
+
+  const codigoAcesso = input.codigoAcesso.trim().toUpperCase();
+  if (!codigoAcesso) throw new Error("Código da mesa é obrigatório.");
+
+  const [mesa, personagem] = await Promise.all([
+    prisma.mesa.findUnique({
+      where: { codigoAcesso },
+      select: { id: true, nome: true },
+    }),
+    prisma.personagem.findFirst({
+      where: { id: input.personagemId, userId },
+      select: { id: true, nome: true, mesaId: true },
+    }),
+  ]);
+
+  if (!mesa) throw new Error("Mesa não encontrada para esse código.");
+  if (!personagem) throw new Error("Personagem não encontrado.");
+
+  await prisma.personagem.update({
+    where: { id: personagem.id },
+    data: { mesaId: mesa.id },
+  });
+
+  revalidatePath("/dashboard");
+}
+
 export async function deletarMesa(mesaId: string) {
   // Auth + lookup em paralelo (antes eram seriais).
   const supabase = await createClient();
