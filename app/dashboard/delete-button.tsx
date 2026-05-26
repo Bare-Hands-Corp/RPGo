@@ -1,16 +1,21 @@
 "use client";
 
-import { useTransition } from "react";
 import Swal from "sweetalert2";
 
 type Props = {
   onDelete: () => Promise<void>;
   confirmText: string;
+  // Otimista: parent esconde o card imediatamente; em caso de erro, restauramos.
+  onOptimisticHide?: () => void;
+  onOptimisticRestore?: () => void;
 };
 
-export function DeleteButton({ onDelete, confirmText }: Props) {
-  const [pending, startTransition] = useTransition();
-
+export function DeleteButton({
+  onDelete,
+  confirmText,
+  onOptimisticHide,
+  onOptimisticRestore,
+}: Props) {
   async function handleClick(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
@@ -30,27 +35,27 @@ export function DeleteButton({ onDelete, confirmText }: Props) {
 
     if (!confirmacao.isConfirmed) return;
 
-    startTransition(async () => {
-      try {
-        await onDelete();
-        Swal.fire({
-          icon: "success",
-          title: "Apagado!",
-          timer: 1200,
-          showConfirmButton: false,
-          background: "var(--bg-card)",
-          color: "var(--text-main)",
-        });
-      } catch (err) {
-        Swal.fire({
-          icon: "error",
-          title: "Erro",
-          text: err instanceof Error ? err.message : "Não foi possível apagar.",
-          background: "var(--bg-card)",
-          color: "var(--text-main)",
-        });
-      }
-    });
+    onOptimisticHide?.();
+    try {
+      await onDelete();
+      Swal.fire({
+        icon: "success",
+        title: "Apagado!",
+        timer: 1200,
+        showConfirmButton: false,
+        background: "var(--bg-card)",
+        color: "var(--text-main)",
+      });
+    } catch (err) {
+      onOptimisticRestore?.();
+      Swal.fire({
+        icon: "error",
+        title: "Erro",
+        text: err instanceof Error ? err.message : "Não foi possível apagar.",
+        background: "var(--bg-card)",
+        color: "var(--text-main)",
+      });
+    }
   }
 
   return (
@@ -59,13 +64,8 @@ export function DeleteButton({ onDelete, confirmText }: Props) {
       className="btn-delete"
       title="Apagar"
       onClick={handleClick}
-      disabled={pending}
     >
-      {pending ? (
-        <i className="fa-solid fa-spinner fa-spin" />
-      ) : (
-        <i className="fa-solid fa-trash" />
-      )}
+      <i className="fa-solid fa-trash" />
     </button>
   );
 }

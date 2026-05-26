@@ -178,12 +178,12 @@
   background-color: #c62828;
   color: white;
 }
-body.dark-mode .dice-grid-buttons.negative-mode .dice-btn:not(.sign-btn) {
+.dark-mode .dice-grid-buttons.negative-mode .dice-btn:not(.sign-btn) {
   border-color: #ef9a9a;
   background-color: #3a1010;
   color: #ff8a80;
 }
-body.dark-mode .dice-grid-buttons.negative-mode .dice-btn:not(.sign-btn):hover {
+.dark-mode .dice-grid-buttons.negative-mode .dice-btn:not(.sign-btn):hover {
   background-color: #c62828;
   color: white;
 }

@@ -3,18 +3,22 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
-import { dataParaDias, estacaoDoMes, sortearTipoClima, validarConfig, type CalendarioConfig } from "@/lib/calendario/engine";
+import { ANO_MAX, dataParaDias, diasMaximos, estacaoDoMes, sortearTipoClima, validarConfig, type CalendarioConfig } from "@/lib/calendario/engine";
 import { TEMPLATES, TIPOS_CLIMA_DEFAULT } from "@/lib/calendario/templates";
 
 // ─── Auth helpers internos ─────────────────────────────────────
 async function autorizarNarrador(mesaId: string) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const [
+    {
+      data: { user },
+    },
+    mesa,
+  ] = await Promise.all([
+    supabase.auth.getUser(),
+    prisma.mesa.findUnique({ where: { id: mesaId } }),
+  ]);
   if (!user) throw new Error("Não autenticado.");
-
-  const mesa = await prisma.mesa.findUnique({ where: { id: mesaId } });
   if (!mesa) throw new Error("Mesa não encontrada.");
   if (mesa.userId !== user.id) throw new Error("Só o narrador pode editar o calendário.");
 
@@ -30,14 +34,45 @@ async function calendarioIdDaMesa(mesaId: string): Promise<string> {
   return c.id;
 }
 
+// Cap de dias máximos (ANO_MAX no engine). Lê a config corrente do calendário.
+async function diasMaxDoCalendario(mesaId: string): Promise<number> {
+  const c = await prisma.calendario.findUnique({
+    where: { mesaId },
+    select: { config: true },
+  });
+  if (!c) throw new Error("Calendário não encontrado.");
+  return diasMaximos(c.config as unknown as CalendarioConfig);
+}
+
 function revalidar(mesaId: string) {
   revalidatePath(`/calendario/${mesaId}`);
 }
 
 // ─── Data atual / config ───────────────────────────────────────
 export async function setarDataAtual(mesaId: string, dataAtualDias: number) {
-  await autorizarNarrador(mesaId);
   if (!Number.isInteger(dataAtualDias)) throw new Error("dataAtualDias deve ser inteiro.");
+  if (dataAtualDias < 0) throw new Error("Data não pode ser anterior ao ano inicial.");
+
+  // Auth + mesa + config do calendário em 1 round-trip paralelo (antes eram 3 seriais).
+  const supabase = await createClient();
+  const [
+    {
+      data: { user },
+    },
+    mesa,
+    calendario,
+  ] = await Promise.all([
+    supabase.auth.getUser(),
+    prisma.mesa.findUnique({ where: { id: mesaId }, select: { userId: true } }),
+    prisma.calendario.findUnique({ where: { mesaId }, select: { config: true } }),
+  ]);
+  if (!user) throw new Error("Não autenticado.");
+  if (!mesa) throw new Error("Mesa não encontrada.");
+  if (mesa.userId !== user.id) throw new Error("Só o narrador pode editar o calendário.");
+  if (!calendario) throw new Error("Calendário não encontrado.");
+
+  const max = diasMaximos(calendario.config as unknown as CalendarioConfig);
+  if (dataAtualDias > max) throw new Error(`Data ultrapassa o ano máximo (${ANO_MAX}).`);
 
   await prisma.calendario.update({
     where: { mesaId },
@@ -109,13 +144,24 @@ function validarEvento(p: Partial<EventoPayload>): asserts p is EventoPayload {
 }
 
 export async function criarEvento(mesaId: string, dados: EventoPayload) {
-  await autorizarNarrador(mesaId);
   validarEvento(dados);
-  const calendarioId = await calendarioIdDaMesa(mesaId);
+  // Auth + carga do calendário (id + config) em paralelo — antes eram 3 queries seriais.
+  const [, calendario] = await Promise.all([
+    autorizarNarrador(mesaId),
+    prisma.calendario.findUnique({
+      where: { mesaId },
+      select: { id: true, config: true },
+    }),
+  ]);
+  if (!calendario) throw new Error("Calendário não encontrado.");
+  const max = diasMaximos(calendario.config as unknown as CalendarioConfig);
+  if (dados.dataDias < 0 || dados.dataDias > max) {
+    throw new Error(`Data do evento fora do intervalo permitido (ano 1–${ANO_MAX}).`);
+  }
 
   await prisma.eventoCalendario.create({
     data: {
-      calendarioId,
+      calendarioId: calendario.id,
       tipo: dados.tipo,
       titulo: dados.titulo,
       descricao: dados.descricao || null,
@@ -152,6 +198,13 @@ export async function atualizarEvento(
   }
   if (data.dataDias !== undefined && !Number.isInteger(data.dataDias)) {
     throw new Error("dataDias deve ser inteiro.");
+  }
+  if (data.dataDias !== undefined) {
+    const max = await diasMaxDoCalendario(mesaId);
+    const d = data.dataDias as number;
+    if (d < 0 || d > max) {
+      throw new Error(`Data do evento fora do intervalo permitido (ano 1–${ANO_MAX}).`);
+    }
   }
   if (data.descricao === "") data.descricao = null;
   if (data.tipoClimaId === "") data.tipoClimaId = null;
@@ -254,6 +307,11 @@ export async function gerarClima(
     include: { tiposClima: true },
   });
   if (!calendario) throw new Error("Calendário não encontrado.");
+
+  const max = diasMaximos(calendario.config as unknown as CalendarioConfig);
+  if (dataInicio < 0 || dataFim > max) {
+    throw new Error(`Intervalo ultrapassa o ano máximo (${ANO_MAX}).`);
+  }
 
   if (sobrescrever) {
     await prisma.eventoCalendario.deleteMany({

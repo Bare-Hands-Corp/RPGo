@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 import { DeleteButton } from "./delete-button";
 import { deletarPersonagem } from "./actions";
@@ -41,6 +44,9 @@ function Barra({ label, atual, max, tipo }: { label: string; atual: number; max:
 }
 
 export function CardPersonagem({ personagem: p }: { personagem: Personagem }) {
+  const [escondido, setEscondido] = useState(false);
+  if (escondido) return null;
+
   const temPp = p.ppMax > 0;
 
   return (
@@ -48,6 +54,8 @@ export function CardPersonagem({ personagem: p }: { personagem: Personagem }) {
       <DeleteButton
         onDelete={deletarPersonagem.bind(null, p.id)}
         confirmText={`Apagar "${p.nome}" permanentemente? Esta ação é irreversível.`}
+        onOptimisticHide={() => setEscondido(true)}
+        onOptimisticRestore={() => setEscondido(false)}
       />
       <div className="avatar-wrap">
         <div

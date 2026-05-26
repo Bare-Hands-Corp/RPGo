@@ -1,26 +1,36 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import Swal from "sweetalert2";
 import type { CalendarioConfig } from "@/lib/calendario/engine";
 import type { TipoClima } from "./types";
-import {
-  atualizarTipoClima,
-  criarTipoClima,
-  deletarTipoClima,
-} from "./actions";
 
 const PESOS_PRESET = [0, 1, 2, 3, 5];
 
+type TipoClimaPayload = {
+  nome: string;
+  descricao: string | null;
+  icone: string | null;
+  pesosPorEstacao: Record<string, number>;
+};
+
 type Props = {
-  mesaId: string;
   config: CalendarioConfig;
   tiposClima: TipoClima[];
   onFechar: () => void;
+  onCriar: (payload: TipoClimaPayload) => void;
+  onPatch: (id: string, patch: Partial<TipoClima>) => void;
+  onApagar: (id: string) => void;
 };
 
-export function ModalTiposClima({ mesaId, config, tiposClima, onFechar }: Props) {
-  const [, startTransition] = useTransition();
+export function ModalTiposClima({
+  config,
+  tiposClima,
+  onFechar,
+  onCriar,
+  onPatch,
+  onApagar,
+}: Props) {
   const [mostrarForm, setMostrarForm] = useState(false);
 
   // Form novo tipo
@@ -32,27 +42,6 @@ export function ModalTiposClima({ mesaId, config, tiposClima, onFechar }: Props)
     for (const e of config.estacoes) inicial[e.nome] = 0;
     return inicial;
   });
-
-  function patchTipo(id: string, dados: Partial<TipoClima>) {
-    startTransition(async () => {
-      try {
-        await atualizarTipoClima(mesaId, id, {
-          nome: dados.nome,
-          descricao: dados.descricao,
-          icone: dados.icone,
-          pesosPorEstacao: dados.pesosPorEstacao,
-        });
-      } catch (e) {
-        Swal.fire({
-          icon: "error",
-          title: "Erro",
-          text: e instanceof Error ? e.message : "Erro ao salvar.",
-          background: "var(--bg-card)",
-          color: "var(--text-main)",
-        });
-      }
-    });
-  }
 
   async function apagar(id: string) {
     const r = await Swal.fire({
@@ -66,19 +55,7 @@ export function ModalTiposClima({ mesaId, config, tiposClima, onFechar }: Props)
       color: "var(--text-main)",
     });
     if (!r.isConfirmed) return;
-    startTransition(async () => {
-      try {
-        await deletarTipoClima(mesaId, id);
-      } catch (e) {
-        Swal.fire({
-          icon: "error",
-          title: "Erro",
-          text: e instanceof Error ? e.message : "Erro ao apagar.",
-          background: "var(--bg-card)",
-          color: "var(--text-main)",
-        });
-      }
-    });
+    onApagar(id);
   }
 
   function criarNovo() {
@@ -92,31 +69,19 @@ export function ModalTiposClima({ mesaId, config, tiposClima, onFechar }: Props)
       });
       return;
     }
-    startTransition(async () => {
-      try {
-        await criarTipoClima(mesaId, {
-          nome: novoNome.trim(),
-          icone: novoIcone.trim() || null,
-          descricao: novoDescricao.trim() || null,
-          pesosPorEstacao: novoPesos,
-        });
-        setNovoNome("");
-        setNovoIcone("");
-        setNovoDescricao("");
-        const reset: Record<string, number> = {};
-        for (const e of config.estacoes) reset[e.nome] = 0;
-        setNovoPesos(reset);
-        setMostrarForm(false);
-      } catch (e) {
-        Swal.fire({
-          icon: "error",
-          title: "Erro",
-          text: e instanceof Error ? e.message : "Erro ao criar.",
-          background: "var(--bg-card)",
-          color: "var(--text-main)",
-        });
-      }
+    onCriar({
+      nome: novoNome.trim(),
+      icone: novoIcone.trim() || null,
+      descricao: novoDescricao.trim() || null,
+      pesosPorEstacao: novoPesos,
     });
+    setNovoNome("");
+    setNovoIcone("");
+    setNovoDescricao("");
+    const reset: Record<string, number> = {};
+    for (const e of config.estacoes) reset[e.nome] = 0;
+    setNovoPesos(reset);
+    setMostrarForm(false);
   }
 
   return (
@@ -145,7 +110,7 @@ export function ModalTiposClima({ mesaId, config, tiposClima, onFechar }: Props)
                 key={t.id}
                 tipo={t}
                 estacoes={config.estacoes.map((e) => e.nome)}
-                onPatch={(dados) => patchTipo(t.id, dados)}
+                onPatch={(dados) => onPatch(t.id, dados)}
                 onApagar={() => apagar(t.id)}
               />
             ))

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import Swal from "sweetalert2";
 import {
   type CalendarioConfig,
@@ -8,24 +8,32 @@ import {
   diasParaData,
 } from "@/lib/calendario/engine";
 import type { EventoCal, TipoClima } from "./types";
-import { atualizarEvento, criarEvento } from "./actions";
+
+type EventoPayload = {
+  tipo: "climatico" | "narrativo";
+  titulo: string;
+  descricao: string | null;
+  dataDias: number;
+  tipoClimaId: string | null;
+  oculto: boolean;
+};
 
 type Props = {
-  mesaId: string;
   config: CalendarioConfig;
   tiposClima: TipoClima[];
   eventoInicial: EventoCal | null;
   dataAtualDias: number;
   onFechar: () => void;
+  onSalvar: (payload: EventoPayload, id: string | null) => void;
 };
 
 export function ModalEvento({
-  mesaId,
   config,
   tiposClima,
   eventoInicial,
   dataAtualDias,
   onFechar,
+  onSalvar,
 }: Props) {
   const refDias = eventoInicial ? eventoInicial.dataDias : dataAtualDias;
   const ref = dataParaDias(refDias, config);
@@ -38,7 +46,6 @@ export function ModalEvento({
   const [mes, setMes] = useState(ref.mes);
   const [dia, setDia] = useState(ref.dia);
   const [tipoClimaId, setTipoClimaId] = useState(eventoInicial?.tipoClimaId || tiposClima[0]?.id || "");
-  const [pending, startTransition] = useTransition();
 
   function salvar() {
     if (!titulo.trim()) {
@@ -52,7 +59,7 @@ export function ModalEvento({
       return;
     }
     const dataDias = diasParaData({ ano, mes, dia }, config);
-    const payload = {
+    const payload: EventoPayload = {
       tipo,
       titulo: titulo.trim(),
       descricao: descricao || null,
@@ -60,25 +67,9 @@ export function ModalEvento({
       tipoClimaId: tipo === "climatico" ? tipoClimaId || null : null,
       oculto,
     };
-
-    startTransition(async () => {
-      try {
-        if (eventoInicial) {
-          await atualizarEvento(mesaId, eventoInicial.id, payload);
-        } else {
-          await criarEvento(mesaId, payload);
-        }
-        onFechar();
-      } catch (e) {
-        Swal.fire({
-          icon: "error",
-          title: "Erro",
-          text: e instanceof Error ? e.message : "Erro ao salvar.",
-          background: "var(--bg-card)",
-          color: "var(--text-main)",
-        });
-      }
-    });
+    // Fecha imediato; o parent aplica optimistic + chama action em background.
+    onFechar();
+    onSalvar(payload, eventoInicial?.id ?? null);
   }
 
   return (
@@ -185,11 +176,11 @@ export function ModalEvento({
         </div>
 
         <div className="cal-modal-footer">
-          <button type="button" className="cal-btn-sm" onClick={onFechar} disabled={pending}>
+          <button type="button" className="cal-btn-sm" onClick={onFechar}>
             Cancelar
           </button>
-          <button type="button" className="cal-btn-primary-sm" onClick={salvar} disabled={pending}>
-            <i className="fas fa-check" /> {pending ? "Salvando..." : "Salvar"}
+          <button type="button" className="cal-btn-primary-sm" onClick={salvar}>
+            <i className="fas fa-check" /> Salvar
           </button>
         </div>
       </div>

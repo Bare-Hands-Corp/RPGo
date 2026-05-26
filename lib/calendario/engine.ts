@@ -40,6 +40,21 @@ export function diasNoAno(config: CalendarioConfig): number {
   return config.meses.reduce((soma, m) => soma + m.dias, 0);
 }
 
+// Cap absoluto de ano in-game. Cobre qualquer campanha plausível e evita
+// estouro visual / dataDias gigante por engano.
+export const ANO_MAX = 9999;
+
+// Caps de configuração: evitam meses/anos absurdos que estouram o grid
+// ou geram dataDias overflow (e+33 etc).
+export const DIAS_POR_MES_MAX = 366;
+export const MESES_POR_ANO_MAX = 60;
+
+// dataDias máximo permitido neste calendário (último dia do ANO_MAX).
+export function diasMaximos(config: CalendarioConfig): number {
+  const anoEpoch = config.anoEpoch ?? 1;
+  return (ANO_MAX - anoEpoch + 1) * diasNoAno(config) - 1;
+}
+
 export function diasParaData(
   { ano, mes, dia }: { ano: number; mes: number; dia: number },
   config: CalendarioConfig,
@@ -186,9 +201,15 @@ export function validarConfig(config: unknown): string | null {
   if (!config || typeof config !== "object") return "config inválido.";
   const c = config as Partial<CalendarioConfig>;
   if (!Array.isArray(c.meses) || c.meses.length === 0) return "config.meses inválido.";
+  if (c.meses.length > MESES_POR_ANO_MAX) {
+    return `Máximo de ${MESES_POR_ANO_MAX} meses por ano.`;
+  }
   for (const m of c.meses) {
     if (!m.nome || typeof m.nome !== "string") return "config.meses[].nome inválido.";
     if (!Number.isInteger(m.dias) || m.dias < 1) return "config.meses[].dias inválido.";
+    if (m.dias > DIAS_POR_MES_MAX) {
+      return `Máximo de ${DIAS_POR_MES_MAX} dias por mês.`;
+    }
   }
   if (!Array.isArray(c.diasSemana) || c.diasSemana.length === 0) return "config.diasSemana inválido.";
   if (!Array.isArray(c.estacoes) || c.estacoes.length === 0) return "config.estacoes inválido.";

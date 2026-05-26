@@ -299,7 +299,7 @@
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
 }
 
-body.dark-mode .tab.active {
+.dark-mode .tab.active {
   background: var(--bg-surface);
 }
 
@@ -342,7 +342,7 @@ body.dark-mode .tab.active {
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
 }
 
-body.dark-mode .action-card {
+.dark-mode .action-card {
   background: var(--bg-surface);
   border-color: var(--border);
 }
@@ -387,7 +387,7 @@ body.dark-mode .action-card {
   border: 1px solid #ffcdd2;
 }
 
-body.dark-mode .tag-damage {
+.dark-mode .tag-damage {
   background: rgba(231, 76, 60, 0.15);
   color: #ff8a80;
   border-color: rgba(231, 76, 60, 0.3);

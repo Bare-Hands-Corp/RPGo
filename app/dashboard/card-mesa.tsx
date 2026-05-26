@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 import { DeleteButton } from "./delete-button";
 import { deletarMesa } from "./actions";
@@ -10,11 +13,16 @@ type Mesa = {
 };
 
 export function CardMesa({ mesa }: { mesa: Mesa }) {
+  const [escondido, setEscondido] = useState(false);
+  if (escondido) return null;
+
   return (
     <Link href={`/narrador/${mesa.id}`} className="card-mesa">
       <DeleteButton
         onDelete={deletarMesa.bind(null, mesa.id)}
         confirmText={`Apagar a mesa "${mesa.nome}" permanentemente? Esta ação é irreversível.`}
+        onOptimisticHide={() => setEscondido(true)}
+        onOptimisticRestore={() => setEscondido(false)}
       />
       <div
         className="card-banner"

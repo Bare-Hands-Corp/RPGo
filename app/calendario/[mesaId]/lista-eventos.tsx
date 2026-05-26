@@ -1,6 +1,5 @@
 "use client";
 
-import { useTransition } from "react";
 import Swal from "sweetalert2";
 import {
   type CalendarioConfig,
@@ -8,13 +7,11 @@ import {
   dataRelativa,
 } from "@/lib/calendario/engine";
 import type { EventoCal, TipoClima } from "./types";
-import { deletarEvento } from "./actions";
 
 const JANELA_PADRAO = 6;
 const JANELA_EXPANDIDA = 30;
 
 type Props = {
-  mesaId: string;
   config: CalendarioConfig;
   dataAtualDias: number;
   eventos: EventoCal[];
@@ -24,10 +21,10 @@ type Props = {
   onToggleExpandir: () => void;
   onNovo: () => void;
   onEditar: (ev: EventoCal) => void;
+  onApagar: (id: string) => void;
 };
 
 export function ListaEventos({
-  mesaId,
   config,
   dataAtualDias,
   eventos,
@@ -37,9 +34,8 @@ export function ListaEventos({
   onToggleExpandir,
   onNovo,
   onEditar,
+  onApagar,
 }: Props) {
-  const [, startTransition] = useTransition();
-
   const janela = expandido ? JANELA_EXPANDIDA : JANELA_PADRAO;
   let exibidos: EventoCal[];
   let totalNaDirecao: number;
@@ -71,19 +67,7 @@ export function ListaEventos({
       color: "var(--text-main)",
     });
     if (!result.isConfirmed) return;
-    startTransition(async () => {
-      try {
-        await deletarEvento(mesaId, id);
-      } catch (e) {
-        Swal.fire({
-          icon: "error",
-          title: "Erro",
-          text: e instanceof Error ? e.message : "Erro ao apagar.",
-          background: "var(--bg-card)",
-          color: "var(--text-main)",
-        });
-      }
-    });
+    onApagar(id);
   }
 
   return (

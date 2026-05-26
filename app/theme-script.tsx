@@ -107,8 +107,8 @@ const script = `
     for (var k in vars) {
       if (k !== 'dark') root.style.setProperty(k, vars[k]);
     }
-    if (isDark) document.body.classList.add('dark-mode');
-    else document.body.classList.remove('dark-mode');
+    if (isDark) document.documentElement.classList.add('dark-mode');
+    else document.documentElement.classList.remove('dark-mode');
   }
   try {
     var temaId = localStorage.getItem('temaId');

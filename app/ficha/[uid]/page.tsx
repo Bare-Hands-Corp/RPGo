@@ -2,11 +2,13 @@ import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { listarMensagensSessao } from "@/lib/mensagens";
+import { carregarCalendario } from "@/lib/calendario/carregar";
 import { PerfilSidebar } from "./perfil-sidebar";
 import { FichaTabs } from "./ficha-tabs";
 import { FichaRealtime } from "./realtime-refresher";
 import { Bandeja } from "@/components/bandeja/bandeja";
 import { ThemeButton } from "@/components/temas/theme-button";
+import "../../calendario/[mesaId]/calendario.css";
 import "./ficha.css";
 
 type Params = { params: Promise<{ uid: string }> };
@@ -15,20 +17,25 @@ export default async function FichaPage({ params }: Params) {
   const { uid } = await params;
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
-  // Carrega tudo em UMA query: personagem + mesa + itens + ações.
-  const personagem = await prisma.personagem.findUnique({
-    where: { id: uid },
-    include: {
-      mesa: true,
-      itens: { orderBy: { nome: "asc" } },
-      acoes: true,
+  // Auth (rede pro Supabase) e personagem (Postgres) são independentes — paralelo.
+  const [
+    {
+      data: { user },
     },
-  });
+    personagem,
+  ] = await Promise.all([
+    supabase.auth.getUser(),
+    prisma.personagem.findUnique({
+      where: { id: uid },
+      include: {
+        mesa: true,
+        itens: { orderBy: { nome: "asc" } },
+        acoes: true,
+      },
+    }),
+  ]);
+  if (!user) redirect("/login");
   if (!personagem) notFound();
 
   // Autorização: dono OU narrador da mesa.
@@ -41,8 +48,13 @@ export default async function FichaPage({ params }: Params) {
   // Bandeja: sessionId = mesa quando o personagem tá numa, senão usa o próprio personagem.
   const sessionId = personagem.mesaId || personagem.id;
 
-  // Pré-carrega mensagens do chat no SSR pra evitar round-trip ao abrir a aba.
-  const mensagensIniciais = await listarMensagensSessao(sessionId);
+  // Pré-carrega mensagens do chat + calendário (se houver mesa) em paralelo.
+  const [mensagensIniciais, calendario] = await Promise.all([
+    listarMensagensSessao(sessionId),
+    personagem.mesaId
+      ? carregarCalendario(personagem.mesaId, { isNarrador })
+      : Promise.resolve(null),
+  ]);
 
   return (
     <div className="ficha-layout">
@@ -54,6 +66,8 @@ export default async function FichaPage({ params }: Params) {
         cargaMaxima={personagem.cargaMaxima}
         acoes={personagem.acoes}
         itens={personagem.itens}
+        calendario={calendario}
+        isNarradorDaMesa={isNarrador}
       />
       <div className="ficha-topo-acoes">
         <ThemeButton />

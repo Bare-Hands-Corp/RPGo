@@ -45,22 +45,42 @@ export async function criarMesa(input: { nome: string; bannerUrl?: string }) {
 }
 
 export async function deletarMesa(mesaId: string) {
-  const userId = await userIdOrThrow();
-  const mesa = await prisma.mesa.findUnique({ where: { id: mesaId } });
+  // Auth + lookup em paralelo (antes eram seriais).
+  const supabase = await createClient();
+  const [
+    {
+      data: { user },
+    },
+    mesa,
+  ] = await Promise.all([
+    supabase.auth.getUser(),
+    prisma.mesa.findUnique({ where: { id: mesaId }, select: { userId: true } }),
+  ]);
+  if (!user) throw new Error("Não autenticado.");
   if (!mesa) throw new Error("Mesa não encontrada.");
-  if (mesa.userId !== userId) throw new Error("Apenas o narrador pode apagar.");
+  if (mesa.userId !== user.id) throw new Error("Apenas o narrador pode apagar.");
 
   await prisma.mesa.delete({ where: { id: mesaId } });
   revalidatePath("/dashboard");
 }
 
 export async function deletarPersonagem(personagemId: string) {
-  const userId = await userIdOrThrow();
-  const personagem = await prisma.personagem.findUnique({
-    where: { id: personagemId },
-  });
+  const supabase = await createClient();
+  const [
+    {
+      data: { user },
+    },
+    personagem,
+  ] = await Promise.all([
+    supabase.auth.getUser(),
+    prisma.personagem.findUnique({
+      where: { id: personagemId },
+      select: { userId: true },
+    }),
+  ]);
+  if (!user) throw new Error("Não autenticado.");
   if (!personagem) throw new Error("Personagem não encontrado.");
-  if (personagem.userId !== userId) throw new Error("Sem permissão.");
+  if (personagem.userId !== user.id) throw new Error("Sem permissão.");
 
   await prisma.personagem.delete({ where: { id: personagemId } });
   revalidatePath("/dashboard");

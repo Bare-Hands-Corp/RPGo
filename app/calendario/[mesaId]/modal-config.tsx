@@ -6,6 +6,8 @@ import {
   type CalendarioConfig,
   type Estacao,
   type Mes,
+  DIAS_POR_MES_MAX,
+  MESES_POR_ANO_MAX,
   dataParaDias,
   diasParaData,
 } from "@/lib/calendario/engine";
@@ -260,14 +262,15 @@ export function ModalConfig({ mesaId, config, dataAtualDias, onFechar }: Props) 
                       type="number"
                       className="cal-mes-dias-input"
                       min={1}
-                      max={365}
+                      max={DIAS_POR_MES_MAX}
                       value={m.dias}
                       title="Dias no mês"
                       onChange={(e) => {
                         const nv = [...meses];
+                        const raw = Math.floor(Number(e.target.value) || 1);
                         nv[idx] = {
                           ...nv[idx],
-                          dias: Math.max(1, Math.floor(Number(e.target.value) || 1)),
+                          dias: Math.max(1, Math.min(raw, DIAS_POR_MES_MAX)),
                         };
                         setMeses(nv);
                       }}
@@ -297,9 +300,14 @@ export function ModalConfig({ mesaId, config, dataAtualDias, onFechar }: Props) 
               <button
                 type="button"
                 className="cal-mini-add"
-                onClick={() => setMeses([...meses, { nome: `Mês ${meses.length + 1}`, dias: 30 }])}
+                disabled={meses.length >= MESES_POR_ANO_MAX}
+                onClick={() => {
+                  if (meses.length >= MESES_POR_ANO_MAX) return;
+                  setMeses([...meses, { nome: `Mês ${meses.length + 1}`, dias: 30 }]);
+                }}
               >
                 <i className="fas fa-plus" /> Adicionar mês
+                {meses.length >= MESES_POR_ANO_MAX && ` (máx ${MESES_POR_ANO_MAX})`}
               </button>
             </div>
 

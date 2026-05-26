@@ -6,17 +6,23 @@ import { createClient } from "@/lib/supabase/server";
 
 // ─── Auth helper interno ───────────────────────────────────
 // Verifica sessão + acesso (dono OU narrador) e retorna o personagem com mesa.
+// Auth (Supabase) e personagem (Postgres) rodam em paralelo — checagem de
+// ownership é feita depois que as duas resolvem.
 async function autorizar(personagemId: string) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const [
+    {
+      data: { user },
+    },
+    personagem,
+  ] = await Promise.all([
+    supabase.auth.getUser(),
+    prisma.personagem.findUnique({
+      where: { id: personagemId },
+      include: { mesa: true },
+    }),
+  ]);
   if (!user) throw new Error("Não autenticado.");
-
-  const personagem = await prisma.personagem.findUnique({
-    where: { id: personagemId },
-    include: { mesa: true },
-  });
   if (!personagem) throw new Error("Personagem não encontrado.");
 
   const isDono = personagem.userId === user.id;

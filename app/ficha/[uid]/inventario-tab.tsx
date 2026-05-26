@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { EditableStat } from "./editable-stat";
 import { atualizarItem, criarItem, deletarItem } from "./actions";
@@ -65,7 +65,27 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
   const [categoria, setCategoria] = useState<Categoria>("arsenal");
   const [modalAberto, setModalAberto] = useState(false);
   const [form, setForm] = useState<FormState>(FORM_VAZIO);
-  const [pending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
+
+  // Optimistic: aplica patch local antes do server responder. Quando o
+  // realtime/revalidate trazem dados novos, `itens` muda e o estado otimista
+  // é resetado automaticamente pelo React.
+  type Patch =
+    | { kind: "update"; id: string; patch: Partial<Item> }
+    | { kind: "updateMany"; ids: string[]; patch: Partial<Item> }
+    | { kind: "create"; item: Item }
+    | { kind: "delete"; id: string };
+  const [itensOtimistas, aplicarOtimista] = useOptimistic(itens, (state, p: Patch) => {
+    if (p.kind === "update") {
+      return state.map((i) => (i.id === p.id ? { ...i, ...p.patch } : i));
+    }
+    if (p.kind === "updateMany") {
+      const set = new Set(p.ids);
+      return state.map((i) => (set.has(i.id) ? { ...i, ...p.patch } : i));
+    }
+    if (p.kind === "create") return [...state, p.item];
+    return state.filter((i) => i.id !== p.id);
+  });
 
   function abrirNovo() {
     setForm(FORM_VAZIO);
@@ -89,12 +109,21 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
   }
 
   function fechar() {
-    if (pending) return;
     setModalAberto(false);
   }
 
   function set<K extends keyof FormState>(key: K, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  function mostrarErro(err: unknown) {
+    Swal.fire({
+      icon: "error",
+      title: "Erro",
+      text: err instanceof Error ? err.message : "Operação falhou.",
+      background: "var(--bg-card)",
+      color: "var(--text-main)",
+    });
   }
 
   function salvar(e: React.FormEvent) {
@@ -122,45 +151,84 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
       penalidadeDes: form.tipo === "armadura" ? Number(form.penalidadeDes) || 0 : 0,
     };
 
+    const editandoId = form.id;
+    setModalAberto(false);
+
     startTransition(async () => {
-      try {
-        if (form.id) {
-          await atualizarItem(personagemId, form.id, payload);
-        } else {
-          await criarItem(personagemId, payload);
+      if (editandoId) {
+        aplicarOtimista({ kind: "update", id: editandoId, patch: payload });
+        try {
+          await atualizarItem(personagemId, editandoId, payload);
+        } catch (err) {
+          mostrarErro(err);
         }
-        setModalAberto(false);
-      } catch (err) {
-        Swal.fire({
-          icon: "error",
-          title: "Erro",
-          text: err instanceof Error ? err.message : "Falha ao salvar.",
-          background: "var(--bg-card)",
-          color: "var(--text-main)",
-        });
+      } else {
+        const novoItem: Item = {
+          id: "temp-" + Math.random().toString(36).slice(2),
+          nome: payload.nome,
+          peso: payload.peso,
+          tipo: payload.tipo,
+          tags: payload.tags || null,
+          descricao: payload.descricao || null,
+          dano: payload.dano || null,
+          modificador: payload.modificador,
+          ca: payload.ca,
+          penalidadeDes: payload.penalidadeDes,
+          equipado: false,
+          favorito: false,
+        };
+        aplicarOtimista({ kind: "create", item: novoItem });
+        try {
+          await criarItem(personagemId, payload);
+        } catch (err) {
+          mostrarErro(err);
+        }
       }
     });
   }
 
-  async function toggleFavorito(item: Item) {
-    try {
-      await atualizarItem(personagemId, item.id, { favorito: !item.favorito });
-    } catch (err) {
-      console.error(err);
-    }
+  function toggleFavorito(item: Item) {
+    const novo = !item.favorito;
+    startTransition(async () => {
+      aplicarOtimista({ kind: "update", id: item.id, patch: { favorito: novo } });
+      try {
+        await atualizarItem(personagemId, item.id, { favorito: novo });
+      } catch (err) {
+        console.error(err);
+      }
+    });
   }
 
-  async function toggleEquipar(item: Item) {
+  function toggleEquipar(item: Item) {
+    const novo = !item.equipado;
     // Se vai equipar armadura, desequipa outras armaduras primeiro.
-    if (!item.equipado && item.tipo === "armadura") {
-      const outras = itens.filter(
-        (i) => i.tipo === "armadura" && i.equipado && i.id !== item.id,
-      );
-      await Promise.all(
-        outras.map((i) => atualizarItem(personagemId, i.id, { equipado: false })),
-      );
-    }
-    await atualizarItem(personagemId, item.id, { equipado: !item.equipado });
+    const outras =
+      novo && item.tipo === "armadura"
+        ? itensOtimistas.filter(
+            (i) => i.tipo === "armadura" && i.equipado && i.id !== item.id,
+          )
+        : [];
+
+    startTransition(async () => {
+      if (outras.length > 0) {
+        aplicarOtimista({
+          kind: "updateMany",
+          ids: outras.map((i) => i.id),
+          patch: { equipado: false },
+        });
+      }
+      aplicarOtimista({ kind: "update", id: item.id, patch: { equipado: novo } });
+      try {
+        if (outras.length > 0) {
+          await Promise.all(
+            outras.map((i) => atualizarItem(personagemId, i.id, { equipado: false })),
+          );
+        }
+        await atualizarItem(personagemId, item.id, { equipado: novo });
+      } catch (err) {
+        console.error(err);
+      }
+    });
   }
 
   async function apagar(itemId: string) {
@@ -177,20 +245,18 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
       color: "var(--text-main)",
     });
     if (!confirm.isConfirmed) return;
-    try {
-      await deletarItem(personagemId, itemId);
-    } catch (err) {
-      Swal.fire({
-        icon: "error",
-        title: "Erro",
-        text: err instanceof Error ? err.message : "Falha ao apagar.",
-        background: "var(--bg-card)",
-        color: "var(--text-main)",
-      });
-    }
+
+    startTransition(async () => {
+      aplicarOtimista({ kind: "delete", id: itemId });
+      try {
+        await deletarItem(personagemId, itemId);
+      } catch (err) {
+        mostrarErro(err);
+      }
+    });
   }
 
-  const pesoTotal = itens.reduce((acc, i) => acc + (Number(i.peso) || 0), 0);
+  const pesoTotal = itensOtimistas.reduce((acc, i) => acc + (Number(i.peso) || 0), 0);
   const maxPeso = cargaMaxima || 20;
   const pesoPct = Math.min(100, (pesoTotal / maxPeso) * 100);
 
@@ -213,7 +279,7 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
   }
 
   // Filtro + agrupamento
-  const ordenados = [...itens].sort((a, b) => a.nome.localeCompare(b.nome));
+  const ordenados = [...itensOtimistas].sort((a, b) => a.nome.localeCompare(b.nome));
   const visiveis = mostrarEquipados ? ordenados.filter((i) => i.equipado) : ordenados;
 
   const favoritos = !mostrarEquipados ? visiveis.filter((i) => i.favorito) : [];
@@ -336,7 +402,6 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
                 value={form.nome}
                 onChange={(e) => set("nome", e.target.value)}
                 placeholder="Ex: Espada Longa"
-                disabled={pending}
                 autoFocus
               />
 
@@ -348,7 +413,6 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
                     step="0.1"
                     value={form.peso}
                     onChange={(e) => set("peso", e.target.value)}
-                    disabled={pending}
                   />
                 </div>
                 <div>
@@ -356,7 +420,6 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
                   <select
                     value={form.tipo}
                     onChange={(e) => set("tipo", e.target.value)}
-                    disabled={pending}
                   >
                     <option value="comum">Item Comum</option>
                     <option value="arma">Arma</option>
@@ -374,7 +437,6 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
                       value={form.dano}
                       onChange={(e) => set("dano", e.target.value)}
                       placeholder="1d8"
-                      disabled={pending}
                     />
                   </div>
                   <div>
@@ -384,7 +446,6 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
                       value={form.modificador}
                       onChange={(e) => set("modificador", e.target.value)}
                       placeholder="0"
-                      disabled={pending}
                     />
                   </div>
                 </div>
@@ -399,7 +460,6 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
                       value={form.ca}
                       onChange={(e) => set("ca", e.target.value)}
                       placeholder="0"
-                      disabled={pending}
                     />
                   </div>
                   <div>
@@ -409,7 +469,6 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
                       value={form.penalidadeDes}
                       onChange={(e) => set("penalidadeDes", e.target.value)}
                       placeholder="-1"
-                      disabled={pending}
                     />
                   </div>
                 </div>
@@ -421,7 +480,6 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
                 value={form.tags}
                 onChange={(e) => set("tags", e.target.value)}
                 placeholder="Ex: Cortante, Duas Mãos, Raro"
-                disabled={pending}
               />
 
               <label>Descrição / Efeitos</label>
@@ -429,7 +487,6 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
                 value={form.descricao}
                 onChange={(e) => set("descricao", e.target.value)}
                 placeholder="Descrição do item..."
-                disabled={pending}
               />
 
               <div className="modal-actions">
@@ -437,12 +494,11 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
                   type="button"
                   className="modal-btn-cancel"
                   onClick={fechar}
-                  disabled={pending}
                 >
                   Cancelar
                 </button>
-                <button type="submit" className="modal-btn-save" disabled={pending}>
-                  {pending ? "Salvando..." : "Salvar"}
+                <button type="submit" className="modal-btn-save">
+                  Salvar
                 </button>
               </div>
             </form>

@@ -14,20 +14,18 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="pt-br">
+    <html lang="pt-br" suppressHydrationWarning>
       <head>
         <link
           rel="stylesheet"
           href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
         />
-      </head>
-      <body>
-        {/* ThemeScript precisa rodar antes do primeiro render visual.
-            Inline no body é a única forma de garantir sync execution +
-            acesso a document.body sem hydration mismatch. */}
+        {/* Script anti-flash: sync no <head>, antes do primeiro paint.
+            Aplica vars CSS e classe `dark-mode` em <html> — não em <body>,
+            pra evitar React 19 reconciliar a className durante hidratação. */}
         <ThemeScript />
-        {children}
-      </body>
+      </head>
+      <body>{children}</body>
     </html>
   );
 }

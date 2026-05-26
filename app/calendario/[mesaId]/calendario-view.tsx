@@ -1,17 +1,27 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import {
+  ANO_MAX,
   type CalendarioConfig,
   dataParaDias,
+  diasMaximos,
   diasParaData,
   fasesLua,
   mesesNaEstacao,
   posicaoMesNaEstacao,
 } from "@/lib/calendario/engine";
 import type { EventoCal, TipoClima } from "./types";
-import { setarDataAtual } from "./actions";
+import {
+  atualizarEvento,
+  atualizarTipoClima,
+  criarEvento,
+  criarTipoClima,
+  deletarEvento,
+  deletarTipoClima,
+  setarDataAtual,
+} from "./actions";
 import { GridMensal } from "./grid-mensal";
 import { ListaEventos } from "./lista-eventos";
 import { GeradorClimaCard } from "./gerador-card";
@@ -39,7 +49,146 @@ export function CalendarioView({
 }: Props) {
   const [, startTransition] = useTransition();
 
-  const hoje = useMemo(() => dataParaDias(dataAtualDias, config), [dataAtualDias, config]);
+  // Optimistic: clique no narrador atualiza UI no mesmo frame; quando o server
+  // responde + realtime/revalidate atualizam a prop, o estado otimista reseta.
+  const [dataAtualOtimista, setDataAtualOtimista] = useOptimistic(
+    dataAtualDias,
+    (_state, novoValor: number) => novoValor,
+  );
+
+  // Lista otimista de eventos. Aceita 3 tipos de patch:
+  //  - create: insere com id temporário (vai ser sobrescrito quando o real chegar)
+  //  - update: aplica patch parcial num evento existente
+  //  - delete: remove pelo id
+  type PatchEvento =
+    | { kind: "create"; evento: EventoCal }
+    | { kind: "update"; id: string; patch: Partial<EventoCal> }
+    | { kind: "delete"; id: string };
+  const [eventosOtimistas, aplicarPatchEvento] = useOptimistic(
+    eventos,
+    (state, p: PatchEvento) => {
+      if (p.kind === "create") return [...state, p.evento];
+      if (p.kind === "update") return state.map((e) => (e.id === p.id ? { ...e, ...p.patch } : e));
+      return state.filter((e) => e.id !== p.id);
+    },
+  );
+
+  type PatchTipoClima =
+    | { kind: "create"; tipo: TipoClima }
+    | { kind: "update"; id: string; patch: Partial<TipoClima> }
+    | { kind: "delete"; id: string };
+  const [tiposClimaOtimistas, aplicarPatchTipoClima] = useOptimistic(
+    tiposClima,
+    (state, p: PatchTipoClima) => {
+      if (p.kind === "create") return [...state, p.tipo];
+      if (p.kind === "update") return state.map((t) => (t.id === p.id ? { ...t, ...p.patch } : t));
+      return state.filter((t) => t.id !== p.id);
+    },
+  );
+
+  // Helper centralizado pra erros de action — todos os handlers reportam igual.
+  function mostrarErro(e: unknown) {
+    Swal.fire({
+      icon: "error",
+      title: "Erro",
+      text: e instanceof Error ? e.message : "Erro inesperado.",
+      background: "var(--bg-card)",
+      color: "var(--text-main)",
+    });
+  }
+
+  // ─── Handlers expostos pros modais e lista ────────────────────────────
+  type EventoPayload = {
+    tipo: "climatico" | "narrativo";
+    titulo: string;
+    descricao: string | null;
+    dataDias: number;
+    tipoClimaId: string | null;
+    oculto: boolean;
+  };
+
+  function onSalvarEvento(payload: EventoPayload, id: string | null) {
+    startTransition(async () => {
+      if (id) {
+        aplicarPatchEvento({ kind: "update", id, patch: payload });
+        try {
+          await atualizarEvento(mesaId, id, payload);
+        } catch (e) {
+          mostrarErro(e);
+        }
+      } else {
+        const tempId = "temp-" + Math.random().toString(36).slice(2);
+        aplicarPatchEvento({ kind: "create", evento: { id: tempId, ...payload } });
+        try {
+          await criarEvento(mesaId, payload);
+        } catch (e) {
+          mostrarErro(e);
+        }
+      }
+    });
+  }
+
+  function onApagarEvento(id: string) {
+    startTransition(async () => {
+      aplicarPatchEvento({ kind: "delete", id });
+      try {
+        await deletarEvento(mesaId, id);
+      } catch (e) {
+        mostrarErro(e);
+      }
+    });
+  }
+
+  type TipoClimaPayload = {
+    nome: string;
+    descricao: string | null;
+    icone: string | null;
+    pesosPorEstacao: Record<string, number>;
+  };
+
+  function onCriarTipoClima(payload: TipoClimaPayload) {
+    startTransition(async () => {
+      const tempId = "temp-" + Math.random().toString(36).slice(2);
+      aplicarPatchTipoClima({ kind: "create", tipo: { id: tempId, ...payload } });
+      try {
+        await criarTipoClima(mesaId, payload);
+      } catch (e) {
+        mostrarErro(e);
+      }
+    });
+  }
+
+  function onPatchTipoClima(id: string, patch: Partial<TipoClima>) {
+    startTransition(async () => {
+      aplicarPatchTipoClima({ kind: "update", id, patch });
+      try {
+        await atualizarTipoClima(mesaId, id, {
+          nome: patch.nome,
+          descricao: patch.descricao,
+          icone: patch.icone,
+          pesosPorEstacao: patch.pesosPorEstacao,
+        });
+      } catch (e) {
+        mostrarErro(e);
+      }
+    });
+  }
+
+  function onApagarTipoClima(id: string) {
+    startTransition(async () => {
+      aplicarPatchTipoClima({ kind: "delete", id });
+      try {
+        await deletarTipoClima(mesaId, id);
+      } catch (e) {
+        mostrarErro(e);
+      }
+    });
+  }
+
+  const hoje = useMemo(
+    () => dataParaDias(dataAtualOtimista, config),
+    [dataAtualOtimista, config],
+  );
 
   // Estado do mês visualizado no grid (inicia no mês atual).
   const [mesVisao, setMesVisao] = useState<{ ano: number; mes: number }>({
@@ -72,20 +221,27 @@ export function CalendarioView({
   }
 
   // Lua
-  const lua = fasesLua(dataAtualDias, config.cicloLuaDias);
+  const lua = fasesLua(dataAtualOtimista, config.cicloLuaDias);
   const ciclo = config.cicloLuaDias || 29.5;
   const diaCiclo = Math.floor(lua.fracao * ciclo) + 1;
 
   // Clima de hoje
-  const climaHoje = eventos.find((e) => e.dataDias === dataAtualDias && e.tipo === "climatico");
+  const climaHoje = eventosOtimistas.find(
+    (e) => e.dataDias === dataAtualOtimista && e.tipo === "climatico",
+  );
   const tipoClimaHoje = climaHoje?.tipoClimaId
-    ? tiposClima.find((t) => t.id === climaHoje.tipoClimaId)
+    ? tiposClimaOtimistas.find((t) => t.id === climaHoje.tipoClimaId)
     : null;
 
+  const maxDias = useMemo(() => diasMaximos(config), [config]);
+
   function avancarDias(delta: number) {
+    const alvo = Math.max(0, Math.min(dataAtualOtimista + delta, maxDias));
+    if (alvo === dataAtualOtimista) return;
     startTransition(async () => {
+      setDataAtualOtimista(alvo);
       try {
-        await setarDataAtual(mesaId, dataAtualDias + delta);
+        await setarDataAtual(mesaId, alvo);
       } catch (e) {
         Swal.fire({
           icon: "error",
@@ -111,8 +267,13 @@ export function CalendarioView({
     if (!Number.isFinite(novoDia) || novoDia < 1) return;
     const diasMes = config.meses[hoje.mes - 1].dias;
     if (novoDia > diasMes) novoDia = diasMes;
-    const novosDias = diasParaData({ ano: hoje.ano, mes: hoje.mes, dia: novoDia }, config);
+    if (hoje.ano > ANO_MAX) return;
+    const novosDias = Math.min(
+      diasParaData({ ano: hoje.ano, mes: hoje.mes, dia: novoDia }, config),
+      maxDias,
+    );
     startTransition(async () => {
+      setDataAtualOtimista(novosDias);
       try {
         await setarDataAtual(mesaId, novosDias);
       } catch (e) {
@@ -275,15 +436,16 @@ export function CalendarioView({
 
       <GridMensal
         config={config}
-        dataAtualDias={dataAtualDias}
+        dataAtualDias={dataAtualOtimista}
         mesVisao={mesVisao}
-        eventos={eventos}
-        tiposClima={tiposClima}
+        eventos={eventosOtimistas}
+        tiposClima={tiposClimaOtimistas}
         isNarrador={isNarrador}
         onClickDia={(dias) => {
           if (!isNarrador) return;
-          if (dias === dataAtualDias) return;
+          if (dias === dataAtualOtimista) return;
           startTransition(async () => {
+            setDataAtualOtimista(dias);
             try {
               await setarDataAtual(mesaId, dias);
             } catch (e) {
@@ -300,16 +462,16 @@ export function CalendarioView({
       />
 
       <ListaEventos
-        mesaId={mesaId}
         config={config}
-        dataAtualDias={dataAtualDias}
-        eventos={eventos}
-        tiposClima={tiposClima}
+        dataAtualDias={dataAtualOtimista}
+        eventos={eventosOtimistas}
+        tiposClima={tiposClimaOtimistas}
         isNarrador={isNarrador}
         expandido={expandido}
         onToggleExpandir={() => setExpandido((v) => !v)}
         onNovo={() => setModalEvento({ aberto: true, evento: null })}
         onEditar={(ev) => setModalEvento({ aberto: true, evento: ev })}
+        onApagar={onApagarEvento}
       />
 
       {isNarrador && (
@@ -324,35 +486,37 @@ export function CalendarioView({
       {/* Modais */}
       {isNarrador && modalEvento.aberto && (
         <ModalEvento
-          mesaId={mesaId}
           config={config}
-          tiposClima={tiposClima}
+          tiposClima={tiposClimaOtimistas}
           eventoInicial={modalEvento.evento}
-          dataAtualDias={dataAtualDias}
+          dataAtualDias={dataAtualOtimista}
           onFechar={() => setModalEvento({ aberto: false, evento: null })}
+          onSalvar={onSalvarEvento}
         />
       )}
       {isNarrador && modalConfigAberto && (
         <ModalConfig
           mesaId={mesaId}
           config={config}
-          dataAtualDias={dataAtualDias}
+          dataAtualDias={dataAtualOtimista}
           onFechar={() => setModalConfigAberto(false)}
         />
       )}
       {isNarrador && modalTiposAberto && (
         <ModalTiposClima
-          mesaId={mesaId}
           config={config}
-          tiposClima={tiposClima}
+          tiposClima={tiposClimaOtimistas}
           onFechar={() => setModalTiposAberto(false)}
+          onCriar={onCriarTipoClima}
+          onPatch={onPatchTipoClima}
+          onApagar={onApagarTipoClima}
         />
       )}
       {isNarrador && modalGerarAberto && (
         <ModalGerarClima
           mesaId={mesaId}
           config={config}
-          dataAtualDias={dataAtualDias}
+          dataAtualDias={dataAtualOtimista}
           onFechar={() => setModalGerarAberto(false)}
         />
       )}

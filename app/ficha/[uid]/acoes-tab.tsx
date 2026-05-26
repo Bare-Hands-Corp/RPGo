@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { criarAcao, deletarAcao } from "./actions";
 
@@ -24,26 +24,52 @@ const GRUPOS = [
   { tipo: "react", titulo: "Reações", icone: "fa-shield-alt", cor: "var(--color-react)" },
 ] as const;
 
+type Patch =
+  | { kind: "create"; acao: Acao }
+  | { kind: "delete"; id: string };
+
+function mostrarErro(err: unknown) {
+  Swal.fire({
+    icon: "error",
+    title: "Erro",
+    text: err instanceof Error ? err.message : "Operação falhou.",
+    background: "var(--bg-card)",
+    color: "var(--text-main)",
+  });
+}
+
 export function AcoesTab({ personagemId, acoes }: Props) {
+  const [acoesOtimistas, aplicarPatch] = useOptimistic(
+    acoes,
+    (state: Acao[], p: Patch) => {
+      if (p.kind === "create") return [...state, p.acao];
+      return state.filter((a) => a.id !== p.id);
+    },
+  );
+
   const [modalAberto, setModalAberto] = useState(false);
   const [nome, setNome] = useState("");
   const [descricao, setDescricao] = useState("");
   const [tipo, setTipo] = useState("padrao");
   const [tag, setTag] = useState("");
-  const [pending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
 
-  function fecharModal() {
-    if (pending) return;
-    setModalAberto(false);
+  function resetForm() {
     setNome("");
     setDescricao("");
     setTipo("padrao");
     setTag("");
   }
 
+  function fecharModal() {
+    setModalAberto(false);
+    resetForm();
+  }
+
   function salvar(e: React.FormEvent) {
     e.preventDefault();
-    if (!nome.trim()) {
+    const nomeLimpo = nome.trim();
+    if (!nomeLimpo) {
       Swal.fire({
         icon: "warning",
         title: "Campo obrigatório",
@@ -53,18 +79,24 @@ export function AcoesTab({ personagemId, acoes }: Props) {
       });
       return;
     }
+
+    const novaAcao: Acao = {
+      id: "temp-" + Math.random().toString(36).slice(2),
+      nome: nomeLimpo,
+      descricao,
+      tipo,
+      tag: tag || null,
+    };
+
+    const dados = { nome: nomeLimpo, descricao, tipo, tag };
+    fecharModal();
+
     startTransition(async () => {
+      aplicarPatch({ kind: "create", acao: novaAcao });
       try {
-        await criarAcao(personagemId, { nome, descricao, tipo, tag });
-        fecharModal();
+        await criarAcao(personagemId, dados);
       } catch (err) {
-        Swal.fire({
-          icon: "error",
-          title: "Erro",
-          text: err instanceof Error ? err.message : "Falha ao criar.",
-          background: "var(--bg-card)",
-          color: "var(--text-main)",
-        });
+        mostrarErro(err);
       }
     });
   }
@@ -84,17 +116,14 @@ export function AcoesTab({ personagemId, acoes }: Props) {
     });
     if (!confirm.isConfirmed) return;
 
-    try {
-      await deletarAcao(personagemId, acaoId);
-    } catch (err) {
-      Swal.fire({
-        icon: "error",
-        title: "Erro",
-        text: err instanceof Error ? err.message : "Falha ao apagar.",
-        background: "var(--bg-card)",
-        color: "var(--text-main)",
-      });
-    }
+    startTransition(async () => {
+      aplicarPatch({ kind: "delete", id: acaoId });
+      try {
+        await deletarAcao(personagemId, acaoId);
+      } catch (err) {
+        mostrarErro(err);
+      }
+    });
   }
 
   return (
@@ -115,7 +144,7 @@ export function AcoesTab({ personagemId, acoes }: Props) {
       </p>
 
       {GRUPOS.map((grupo) => {
-        const lista = acoes.filter((a) => a.tipo === grupo.tipo);
+        const lista = acoesOtimistas.filter((a) => a.tipo === grupo.tipo);
         return (
           <section key={grupo.tipo}>
             <div className="section-header">
@@ -166,7 +195,6 @@ export function AcoesTab({ personagemId, acoes }: Props) {
                 value={nome}
                 onChange={(e) => setNome(e.target.value)}
                 placeholder="Ex: Soco Meteoro"
-                disabled={pending}
                 autoFocus
               />
 
@@ -175,13 +203,12 @@ export function AcoesTab({ personagemId, acoes }: Props) {
                 value={descricao}
                 onChange={(e) => setDescricao(e.target.value)}
                 placeholder="Descreva o efeito..."
-                disabled={pending}
               />
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
                 <div>
                   <label>Tipo</label>
-                  <select value={tipo} onChange={(e) => setTipo(e.target.value)} disabled={pending}>
+                  <select value={tipo} onChange={(e) => setTipo(e.target.value)}>
                     <option value="padrao">Ação Padrão</option>
                     <option value="bonus">Ação Bônus</option>
                     <option value="power">Ação Poderosa</option>
@@ -195,7 +222,6 @@ export function AcoesTab({ personagemId, acoes }: Props) {
                     value={tag}
                     onChange={(e) => setTag(e.target.value)}
                     placeholder="Ex: 1d8+2"
-                    disabled={pending}
                   />
                 </div>
               </div>
@@ -205,7 +231,6 @@ export function AcoesTab({ personagemId, acoes }: Props) {
                   type="button"
                   className="modal-btn-cancel"
                   onClick={fecharModal}
-                  disabled={pending}
                 >
                   Cancelar
                 </button>
@@ -213,9 +238,8 @@ export function AcoesTab({ personagemId, acoes }: Props) {
                   type="submit"
                   className="modal-btn-save"
                   style={{ background: "var(--color-padrao)" }}
-                  disabled={pending}
                 >
-                  {pending ? "Salvando..." : "Salvar"}
+                  Salvar
                 </button>
               </div>
             </form>
