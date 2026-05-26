@@ -3,12 +3,14 @@
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRefreshOnFocus } from "@/lib/use-refresh-on-focus";
 
 // Escuta mudanças em personagens (este uid), acoes (deste uid) e itens (deste uid).
 // Cada evento dispara router.refresh() — a página re-renderiza no servidor com
 // dados frescos. Sem polling, sem race entre tabs.
 export function FichaRealtime({ personagemId }: { personagemId: string }) {
   const router = useRouter();
+  useRefreshOnFocus();
 
   useEffect(() => {
     const supabase = createClient();

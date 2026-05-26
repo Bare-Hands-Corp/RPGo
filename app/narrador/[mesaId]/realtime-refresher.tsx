@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRefreshOnFocus } from "@/lib/use-refresh-on-focus";
 
 // Reage a UPDATE e INSERT em personagens filtrados por esta mesa
 // (UPDATE cobre HP/PP/nivel/etc; também cobre o caso de um jogador
@@ -10,6 +11,7 @@ import { createClient } from "@/lib/supabase/client";
 // Cada evento dispara router.refresh().
 export function NarradorRealtime({ mesaId }: { mesaId: string }) {
   const router = useRouter();
+  useRefreshOnFocus();
 
   useEffect(() => {
     const supabase = createClient();

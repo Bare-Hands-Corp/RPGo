@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRefreshOnFocus } from "@/lib/use-refresh-on-focus";
 
 // Realtime do calendário: ouve mudanças em calendarios (dataAtualDias, config),
 // eventos_calendario e tipos_clima — todos do calendarioId desta mesa.
@@ -15,6 +16,7 @@ export function CalendarioRealtime({
   calendarioId: string;
 }) {
   const router = useRouter();
+  useRefreshOnFocus();
 
   useEffect(() => {
     const supabase = createClient();

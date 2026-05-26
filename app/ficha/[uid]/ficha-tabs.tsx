@@ -66,39 +66,41 @@ export function FichaTabs({
         ))}
       </nav>
 
-      {ativa === "combate" && <AcoesTab personagemId={personagemId} acoes={acoes} />}
+      {/* Mantém todas as abas montadas (display:none nas inativas) pra preservar
+          estado otimista durante mutações em background. */}
+      <div hidden={ativa !== "combate"}>
+        <AcoesTab personagemId={personagemId} acoes={acoes} />
+      </div>
 
-      {ativa === "missoes" && (
-        <div className="placeholder-tab">
-          <i className="fas fa-scroll" />
-          <p>Missões — em construção.</p>
-        </div>
-      )}
+      <div hidden={ativa !== "missoes"} className="placeholder-tab">
+        <i className="fas fa-scroll" />
+        <p>Missões — em construção.</p>
+      </div>
 
-      {ativa === "inventario" && (
+      <div hidden={ativa !== "inventario"}>
         <InventarioTab
           personagemId={personagemId}
           cargaMaxima={cargaMaxima}
           itens={itens}
         />
-      )}
+      </div>
 
-      {ativa === "tripulacao" && (
-        <div className="placeholder-tab">
-          <i className="fas fa-users" />
-          <p>Tripulação — em construção.</p>
+      <div hidden={ativa !== "tripulacao"} className="placeholder-tab">
+        <i className="fas fa-users" />
+        <p>Tripulação — em construção.</p>
+      </div>
+
+      {mesaId && calendario && (
+        <div hidden={ativa !== "calendario"}>
+          <CalendarioView
+            mesaId={mesaId}
+            isNarrador={isNarradorDaMesa}
+            config={calendario.config}
+            dataAtualDias={calendario.dataAtualDias}
+            eventos={calendario.eventos}
+            tiposClima={calendario.tiposClima}
+          />
         </div>
-      )}
-
-      {ativa === "calendario" && mesaId && calendario && (
-        <CalendarioView
-          mesaId={mesaId}
-          isNarrador={isNarradorDaMesa}
-          config={calendario.config}
-          dataAtualDias={calendario.dataAtualDias}
-          eventos={calendario.eventos}
-          tiposClima={calendario.tiposClima}
-        />
       )}
     </main>
   );
