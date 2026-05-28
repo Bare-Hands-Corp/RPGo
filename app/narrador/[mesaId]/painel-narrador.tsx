@@ -10,6 +10,7 @@ import { CopyCodigoBadge } from "./copy-codigo-badge";
 import { NarradorRealtime } from "./realtime-refresher";
 import { Bandeja } from "@/components/bandeja/bandeja";
 import { ThemeButton } from "@/components/temas/theme-button";
+import { ModalSolicitarTeste } from "./modal-solicitar-teste";
 
 type Personagem = {
   id: string;
@@ -81,6 +82,8 @@ const ACOES_PROTOTIPO = [
 
 export function NarradorShell({ mesa, userId, mensagensIniciais }: Props) {
   const [aba, setAba] = useState<Aba>("jogadores");
+  const [modalTesteAberto, setModalTesteAberto] = useState(false);
+  const [mensagemCriada, setMensagemCriada] = useState<MensagemSerializada | null>(null);
 
   return (
     <div className="narrador-container">
@@ -209,6 +212,10 @@ export function NarradorShell({ mesa, userId, mensagensIniciais }: Props) {
                     type="button"
                     className="acao-narrador-card"
                     onClick={() => {
+                      if (acao.id === "testes") {
+                        setModalTesteAberto(true);
+                        return;
+                      }
                       void Swal.fire({
                         icon: "info",
                         title: "Protótipo",
@@ -232,6 +239,15 @@ export function NarradorShell({ mesa, userId, mensagensIniciais }: Props) {
         userName={`Narrador (${mesa.nome})`}
         sessionId={mesa.id}
         mensagensIniciais={mensagensIniciais}
+        mensagemExternaCriada={mensagemCriada}
+      />
+
+      <ModalSolicitarTeste
+        mesaId={mesa.id}
+        aberto={modalTesteAberto}
+        onFechar={() => setModalTesteAberto(false)}
+        onCriada={(msg) => setMensagemCriada(msg)}
+        personagens={mesa.personagens.map((p) => ({ id: p.id, nome: p.nome, fotoUrl: p.fotoUrl }))}
       />
     </div>
   );

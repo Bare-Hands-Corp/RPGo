@@ -9,10 +9,12 @@ import {
   useState,
 } from "react";
 import Swal from "sweetalert2";
+import { rolarDados } from "@/lib/dice";
 import { createClient } from "@/lib/supabase/client";
 import {
   enviarMensagemTexto,
   limparMensagens,
+  registrarRolagem,
   listarMensagens,
 } from "./actions";
 import type { MensagemSerializada } from "@/lib/mensagens";
@@ -27,13 +29,14 @@ type Props = {
   userId: string;
   userName: string;
   sessionId: string;
+  personagemId: string | null;
   // Mensagens pré-carregadas no SSR. PainelChat usa como estado inicial,
   // evitando o round-trip de listarMensagens ao abrir a aba.
   mensagensIniciais: MensagemSerializada[];
 };
 
 export const PainelChat = forwardRef<PainelChatHandle, Props>(function PainelChat(
-  { userId, userName, sessionId, mensagensIniciais },
+  { userId, userName, sessionId, personagemId, mensagensIniciais },
   ref,
 ) {
   const [mensagens, setMensagens] = useState<MensagemSerializada[]>(mensagensIniciais);
@@ -152,7 +155,18 @@ export const PainelChat = forwardRef<PainelChatHandle, Props>(function PainelCha
             Nenhuma mensagem ainda...
           </p>
         ) : (
-          mensagens.map((m) => <MensagemView key={m.id} msg={m} meuUid={userId} />)
+          mensagens.map((m) => (
+            <MensagemView
+              key={m.id}
+              msg={m}
+              mensagens={mensagens}
+              meuUid={userId}
+              userName={userName}
+              sessionId={sessionId}
+              personagemId={personagemId}
+              onMensagemAtualizada={appendLocal}
+            />
+          ))
         )}
       </div>
       <div className="chat-input-row">
@@ -178,10 +192,20 @@ export const PainelChat = forwardRef<PainelChatHandle, Props>(function PainelCha
 
 function MensagemView({
   msg,
+  mensagens,
   meuUid,
+  userName,
+  sessionId,
+  personagemId,
+  onMensagemAtualizada,
 }: {
   msg: MensagemSerializada;
+  mensagens: MensagemSerializada[];
   meuUid: string;
+  userName: string;
+  sessionId: string;
+  personagemId: string | null;
+  onMensagemAtualizada: (msg: MensagemSerializada) => void;
 }) {
   const hora = new Date(msg.timestamp).toLocaleTimeString("pt-BR", {
     hour: "2-digit",
@@ -194,10 +218,18 @@ function MensagemView({
       | {
           rolls?: Array<{ faces: number; sinal: 1 | -1; resultado: number }>;
           nomePreset?: string | null;
+          tipoTeste?: boolean | null;
+          pericia?: string | null;
+          cd?: number | null;
+          sucesso?: boolean | null;
+          privacidadeResultado?: boolean | null;
         }
       | Array<{ faces: number; sinal: 1 | -1; resultado: number }>;
     const arr = Array.isArray(raw) ? raw : raw.rolls || [];
     const presetLabel = !Array.isArray(raw) ? raw.nomePreset || null : null;
+    const testeLabel = !Array.isArray(raw) ? raw.pericia || null : null;
+    const sucesso = !Array.isArray(raw) ? raw.sucesso ?? null : null;
+    const privacidadeResultado = !Array.isArray(raw) ? raw.privacidadeResultado ?? true : true;
 
     let stringDados = "";
     arr.forEach((d, i) => {
@@ -214,29 +246,207 @@ function MensagemView({
     }
 
     return (
-      <div className="chat-message roll-message">
+      <div className={"chat-message roll-message" + (sucesso === true ? " success" : sucesso === false ? " fail" : "") }>
         <div className="roll-header">
           {hora} <strong>{nome}</strong>
         </div>
+        {testeLabel && (
+          <div className="roll-preset-tag">
+            <i className="fas fa-dice-d20" /> {testeLabel}
+          </div>
+        )}
         {presetLabel && (
           <div className="roll-preset-tag">
             <i className="fas fa-bookmark" /> {presetLabel}
           </div>
         )}
         <div className="roll-box">
-          <div className="roll-total">{msg.total}</div>
+          <div className="roll-total">{privacidadeResultado ? msg.total : "?"}</div>
           <div
             className="roll-details"
-            dangerouslySetInnerHTML={{ __html: `[${msg.total}] = ${stringDados}` }}
+            dangerouslySetInnerHTML={{ __html: privacidadeResultado ? `[${msg.total}] = ${stringDados}` : "Resultado oculto" }}
           />
         </div>
       </div>
     );
   }
 
+  if (msg.tipo === "teste" && msg.detalhes) {
+    return (
+      <TesteMensagemView
+        msg={msg}
+        mensagens={mensagens}
+        meuUid={meuUid}
+        userName={userName}
+        sessionId={sessionId}
+        personagemId={personagemId}
+        onMensagemAtualizada={onMensagemAtualizada}
+      />
+    );
+  }
+
   return (
     <div className="chat-message">
       {hora} <strong>{nome}</strong>: {msg.mensagem}
+    </div>
+  );
+}
+
+function TesteMensagemView({
+  msg,
+  mensagens,
+  meuUid,
+  userName,
+  sessionId,
+  personagemId,
+  onMensagemAtualizada,
+}: {
+  msg: MensagemSerializada;
+  mensagens: MensagemSerializada[];
+  meuUid: string;
+  userName: string;
+  sessionId: string;
+  personagemId: string | null;
+  onMensagemAtualizada: (msg: MensagemSerializada) => void;
+}) {
+  const hora = new Date(msg.timestamp).toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const nome = msg.uid === meuUid ? "Você" : msg.nome;
+  const detalhes = msg.detalhes as {
+    pericia?: string | null;
+    cd?: number | null;
+    privacidadeCd?: boolean;
+    privacidadeResultado?: boolean;
+    alvos?: string[] | "TODOS";
+    alvosNomes?: string[];
+    statusPorNome?: Record<string, string>;
+  };
+  const [modificador, setModificador] = useState(0);
+  const [rolando, setRolando] = useState(false);
+  const [selecionado, setSelecionado] = useState("");
+
+  const isNarrador = !personagemId;
+  const isAlvo =
+    !isNarrador &&
+    (detalhes.alvos === "TODOS" ||
+      (Array.isArray(detalhes.alvos) && personagemId && detalhes.alvos.includes(personagemId)));
+  const jaRolou = mensagens.some(
+    (m) =>
+      m.tipo === "rolagem" &&
+      m.uid === meuUid &&
+      Boolean(
+        (m.detalhes as { solicitacaoTesteId?: string | null } | null)?.solicitacaoTesteId === msg.id,
+      ),
+  );
+  const envolvidos =
+    detalhes.alvos === "TODOS"
+      ? detalhes.alvosNomes || []
+      : detalhes.alvosNomes || [];
+
+  const selecionadoAtual = envolvidos.includes(selecionado) ? selecionado : envolvidos[0] || "";
+
+  function statusPorNome(nome: string): string {
+    return detalhes.statusPorNome?.[nome] || "Aguardando resultado";
+  }
+
+  async function resolverTeste() {
+    if (rolando || !isAlvo || jaRolou) return;
+    setRolando(true);
+    try {
+      const resultado = rolarDados([{ faces: 20, sinal: 1 }], modificador);
+      const sucesso = typeof detalhes.cd === "number" ? resultado.total >= detalhes.cd : null;
+      const mensagem = await registrarRolagem(
+        sessionId,
+        userName,
+        {
+          total: resultado.total,
+          detalhes: resultado.detalhes,
+          modificador,
+          nomePreset: null,
+          tipoTeste: true,
+          pericia: detalhes.pericia || null,
+          cd: detalhes.cd ?? null,
+          sucesso,
+          privacidadeResultado: detalhes.privacidadeResultado ?? true,
+          solicitacaoTesteId: msg.id,
+          alvoNome: userName,
+        },
+        personagemId,
+        personagemId ? `[${resultado.total}] = 1d20 ${modificador >= 0 ? "+" : "-"} ${Math.abs(modificador)}` : null,
+      );
+      onMensagemAtualizada(mensagem);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setRolando(false);
+    }
+  }
+
+  return (
+    <div className="chat-message teste-message">
+      <div className="roll-header">
+        {hora} <strong>{nome}</strong>
+      </div>
+      <div className="teste-box">
+        <div className="teste-titulo">
+          <i className="fas fa-dice-d20" />
+          <span>{detalhes.pericia || "Teste"}</span>
+        </div>
+        {isNarrador ? (
+          <>
+            <div className="teste-notificacao">
+              Solicitação de teste enviada para os jogadores envolvidos.
+            </div>
+            <label className="teste-mod-label">
+              Situação do teste
+              <select
+                className="teste-select"
+                value={selecionadoAtual}
+                onChange={(e) => setSelecionado(e.target.value)}
+                disabled={envolvidos.length === 0}
+              >
+                {envolvidos.length === 0 ? (
+                  <option value="">Sem envolvidos</option>
+                ) : (
+                  envolvidos.map((nome) => (
+                    <option key={nome} value={nome}>
+                      {nome} - {statusPorNome(nome)}
+                    </option>
+                  ))
+                )}
+              </select>
+            </label>
+          </>
+        ) : isAlvo ? (
+          <>
+            {typeof detalhes.cd === "number" && detalhes.privacidadeCd !== false && (
+              <div className="teste-cd">CD {detalhes.cd}</div>
+            )}
+            <label className="teste-mod-label">
+              Modificador manual
+              <input
+                type="number"
+                value={modificador}
+                onChange={(e) => setModificador(Number(e.target.value) || 0)}
+              />
+            </label>
+            <button
+              type="button"
+              className="teste-btn"
+              onClick={resolverTeste}
+              disabled={rolando || jaRolou}
+            >
+              {rolando ? "Rolando..." : jaRolou ? "Teste realizado" : "Rolar teste"}
+            </button>
+          </>
+        ) : (
+          <div style={{ color: "var(--text-sec)", fontSize: "0.9rem", fontWeight: 700 }}>
+            Você não é alvo deste teste.
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -11,6 +11,8 @@ type Props = {
   userName: string;
   sessionId: string;
   personagemId?: string | null;
+  onMensagemCriada?: (msg: MensagemSerializada) => void;
+  mensagemExternaCriada?: MensagemSerializada | null;
   // Pré-carregadas no SSR — passadas direto pro PainelChat como estado inicial.
   mensagensIniciais: MensagemSerializada[];
 };
@@ -28,6 +30,8 @@ export function Bandeja({
   userName,
   sessionId,
   personagemId,
+  onMensagemCriada,
+  mensagemExternaCriada,
   mensagensIniciais,
 }: Props) {
   const bandejaRef = useRef<HTMLDivElement>(null);
@@ -187,9 +191,15 @@ export function Bandeja({
     return "fas fa-chevron-up";
   }
 
-  const onMensagemCriada = useCallback((msg: MensagemSerializada) => {
+  const onMensagemCriadaLocal = useCallback((msg: MensagemSerializada) => {
     chatRef.current?.appendLocal(msg);
-  }, []);
+    onMensagemCriada?.(msg);
+  }, [onMensagemCriada]);
+
+  useEffect(() => {
+    if (!mensagemExternaCriada) return;
+    chatRef.current?.appendLocal(mensagemExternaCriada);
+  }, [mensagemExternaCriada]);
 
   return (
     <div ref={bandejaRef} className={className} style={style} id="bandeja">
@@ -234,7 +244,7 @@ export function Bandeja({
             userName={userName}
             sessionId={sessionId}
             personagemId={personagemId || null}
-            onMensagemCriada={onMensagemCriada}
+            onMensagemCriada={onMensagemCriadaLocal}
           />
         </div>
 
@@ -247,6 +257,7 @@ export function Bandeja({
             userId={userId}
             userName={userName}
             sessionId={sessionId}
+            personagemId={personagemId || null}
             mensagensIniciais={mensagensIniciais}
           />
         </div>

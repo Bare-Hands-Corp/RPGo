@@ -302,6 +302,12 @@
   border-left: 3px solid var(--primary);
   flex-shrink: 0;
 }
+.roll-message.success {
+  border-left-color: #27ae60;
+}
+.roll-message.fail {
+  border-left-color: #c0392b;
+}
 .roll-header {
   font-size: 0.78rem;
   color: var(--text-sec);
@@ -334,6 +340,102 @@
   display: flex;
   align-items: center;
   gap: 5px;
+}
+
+.teste-message {
+  padding: 0;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.teste-box {
+  background: var(--bg-card);
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.teste-titulo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+.teste-titulo i {
+  color: var(--primary);
+}
+.teste-envolvidos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.teste-envolvido-chip {
+  background: color-mix(in oklch, var(--primary) 14%, var(--bg-card));
+  border: 1px solid color-mix(in oklch, var(--primary) 32%, var(--border));
+  color: var(--text-main);
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 4px 8px;
+  border-radius: 999px;
+}
+.teste-cd {
+  font-size: 0.78rem;
+  color: var(--text-sec);
+  font-weight: 700;
+}
+.teste-mod-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--text-sec);
+  font-weight: 700;
+}
+.teste-mod-label input {
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-family: inherit;
+}
+.teste-btn {
+  border: none;
+  border-radius: 6px;
+  background: var(--primary);
+  color: white;
+  padding: 8px 10px;
+  font-weight: 800;
+  cursor: pointer;
+  font-family: inherit;
+}
+.teste-btn:disabled {
+  background: var(--bg-surface);
+  color: var(--text-sec);
+  opacity: 1;
+  box-shadow: none;
+  border: 1px solid var(--border);
+  cursor: not-allowed;
+}
+.teste-notificacao {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 1.35;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.teste-select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-family: inherit;
 }
 
 .chat-input-row {

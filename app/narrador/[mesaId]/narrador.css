@@ -257,6 +257,150 @@
   color: var(--primary);
 }
 
+.narrador-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 20px;
+}
+
+.narrador-modal {
+  position: relative;
+  width: min(100%, 420px);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+}
+
+.narrador-modal h3 {
+  margin: 0;
+  color: var(--text-main);
+}
+
+.narrador-modal label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-sec);
+  font-weight: 700;
+  font-size: 0.84rem;
+}
+
+.narrador-modal input[type="text"],
+.narrador-modal input[type="number"] {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font: inherit;
+}
+
+.narrador-check {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 10px !important;
+}
+
+.narrador-modal-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-sec);
+  font-size: 1.5rem;
+  cursor: pointer;
+}
+
+.narrador-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.narrador-btn-sec,
+.narrador-btn-pri {
+  border: none;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.narrador-btn-sec {
+  background: var(--bg-surface);
+  color: var(--text-main);
+}
+
+.narrador-btn-pri {
+  background: var(--primary);
+  color: white;
+}
+
+/* Avatares/alvos do modal de teste */
+.alvos-grid {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.alvo-card {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  padding: 8px;
+  width: 72px;
+  height: 96px;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text-main);
+}
+.alvo-card.selected {
+  box-shadow: 0 6px 18px color-mix(in oklch, var(--primary) 30%, transparent);
+  border-color: var(--primary);
+}
+.alvo-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-card);
+}
+.alvo-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.alvo-initial {
+  font-weight: 800;
+  color: var(--text-sec);
+  font-size: 1.2rem;
+}
+.alvo-nome {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-main);
+  text-align: center;
+}
+.alvo-all .alvo-avatar { background: color-mix(in oklch, var(--primary) 18%, var(--bg-card)); }
+
 @media (max-width: 900px) {
   .mesa-info {
     flex-direction: column;
