@@ -264,11 +264,12 @@
   align-items: center;
 }
 
-.cor-picker-input {
+.cor-picker .cor-picker-input {
   appearance: none;
   -webkit-appearance: none;
   width: 44px;
   height: 36px;
+  margin: 0;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg-surface);
@@ -277,12 +278,12 @@
   flex-shrink: 0;
 }
 
-.cor-picker-input::-webkit-color-swatch-wrapper { padding: 0; }
-.cor-picker-input::-webkit-color-swatch {
+.cor-picker .cor-picker-input::-webkit-color-swatch-wrapper { padding: 0; }
+.cor-picker .cor-picker-input::-webkit-color-swatch {
   border: none;
   border-radius: 6px;
 }
-.cor-picker-input::-moz-color-swatch {
+.cor-picker .cor-picker-input::-moz-color-swatch {
   border: none;
   border-radius: 6px;
 }
