@@ -64,8 +64,8 @@ function obterStatusTeste(
   detalhes: { rolls?: Array<{ resultado: number }> } | null,
 ): string {
   const primeiroDado = detalhes?.rolls?.[0]?.resultado;
-  if (primeiroDado === 20) return "Sucesso Crítico (20 no dado)";
-  if (primeiroDado === 1) return "Falha Crítica (1 no dado)";
+  if (primeiroDado === 20) return "Sucesso Crítico";
+  if (primeiroDado === 1) return "Falha Crítica";
   if (rolagem.sucesso === true) return "Sucesso";
   if (rolagem.sucesso === false) return "Falha";
   return "Aguardando resultado";

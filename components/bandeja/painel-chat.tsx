@@ -250,14 +250,18 @@ function MensagemView({
         <div className="roll-header">
           {hora} <strong>{nome}</strong>
         </div>
-        {testeLabel && (
-          <div className="roll-preset-tag">
-            <i className="fas fa-dice-d20" /> {testeLabel}
-          </div>
-        )}
-        {presetLabel && (
-          <div className="roll-preset-tag">
-            <i className="fas fa-bookmark" /> {presetLabel}
+        {(testeLabel || presetLabel) && (
+          <div className="roll-tags">
+            {testeLabel && (
+              <div className="teste-pericia-tag">
+                <i className="fas fa-dice-d20" /> <span>{testeLabel}</span>
+              </div>
+            )}
+            {presetLabel && (
+              <div className="teste-pericia-tag">
+                <i className="fas fa-bookmark" /> <span>{presetLabel}</span>
+              </div>
+            )}
           </div>
         )}
         <div className="roll-box">
@@ -325,7 +329,7 @@ function TesteMensagemView({
   };
   const [modificador, setModificador] = useState(0);
   const [rolando, setRolando] = useState(false);
-  const [selecionado, setSelecionado] = useState("");
+  const [acompanhamentoAberto, setAcompanhamentoAberto] = useState(false);
 
   const isNarrador = !personagemId;
   const isAlvo =
@@ -345,7 +349,9 @@ function TesteMensagemView({
       ? detalhes.alvosNomes || []
       : detalhes.alvosNomes || [];
 
-  const selecionadoAtual = envolvidos.includes(selecionado) ? selecionado : envolvidos[0] || "";
+  if (!isNarrador && !isAlvo) {
+    return null;
+  }
 
   function statusPorNome(nome: string): string {
     return detalhes.statusPorNome?.[nome] || "Aguardando resultado";
@@ -390,62 +396,71 @@ function TesteMensagemView({
         {hora} <strong>{nome}</strong>
       </div>
       <div className="teste-box">
-        <div className="teste-titulo">
+        <div className="teste-pericia-tag">
           <i className="fas fa-dice-d20" />
           <span>{detalhes.pericia || "Teste"}</span>
         </div>
         {isNarrador ? (
           <>
-            <div className="teste-notificacao">
-              Solicitação de teste enviada para os jogadores envolvidos.
+            <div className="teste-notificacao teste-notificacao-narrador">
+              <div className="teste-notificacao-topo">
+                <i className="fas fa-bell" />
+                <span>Solicitação enviada a jogadores envolvidos.</span>
+              </div>
+              <div className="teste-notificacao-subtexto">
+                Acompanhe abaixo a situação de cada personagem.
+              </div>
             </div>
-            <label className="teste-mod-label">
-              Situação do teste
-              <select
-                className="teste-select"
-                value={selecionadoAtual}
-                onChange={(e) => setSelecionado(e.target.value)}
-                disabled={envolvidos.length === 0}
-              >
+            <button
+              type="button"
+              className={"teste-acompanhamento-toggle" + (acompanhamentoAberto ? " open" : "")}
+              onClick={() => setAcompanhamentoAberto((aberto) => !aberto)}
+            >
+              <span>Acompanhamento</span>
+              <i className="fas fa-chevron-down teste-dropdown-icone" />
+            </button>
+            <div className={"teste-acompanhamento" + (acompanhamentoAberto ? " open" : "") }>
+              <div className="teste-acompanhamento-lista">
                 {envolvidos.length === 0 ? (
-                  <option value="">Sem envolvidos</option>
+                  <div className="teste-acompanhamento-item vazia">Sem envolvidos</div>
                 ) : (
                   envolvidos.map((nome) => (
-                    <option key={nome} value={nome}>
-                      {nome} - {statusPorNome(nome)}
-                    </option>
+                    <div key={nome} className="teste-acompanhamento-item">
+                      <span className="nome">{nome}</span>
+                      <span className="status">{statusPorNome(nome)}</span>
+                    </div>
                   ))
                 )}
-              </select>
-            </label>
+              </div>
+            </div>
           </>
         ) : isAlvo ? (
           <>
             {typeof detalhes.cd === "number" && detalhes.privacidadeCd !== false && (
-              <div className="teste-cd">CD {detalhes.cd}</div>
+              <div className="teste-meta-linha">
+                <div className="teste-cd">CD {detalhes.cd}</div>
+              </div>
             )}
-            <label className="teste-mod-label">
-              Modificador manual
-              <input
-                type="number"
-                value={modificador}
-                onChange={(e) => setModificador(Number(e.target.value) || 0)}
-              />
-            </label>
+            {!jaRolou && (
+              <label className="teste-status-label">
+                Modificador manual
+                <input
+                  type="number"
+                  value={modificador}
+                  onChange={(e) => setModificador(Number(e.target.value) || 0)}
+                />
+              </label>
+            )}
             <button
               type="button"
-              className="teste-btn"
+              className={"teste-btn" + (jaRolou ? " teste-btn-done" : "")}
               onClick={resolverTeste}
               disabled={rolando || jaRolou}
             >
               {rolando ? "Rolando..." : jaRolou ? "Teste realizado" : "Rolar teste"}
             </button>
           </>
-        ) : (
-          <div style={{ color: "var(--text-sec)", fontSize: "0.9rem", fontWeight: 700 }}>
-            Você não é alvo deste teste.
-          </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
