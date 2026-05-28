@@ -95,6 +95,13 @@ const FORM_VAZIO: FormState = {
   alcance: "",
 };
 
+// Une listas de fontes preservando ordem e removendo duplicatas.
+function juntarFontes(...listas: string[][]): string[] {
+  const out: string[] = [];
+  for (const l of listas) for (const f of l) if (!out.includes(f)) out.push(f);
+  return out;
+}
+
 function mostrarErro(err: unknown) {
   Swal.fire({
     icon: "error",
@@ -275,8 +282,29 @@ export function AcoesTab({
                   );
                   const atributoAtq = acao.atributoAtaque as Atributo | null;
                   const atributoCd = acao.atributoCd as Atributo | null;
-                  const extraAtaque = efeitosAgregados.bonusAtaque.valor;
+                  // Ação não distingue CC vs Distância (modelo só tem texto
+                  // livre em alcance), então somamos os 3 buckets de ataque
+                  // num bônus único; idem pra dano.
+                  const extraAtaque =
+                    efeitosAgregados.bonusAtaque.valor +
+                    efeitosAgregados.bonusAtaqueCC.valor +
+                    efeitosAgregados.bonusAtaqueDistancia.valor;
+                  const fontesAtaque = juntarFontes(
+                    efeitosAgregados.bonusAtaque.fontes,
+                    efeitosAgregados.bonusAtaqueCC.fontes,
+                    efeitosAgregados.bonusAtaqueDistancia.fontes,
+                  );
                   const extraCd = efeitosAgregados.bonusCdTecnicas.valor;
+                  const fontesCd = efeitosAgregados.bonusCdTecnicas.fontes;
+                  const extraDano =
+                    efeitosAgregados.bonusDano.valor +
+                    efeitosAgregados.bonusDanoCC.valor +
+                    efeitosAgregados.bonusDanoDistancia.valor;
+                  const fontesDano = juntarFontes(
+                    efeitosAgregados.bonusDano.fontes,
+                    efeitosAgregados.bonusDanoCC.fontes,
+                    efeitosAgregados.bonusDanoDistancia.fontes,
+                  );
                   const bonusAtq = atributoAtq
                     ? bonusAtaqueTecnica({
                         nivel,
@@ -324,16 +352,47 @@ export function AcoesTab({
                         {(bonusAtq != null || cd != null || atributoSalv || acao.dano || acao.alcance) && (
                           <div className="acao-stats">
                             {bonusAtq != null && (
-                              <span className="acao-stat">
+                              <span
+                                className="acao-stat"
+                                title={
+                                  fontesAtaque.length
+                                    ? `${formatarMod(extraAtaque)} de ${fontesAtaque.join(", ")}`
+                                    : undefined
+                                }
+                              >
                                 <i className="fas fa-khanda" /> Atq <strong>{formatarMod(bonusAtq)}</strong>
+                                {fontesAtaque.length > 0 && <i className="fas fa-link prof-fonte" />}
                               </span>
                             )}
                             {acao.dano && (
-                              <span className="acao-stat"><i className="fas fa-burst" /> {acao.dano}</span>
+                              <span
+                                className="acao-stat"
+                                title={
+                                  fontesDano.length
+                                    ? `${formatarMod(extraDano)} de ${fontesDano.join(", ")}`
+                                    : undefined
+                                }
+                              >
+                                <i className="fas fa-burst" /> {acao.dano}
+                                {extraDano !== 0 && (
+                                  <strong>
+                                    {" "}{extraDano > 0 ? `+${extraDano}` : extraDano}
+                                  </strong>
+                                )}
+                                {fontesDano.length > 0 && <i className="fas fa-link prof-fonte" />}
+                              </span>
                             )}
                             {cd != null && atributoSalv && (
-                              <span className="acao-stat">
+                              <span
+                                className="acao-stat"
+                                title={
+                                  fontesCd.length
+                                    ? `${formatarMod(extraCd)} de ${fontesCd.join(", ")}`
+                                    : undefined
+                                }
+                              >
                                 <i className="fas fa-shield-alt" /> Salv {SIGLA[atributoSalv]} CD <strong>{cd}</strong>
+                                {fontesCd.length > 0 && <i className="fas fa-link prof-fonte" />}
                               </span>
                             )}
                             {acao.alcance && (

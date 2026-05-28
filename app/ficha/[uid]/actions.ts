@@ -7,6 +7,8 @@ import { createClient } from "@/lib/supabase/server";
 import {
   ATRIBUTOS,
   PERICIAS,
+  computarDeltasInstantaneos,
+  lerEfeitos,
   lerProficiencias,
   normalizarEfeito,
   type Atributo,
@@ -727,9 +729,11 @@ export async function deletarHabilidade(
   revalidatePath(`/ficha/${personagemId}`);
 }
 
-// Debita os custos da habilidade (PP, PA, recurso, usos) numa única transação.
-// Server Action retorna pra que o cliente possa reconciliar o otimismo se algo
-// falhar (HP/PP insuficiente, recurso esgotado, etc).
+// Debita custos (PP, recurso de custo, usos) e aplica efeitos instantâneos
+// (`cura`, `modificador` em `hp-temp`/`hp-max`/`pp-max`, `recurso_delta`)
+// numa única transação. PA não tem campo dedicado no Personagem — quem
+// quiser controle automático cria um Recurso customizado "PA".
+// `condicao_aplicar` é adiado pra etapa 4 (não há tabela de condições ativas).
 export async function usarHabilidade(
   personagemId: string,
   habilidadeId: string,
@@ -741,9 +745,6 @@ export async function usarHabilidade(
   });
   if (!hab) throw new Error("Habilidade não encontrada.");
 
-  // Pré-checagem de pools. PA (Pontos de Ambição) não tem campo dedicado no
-  // Personagem — segue informativo só, igual em Acao. Quem quiser controle
-  // automático cria um Recurso customizado "PA".
   if (hab.custoPp > 0 && personagem.ppAtual < hab.custoPp) {
     throw new Error("PP insuficiente.");
   }
@@ -751,34 +752,78 @@ export async function usarHabilidade(
     throw new Error("Sem usos restantes.");
   }
 
-  let recurso: Awaited<ReturnType<typeof prisma.recurso.findFirst>> = null;
+  let recursoCusto: Awaited<ReturnType<typeof prisma.recurso.findFirst>> = null;
   if (hab.custoRecursoId && hab.custoRecursoValor > 0) {
-    recurso = await prisma.recurso.findFirst({
+    recursoCusto = await prisma.recurso.findFirst({
       where: { id: hab.custoRecursoId, personagemId },
     });
-    if (!recurso) throw new Error("Recurso configurado não existe mais.");
-    if (recurso.valorAtual < hab.custoRecursoValor) {
-      throw new Error(`${recurso.nome} insuficiente.`);
+    if (!recursoCusto) throw new Error("Recurso configurado não existe mais.");
+    if (recursoCusto.valorAtual < hab.custoRecursoValor) {
+      throw new Error(`${recursoCusto.nome} insuficiente.`);
     }
   }
 
-  // Tudo conferido — debita em transação pra ficar atômico.
-  // Mistura de update types: tipa-se como Prisma.PrismaPromise pra suportar
-  // personagem/recurso/habilidade no mesmo $transaction.
+  // Cura aceita só inteiro puro no e.valor (ex: "5"). Fórmulas tipo
+  // "1d8+CON" ficam descritivas — não há roller no server.
+  const efeitos = lerEfeitos(hab.efeitos);
+  const deltas = computarDeltasInstantaneos(efeitos);
+  const recursoIds = Object.keys(deltas.recursos);
+
+  // Busca recursos referenciados pelos efeitos pra validar existência + clampar.
+  const recursosEfeito =
+    recursoIds.length > 0
+      ? await prisma.recurso.findMany({
+          where: { personagemId, id: { in: recursoIds } },
+        })
+      : [];
+
+  // ─── Computa novos valores com clamps ──────────────────────
+  const novoHpMax = Math.max(1, personagem.hpMax + deltas.hpMax);
+  const novoPpMax = Math.max(0, personagem.ppMax + deltas.ppMax);
+  const novoHpAtual = clamp(personagem.hpAtual + deltas.hpAtual, 0, novoHpMax);
+  const novoPpAtual = clamp(
+    personagem.ppAtual - hab.custoPp + deltas.ppAtual,
+    0,
+    novoPpMax,
+  );
+  const novoHpTemp = Math.max(0, personagem.hpTemp + deltas.hpTemp);
+
+  const personagemPatch: Record<string, number> = {};
+  if (novoPpAtual !== personagem.ppAtual) personagemPatch.ppAtual = novoPpAtual;
+  if (novoHpAtual !== personagem.hpAtual) personagemPatch.hpAtual = novoHpAtual;
+  if (novoHpTemp !== personagem.hpTemp) personagemPatch.hpTemp = novoHpTemp;
+  if (novoHpMax !== personagem.hpMax) personagemPatch.hpMax = novoHpMax;
+  if (novoPpMax !== personagem.ppMax) personagemPatch.ppMax = novoPpMax;
+
   const ops: Prisma.PrismaPromise<unknown>[] = [];
-  if (hab.custoPp > 0) {
+  if (Object.keys(personagemPatch).length > 0) {
     ops.push(
       prisma.personagem.update({
         where: { id: personagemId },
-        data: { ppAtual: personagem.ppAtual - hab.custoPp },
+        data: personagemPatch,
       }),
     );
   }
-  if (recurso) {
+  if (recursoCusto) {
     ops.push(
       prisma.recurso.update({
-        where: { id: recurso.id },
-        data: { valorAtual: recurso.valorAtual - hab.custoRecursoValor },
+        where: { id: recursoCusto.id },
+        data: { valorAtual: recursoCusto.valorAtual - hab.custoRecursoValor },
+      }),
+    );
+  }
+  for (const r of recursosEfeito) {
+    const delta = deltas.recursos[r.id] ?? 0;
+    if (!delta) continue;
+    // Custo do recurso já foi debitado acima — não deduzir de novo.
+    const base =
+      recursoCusto?.id === r.id ? r.valorAtual - hab.custoRecursoValor : r.valorAtual;
+    const novo = clamp(base + delta, 0, r.valorMax);
+    if (novo === r.valorAtual) continue;
+    ops.push(
+      prisma.recurso.update({
+        where: { id: r.id },
+        data: { valorAtual: novo },
       }),
     );
   }
@@ -795,4 +840,10 @@ export async function usarHabilidade(
     await prisma.$transaction(ops);
   }
   revalidatePath(`/ficha/${personagemId}`);
+}
+
+function clamp(n: number, min: number, max: number): number {
+  if (n < min) return min;
+  if (n > max) return max;
+  return n;
 }

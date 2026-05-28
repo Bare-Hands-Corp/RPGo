@@ -938,6 +938,86 @@ export const ALVOS_AGREGAVEIS: { slug: string; nome: string; grupo: string }[] =
 const PERICIAS_SET = new Set<string>(PERICIAS.map((p) => p.slug));
 const ATRIBUTOS_SET = new Set<string>(ATRIBUTOS.map((a) => a.slug));
 
+// ─── Alvos contextuais (rolagens) ─────────────────────────────
+// Lista finita de slugs que `vantagem`, `desvantagem`, `sucesso_auto` e
+// `reroll` aceitam pra casar com o contexto da rolagem. Diferente de
+// ALVOS_AGREGAVEIS (passivos somáveis), aqui só importa "casa ou não casa".
+//
+// Convenções:
+// - Perícia: slug direto (`atletismo`, `furtividade`…) — alinhado com agregador.
+// - Salvaguarda: `salv-<atrib>` (ex: `salv-vontade`). `concentracao` é um
+//   pseudo-slug de salvaguarda especial.
+// - Teste puro de atributo: `teste-<atrib>` (ex: `teste-forca`) — distingue
+//   de modificador passivo de FOR.
+// - Combate: `ataque`, `ataque-cc`, `ataque-distancia`, `iniciativa`.
+// - Umbrellas: `ataque` (qualquer ataque), `salvaguarda` (qualquer salv),
+//   `teste` (qualquer teste/perícia), `qualquer` (qualquer d20). Útil em
+//   `reroll` ("rerrola qualquer ataque") e em descrições genéricas.
+export const ALVOS_CONTEXTUAIS: { slug: string; nome: string; grupo: string }[] = [
+  { slug: "qualquer", nome: "Qualquer d20", grupo: "Genérico" },
+  { slug: "ataque", nome: "Ataque (qualquer)", grupo: "Combate" },
+  { slug: "ataque-cc", nome: "Ataque CC", grupo: "Combate" },
+  { slug: "ataque-distancia", nome: "Ataque à Distância", grupo: "Combate" },
+  { slug: "iniciativa", nome: "Iniciativa", grupo: "Combate" },
+  { slug: "salvaguarda", nome: "Salv. (qualquer)", grupo: "Salvaguarda" },
+  ...ATRIBUTOS.map((a) => ({
+    slug: `salv-${a.slug}`,
+    nome: `Salv. ${a.nome}`,
+    grupo: "Salvaguarda",
+  })),
+  { slug: "concentracao", nome: "Salv. Concentração", grupo: "Salvaguarda" },
+  { slug: "teste", nome: "Teste (qualquer)", grupo: "Teste de Atributo" },
+  ...ATRIBUTOS.map((a) => ({
+    slug: `teste-${a.slug}`,
+    nome: `Teste ${a.nome}`,
+    grupo: "Teste de Atributo",
+  })),
+  ...PERICIAS.map((p) => ({ slug: p.slug, nome: p.nome, grupo: "Perícia" })),
+];
+
+const ALVOS_CONTEXTUAIS_SET = new Set(ALVOS_CONTEXTUAIS.map((a) => a.slug));
+
+// Marca o tipo de rolagem que tá acontecendo. Quem dispara a rolagem
+// monta um `ContextoRolagem`, e `casaContexto(alvo, ctx)` decide se o
+// efeito daquele alvo se aplica.
+export type ContextoRolagem =
+  | { tipo: "ataque"; alcance: "corpo_a_corpo" | "distancia" }
+  | { tipo: "salvaguarda"; atributo: Atributo; concentracao?: boolean }
+  | { tipo: "pericia"; pericia: PericiaSlug }
+  | { tipo: "teste-atributo"; atributo: Atributo }
+  | { tipo: "iniciativa" };
+
+// Verifica se um alvo (slug salvo no efeito) casa com o contexto da
+// rolagem. Slugs livres (fora de ALVOS_CONTEXTUAIS) NUNCA casam — viram
+// chip descritivo no card mas não disparam automação.
+export function casaContexto(alvoRaw: string, ctx: ContextoRolagem): boolean {
+  const alvo = alvoRaw.trim().toLowerCase();
+  if (!alvo) return false;
+  if (alvo === "qualquer") return true;
+  if (!ALVOS_CONTEXTUAIS_SET.has(alvo)) return false;
+
+  switch (ctx.tipo) {
+    case "ataque":
+      if (alvo === "ataque") return true;
+      if (alvo === "ataque-cc" && ctx.alcance === "corpo_a_corpo") return true;
+      if (alvo === "ataque-distancia" && ctx.alcance === "distancia") return true;
+      return false;
+    case "salvaguarda":
+      if (alvo === "salvaguarda") return true;
+      if (alvo === `salv-${ctx.atributo}`) return true;
+      if (alvo === "concentracao" && ctx.concentracao) return true;
+      return false;
+    case "pericia":
+      if (alvo === "teste") return true;
+      return alvo === ctx.pericia;
+    case "teste-atributo":
+      if (alvo === "teste") return true;
+      return alvo === `teste-${ctx.atributo}`;
+    case "iniciativa":
+      return alvo === "iniciativa";
+  }
+}
+
 type FonteValor = { valor: number; fontes: string[] };
 type FonteLista = { fontes: string[] };
 
@@ -978,6 +1058,10 @@ export type EfeitosAgregados = {
   // Sentidos especiais (visão escuro, sentir presença…). Indexado por nome
   // do sentido; o maior alcance vence.
   sentidos: Partial<Record<string, FonteValor>>;
+  // Fatores multiplicativos (ex: Espécie Gigante ×2 carga). Indexado pelo
+  // slug do alvo. Vários multiplicadores compõem por produto (×2 × ×1.5 = ×3).
+  // Default 1 (sem efeito). Ordem com aditivo: (base + bônus) × fator.
+  multiplicadores: Partial<Record<string, { fator: number; fontes: string[] }>>;
 };
 
 function vazio(): EfeitosAgregados {
@@ -1007,6 +1091,7 @@ function vazio(): EfeitosAgregados {
     floorD20: { valor: 0, fontes: [] },
     rerolls: {},
     sentidos: {},
+    multiplicadores: {},
   };
 }
 
@@ -1032,13 +1117,68 @@ function adicionarFonteLista(
   bucket[key] = atual;
 }
 
+// Deltas instantâneos aplicados quando uma habilidade ativa é usada. Cura,
+// `modificador` em pools temporários e `recurso_delta` viram aqui. Usado
+// tanto pelo server (Server Action) quanto pelo client (otimismo cross-tab).
+// Recursos custom ficam indexados pelo id (UUID) que vive em `e.recurso`.
+export type DeltasInstantaneos = {
+  hpAtual: number;
+  hpTemp: number;
+  ppAtual: number;
+  hpMax: number;
+  ppMax: number;
+  recursos: Record<string, number>;
+};
+
+export function computarDeltasInstantaneos(
+  efeitos: EfeitoHabilidade[],
+): DeltasInstantaneos {
+  const d: DeltasInstantaneos = {
+    hpAtual: 0,
+    hpTemp: 0,
+    ppAtual: 0,
+    hpMax: 0,
+    ppMax: 0,
+    recursos: {},
+  };
+  for (const e of efeitos) {
+    if (e.tipo === "cura") {
+      const n = Number(e.valor);
+      if (!Number.isFinite(n) || n <= 0) continue;
+      const v = Math.trunc(n);
+      const onde = (e.alvoCura ?? "pv").trim().toLowerCase();
+      if (onde === "pp") d.ppAtual += v;
+      else if (onde === "ppv" || onde === "pv-temp" || onde === "hp-temp") d.hpTemp += v;
+      else d.hpAtual += v;
+    } else if (e.tipo === "modificador") {
+      const alvo = e.alvo.trim().toLowerCase();
+      if (alvo === "hp-temp" || alvo === "hptemp") d.hpTemp += Math.trunc(e.valor);
+      else if (alvo === "hp-max" || alvo === "hpmax") d.hpMax += Math.trunc(e.valor);
+      else if (alvo === "pp-max" || alvo === "ppmax") d.ppMax += Math.trunc(e.valor);
+    } else if (e.tipo === "recurso_delta") {
+      const v = Math.trunc(e.valor);
+      if (!v) continue;
+      const k = e.recurso.trim();
+      if (k === "pp") d.ppAtual += v;
+      else if (k === "pa") continue;
+      else if (k === "hpMax") d.hpMax += v;
+      else d.recursos[k] = (d.recursos[k] ?? 0) + v;
+    }
+  }
+  return d;
+}
+
 // Varre habilidades e aplica efeitos `modificador` e `proficiencia` nos
 // alvos canônicos. Alvos não reconhecidos são ignorados silenciosamente.
+// Só habilidades `passiva` entram no agregado — `ativa` é consumida no
+// botão "Usar" (efeitos instantâneos), `reativa` aguarda rolagens
+// contextuais (etapa 3), `livre` é só descritiva.
 export function agregarEfeitos(
-  habilidades: { nome: string; efeitos: unknown }[],
+  habilidades: { nome: string; tipo: string; efeitos: unknown }[],
 ): EfeitosAgregados {
   const out = vazio();
   for (const h of habilidades) {
+    if (h.tipo !== "passiva") continue;
     const efeitos = lerEfeitos(h.efeitos);
     for (const e of efeitos) {
       if (e.tipo === "modificador") {
@@ -1070,6 +1210,14 @@ export function agregarEfeitos(
         if (e.alcance > atual.valor) atual.valor = e.alcance;
         if (!atual.fontes.includes(h.nome)) atual.fontes.push(h.nome);
         out.sentidos[key] = atual;
+      } else if (e.tipo === "multiplicador") {
+        const key = e.alvo.trim().toLowerCase();
+        if (!key || !e.fator || e.fator === 1) continue;
+        const atual = out.multiplicadores[key] ?? { fator: 1, fontes: [] };
+        // Vários multiplicadores compõem por produto.
+        atual.fator *= e.fator;
+        if (!atual.fontes.includes(h.nome)) atual.fontes.push(h.nome);
+        out.multiplicadores[key] = atual;
       }
     }
   }

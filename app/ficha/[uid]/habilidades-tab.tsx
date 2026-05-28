@@ -10,12 +10,14 @@ import {
 } from "./actions";
 import {
   ALVOS_AGREGAVEIS,
+  ALVOS_CONTEXTUAIS,
   GRUPOS_PRESET,
   META_EFEITOS,
   ORIGENS_HABILIDADE,
   PRESETS_EFEITO,
   RECARGAS_HABILIDADE,
   TIPOS_HABILIDADE,
+  computarDeltasInstantaneos,
   lerEfeitos,
   resumoEfeito,
   type EfeitoHabilidade,
@@ -179,6 +181,34 @@ export function HabilidadesTab({ personagemId, habilidades, recursos }: Props) {
       color: "var(--text-main)",
     });
     if (!c.isConfirmed) return;
+
+    // Otimismo cross-tab: dispara deltas pra sidebar (HP/PP) e RecursosSidebar
+    // refletirem antes do server. Mirror da lógica de `usarHabilidade` no
+    // server — `computarDeltasInstantaneos` é a fonte única.
+    const deltas = computarDeltasInstantaneos(lerEfeitos(h.efeitos));
+    const deltaPersonagem = {
+      deltaHpAtual: deltas.hpAtual || undefined,
+      deltaHpTemp: deltas.hpTemp || undefined,
+      deltaPpAtual: (deltas.ppAtual - h.custoPp) || undefined,
+      deltaHpMax: deltas.hpMax || undefined,
+      deltaPpMax: deltas.ppMax || undefined,
+    };
+    if (Object.values(deltaPersonagem).some((v) => v !== undefined)) {
+      window.dispatchEvent(
+        new CustomEvent("rpgo:patch-personagem", { detail: deltaPersonagem }),
+      );
+    }
+    const deltaRecursos: Record<string, number> = { ...deltas.recursos };
+    if (h.custoRecursoId && h.custoRecursoValor > 0) {
+      deltaRecursos[h.custoRecursoId] =
+        (deltaRecursos[h.custoRecursoId] ?? 0) - h.custoRecursoValor;
+    }
+    if (Object.keys(deltaRecursos).length > 0) {
+      window.dispatchEvent(
+        new CustomEvent("rpgo:patch-recurso", { detail: deltaRecursos }),
+      );
+    }
+
     startTransition(async () => {
       aplicar({ kind: "usar", id: h.id });
       try {
@@ -885,24 +915,38 @@ function PickerPreset({
   );
 }
 
+// Subset de alvos que faz sentido para `multiplicador` (Espécie Gigante dobra
+// carga, etc). Tudo o que não tá aqui (perícia, ataque, dano…) cai no "Outro".
+const ALVOS_MULTIPLICADOR_SLUGS = new Set([
+  "carga",
+  "deslocamento",
+  "hp-max",
+  "pp-max",
+]);
+const ALVOS_MULTIPLICADOR = ALVOS_AGREGAVEIS.filter((a) =>
+  ALVOS_MULTIPLICADOR_SLUGS.has(a.slug),
+);
+
 // Select de alvo agrupado por categoria. Mostra "Outro…" no fim — escolher
 // abre o input livre, mantendo a flexibilidade que tinha antes.
 function SelectAlvo({
   valor,
   onChange,
   placeholder,
+  alvos = ALVOS_AGREGAVEIS,
 }: {
   valor: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  alvos?: typeof ALVOS_AGREGAVEIS;
 }) {
-  const slugsCanonicos = new Set(ALVOS_AGREGAVEIS.map((a) => a.slug));
+  const slugsCanonicos = new Set(alvos.map((a) => a.slug));
   // Se o valor existente não está na lista canônica, automaticamente vira "outro".
   const ehOutro = valor !== "" && !slugsCanonicos.has(valor);
   const [modoOutro, setModoOutro] = useState(ehOutro);
 
   const grupos: Record<string, typeof ALVOS_AGREGAVEIS> = {};
-  for (const a of ALVOS_AGREGAVEIS) {
+  for (const a of alvos) {
     (grupos[a.grupo] ||= []).push(a);
   }
 
@@ -1072,6 +1116,7 @@ function renderCorpo(
             <SelectAlvo
               valor={e.alvo}
               onChange={(v) => onPatch({ alvo: v } as Partial<EfeitoHabilidade>)}
+              alvos={ALVOS_CONTEXTUAIS}
             />
           </div>
           <Detalhes aberto={!!e.quando}>
@@ -1252,12 +1297,14 @@ function renderCorpo(
     case "multiplicador":
       return (
         <>
-          <Campo
-            label="O quê"
-            valor={e.alvo}
-            onChange={(v) => onPatch({ alvo: v } as Partial<EfeitoHabilidade>)}
-            placeholder="carga, movimento…"
-          />
+          <div>
+            <label>O quê</label>
+            <SelectAlvo
+              valor={e.alvo}
+              onChange={(v) => onPatch({ alvo: v } as Partial<EfeitoHabilidade>)}
+              alvos={ALVOS_MULTIPLICADOR}
+            />
+          </div>
           <CampoNum
             label="Fator (ex: 2 = dobra)"
             valor={e.fator}
@@ -1328,17 +1375,11 @@ function renderCorpo(
         <>
           <div>
             <label>Em qual jogada</label>
-            <select
-              value={e.gatilho}
-              onChange={(ev) =>
-                onPatch({ gatilho: ev.target.value } as Partial<EfeitoHabilidade>)
-              }
-            >
-              <option value="ataque">Ataque</option>
-              <option value="salvaguarda">Salvaguarda</option>
-              <option value="teste">Teste de Atributo/Perícia</option>
-              <option value="qualquer">Qualquer d20</option>
-            </select>
+            <SelectAlvo
+              valor={e.gatilho}
+              onChange={(v) => onPatch({ gatilho: v } as Partial<EfeitoHabilidade>)}
+              alvos={ALVOS_CONTEXTUAIS}
+            />
           </div>
           <CampoNum
             label="Usos / descanso longo"
@@ -1445,6 +1486,7 @@ function renderCorpo(
             <SelectAlvo
               valor={e.alvo}
               onChange={(v) => onPatch({ alvo: v } as Partial<EfeitoHabilidade>)}
+              alvos={ALVOS_CONTEXTUAIS}
             />
           </div>
           <Detalhes aberto={!!e.quando}>

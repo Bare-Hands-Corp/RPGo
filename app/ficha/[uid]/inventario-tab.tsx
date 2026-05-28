@@ -14,6 +14,7 @@ import {
   type AlcanceArma,
   type Atributo,
   type CategoriaArma,
+  type EfeitosAgregados,
   type PropriedadeArma,
 } from "@/lib/op-rpg";
 
@@ -47,6 +48,7 @@ type Props = {
   itens: Item[];
   nivel: number;
   atributos: Record<Atributo, number>;
+  efeitosAgregados: EfeitosAgregados;
 };
 
 function lerPropriedades(raw: unknown): PropriedadeArma[] {
@@ -117,6 +119,7 @@ export function InventarioTab({
   itens,
   nivel,
   atributos,
+  efeitosAgregados,
 }: Props) {
   const [mostrarEquipados, setMostrarEquipados] = useState(false);
   const [categoria, setCategoria] = useState<Categoria>("arsenal");
@@ -340,7 +343,7 @@ export function InventarioTab({
       : "corpo_a_corpo";
     const propriedades = lerPropriedades(item.propriedades);
     const override = item.atributoAtaque as Atributo | null;
-    return bonusAtaqueArma({
+    const base = bonusAtaqueArma({
       alcance,
       propriedades,
       atributoOverride: override,
@@ -349,10 +352,30 @@ export function InventarioTab({
       modificadorArma: item.modificador || 0,
       proficiente: item.proficienteArma,
     });
+    if (!base) return null;
+    // Soma bônus de habilidade: genérico (Ataque) + específico do alcance.
+    const ataqueGenerico = efeitosAgregados.bonusAtaque;
+    const ataqueAlcance =
+      alcance === "corpo_a_corpo"
+        ? efeitosAgregados.bonusAtaqueCC
+        : efeitosAgregados.bonusAtaqueDistancia;
+    const bonusHab = ataqueGenerico.valor + ataqueAlcance.valor;
+    const fontesHab = [
+      ...ataqueGenerico.fontes,
+      ...ataqueAlcance.fontes.filter((f) => !ataqueGenerico.fontes.includes(f)),
+    ];
+    return {
+      atributo: base.atributo,
+      bonus: base.bonus + bonusHab,
+      fontesHab: fontesHab.length ? fontesHab : undefined,
+    };
   }
 
   const pesoTotal = itensOtimistas.reduce((acc, i) => acc + (Number(i.peso) || 0), 0);
-  const maxPeso = cargaMaxima || 20;
+  // Carga base + bônus aditivos × fator multiplicativo (Espécie Gigante etc).
+  const multCarga = efeitosAgregados.multiplicadores.carga;
+  const maxPesoBase = (cargaMaxima || 20) + efeitosAgregados.bonusCarga.valor;
+  const maxPeso = multCarga ? maxPesoBase * multCarga.fator : maxPesoBase;
   const pesoPct = Math.min(100, (pesoTotal / maxPeso) * 100);
 
   let corBarra = "var(--color-react)";
@@ -414,6 +437,22 @@ export function InventarioTab({
           <div className="stat-values">
             <span>{pesoTotal.toFixed(1)}</span> /{" "}
             <EditableStat personagemId={personagemId} campo="cargaMaxima" valor={cargaMaxima} />
+            {efeitosAgregados.bonusCarga.fontes.length > 0 && (
+              <span
+                title={`${formatarMod(efeitosAgregados.bonusCarga.valor)} de ${efeitosAgregados.bonusCarga.fontes.join(", ")}`}
+              >
+                {" "}
+                {efeitosAgregados.bonusCarga.valor > 0 ? "+" : ""}
+                {efeitosAgregados.bonusCarga.valor}
+                <i className="fas fa-link prof-fonte" />
+              </span>
+            )}
+            {multCarga && (
+              <span title={`×${multCarga.fator} de ${multCarga.fontes.join(", ")}`}>
+                {" "}×{multCarga.fator}
+                <i className="fas fa-link prof-fonte" />
+              </span>
+            )}
             {" "}PC
           </div>
         </div>
@@ -748,7 +787,7 @@ type CardCallbacks = {
   apagar: (id: string) => void;
 };
 
-type Ataque = { atributo: Atributo; bonus: number } | null;
+type Ataque = { atributo: Atributo; bonus: number; fontesHab?: string[] } | null;
 
 function SecaoItens({
   titulo,
@@ -837,9 +876,13 @@ function CardItem({
               : ` ${item.modificador}`
             : ""}
           {ataque && (
-            <span style={{ marginLeft: 8, fontWeight: "normal", color: "var(--text-sec)" }}>
+            <span
+              style={{ marginLeft: 8, fontWeight: "normal", color: "var(--text-sec)" }}
+              title={ataque.fontesHab?.length ? `Inclui bônus de ${ataque.fontesHab.join(", ")}` : undefined}
+            >
               Ataque: <strong style={{ color: "var(--color-power)" }}>{formatarMod(ataque.bonus)}</strong>{" "}
               <span style={{ fontSize: "0.75rem" }}>({SIGLA_ATRIBUTO[ataque.atributo]})</span>
+              {ataque.fontesHab?.length ? <i className="fas fa-link prof-fonte" /> : null}
             </span>
           )}
         </div>

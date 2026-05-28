@@ -138,6 +138,7 @@ export function FichaTabs({
           itens={itens}
           nivel={nivel}
           atributos={atributos}
+          efeitosAgregados={efeitosAgregados}
         />
       </div>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useOptimistic, useState, useTransition } from "react";
+import { useEffect, useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { atualizarRecurso, criarRecurso, deletarRecurso } from "./actions";
 
@@ -70,7 +70,39 @@ export function RecursosSidebar({
   personagemId: string;
   recursos: Recurso[];
 }) {
-  const [lista, aplicarPatch] = useOptimistic(recursos, (state, p: Patch) => {
+  // Patch cross-tab vindo do HabilidadesTab (efeito `recurso_delta` de uma
+  // habilidade ativa). Mapa id → valorAtual otimista, sobrescreve o valor
+  // vindo do server até o realtime/revalidate trazer a verdade. Os events
+  // carregam deltas; clamp 0..valorMax fica no merge abaixo.
+  const [shadow, setShadow] = useState<Record<string, number>>({});
+  useEffect(() => {
+    setShadow({});
+  }, [recursos]);
+  useEffect(() => {
+    function ouvir(e: Event) {
+      const det = (e as CustomEvent<Record<string, number>>).detail;
+      if (!det) return;
+      setShadow((s) => {
+        const next = { ...s };
+        for (const [id, delta] of Object.entries(det)) {
+          if (!delta) continue;
+          const base = recursos.find((r) => r.id === id);
+          if (!base) continue;
+          const atual = next[id] ?? base.valorAtual;
+          next[id] = clamp(atual + delta, 0, base.valorMax);
+        }
+        return next;
+      });
+    }
+    window.addEventListener("rpgo:patch-recurso", ouvir);
+    return () => window.removeEventListener("rpgo:patch-recurso", ouvir);
+  }, [recursos]);
+
+  const recursosComShadow = recursos.map((r) =>
+    r.id in shadow ? { ...r, valorAtual: shadow[r.id] } : r,
+  );
+
+  const [lista, aplicarPatch] = useOptimistic(recursosComShadow, (state, p: Patch) => {
     if (p.kind === "create") return [...state, p.recurso];
     if (p.kind === "delete") return state.filter((r) => r.id !== p.id);
     return state.map((r) => (r.id === p.id ? { ...r, ...p.patch } : r));

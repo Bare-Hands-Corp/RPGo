@@ -1,6 +1,6 @@
 "use client";
 
-import { useOptimistic } from "react";
+import { useEffect, useOptimistic, useState } from "react";
 import Link from "next/link";
 import { EditableStat } from "./editable-stat";
 import { EditFichaModal } from "./edit-ficha-modal";
@@ -57,10 +57,13 @@ function pct(atual: number, max: number): number {
   return Math.max(0, Math.min(100, (atual / max) * 100));
 }
 
-type PatchEditFicha = Partial<
+type PatchPersonagem = Partial<
   Pick<
     Personagem,
+    | "hpAtual"
+    | "hpTemp"
     | "hpMax"
+    | "ppAtual"
     | "ppMax"
     | "tipoDadoVida"
     | "forca"
@@ -72,6 +75,36 @@ type PatchEditFicha = Partial<
   >
 >;
 
+// Patch cross-tab via CustomEvent `rpgo:patch-personagem`. Deltas (somam ao
+// valor atual) em vez de absolutos pra evitar precisar do snapshot completo
+// do personagem em quem dispara (ex: HabilidadesTab).
+type DeltaPersonagem = Partial<{
+  deltaHpAtual: number;
+  deltaHpTemp: number;
+  deltaPpAtual: number;
+  deltaHpMax: number;
+  deltaPpMax: number;
+}>;
+
+function aplicarDelta(
+  shadow: PatchPersonagem,
+  inicial: Personagem,
+  delta: DeltaPersonagem,
+): PatchPersonagem {
+  const next = { ...shadow };
+  const soma = (campo: "hpAtual" | "hpTemp" | "ppAtual" | "hpMax" | "ppMax", d?: number) => {
+    if (!d) return;
+    const base = next[campo] ?? inicial[campo];
+    next[campo] = Math.max(0, base + d);
+  };
+  soma("hpAtual", delta.deltaHpAtual);
+  soma("hpTemp", delta.deltaHpTemp);
+  soma("ppAtual", delta.deltaPpAtual);
+  soma("hpMax", delta.deltaHpMax);
+  soma("ppMax", delta.deltaPpMax);
+  return next;
+}
+
 export function PerfilSidebar({
   personagem: inicial,
   efeitosAgregados,
@@ -82,9 +115,29 @@ export function PerfilSidebar({
   // useOptimistic do personagem inteiro: o EditFichaModal e qualquer outro
   // editor podem aplicar patches via `aplicarOtimista` pra refletir mudanças
   // antes do server responder.
+  //
+  // `shadow` é o canal de patch cross-tab — outros componentes (ex:
+  // HabilidadesTab usando uma habilidade ativa) disparam o CustomEvent
+  // `rpgo:patch-personagem` com deltas, e a sidebar reflete sem precisar de
+  // prop drilling. Reseta quando inicial muda (Server Component re-renderizou
+  // com a verdade).
+  const [shadow, setShadow] = useState<PatchPersonagem>({});
+  useEffect(() => {
+    setShadow({});
+  }, [inicial]);
+  useEffect(() => {
+    function ouvir(e: Event) {
+      const det = (e as CustomEvent<DeltaPersonagem>).detail;
+      if (!det) return;
+      setShadow((s) => aplicarDelta(s, inicial, det));
+    }
+    window.addEventListener("rpgo:patch-personagem", ouvir);
+    return () => window.removeEventListener("rpgo:patch-personagem", ouvir);
+  }, [inicial]);
+
   const [p, aplicarOtimista] = useOptimistic(
-    inicial,
-    (state: Personagem, patch: PatchEditFicha) => ({ ...state, ...patch }),
+    { ...inicial, ...shadow },
+    (state: Personagem, patch: PatchPersonagem) => ({ ...state, ...patch }),
   );
 
   const avatarSrc =
@@ -119,10 +172,14 @@ export function PerfilSidebar({
     lerProficiencias(p.proficiencias).pericias.includes("percepcao") ||
     !!efeitosAgregados.proficienciasPericia.percepcao;
 
-  // Pools efetivos: somam bônus de habilidades ao valor do banco. Mantém o
-  // banco como "valor base" e a UI mostra o total.
-  const hpMaxEfetivo = p.hpMax + efeitosAgregados.bonusHpMax.valor;
-  const ppMaxEfetivo = p.ppMax + efeitosAgregados.bonusPpMax.valor;
+  // Pools efetivos: (base + aditivo) × fator. Mantém o banco como "valor base"
+  // e a UI mostra o total. Arredondamento por Math.round (regra padrão do RPG).
+  const multHpMax = efeitosAgregados.multiplicadores["hp-max"];
+  const multPpMax = efeitosAgregados.multiplicadores["pp-max"];
+  const hpMaxBase = p.hpMax + efeitosAgregados.bonusHpMax.valor;
+  const ppMaxBase = p.ppMax + efeitosAgregados.bonusPpMax.valor;
+  const hpMaxEfetivo = multHpMax ? Math.round(hpMaxBase * multHpMax.fator) : hpMaxBase;
+  const ppMaxEfetivo = multPpMax ? Math.round(ppMaxBase * multPpMax.fator) : ppMaxBase;
 
   return (
     <aside className="sidebar">
@@ -179,23 +236,36 @@ export function PerfilSidebar({
               campo="hpAtual"
               valor={p.hpAtual}
               max={hpMaxEfetivo}
+              onOtimista={(novo) => aplicarOtimista({ hpAtual: novo })}
             />
             {" / "}
             <span
               title={
-                efeitosAgregados.bonusHpMax.fontes.length
-                  ? `${formatarMod(efeitosAgregados.bonusHpMax.valor)} de ${efeitosAgregados.bonusHpMax.fontes.join(", ")}`
-                  : undefined
+                [
+                  efeitosAgregados.bonusHpMax.fontes.length
+                    ? `${formatarMod(efeitosAgregados.bonusHpMax.valor)} de ${efeitosAgregados.bonusHpMax.fontes.join(", ")}`
+                    : null,
+                  multHpMax
+                    ? `×${multHpMax.fator} de ${multHpMax.fontes.join(", ")}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || undefined
               }
             >
               {hpMaxEfetivo}
-              {efeitosAgregados.bonusHpMax.fontes.length > 0 && (
+              {(efeitosAgregados.bonusHpMax.fontes.length > 0 || multHpMax) && (
                 <i className="fas fa-link prof-fonte" />
               )}
             </span>
             <span className={`hp-temp ${p.hpTemp > 0 ? "ativo" : ""}`}>
               {" +"}
-              <EditableStat personagemId={p.id} campo="hpTemp" valor={p.hpTemp} />
+              <EditableStat
+                personagemId={p.id}
+                campo="hpTemp"
+                valor={p.hpTemp}
+                onOtimista={(novo) => aplicarOtimista({ hpTemp: novo })}
+              />
             </span>
           </div>
         </div>
@@ -227,13 +297,20 @@ export function PerfilSidebar({
             /{" "}
             <span
               title={
-                efeitosAgregados.bonusPpMax.fontes.length
-                  ? `${formatarMod(efeitosAgregados.bonusPpMax.valor)} de ${efeitosAgregados.bonusPpMax.fontes.join(", ")}`
-                  : undefined
+                [
+                  efeitosAgregados.bonusPpMax.fontes.length
+                    ? `${formatarMod(efeitosAgregados.bonusPpMax.valor)} de ${efeitosAgregados.bonusPpMax.fontes.join(", ")}`
+                    : null,
+                  multPpMax
+                    ? `×${multPpMax.fator} de ${multPpMax.fontes.join(", ")}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || undefined
               }
             >
               {ppMaxEfetivo}
-              {efeitosAgregados.bonusPpMax.fontes.length > 0 && (
+              {(efeitosAgregados.bonusPpMax.fontes.length > 0 || multPpMax) && (
                 <i className="fas fa-link prof-fonte" />
               )}
             </span>

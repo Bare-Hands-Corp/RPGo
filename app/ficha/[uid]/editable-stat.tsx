@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useTransition } from "react";
 import { patchPersonagem } from "./actions";
 import { formatarBerries } from "@/lib/op-rpg";
 
@@ -18,14 +18,18 @@ type Props = {
   valor: number;
   max?: number; // se definido, clampa
   formato?: Formato;
+  // Permite reportar o novo valor pro pai (ex: PerfilSidebar) aplicar otimismo
+  // em derivados visuais — barra de HP usa hpAtual/hpTemp diretamente.
+  onOtimista?: (novo: number) => void;
 };
 
 // Click no número → input com mesmo tamanho. Aceita +/- delta ou valor absoluto.
 // Salva no blur ou enter. Optimistic update.
-export function EditableStat({ personagemId, campo, valor, max, formato }: Props) {
+export function EditableStat({ personagemId, campo, valor, max, formato, onOtimista }: Props) {
   const formatar = formato ? FORMATADORES[formato] : null;
   const [editando, setEditando] = useState(false);
   const [otimista, setOtimista] = useState<number | null>(null);
+  const [, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Sincroniza estado otimista quando o valor real (vindo do server) muda.
@@ -66,11 +70,14 @@ export function EditableStat({ personagemId, campo, valor, max, formato }: Props
     if (novo == null || novo === valorAtual) return;
 
     setOtimista(novo);
-    try {
-      await patchPersonagem(personagemId, { [campo]: novo });
-    } catch {
-      setOtimista(null);
-    }
+    startTransition(async () => {
+      onOtimista?.(novo);
+      try {
+        await patchPersonagem(personagemId, { [campo]: novo });
+      } catch {
+        setOtimista(null);
+      }
+    });
   }
 
   if (editando) {
