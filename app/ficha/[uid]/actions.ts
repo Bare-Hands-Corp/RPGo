@@ -1,8 +1,19 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import {
+  ATRIBUTOS,
+  PERICIAS,
+  lerProficiencias,
+  normalizarEfeito,
+  type Atributo,
+  type EfeitoHabilidade,
+  type PericiaSlug,
+  type TipoEfeito,
+} from "@/lib/op-rpg";
 
 // ─── Auth helper interno ───────────────────────────────────
 // Verifica sessão + acesso (dono OU narrador) e retorna o personagem com mesa.
@@ -36,10 +47,13 @@ async function autorizar(personagemId: string) {
 const ALLOWED_PERSONAGEM = [
   "nome",
   "nivel",
+  "pe",
   "hpAtual",
   "hpMax",
+  "hpTemp",
   "ppAtual",
   "ppMax",
+  "exaustao",
   "cargaMaxima",
   "ultimaRolagem",
   "fotoUrl",
@@ -50,6 +64,10 @@ const ALLOWED_PERSONAGEM = [
   "vontade",
   "presenca",
   "mesaId",
+  "berries",
+  "tipoDadoVida",
+  "dadosVidaGastos",
+  "crOutros",
 ] as const;
 
 type PersonagemPatch = Partial<
@@ -75,22 +93,98 @@ export async function patchPersonagem(
 }
 
 // ─── Ações ─────────────────────────────────────────────────
-export async function criarAcao(
-  personagemId: string,
-  input: { nome: string; descricao?: string; tipo: string; tag?: string },
-) {
+const ALLOWED_ACAO = [
+  "nome",
+  "descricao",
+  "tipo",
+  "tag",
+  "custoPp",
+  "custoPa",
+  "custoRecursoId",
+  "custoRecursoValor",
+  "atributoAtaque",
+  "atributoSalv",
+  "atributoCd",
+  "dano",
+  "alcance",
+] as const;
+
+type AcaoInput = Partial<Record<(typeof ALLOWED_ACAO)[number], unknown>>;
+
+const TIPOS_ACAO_VALIDOS = new Set(["padrao", "bonus", "power", "react"]);
+
+function normalizarAcaoInput(input: AcaoInput) {
+  const data: Record<string, unknown> = {};
+  if (input.nome !== undefined) {
+    const nome = (input.nome as string).trim();
+    if (!nome) throw new Error("Nome é obrigatório.");
+    data.nome = nome;
+  }
+  if (input.descricao !== undefined) data.descricao = String(input.descricao);
+  if (input.tipo !== undefined) {
+    const tipo = String(input.tipo);
+    if (!TIPOS_ACAO_VALIDOS.has(tipo)) throw new Error("Tipo de ação inválido.");
+    data.tipo = tipo;
+  }
+  if (input.tag !== undefined) data.tag = String(input.tag);
+  if (input.custoPp !== undefined) data.custoPp = Math.max(0, Number(input.custoPp) || 0);
+  if (input.custoPa !== undefined) data.custoPa = Math.max(0, Number(input.custoPa) || 0);
+  if (input.custoRecursoId !== undefined) {
+    data.custoRecursoId = input.custoRecursoId ? String(input.custoRecursoId) : null;
+  }
+  if (input.custoRecursoValor !== undefined) {
+    data.custoRecursoValor = Math.max(0, Number(input.custoRecursoValor) || 0);
+  }
+  for (const k of ["atributoAtaque", "atributoSalv", "atributoCd"] as const) {
+    if (input[k] !== undefined) {
+      const v = input[k] ? String(input[k]) : null;
+      if (v && !ATRIBUTOS_VALIDOS.has(v as Atributo)) {
+        throw new Error(`Atributo inválido em ${k}.`);
+      }
+      data[k] = v;
+    }
+  }
+  if (input.dano !== undefined) data.dano = input.dano ? String(input.dano) : null;
+  if (input.alcance !== undefined) data.alcance = input.alcance ? String(input.alcance) : null;
+  return data;
+}
+
+export async function criarAcao(personagemId: string, input: AcaoInput) {
   await autorizar(personagemId);
-  const nome = input.nome.trim();
-  if (!nome) throw new Error("Nome é obrigatório.");
+  const data = normalizarAcaoInput(input);
+  if (data.nome === undefined) throw new Error("Nome é obrigatório.");
 
   await prisma.acao.create({
     data: {
       personagemId,
-      nome,
-      descricao: input.descricao || "",
-      tipo: input.tipo || "padrao",
-      tag: input.tag || "",
+      nome: data.nome as string,
+      descricao: (data.descricao as string) ?? "",
+      tipo: (data.tipo as string) ?? "padrao",
+      tag: (data.tag as string) ?? "",
+      custoPp: (data.custoPp as number) ?? 0,
+      custoPa: (data.custoPa as number) ?? 0,
+      custoRecursoId: (data.custoRecursoId as string | null) ?? null,
+      custoRecursoValor: (data.custoRecursoValor as number) ?? 0,
+      atributoAtaque: (data.atributoAtaque as string | null) ?? null,
+      atributoSalv: (data.atributoSalv as string | null) ?? null,
+      atributoCd: (data.atributoCd as string | null) ?? null,
+      dano: (data.dano as string | null) ?? null,
+      alcance: (data.alcance as string | null) ?? null,
     },
+  });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+export async function atualizarAcao(
+  personagemId: string,
+  acaoId: string,
+  patch: AcaoInput,
+) {
+  await autorizar(personagemId);
+  const data = normalizarAcaoInput(patch);
+  await prisma.acao.update({
+    where: { id: acaoId, personagemId },
+    data,
   });
   revalidatePath(`/ficha/${personagemId}`);
 }
@@ -116,27 +210,102 @@ const ALLOWED_ITEM = [
   "penalidadeDes",
   "equipado",
   "favorito",
+  "categoria",
+  "alcance",
+  "propriedades",
+  "atributoAtaque",
+  "proficienteArma",
 ] as const;
 
 type ItemInput = Partial<Record<(typeof ALLOWED_ITEM)[number], unknown>>;
 
+const CATEGORIAS_VALIDAS = new Set(["cortante", "fogo", "especial", "marcial"]);
+const ALCANCES_VALIDOS = new Set(["corpo_a_corpo", "distancia"]);
+const PROPRIEDADES_VALIDAS = new Set([
+  "acuidade",
+  "arremesso",
+  "duasMaos",
+  "versatil",
+  "municao",
+  "recarga",
+  "sutil",
+  "pesada",
+  "alcance",
+  "invencao",
+  "especial",
+]);
+
+function normalizarPropriedades(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.filter((p): p is string => typeof p === "string" && PROPRIEDADES_VALIDAS.has(p)))];
+}
+
+function normalizarItemInput(input: ItemInput) {
+  const data: Record<string, unknown> = {};
+  if (input.nome !== undefined) {
+    const nome = (input.nome as string).trim();
+    if (!nome) throw new Error("Nome é obrigatório.");
+    data.nome = nome;
+  }
+  if (input.peso !== undefined) data.peso = Number(input.peso) || 0;
+  if (input.tipo !== undefined) data.tipo = String(input.tipo) || "comum";
+  if (input.tags !== undefined) data.tags = (input.tags as string) || "";
+  if (input.descricao !== undefined) data.descricao = (input.descricao as string) || "";
+  if (input.dano !== undefined) data.dano = (input.dano as string) || "";
+  if (input.modificador !== undefined) data.modificador = Number(input.modificador) || 0;
+  if (input.ca !== undefined) data.ca = Number(input.ca) || 0;
+  if (input.penalidadeDes !== undefined) data.penalidadeDes = Number(input.penalidadeDes) || 0;
+  if (input.equipado !== undefined) data.equipado = Boolean(input.equipado);
+  if (input.favorito !== undefined) data.favorito = Boolean(input.favorito);
+  if (input.categoria !== undefined) {
+    const v = String(input.categoria);
+    if (!CATEGORIAS_VALIDAS.has(v)) throw new Error("Categoria inválida.");
+    data.categoria = v;
+  }
+  if (input.alcance !== undefined) {
+    const v = String(input.alcance);
+    if (!ALCANCES_VALIDOS.has(v)) throw new Error("Alcance inválido.");
+    data.alcance = v;
+  }
+  if (input.propriedades !== undefined) {
+    data.propriedades = normalizarPropriedades(input.propriedades);
+  }
+  if (input.atributoAtaque !== undefined) {
+    const v = input.atributoAtaque ? String(input.atributoAtaque) : null;
+    if (v && !ATRIBUTOS_VALIDOS.has(v as Atributo)) {
+      throw new Error("Atributo de ataque inválido.");
+    }
+    data.atributoAtaque = v;
+  }
+  if (input.proficienteArma !== undefined) {
+    data.proficienteArma = Boolean(input.proficienteArma);
+  }
+  return data;
+}
+
 export async function criarItem(personagemId: string, input: ItemInput) {
   await autorizar(personagemId);
-  const nome = (input.nome as string | undefined)?.trim();
-  if (!nome) throw new Error("Nome é obrigatório.");
+  const data = normalizarItemInput(input);
+  if (data.nome === undefined) throw new Error("Nome é obrigatório.");
 
   await prisma.item.create({
     data: {
       personagemId,
-      nome,
-      peso: Number(input.peso) || 0,
-      tipo: (input.tipo as string) || "comum",
-      tags: (input.tags as string) || "",
-      descricao: (input.descricao as string) || "",
-      dano: (input.dano as string) || "",
-      modificador: Number(input.modificador) || 0,
-      ca: Number(input.ca) || 0,
-      penalidadeDes: Number(input.penalidadeDes) || 0,
+      nome: data.nome as string,
+      peso: (data.peso as number) ?? 0,
+      tipo: (data.tipo as string) ?? "comum",
+      tags: (data.tags as string) ?? "",
+      descricao: (data.descricao as string) ?? "",
+      dano: (data.dano as string) ?? "",
+      modificador: (data.modificador as number) ?? 0,
+      ca: (data.ca as number) ?? 0,
+      penalidadeDes: (data.penalidadeDes as number) ?? 0,
+      categoria: (data.categoria as string) ?? "cortante",
+      alcance: (data.alcance as string) ?? "corpo_a_corpo",
+      propriedades: (data.propriedades as string[]) ?? [],
+      atributoAtaque: (data.atributoAtaque as string | null) ?? null,
+      proficienteArma:
+        data.proficienteArma === undefined ? true : (data.proficienteArma as boolean),
     },
   });
   revalidatePath(`/ficha/${personagemId}`);
@@ -148,11 +317,7 @@ export async function atualizarItem(
   patch: ItemInput,
 ) {
   await autorizar(personagemId);
-
-  const data: Record<string, unknown> = {};
-  for (const key of ALLOWED_ITEM) {
-    if (patch[key] !== undefined) data[key] = patch[key];
-  }
+  const data = normalizarItemInput(patch);
 
   await prisma.item.update({
     where: { id: itemId, personagemId },
@@ -166,5 +331,468 @@ export async function deletarItem(personagemId: string, itemId: string) {
   await prisma.item.delete({
     where: { id: itemId, personagemId },
   });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+// ─── Proficiências (perícias e salvaguardas) ──────────────
+const PERICIAS_VALIDAS = new Set(PERICIAS.map((p) => p.slug));
+const ATRIBUTOS_VALIDOS = new Set(ATRIBUTOS.map((a) => a.slug));
+
+function toggleEm<T extends string>(lista: T[], slug: T, ligado: boolean): T[] {
+  const set = new Set(lista);
+  if (ligado) set.add(slug);
+  else set.delete(slug);
+  return Array.from(set);
+}
+
+export async function togglePericia(
+  personagemId: string,
+  slug: PericiaSlug,
+  proficiente: boolean,
+) {
+  if (!PERICIAS_VALIDAS.has(slug)) throw new Error("Perícia inválida.");
+  const { personagem } = await autorizar(personagemId);
+
+  const prof = lerProficiencias(personagem.proficiencias);
+  prof.pericias = toggleEm(prof.pericias, slug, proficiente);
+  // Desligar a proficiência também limpa o "dobrado".
+  if (!proficiente) {
+    prof.periciasDobradas = prof.periciasDobradas.filter((p) => p !== slug);
+  }
+
+  await prisma.personagem.update({
+    where: { id: personagemId },
+    data: { proficiencias: prof },
+  });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+export async function setPericiaOutros(
+  personagemId: string,
+  slug: PericiaSlug,
+  valor: number,
+) {
+  if (!PERICIAS_VALIDAS.has(slug)) throw new Error("Perícia inválida.");
+  if (!Number.isFinite(valor)) throw new Error("Valor inválido.");
+  const { personagem } = await autorizar(personagemId);
+
+  const prof = lerProficiencias(personagem.proficiencias);
+  const truncado = Math.trunc(valor);
+  if (truncado === 0) {
+    delete prof.outrosPericias[slug];
+  } else {
+    prof.outrosPericias[slug] = truncado;
+  }
+
+  await prisma.personagem.update({
+    where: { id: personagemId },
+    data: { proficiencias: prof },
+  });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+export async function togglePericiaDobrada(
+  personagemId: string,
+  slug: PericiaSlug,
+  dobrado: boolean,
+) {
+  if (!PERICIAS_VALIDAS.has(slug)) throw new Error("Perícia inválida.");
+  const { personagem } = await autorizar(personagemId);
+
+  const prof = lerProficiencias(personagem.proficiencias);
+  // "Dobrado" só faz sentido se for proficiente.
+  if (dobrado && !prof.pericias.includes(slug)) {
+    throw new Error("É preciso ser proficiente antes de dobrar.");
+  }
+  prof.periciasDobradas = toggleEm(prof.periciasDobradas, slug, dobrado);
+
+  await prisma.personagem.update({
+    where: { id: personagemId },
+    data: { proficiencias: prof },
+  });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+export async function toggleSalvaguarda(
+  personagemId: string,
+  atributo: Atributo,
+  proficiente: boolean,
+) {
+  if (!ATRIBUTOS_VALIDOS.has(atributo)) throw new Error("Atributo inválido.");
+  const { personagem } = await autorizar(personagemId);
+
+  const prof = lerProficiencias(personagem.proficiencias);
+  prof.salvaguardas = toggleEm(prof.salvaguardas, atributo, proficiente);
+
+  await prisma.personagem.update({
+    where: { id: personagemId },
+    data: { proficiencias: prof },
+  });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+export async function setSalvaguardaOutros(
+  personagemId: string,
+  atributo: Atributo,
+  valor: number,
+) {
+  if (!ATRIBUTOS_VALIDOS.has(atributo)) throw new Error("Atributo inválido.");
+  if (!Number.isFinite(valor)) throw new Error("Valor inválido.");
+  const { personagem } = await autorizar(personagemId);
+
+  const prof = lerProficiencias(personagem.proficiencias);
+  const truncado = Math.trunc(valor);
+  if (truncado === 0) {
+    delete prof.outrosSalvaguardas[atributo];
+  } else {
+    prof.outrosSalvaguardas[atributo] = truncado;
+  }
+
+  await prisma.personagem.update({
+    where: { id: personagemId },
+    data: { proficiencias: prof },
+  });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+// ─── Recursos customizados ────────────────────────────────
+const ALLOWED_RECURSO = [
+  "nome",
+  "valorAtual",
+  "valorMax",
+  "ordem",
+  "cor",
+  "resetEm",
+] as const;
+type RecursoInput = Partial<Record<(typeof ALLOWED_RECURSO)[number], unknown>>;
+
+const RESET_VALIDOS = new Set(["manual", "encontro", "descansoCurto", "descansoLongo"]);
+
+function normalizarRecurso(input: RecursoInput, parcial: boolean) {
+  const data: Record<string, unknown> = {};
+  for (const key of ALLOWED_RECURSO) {
+    if (input[key] === undefined) continue;
+    if (key === "nome") {
+      const nome = (input.nome as string).trim();
+      if (!nome) throw new Error("Nome do recurso é obrigatório.");
+      data.nome = nome;
+    } else if (key === "valorAtual" || key === "valorMax" || key === "ordem") {
+      data[key] = Number(input[key]) || 0;
+    } else if (key === "resetEm") {
+      const v = String(input.resetEm);
+      if (!RESET_VALIDOS.has(v)) throw new Error("resetEm inválido.");
+      data.resetEm = v;
+    } else if (key === "cor") {
+      data.cor = input.cor ? String(input.cor) : null;
+    }
+  }
+  if (!parcial && data.nome === undefined) {
+    throw new Error("Nome do recurso é obrigatório.");
+  }
+  return data;
+}
+
+export async function criarRecurso(personagemId: string, input: RecursoInput) {
+  await autorizar(personagemId);
+  const data = normalizarRecurso(input, false);
+
+  const atual =
+    typeof data.valorAtual === "number" ? data.valorAtual : Number(data.valorMax) || 0;
+
+  await prisma.recurso.create({
+    data: {
+      personagemId,
+      nome: data.nome as string,
+      valorAtual: atual,
+      valorMax: (data.valorMax as number) ?? 0,
+      ordem: (data.ordem as number) ?? 0,
+      cor: (data.cor as string | null) ?? null,
+      resetEm: (data.resetEm as string) ?? "manual",
+    },
+  });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+export async function atualizarRecurso(
+  personagemId: string,
+  recursoId: string,
+  patch: RecursoInput,
+) {
+  await autorizar(personagemId);
+  const data = normalizarRecurso(patch, true);
+
+  await prisma.recurso.update({
+    where: { id: recursoId, personagemId },
+    data,
+  });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+export async function deletarRecurso(personagemId: string, recursoId: string) {
+  await autorizar(personagemId);
+  await prisma.recurso.delete({
+    where: { id: recursoId, personagemId },
+  });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+// ─── Habilidades ───────────────────────────────────────────
+const ALLOWED_HABILIDADE = [
+  "nome",
+  "origem",
+  "tipo",
+  "descricao",
+  "custoPp",
+  "custoPa",
+  "custoRecursoId",
+  "custoRecursoValor",
+  "usos",
+  "usosAtual",
+  "recarga",
+  "tags",
+  "favorita",
+  "ordem",
+  "efeitos",
+] as const;
+
+type HabilidadeInput = Partial<
+  Record<(typeof ALLOWED_HABILIDADE)[number], unknown>
+>;
+
+const ORIGENS_HAB_VALIDAS = new Set([
+  "profissao",
+  "estilo",
+  "haki",
+  "especie",
+  "akumaNoMi",
+  "treinamento",
+  "livre",
+]);
+const TIPOS_HAB_VALIDOS = new Set(["passiva", "ativa", "reativa", "livre"]);
+const RECARGAS_VALIDAS_HAB = new Set([
+  "descansoCurto",
+  "descansoLongo",
+  "encontro",
+  "manual",
+]);
+const TIPOS_EFEITO_VALIDOS = new Set<TipoEfeito>([
+  "modificador",
+  "vantagem",
+  "desvantagem",
+  "proficiencia",
+  "recurso_delta",
+  "cura",
+  "condicao_imune",
+  "condicao_remover",
+  "condicao_aplicar",
+  "resistencia",
+  "imunidade",
+  "deslocamento",
+  "multiplicador",
+  "rolagem",
+  "trigger",
+  "crit_range",
+  "reroll",
+  "floor_d20",
+  "livre",
+]);
+
+function normalizarEfeitosInput(raw: unknown): EfeitoHabilidade[] {
+  if (!Array.isArray(raw)) return [];
+  const out: EfeitoHabilidade[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const obj = item as Record<string, unknown>;
+    const t = obj.tipo;
+    if (typeof t !== "string" || !TIPOS_EFEITO_VALIDOS.has(t as TipoEfeito)) continue;
+    const e = normalizarEfeito(t as TipoEfeito, obj);
+    if (e) out.push(e);
+  }
+  return out;
+}
+
+function normalizarHabilidadeInput(input: HabilidadeInput) {
+  const data: Record<string, unknown> = {};
+  if (input.nome !== undefined) {
+    const nome = String(input.nome).trim();
+    if (!nome) throw new Error("Nome é obrigatório.");
+    data.nome = nome;
+  }
+  if (input.origem !== undefined) {
+    const v = String(input.origem);
+    if (!ORIGENS_HAB_VALIDAS.has(v)) throw new Error("Origem inválida.");
+    data.origem = v;
+  }
+  if (input.tipo !== undefined) {
+    const v = String(input.tipo);
+    if (!TIPOS_HAB_VALIDOS.has(v)) throw new Error("Tipo de habilidade inválido.");
+    data.tipo = v;
+  }
+  if (input.descricao !== undefined) data.descricao = String(input.descricao);
+  if (input.custoPp !== undefined) data.custoPp = Math.max(0, Number(input.custoPp) || 0);
+  if (input.custoPa !== undefined) data.custoPa = Math.max(0, Number(input.custoPa) || 0);
+  if (input.custoRecursoId !== undefined) {
+    data.custoRecursoId = input.custoRecursoId ? String(input.custoRecursoId) : null;
+  }
+  if (input.custoRecursoValor !== undefined) {
+    data.custoRecursoValor = Math.max(0, Number(input.custoRecursoValor) || 0);
+  }
+  if (input.usos !== undefined) {
+    if (input.usos === null || input.usos === "") {
+      data.usos = null;
+      data.usosAtual = null;
+    } else {
+      const n = Math.max(0, Math.trunc(Number(input.usos) || 0));
+      data.usos = n;
+      // Se usosAtual não veio explícito, encha o tanque.
+      if (input.usosAtual === undefined) data.usosAtual = n;
+    }
+  }
+  if (input.usosAtual !== undefined && data.usosAtual === undefined) {
+    if (input.usosAtual === null || input.usosAtual === "") {
+      data.usosAtual = null;
+    } else {
+      data.usosAtual = Math.max(0, Math.trunc(Number(input.usosAtual) || 0));
+    }
+  }
+  if (input.recarga !== undefined) {
+    if (!input.recarga) {
+      data.recarga = null;
+    } else {
+      const v = String(input.recarga);
+      if (!RECARGAS_VALIDAS_HAB.has(v)) throw new Error("Recarga inválida.");
+      data.recarga = v;
+    }
+  }
+  if (input.tags !== undefined) data.tags = input.tags ? String(input.tags) : null;
+  if (input.favorita !== undefined) data.favorita = Boolean(input.favorita);
+  if (input.ordem !== undefined) data.ordem = Math.trunc(Number(input.ordem) || 0);
+  if (input.efeitos !== undefined) data.efeitos = normalizarEfeitosInput(input.efeitos);
+  return data;
+}
+
+export async function criarHabilidade(
+  personagemId: string,
+  input: HabilidadeInput,
+) {
+  await autorizar(personagemId);
+  const data = normalizarHabilidadeInput(input);
+  if (data.nome === undefined) throw new Error("Nome é obrigatório.");
+
+  await prisma.habilidade.create({
+    data: {
+      personagemId,
+      nome: data.nome as string,
+      origem: (data.origem as string) ?? "livre",
+      tipo: (data.tipo as string) ?? "passiva",
+      descricao: (data.descricao as string) ?? "",
+      custoPp: (data.custoPp as number) ?? 0,
+      custoPa: (data.custoPa as number) ?? 0,
+      custoRecursoId: (data.custoRecursoId as string | null) ?? null,
+      custoRecursoValor: (data.custoRecursoValor as number) ?? 0,
+      usos: (data.usos as number | null) ?? null,
+      usosAtual: (data.usosAtual as number | null) ?? null,
+      recarga: (data.recarga as string | null) ?? null,
+      tags: (data.tags as string | null) ?? null,
+      favorita: (data.favorita as boolean) ?? false,
+      ordem: (data.ordem as number) ?? 0,
+      efeitos: (data.efeitos as EfeitoHabilidade[]) ?? [],
+    },
+  });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+export async function atualizarHabilidade(
+  personagemId: string,
+  habilidadeId: string,
+  patch: HabilidadeInput,
+) {
+  await autorizar(personagemId);
+  const data = normalizarHabilidadeInput(patch);
+  await prisma.habilidade.update({
+    where: { id: habilidadeId, personagemId },
+    data,
+  });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+export async function deletarHabilidade(
+  personagemId: string,
+  habilidadeId: string,
+) {
+  await autorizar(personagemId);
+  await prisma.habilidade.delete({
+    where: { id: habilidadeId, personagemId },
+  });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+// Debita os custos da habilidade (PP, PA, recurso, usos) numa única transação.
+// Server Action retorna pra que o cliente possa reconciliar o otimismo se algo
+// falhar (HP/PP insuficiente, recurso esgotado, etc).
+export async function usarHabilidade(
+  personagemId: string,
+  habilidadeId: string,
+) {
+  const { personagem } = await autorizar(personagemId);
+
+  const hab = await prisma.habilidade.findFirst({
+    where: { id: habilidadeId, personagemId },
+  });
+  if (!hab) throw new Error("Habilidade não encontrada.");
+
+  // Pré-checagem de pools. PA (Pontos de Ambição) não tem campo dedicado no
+  // Personagem — segue informativo só, igual em Acao. Quem quiser controle
+  // automático cria um Recurso customizado "PA".
+  if (hab.custoPp > 0 && personagem.ppAtual < hab.custoPp) {
+    throw new Error("PP insuficiente.");
+  }
+  if (hab.usos != null && (hab.usosAtual ?? 0) <= 0) {
+    throw new Error("Sem usos restantes.");
+  }
+
+  let recurso: Awaited<ReturnType<typeof prisma.recurso.findFirst>> = null;
+  if (hab.custoRecursoId && hab.custoRecursoValor > 0) {
+    recurso = await prisma.recurso.findFirst({
+      where: { id: hab.custoRecursoId, personagemId },
+    });
+    if (!recurso) throw new Error("Recurso configurado não existe mais.");
+    if (recurso.valorAtual < hab.custoRecursoValor) {
+      throw new Error(`${recurso.nome} insuficiente.`);
+    }
+  }
+
+  // Tudo conferido — debita em transação pra ficar atômico.
+  // Mistura de update types: tipa-se como Prisma.PrismaPromise pra suportar
+  // personagem/recurso/habilidade no mesmo $transaction.
+  const ops: Prisma.PrismaPromise<unknown>[] = [];
+  if (hab.custoPp > 0) {
+    ops.push(
+      prisma.personagem.update({
+        where: { id: personagemId },
+        data: { ppAtual: personagem.ppAtual - hab.custoPp },
+      }),
+    );
+  }
+  if (recurso) {
+    ops.push(
+      prisma.recurso.update({
+        where: { id: recurso.id },
+        data: { valorAtual: recurso.valorAtual - hab.custoRecursoValor },
+      }),
+    );
+  }
+  if (hab.usos != null) {
+    ops.push(
+      prisma.habilidade.update({
+        where: { id: hab.id },
+        data: { usosAtual: (hab.usosAtual ?? hab.usos) - 1 },
+      }),
+    );
+  }
+
+  if (ops.length > 0) {
+    await prisma.$transaction(ops);
+  }
   revalidatePath(`/ficha/${personagemId}`);
 }

@@ -7,6 +7,7 @@ import { patchPersonagem } from "./actions";
 type Atributos = {
   hpMax: number;
   ppMax: number;
+  tipoDadoVida: string;
   forca: number;
   destreza: number;
   constituicao: number;
@@ -18,9 +19,10 @@ type Atributos = {
 type Props = {
   personagemId: string;
   inicial: Atributos;
+  onOtimista?: (patch: Atributos) => void;
 };
 
-export function EditFichaModal({ personagemId, inicial }: Props) {
+export function EditFichaModal({ personagemId, inicial, onOtimista }: Props) {
   const [aberto, setAberto] = useState(false);
   const [valores, setValores] = useState<Atributos>(inicial);
   const [pending, startTransition] = useTransition();
@@ -31,23 +33,21 @@ export function EditFichaModal({ personagemId, inicial }: Props) {
   }
 
   function set<K extends keyof Atributos>(key: K, raw: string) {
-    setValores((v) => ({ ...v, [key]: Number(raw) || 0 }));
+    if (key === "tipoDadoVida") {
+      setValores((v) => ({ ...v, [key]: raw as Atributos[K] }));
+      return;
+    }
+    setValores((v) => ({ ...v, [key]: (Number(raw) || 0) as Atributos[K] }));
   }
 
   function salvar(e: React.FormEvent) {
     e.preventDefault();
+    const patch = valores;
+    setAberto(false); // fecha imediatamente — patch otimista cuida da UI
     startTransition(async () => {
+      onOtimista?.(patch);
       try {
-        await patchPersonagem(personagemId, valores);
-        setAberto(false);
-        Swal.fire({
-          icon: "success",
-          title: "Ficha atualizada!",
-          timer: 1200,
-          showConfirmButton: false,
-          background: "var(--bg-card)",
-          color: "var(--text-main)",
-        });
+        await patchPersonagem(personagemId, patch);
       } catch (err) {
         Swal.fire({
           icon: "error",
@@ -97,6 +97,18 @@ export function EditFichaModal({ personagemId, inicial }: Props) {
                     onChange={(e) => set("ppMax", e.target.value)}
                   />
                 </div>
+                <div style={{ flex: 1 }}>
+                  <label>Dado de Vida</label>
+                  <select
+                    value={valores.tipoDadoVida}
+                    onChange={(e) => set("tipoDadoVida", e.target.value)}
+                  >
+                    <option value="d6">d6</option>
+                    <option value="d8">d8</option>
+                    <option value="d10">d10</option>
+                    <option value="d12">d12</option>
+                  </select>
+                </div>
               </div>
 
               <label style={{ marginTop: 15, borderBottom: "1px solid var(--border)", paddingBottom: 5 }}>
@@ -115,7 +127,7 @@ export function EditFichaModal({ personagemId, inicial }: Props) {
                     ["FOR", "forca"],
                     ["DES", "destreza"],
                     ["CON", "constituicao"],
-                    ["INT", "sabedoria"],
+                    ["SAB", "sabedoria"],
                     ["VON", "vontade"],
                     ["PRE", "presenca"],
                   ] as const

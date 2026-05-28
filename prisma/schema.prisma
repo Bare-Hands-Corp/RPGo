@@ -5,6 +5,8 @@
 //   ALTER TABLE personagens         REPLICA IDENTITY FULL;
 //   ALTER TABLE itens               REPLICA IDENTITY FULL;
 //   ALTER TABLE acoes               REPLICA IDENTITY FULL;
+//   ALTER TABLE habilidades         REPLICA IDENTITY FULL;
+//   ALTER TABLE recursos            REPLICA IDENTITY FULL;
 //   ALTER TABLE mensagens           REPLICA IDENTITY FULL;
 //   ALTER TABLE mesas               REPLICA IDENTITY FULL;
 //   ALTER TABLE calendarios         REPLICA IDENTITY FULL;
@@ -44,12 +46,28 @@ model Personagem {
   nome          String
   fotoUrl       String? @map("foto_url")
   nivel         Int     @default(1)
+  pe            Int     @default(0)
   hpAtual       Int     @default(0)  @map("hp_atual")
   hpMax         Int     @default(0)  @map("hp_max")
+  hpTemp        Int     @default(0)  @map("hp_temp")
   ppAtual       Int     @default(0)  @map("pp_atual")
   ppMax         Int     @default(0)  @map("pp_max")
+  exaustao      Int     @default(0)
   cargaMaxima   Float   @default(20) @map("carga_maxima")
   ultimaRolagem String? @map("ultima_rolagem")
+
+  // Economia
+  berries           Int    @default(0)
+
+  // Dado de Vida — tipo vem do Estilo de Combate (d6..d12).
+  // dadosVidaGastos = quantos já foram gastos em descansos curtos.
+  // Total disponível = nivel - dadosVidaGastos.
+  tipoDadoVida      String @default("d8") @map("tipo_dado_vida")
+  dadosVidaGastos   Int    @default(0)    @map("dados_vida_gastos")
+
+  // Bônus extra na CR (armadura, escudo, característica, etc).
+  // CR total = 10 + mod_DES + crOutros.
+  crOutros          Int    @default(0)    @map("cr_outros")
 
   // Atributos desnormalizados para simplicidade de queries
   forca         Int     @default(0)
@@ -59,10 +77,38 @@ model Personagem {
   vontade       Int     @default(0)
   presenca      Int     @default(0)
 
-  itens  Item[]
-  acoes  Acao[]
+  // Proficiências (perícias e salvaguardas). Estrutura:
+  // { pericias: string[], periciasDobradas: string[], salvaguardas: string[] }
+  // Mantido como Json (não tabela separada) porque é set fixo (17 perícias, 6 salvaguardas)
+  // e nunca consultado de forma cruzada entre personagens.
+  proficiencias Json    @default("{}")
+
+  itens        Item[]
+  acoes        Acao[]
+  recursos     Recurso[]
+  habilidades  Habilidade[]
 
   @@map("personagens")
+}
+
+// Recurso = pool numérico customizado (ex: Pontos de Carateca, Pontos de Ambição,
+// Pontos de Okama). Modelagem genérica porque o livro tem dezenas de pools
+// específicos por estilo/profissão e novos surgem em homebrews.
+model Recurso {
+  id            String     @id @default(uuid())
+  personagemId  String     @map("personagem_id")
+  personagem    Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
+
+  nome          String
+  valorAtual    Int        @default(0) @map("valor_atual")
+  valorMax      Int        @default(0) @map("valor_max")
+  ordem         Int        @default(0)
+  cor           String?    // hex (#ffaa00) ou nome de variável CSS; opcional
+  // Quando o recurso recupera: "encontro" | "descansoCurto" | "descansoLongo" | "manual"
+  resetEm       String     @default("manual") @map("reset_em")
+
+  @@index([personagemId, ordem])
+  @@map("recursos")
 }
 
 model Item {
@@ -82,6 +128,19 @@ model Item {
   equipado      Boolean    @default(false)
   favorito      Boolean    @default(false)
 
+  // Arma — categoria oficial do OP RPG (livro do jogador, cap. 8).
+  // "cortante" | "fogo" | "especial" | "marcial"
+  categoria        String  @default("cortante")
+  // Alcance: define o cálculo padrão do atributo de ataque (FOR/DES).
+  // "corpo_a_corpo" | "distancia"
+  alcance          String  @default("corpo_a_corpo")
+  // Propriedades canônicas (Acuidade, Arremesso, etc) — array de slugs.
+  propriedades     Json    @default("[]")
+  // Override manual do atributo de ataque ("forca", "destreza", "sabedoria", …).
+  // Quando null, é derivado da categoria + propriedades.
+  atributoAtaque   String? @map("atributo_ataque")
+  proficienteArma  Boolean @default(true) @map("proficiente_arma")
+
   @@map("itens")
 }
 
@@ -92,10 +151,64 @@ model Acao {
 
   nome          String
   descricao     String
-  tipo          String
-  tag           String?
+  tipo          String     // "padrao" | "bonus" | "power" | "react"
+  tag           String?    // texto livre (dano resumido, ex: "1d8+2")
+
+  // Custos da técnica.
+  custoPp           Int     @default(0)  @map("custo_pp")
+  custoPa           Int     @default(0)  @map("custo_pa")
+  custoRecursoId    String? @map("custo_recurso_id")  // referência opcional a Recurso (PC, PN, PO…)
+  custoRecursoValor Int     @default(0)  @map("custo_recurso_valor")
+
+  // Mecânica de ataque/salvaguarda.
+  atributoAtaque    String? @map("atributo_ataque")     // "forca" | "destreza" | "sabedoria" | …
+  atributoSalv      String? @map("atributo_salv")       // atributo que o alvo testa pra resistir
+  atributoCd        String? @map("atributo_cd")         // atributo primário do usuário pra CD (8+prof+mod)
+  dano              String?                              // "1d8 cortante", "2d6 fogo"
+  alcance           String?                              // "cc 1,5 m", "9 m", "linha 18 m"
 
   @@map("acoes")
+}
+
+// Habilidade = entrada catalogada pelo jogador pra qualquer feature do livro
+// (Profissão, Estilo de Combate, Haki, Espécie, Akuma no Mi, Treinamento) ou
+// item livre. Diferente de Acao (focada em combate com dano/salv/atributo),
+// Habilidade é genérica: nome + descrição + lista de efeitos estruturados.
+model Habilidade {
+  id                String     @id @default(uuid())
+  personagemId      String     @map("personagem_id")
+  personagem        Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
+
+  nome              String
+  // "profissao" | "estilo" | "haki" | "especie" | "akumaNoMi" | "treinamento" | "livre"
+  origem            String     @default("livre")
+  // "passiva" | "ativa" | "reativa" | "livre"
+  tipo              String     @default("passiva")
+  descricao         String     @default("")
+
+  // Custos (todos opcionais, 0 = sem custo).
+  custoPp           Int        @default(0)  @map("custo_pp")
+  custoPa           Int        @default(0)  @map("custo_pa")
+  custoRecursoId    String?    @map("custo_recurso_id")
+  custoRecursoValor Int        @default(0)  @map("custo_recurso_valor")
+
+  // Usos limitados. null = ilimitado; usosAtual conta o que sobrou.
+  usos              Int?
+  usosAtual         Int?       @map("usos_atual")
+  // "descansoCurto" | "descansoLongo" | "encontro" | "manual"
+  recarga           String?
+
+  tags              String?    // texto livre, separado por vírgula
+  favorita          Boolean    @default(false)
+  ordem             Int        @default(0)
+
+  // Lista de efeitos estruturados (ver lib/op-rpg.ts EfeitoHabilidade).
+  efeitos           Json       @default("[]")
+
+  criadoEm          DateTime   @default(now()) @map("criado_em")
+
+  @@index([personagemId])
+  @@map("habilidades")
 }
 
 model Mensagem {

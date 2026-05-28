@@ -46,6 +46,26 @@ export function FichaRealtime({ personagemId }: { personagemId: string }) {
         },
         () => router.refresh(),
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "recursos",
+          filter: `personagem_id=eq.${personagemId}`,
+        },
+        () => router.refresh(),
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "habilidades",
+          filter: `personagem_id=eq.${personagemId}`,
+        },
+        () => router.refresh(),
+      )
       .subscribe();
 
     return () => {

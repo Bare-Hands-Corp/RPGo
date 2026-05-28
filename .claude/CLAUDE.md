@@ -1,3 +1,4 @@
+
 # RPGo — Notas para o Claude
 
 Ficha de RPG online (One Piece) com chat, rolador de dados, inventário, calendário e sistema de mesas (narrador + personagens) em tempo real.

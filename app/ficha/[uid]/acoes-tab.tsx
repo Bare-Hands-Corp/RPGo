@@ -2,7 +2,15 @@
 
 import { useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
-import { criarAcao, deletarAcao } from "./actions";
+import { atualizarAcao, criarAcao, deletarAcao } from "./actions";
+import {
+  ATRIBUTOS,
+  bonusAtaqueTecnica,
+  cdTecnica,
+  formatarMod,
+  type Atributo,
+  type EfeitosAgregados,
+} from "@/lib/op-rpg";
 
 type Acao = {
   id: string;
@@ -10,11 +18,35 @@ type Acao = {
   descricao: string;
   tipo: string;
   tag: string | null;
+  custoPp: number;
+  custoPa: number;
+  custoRecursoId: string | null;
+  custoRecursoValor: number;
+  atributoAtaque: string | null;
+  atributoSalv: string | null;
+  atributoCd: string | null;
+  dano: string | null;
+  alcance: string | null;
 };
+
+type RecursoMinimo = { id: string; nome: string; cor: string | null };
 
 type Props = {
   personagemId: string;
   acoes: Acao[];
+  nivel: number;
+  atributos: Record<Atributo, number>;
+  recursos: RecursoMinimo[];
+  efeitosAgregados: EfeitosAgregados;
+};
+
+const SIGLA: Record<Atributo, string> = {
+  forca: "FOR",
+  destreza: "DES",
+  constituicao: "CON",
+  sabedoria: "SAB",
+  vontade: "VON",
+  presenca: "PRE",
 };
 
 const GRUPOS = [
@@ -26,7 +58,42 @@ const GRUPOS = [
 
 type Patch =
   | { kind: "create"; acao: Acao }
+  | { kind: "update"; id: string; patch: Partial<Acao> }
   | { kind: "delete"; id: string };
+
+type FormState = {
+  id: string | null;
+  nome: string;
+  descricao: string;
+  tipo: string;
+  tag: string;
+  custoPp: string;
+  custoPa: string;
+  custoRecursoId: string;
+  custoRecursoValor: string;
+  atributoAtaque: string;
+  atributoSalv: string;
+  atributoCd: string;
+  dano: string;
+  alcance: string;
+};
+
+const FORM_VAZIO: FormState = {
+  id: null,
+  nome: "",
+  descricao: "",
+  tipo: "padrao",
+  tag: "",
+  custoPp: "",
+  custoPa: "",
+  custoRecursoId: "",
+  custoRecursoValor: "",
+  atributoAtaque: "",
+  atributoSalv: "",
+  atributoCd: "",
+  dano: "",
+  alcance: "",
+};
 
 function mostrarErro(err: unknown) {
   Swal.fire({
@@ -38,37 +105,64 @@ function mostrarErro(err: unknown) {
   });
 }
 
-export function AcoesTab({ personagemId, acoes }: Props) {
+export function AcoesTab({
+  personagemId,
+  acoes,
+  nivel,
+  atributos,
+  recursos,
+  efeitosAgregados,
+}: Props) {
   const [acoesOtimistas, aplicarPatch] = useOptimistic(
     acoes,
     (state: Acao[], p: Patch) => {
       if (p.kind === "create") return [...state, p.acao];
+      if (p.kind === "update")
+        return state.map((a) => (a.id === p.id ? { ...a, ...p.patch } : a));
       return state.filter((a) => a.id !== p.id);
     },
   );
 
   const [modalAberto, setModalAberto] = useState(false);
-  const [nome, setNome] = useState("");
-  const [descricao, setDescricao] = useState("");
-  const [tipo, setTipo] = useState("padrao");
-  const [tag, setTag] = useState("");
+  const [form, setForm] = useState<FormState>(FORM_VAZIO);
   const [, startTransition] = useTransition();
 
-  function resetForm() {
-    setNome("");
-    setDescricao("");
-    setTipo("padrao");
-    setTag("");
+  function abrirNova() {
+    setForm(FORM_VAZIO);
+    setModalAberto(true);
+  }
+
+  function abrirEdit(acao: Acao) {
+    setForm({
+      id: acao.id,
+      nome: acao.nome,
+      descricao: acao.descricao,
+      tipo: acao.tipo,
+      tag: acao.tag || "",
+      custoPp: acao.custoPp ? String(acao.custoPp) : "",
+      custoPa: acao.custoPa ? String(acao.custoPa) : "",
+      custoRecursoId: acao.custoRecursoId || "",
+      custoRecursoValor: acao.custoRecursoValor ? String(acao.custoRecursoValor) : "",
+      atributoAtaque: acao.atributoAtaque || "",
+      atributoSalv: acao.atributoSalv || "",
+      atributoCd: acao.atributoCd || "",
+      dano: acao.dano || "",
+      alcance: acao.alcance || "",
+    });
+    setModalAberto(true);
   }
 
   function fecharModal() {
     setModalAberto(false);
-    resetForm();
+  }
+
+  function setF<K extends keyof FormState>(key: K, valor: FormState[K]) {
+    setForm((f) => ({ ...f, [key]: valor }));
   }
 
   function salvar(e: React.FormEvent) {
     e.preventDefault();
-    const nomeLimpo = nome.trim();
+    const nomeLimpo = form.nome.trim();
     if (!nomeLimpo) {
       Swal.fire({
         icon: "warning",
@@ -80,23 +174,45 @@ export function AcoesTab({ personagemId, acoes }: Props) {
       return;
     }
 
-    const novaAcao: Acao = {
-      id: "temp-" + Math.random().toString(36).slice(2),
+    const dados = {
       nome: nomeLimpo,
-      descricao,
-      tipo,
-      tag: tag || null,
+      descricao: form.descricao,
+      tipo: form.tipo,
+      tag: form.tag,
+      custoPp: Number(form.custoPp) || 0,
+      custoPa: Number(form.custoPa) || 0,
+      custoRecursoId: form.custoRecursoId || null,
+      custoRecursoValor: Number(form.custoRecursoValor) || 0,
+      atributoAtaque: form.atributoAtaque || null,
+      atributoSalv: form.atributoSalv || null,
+      atributoCd: form.atributoCd || null,
+      dano: form.dano || null,
+      alcance: form.alcance || null,
     };
 
-    const dados = { nome: nomeLimpo, descricao, tipo, tag };
+    const editandoId = form.id;
     fecharModal();
 
     startTransition(async () => {
-      aplicarPatch({ kind: "create", acao: novaAcao });
-      try {
-        await criarAcao(personagemId, dados);
-      } catch (err) {
-        mostrarErro(err);
+      if (editandoId) {
+        aplicarPatch({ kind: "update", id: editandoId, patch: dados });
+        try {
+          await atualizarAcao(personagemId, editandoId, dados);
+        } catch (err) {
+          mostrarErro(err);
+        }
+      } else {
+        const novaAcao: Acao = {
+          id: "temp-" + Math.random().toString(36).slice(2),
+          ...dados,
+          tag: dados.tag || null,
+        };
+        aplicarPatch({ kind: "create", acao: novaAcao });
+        try {
+          await criarAcao(personagemId, dados);
+        } catch (err) {
+          mostrarErro(err);
+        }
       }
     });
   }
@@ -134,7 +250,7 @@ export function AcoesTab({ personagemId, acoes }: Props) {
           type="button"
           className="btn-rect primary"
           style={{ background: "var(--color-power)" }}
-          onClick={() => setModalAberto(true)}
+          onClick={abrirNova}
         >
           + Nova Ação
         </button>
@@ -153,27 +269,107 @@ export function AcoesTab({ personagemId, acoes }: Props) {
             </div>
             {lista.length > 0 ? (
               <div className="action-grid">
-                {lista.map((acao) => (
-                  <div key={acao.id} className={`action-card type-${acao.tipo}`}>
-                    <button
-                      type="button"
-                      className="btn-card-trash"
-                      title="Apagar"
-                      onClick={() => apagar(acao.id)}
-                    >
-                      <i className="fas fa-trash" />
-                    </button>
-                    <div>
-                      <div className="card-title">{acao.nome}</div>
-                      <div className="card-desc">{acao.descricao}</div>
-                    </div>
-                    {acao.tag && (
-                      <div className="card-tags">
-                        <span className="tag tag-damage">{acao.tag}</span>
+                {lista.map((acao) => {
+                  const recursoCusto = recursos.find(
+                    (r) => r.id === acao.custoRecursoId,
+                  );
+                  const atributoAtq = acao.atributoAtaque as Atributo | null;
+                  const atributoCd = acao.atributoCd as Atributo | null;
+                  const extraAtaque = efeitosAgregados.bonusAtaque.valor;
+                  const extraCd = efeitosAgregados.bonusCdTecnicas.valor;
+                  const bonusAtq = atributoAtq
+                    ? bonusAtaqueTecnica({
+                        nivel,
+                        valorAtributo: atributos[atributoAtq],
+                      }) + extraAtaque
+                    : null;
+                  const cd = atributoCd
+                    ? cdTecnica({
+                        nivel,
+                        valorAtributoPrim: atributos[atributoCd],
+                      }) + extraCd
+                    : null;
+                  const atributoSalv = acao.atributoSalv as Atributo | null;
+                  // Cada custo carrega cor opcional pra colorir o chip.
+                  // Recurso customizado usa a cor configurada; PP/PA usam padrão.
+                  const custos: { texto: string; cor?: string }[] = [];
+                  if (acao.custoPp > 0) custos.push({ texto: `${acao.custoPp} PP` });
+                  if (acao.custoPa > 0) custos.push({ texto: `${acao.custoPa} PA` });
+                  if (recursoCusto && acao.custoRecursoValor > 0) {
+                    custos.push({
+                      texto: `${acao.custoRecursoValor} ${recursoCusto.nome}`,
+                      cor: recursoCusto.cor ?? undefined,
+                    });
+                  }
+                  return (
+                    <div key={acao.id} className={`action-card type-${acao.tipo}`}>
+                      <button
+                        type="button"
+                        className="btn-card-edit"
+                        title="Editar"
+                        onClick={() => abrirEdit(acao)}
+                      >
+                        <i className="fas fa-edit" />
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-card-trash"
+                        title="Apagar"
+                        onClick={() => apagar(acao.id)}
+                      >
+                        <i className="fas fa-trash" />
+                      </button>
+                      <div>
+                        <div className="card-title">{acao.nome}</div>
+                        {(bonusAtq != null || cd != null || atributoSalv || acao.dano || acao.alcance) && (
+                          <div className="acao-stats">
+                            {bonusAtq != null && (
+                              <span className="acao-stat">
+                                <i className="fas fa-khanda" /> Atq <strong>{formatarMod(bonusAtq)}</strong>
+                              </span>
+                            )}
+                            {acao.dano && (
+                              <span className="acao-stat"><i className="fas fa-burst" /> {acao.dano}</span>
+                            )}
+                            {cd != null && atributoSalv && (
+                              <span className="acao-stat">
+                                <i className="fas fa-shield-alt" /> Salv {SIGLA[atributoSalv]} CD <strong>{cd}</strong>
+                              </span>
+                            )}
+                            {acao.alcance && (
+                              <span className="acao-stat"><i className="fas fa-ruler-horizontal" /> {acao.alcance}</span>
+                            )}
+                          </div>
+                        )}
+                        <div className="card-desc">{acao.descricao}</div>
                       </div>
-                    )}
-                  </div>
-                ))}
+                      {(custos.length > 0 || acao.tag) && (
+                        <div className="card-tags">
+                          {custos.map((c, i) => (
+                            <span
+                              key={i}
+                              className="tag tag-custo"
+                              style={
+                                c.cor
+                                  ? {
+                                      background: `color-mix(in oklch, ${c.cor} 15%, transparent)`,
+                                      color: c.cor,
+                                      borderColor: `color-mix(in oklch, ${c.cor} 30%, transparent)`,
+                                    }
+                                  : undefined
+                              }
+                            >
+                              {c.texto}
+                            </span>
+                          ))}
+                          {acao.tag && (
+                            <span className="tag tag-damage">{acao.tag}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <p style={{ color: "var(--text-sec)", fontSize: "0.85rem", fontStyle: "italic" }}>
@@ -186,45 +382,184 @@ export function AcoesTab({ personagemId, acoes }: Props) {
 
       {modalAberto && (
         <div className="modal-overlay" onClick={fecharModal}>
-          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
-            <h2>Nova Ação</h2>
+          <div className="modal-box modal-box-lg" onClick={(e) => e.stopPropagation()}>
+            <h2>{form.id ? "Editar Ação" : "Nova Ação"}</h2>
+
+            <div className="tipo-cards tipo-cards-4">
+              {(
+                [
+                  ["padrao", "fa-gavel", "Padrão", "var(--color-padrao)"],
+                  ["bonus", "fa-bolt", "Bônus", "var(--color-bonus)"],
+                  ["power", "fa-bomb", "Poderosa", "var(--color-power)"],
+                  ["react", "fa-shield-alt", "Reação", "var(--color-react)"],
+                ] as const
+              ).map(([slug, icone, titulo, cor]) => (
+                <button
+                  type="button"
+                  key={slug}
+                  className={`tipo-card ${form.tipo === slug ? "ativo" : ""}`}
+                  style={form.tipo === slug ? { borderColor: cor, backgroundColor: `color-mix(in oklch, ${cor} 10%, var(--bg-card))` } : undefined}
+                  onClick={() => setF("tipo", slug)}
+                >
+                  <i className={`fas ${icone}`} style={{ fontSize: "1.4rem", color: cor }} />
+                  <span className="tipo-card-titulo">{titulo}</span>
+                </button>
+              ))}
+            </div>
+
             <form onSubmit={salvar}>
-              <label>Nome da Ação</label>
+              <label>Nome</label>
               <input
                 type="text"
-                value={nome}
-                onChange={(e) => setNome(e.target.value)}
+                value={form.nome}
+                onChange={(e) => setF("nome", e.target.value)}
                 placeholder="Ex: Soco Meteoro"
                 autoFocus
               />
 
               <label>Descrição</label>
               <textarea
-                value={descricao}
-                onChange={(e) => setDescricao(e.target.value)}
+                value={form.descricao}
+                onChange={(e) => setF("descricao", e.target.value)}
                 placeholder="Descreva o efeito..."
               />
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
-                <div>
-                  <label>Tipo</label>
-                  <select value={tipo} onChange={(e) => setTipo(e.target.value)}>
-                    <option value="padrao">Ação Padrão</option>
-                    <option value="bonus">Ação Bônus</option>
-                    <option value="power">Ação Poderosa</option>
-                    <option value="react">Reação</option>
-                  </select>
+              <details className="modal-secao-detalhe" open={!!(form.dano || form.alcance || form.atributoAtaque || form.atributoSalv || form.atributoCd || form.tag)}>
+                <summary><i className="fas fa-gears" /> Mecânica de combate</summary>
+                <div className="modal-secao-corpo">
+                  <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
+                    <div>
+                      <label>Dano</label>
+                      <input
+                        type="text"
+                        value={form.dano}
+                        onChange={(e) => setF("dano", e.target.value)}
+                        placeholder="Ex: 2d6 fogo"
+                      />
+                    </div>
+                    <div>
+                      <label>Alcance</label>
+                      <input
+                        type="text"
+                        value={form.alcance}
+                        onChange={(e) => setF("alcance", e.target.value)}
+                        placeholder="Ex: 9 m"
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 10 }}>
+                    <div>
+                      <label>Ataque com</label>
+                      <select
+                        value={form.atributoAtaque}
+                        onChange={(e) => setF("atributoAtaque", e.target.value)}
+                      >
+                        <option value="">—</option>
+                        {ATRIBUTOS.map((a) => (
+                          <option key={a.slug} value={a.slug}>{a.sigla}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label>Alvo resiste</label>
+                      <select
+                        value={form.atributoSalv}
+                        onChange={(e) => setF("atributoSalv", e.target.value)}
+                      >
+                        <option value="">—</option>
+                        {ATRIBUTOS.map((a) => (
+                          <option key={a.slug} value={a.slug}>{a.sigla}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label>CD com</label>
+                      <select
+                        value={form.atributoCd}
+                        onChange={(e) => setF("atributoCd", e.target.value)}
+                      >
+                        <option value="">—</option>
+                        {ATRIBUTOS.map((a) => (
+                          <option key={a.slug} value={a.slug}>{a.sigla}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 10 }}>
+                    <label>Tag livre</label>
+                    <input
+                      type="text"
+                      value={form.tag}
+                      onChange={(e) => setF("tag", e.target.value)}
+                      placeholder="Ex: Cortante, Empurrão, Ignição"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label>Dano / Tag</label>
-                  <input
-                    type="text"
-                    value={tag}
-                    onChange={(e) => setTag(e.target.value)}
-                    placeholder="Ex: 1d8+2"
-                  />
+              </details>
+
+              <details
+                className="modal-secao-detalhe"
+                open={!!(form.custoPp || form.custoPa || form.custoRecursoId)}
+              >
+                <summary><i className="fas fa-coins" /> Custos</summary>
+                <div className="modal-secao-corpo">
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <div>
+                      <label>PP (Pontos de Poder)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={form.custoPp}
+                        onChange={(e) => setF("custoPp", e.target.value)}
+                        placeholder="0"
+                      />
+                    </div>
+                    <div>
+                      <label>PA (Pontos de Ambição)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={form.custoPa}
+                        onChange={(e) => setF("custoPa", e.target.value)}
+                        placeholder="0"
+                      />
+                    </div>
+                  </div>
+
+                  {recursos.length > 0 ? (
+                    <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10, marginTop: 10 }}>
+                      <div>
+                        <label>Recurso customizado</label>
+                        <select
+                          value={form.custoRecursoId}
+                          onChange={(e) => setF("custoRecursoId", e.target.value)}
+                        >
+                          <option value="">—</option>
+                          {recursos.map((r) => (
+                            <option key={r.id} value={r.id}>{r.nome}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label>Quantidade</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={form.custoRecursoValor}
+                          onChange={(e) => setF("custoRecursoValor", e.target.value)}
+                          placeholder="0"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="modal-hint" style={{ marginTop: 8 }}>
+                      <i className="fas fa-lightbulb" /> Crie um Recurso na sidebar (ex: Pontos de Carateca) pra poder atrelar a esta ação.
+                    </p>
+                  )}
                 </div>
-              </div>
+              </details>
 
               <div className="modal-actions">
                 <button
@@ -234,11 +569,7 @@ export function AcoesTab({ personagemId, acoes }: Props) {
                 >
                   Cancelar
                 </button>
-                <button
-                  type="submit"
-                  className="modal-btn-save"
-                  style={{ background: "var(--color-padrao)" }}
-                >
+                <button type="submit" className="modal-btn-save">
                   Salvar
                 </button>
               </div>

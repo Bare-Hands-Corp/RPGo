@@ -2,17 +2,28 @@
 
 import { useState, useRef, useEffect } from "react";
 import { patchPersonagem } from "./actions";
+import { formatarBerries } from "@/lib/op-rpg";
+
+// Formato é uma string simples (não função) porque o componente é cruzado
+// a partir de Server Components — funções não podem ser serializadas.
+type Formato = "milhar";
+
+const FORMATADORES: Record<Formato, (n: number) => string> = {
+  milhar: formatarBerries,
+};
 
 type Props = {
   personagemId: string;
   campo: string; // ex: "hpAtual" | "ppAtual" | "nivel" | "cargaMaxima"
   valor: number;
   max?: number; // se definido, clampa
+  formato?: Formato;
 };
 
 // Click no número → input com mesmo tamanho. Aceita +/- delta ou valor absoluto.
 // Salva no blur ou enter. Optimistic update.
-export function EditableStat({ personagemId, campo, valor, max }: Props) {
+export function EditableStat({ personagemId, campo, valor, max, formato }: Props) {
+  const formatar = formato ? FORMATADORES[formato] : null;
   const [editando, setEditando] = useState(false);
   const [otimista, setOtimista] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -29,8 +40,11 @@ export function EditableStat({ personagemId, campo, valor, max }: Props) {
   }, [editando]);
 
   function calcularNovo(entrada: string): number | null {
-    const trim = entrada.trim();
+    let trim = entrada.trim();
     if (!trim) return null;
+    // Quando o display usa separador de milhar (ex: berries), aceita entrada
+    // com `.` no meio (`6.200.000`) removendo-os antes do parse.
+    if (formatar) trim = trim.replace(/\./g, "");
     let novo: number;
     if (trim.startsWith("+") || trim.startsWith("-")) {
       const delta = Number(trim);
@@ -65,7 +79,7 @@ export function EditableStat({ personagemId, campo, valor, max }: Props) {
         ref={inputRef}
         type="text"
         defaultValue=""
-        placeholder={String(valorAtual)}
+        placeholder={formatar ? formatar(valorAtual) : String(valorAtual)}
         className="input-edit-stat"
         onBlur={salvar}
         onKeyDown={(e) => {
@@ -86,7 +100,7 @@ export function EditableStat({ personagemId, campo, valor, max }: Props) {
       role="button"
       tabIndex={0}
     >
-      {valorAtual}
+      {formatar ? formatar(valorAtual) : valorAtual}
     </span>
   );
 }

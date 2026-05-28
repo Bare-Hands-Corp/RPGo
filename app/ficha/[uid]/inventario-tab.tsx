@@ -4,6 +4,18 @@ import { useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { EditableStat } from "./editable-stat";
 import { atualizarItem, criarItem, deletarItem } from "./actions";
+import {
+  ALCANCES_ARMA,
+  ATRIBUTOS,
+  CATEGORIAS_ARMA,
+  PROPRIEDADES_ARMA,
+  bonusAtaqueArma,
+  formatarMod,
+  type AlcanceArma,
+  type Atributo,
+  type CategoriaArma,
+  type PropriedadeArma,
+} from "@/lib/op-rpg";
 
 type Item = {
   id: string;
@@ -18,12 +30,40 @@ type Item = {
   penalidadeDes: number;
   equipado: boolean;
   favorito: boolean;
+  categoria: string;
+  alcance: string;
+  propriedades: unknown;
+  atributoAtaque: string | null;
+  proficienteArma: boolean;
 };
+
+const CATEGORIAS_ARMA_VALIDAS = new Set<string>(CATEGORIAS_ARMA.map((c) => c.slug));
+const ALCANCES_ARMA_VALIDOS = new Set<string>(ALCANCES_ARMA.map((a) => a.slug));
 
 type Props = {
   personagemId: string;
   cargaMaxima: number;
+  berries: number;
   itens: Item[];
+  nivel: number;
+  atributos: Record<Atributo, number>;
+};
+
+function lerPropriedades(raw: unknown): PropriedadeArma[] {
+  if (!Array.isArray(raw)) return [];
+  const validas = new Set(PROPRIEDADES_ARMA.map((p) => p.slug));
+  return raw.filter(
+    (p): p is PropriedadeArma => typeof p === "string" && validas.has(p as PropriedadeArma),
+  );
+}
+
+const SIGLA_ATRIBUTO: Record<Atributo, string> = {
+  forca: "FOR",
+  destreza: "DES",
+  constituicao: "CON",
+  sabedoria: "SAB",
+  vontade: "VON",
+  presenca: "PRE",
 };
 
 type Categoria = "arsenal" | "armaria" | "mochila";
@@ -45,6 +85,11 @@ type FormState = {
   modificador: string;
   ca: string;
   penalidadeDes: string;
+  categoria: CategoriaArma;
+  alcance: AlcanceArma;
+  propriedades: PropriedadeArma[];
+  atributoAtaque: string; // "" = auto
+  proficienteArma: boolean;
 };
 
 const FORM_VAZIO: FormState = {
@@ -58,9 +103,21 @@ const FORM_VAZIO: FormState = {
   modificador: "",
   ca: "",
   penalidadeDes: "",
+  categoria: "cortante",
+  alcance: "corpo_a_corpo",
+  propriedades: [],
+  atributoAtaque: "",
+  proficienteArma: true,
 };
 
-export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
+export function InventarioTab({
+  personagemId,
+  cargaMaxima,
+  berries,
+  itens,
+  nivel,
+  atributos,
+}: Props) {
   const [mostrarEquipados, setMostrarEquipados] = useState(false);
   const [categoria, setCategoria] = useState<Categoria>("arsenal");
   const [modalAberto, setModalAberto] = useState(false);
@@ -104,6 +161,15 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
       modificador: String(item.modificador || ""),
       ca: String(item.ca || ""),
       penalidadeDes: String(item.penalidadeDes || ""),
+      categoria: CATEGORIAS_ARMA_VALIDAS.has(item.categoria)
+        ? (item.categoria as CategoriaArma)
+        : "cortante",
+      alcance: ALCANCES_ARMA_VALIDOS.has(item.alcance)
+        ? (item.alcance as AlcanceArma)
+        : "corpo_a_corpo",
+      propriedades: lerPropriedades(item.propriedades),
+      atributoAtaque: item.atributoAtaque || "",
+      proficienteArma: item.proficienteArma,
     });
     setModalAberto(true);
   }
@@ -139,16 +205,22 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
       return;
     }
 
+    const ehArma = form.tipo === "arma";
     const payload = {
       nome: form.nome,
       peso: Number(form.peso) || 0,
       tipo: form.tipo,
       tags: form.tags,
       descricao: form.descricao,
-      dano: form.tipo === "arma" ? form.dano : "",
-      modificador: form.tipo === "arma" ? Number(form.modificador) || 0 : 0,
+      dano: ehArma ? form.dano : "",
+      modificador: ehArma ? Number(form.modificador) || 0 : 0,
       ca: form.tipo === "armadura" ? Number(form.ca) || 0 : 0,
       penalidadeDes: form.tipo === "armadura" ? Number(form.penalidadeDes) || 0 : 0,
+      categoria: ehArma ? form.categoria : "cortante",
+      alcance: ehArma ? form.alcance : "corpo_a_corpo",
+      propriedades: ehArma ? form.propriedades : [],
+      atributoAtaque: ehArma && form.atributoAtaque ? form.atributoAtaque : null,
+      proficienteArma: ehArma ? form.proficienteArma : true,
     };
 
     const editandoId = form.id;
@@ -176,6 +248,11 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
           penalidadeDes: payload.penalidadeDes,
           equipado: false,
           favorito: false,
+          categoria: payload.categoria,
+          alcance: payload.alcance,
+          propriedades: payload.propriedades,
+          atributoAtaque: payload.atributoAtaque,
+          proficienteArma: payload.proficienteArma,
         };
         aplicarOtimista({ kind: "create", item: novoItem });
         try {
@@ -256,6 +333,24 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
     });
   }
 
+  function calcAtaque(item: Item): Ataque {
+    if (item.tipo !== "arma") return null;
+    const alcance: AlcanceArma = ALCANCES_ARMA_VALIDOS.has(item.alcance)
+      ? (item.alcance as AlcanceArma)
+      : "corpo_a_corpo";
+    const propriedades = lerPropriedades(item.propriedades);
+    const override = item.atributoAtaque as Atributo | null;
+    return bonusAtaqueArma({
+      alcance,
+      propriedades,
+      atributoOverride: override,
+      atributos,
+      nivel,
+      modificadorArma: item.modificador || 0,
+      proficiente: item.proficienteArma,
+    });
+  }
+
   const pesoTotal = itensOtimistas.reduce((acc, i) => acc + (Number(i.peso) || 0), 0);
   const maxPeso = cargaMaxima || 20;
   const pesoPct = Math.min(100, (pesoTotal / maxPeso) * 100);
@@ -264,16 +359,16 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
   let msgSobrecarga: string | null = null;
   if (pesoPct >= 100) {
     corBarra = "#ff4444";
-    msgSobrecarga = "⚠ LIMITE ATINGIDO!";
+    msgSobrecarga = "LIMITE ATINGIDO!";
   } else if (pesoPct >= 90) {
     corBarra = "#ff4444";
-    msgSobrecarga = "⚠ SOBRECARGA";
+    msgSobrecarga = "SOBRECARGA";
   } else if (pesoPct >= 75) {
     corBarra = "orangered";
-    msgSobrecarga = "⚠ SOBRECARGA";
+    msgSobrecarga = "SOBRECARGA";
   } else if (pesoPct > 50) {
     corBarra = "var(--color-power)";
-    msgSobrecarga = "⚠ SOBRECARGA";
+    msgSobrecarga = "SOBRECARGA";
   } else if (pesoPct >= 25) {
     corBarra = "var(--color-bonus)";
   }
@@ -292,6 +387,15 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
         <h1 style={{ marginRight: "auto" }}>Inventário</h1>
+        <div className="berries-display" title="Berries (moeda do One Piece)">
+          <span className="berries-simbolo">฿</span>
+          <EditableStat
+            personagemId={personagemId}
+            campo="berries"
+            valor={berries}
+            formato="milhar"
+          />
+        </div>
         <button
           type="button"
           className={`btn-rect outline ${mostrarEquipados ? "active" : ""}`}
@@ -306,7 +410,7 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
 
       <div className="bar-group peso-bar">
         <div className="bar-label">
-          <span>⚖️ Carga</span>
+          <span><i className="fas fa-scale-balanced" /> Carga</span>
           <div className="stat-values">
             <span>{pesoTotal.toFixed(1)}</span> /{" "}
             <EditableStat personagemId={personagemId} campo="cargaMaxima" valor={cargaMaxima} />
@@ -316,7 +420,11 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
         <div className="progress-track">
           <div className="progress-fill" style={{ width: `${pesoPct}%`, background: corBarra }} />
         </div>
-        {msgSobrecarga && <div className="msg-sobrecarga">{msgSobrecarga}</div>}
+        {msgSobrecarga && (
+          <div className="msg-sobrecarga">
+            <i className="fas fa-triangle-exclamation" /> {msgSobrecarga}
+          </div>
+        )}
       </div>
 
       {/* Favoritos (só quando "Ver Todos") */}
@@ -330,6 +438,7 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
               <CardItem
                 key={item.id}
                 item={item}
+                ataque={calcAtaque(item)}
                 onToggleFavorito={() => toggleFavorito(item)}
                 onToggleEquipar={() => toggleEquipar(item)}
                 onEdit={() => abrirEdit(item)}
@@ -369,6 +478,7 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
         itens={arsenal}
         visivel={mostrarEquipados || categoria === "arsenal"}
         callbacks={{ toggleFavorito, toggleEquipar, abrirEdit, apagar }}
+        calcAtaque={calcAtaque}
       />
       <SecaoItens
         titulo="Armaria"
@@ -376,6 +486,7 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
         itens={armaria}
         visivel={mostrarEquipados || categoria === "armaria"}
         callbacks={{ toggleFavorito, toggleEquipar, abrirEdit, apagar }}
+        calcAtaque={calcAtaque}
       />
       <SecaoItens
         titulo="Mochila"
@@ -383,6 +494,7 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
         itens={mochila}
         visivel={mostrarEquipados || categoria === "mochila"}
         callbacks={{ toggleFavorito, toggleEquipar, abrirEdit, apagar }}
+        calcAtaque={calcAtaque}
       />
 
       {visiveis.length === 0 && (
@@ -395,83 +507,201 @@ export function InventarioTab({ personagemId, cargaMaxima, itens }: Props) {
         <div className="modal-overlay" onClick={fechar}>
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
             <h2>{form.id ? "Editar Item" : "Novo Item"}</h2>
+
+            <div className="tipo-cards">
+              {(
+                [
+                  ["comum", "fa-bag-shopping", "Item Comum", "Mochila, ferramenta, consumível"],
+                  ["arma", "fa-khanda", "Arma", "Define ataque, dano, propriedades"],
+                  ["armadura", "fa-shield-alt", "Armadura", "Soma CA na sua CR"],
+                ] as const
+              ).map(([slug, icone, titulo, sub]) => (
+                <button
+                  type="button"
+                  key={slug}
+                  className={`tipo-card ${form.tipo === slug ? "ativo" : ""}`}
+                  onClick={() => set("tipo", slug)}
+                >
+                  <span className="tipo-card-icone">
+                    <i className={`fas ${icone}`} />
+                  </span>
+                  <span className="tipo-card-titulo">{titulo}</span>
+                  <span className="tipo-card-sub">{sub}</span>
+                </button>
+              ))}
+            </div>
+
             <form onSubmit={salvar}>
               <label>Nome do Item</label>
               <input
                 type="text"
                 value={form.nome}
                 onChange={(e) => set("nome", e.target.value)}
-                placeholder="Ex: Espada Longa"
+                placeholder={
+                  form.tipo === "arma"
+                    ? "Ex: Espada Longa"
+                    : form.tipo === "armadura"
+                      ? "Ex: Cota de Malha"
+                      : "Ex: Poção de Cura"
+                }
                 autoFocus
               />
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
-                <div>
-                  <label>Peso (PC)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={form.peso}
-                    onChange={(e) => set("peso", e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label>Tipo</label>
-                  <select
-                    value={form.tipo}
-                    onChange={(e) => set("tipo", e.target.value)}
-                  >
-                    <option value="comum">Item Comum</option>
-                    <option value="arma">Arma</option>
-                    <option value="armadura">Armadura</option>
-                  </select>
-                </div>
+              <div style={{ marginTop: 10 }}>
+                <label>Peso (PC)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={form.peso}
+                  onChange={(e) => set("peso", e.target.value)}
+                />
               </div>
 
               {form.tipo === "arma" && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
-                  <div>
-                    <label>Dano (ex: 1d8)</label>
-                    <input
-                      type="text"
-                      value={form.dano}
-                      onChange={(e) => set("dano", e.target.value)}
-                      placeholder="1d8"
-                    />
+                <>
+                  <h3 className="modal-secao"><i className="fas fa-khanda" /> Combate</h3>
+                  <label>Categoria</label>
+                  <div className="categoria-pills">
+                    {CATEGORIAS_ARMA.map((c) => (
+                      <button
+                        type="button"
+                        key={c.slug}
+                        className={`categoria-pill ${form.categoria === c.slug ? "ativo" : ""}`}
+                        onClick={() =>
+                          setForm((f) => ({ ...f, categoria: c.slug }))
+                        }
+                      >
+                        <i className={`fas ${c.icone}`} />
+                        <span>{c.nome}</span>
+                      </button>
+                    ))}
                   </div>
-                  <div>
-                    <label>Modificador (ex: +2)</label>
-                    <input
-                      type="number"
-                      value={form.modificador}
-                      onChange={(e) => set("modificador", e.target.value)}
-                      placeholder="0"
-                    />
+
+                  <label style={{ marginTop: 10 }}>Alcance</label>
+                  <div className="categoria-pills">
+                    {ALCANCES_ARMA.map((a) => (
+                      <button
+                        type="button"
+                        key={a.slug}
+                        className={`categoria-pill ${form.alcance === a.slug ? "ativo" : ""}`}
+                        onClick={() =>
+                          setForm((f) => ({ ...f, alcance: a.slug }))
+                        }
+                      >
+                        <i className={`fas ${a.icone}`} />
+                        <span>{a.nome}</span>
+                      </button>
+                    ))}
                   </div>
-                </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 2fr", gap: 10, marginTop: 12 }}>
+                    <div>
+                      <label>Dado de Dano</label>
+                      <input
+                        type="text"
+                        value={form.dano}
+                        onChange={(e) => set("dano", e.target.value)}
+                        placeholder="1d8"
+                      />
+                    </div>
+                    <div>
+                      <label>Bônus</label>
+                      <input
+                        type="number"
+                        value={form.modificador}
+                        onChange={(e) => set("modificador", e.target.value)}
+                        placeholder="0"
+                      />
+                    </div>
+                    <div>
+                      <label>Atributo de Ataque</label>
+                      <select
+                        value={form.atributoAtaque}
+                        onChange={(e) => set("atributoAtaque", e.target.value)}
+                      >
+                        <option value="">Automático</option>
+                        {ATRIBUTOS.map((a) => (
+                          <option key={a.slug} value={a.slug}>
+                            {a.sigla} — {a.nome}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <label
+                    className="checkbox-linha"
+                    style={{ marginTop: 12, padding: "8px 10px", background: "var(--bg-surface)", borderRadius: 6 }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={form.proficienteArma}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, proficienteArma: e.target.checked }))
+                      }
+                    />
+                    <span>
+                      <strong>Proficiente</strong> nesta arma{" "}
+                      <span style={{ color: "var(--text-sec)", fontSize: "0.8rem" }}>
+                        (soma bônus de proficiência ao ataque)
+                      </span>
+                    </span>
+                  </label>
+
+                  <h3 className="modal-secao"><i className="fas fa-tags" /> Propriedades</h3>
+                  <div className="propriedades-pills">
+                    {PROPRIEDADES_ARMA.map((p) => {
+                      const ativo = form.propriedades.includes(p.slug);
+                      return (
+                        <button
+                          type="button"
+                          key={p.slug}
+                          className={`propriedade-pill ${ativo ? "ativo" : ""}`}
+                          onClick={() =>
+                            setForm((f) => ({
+                              ...f,
+                              propriedades: ativo
+                                ? f.propriedades.filter((s) => s !== p.slug)
+                                : [...f.propriedades, p.slug],
+                            }))
+                          }
+                        >
+                          <i className={`fas ${p.icone}`} />
+                          <span>{p.nome}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
               )}
 
               {form.tipo === "armadura" && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
-                  <div>
-                    <label>Classe de Armadura (CA)</label>
-                    <input
-                      type="number"
-                      value={form.ca}
-                      onChange={(e) => set("ca", e.target.value)}
-                      placeholder="0"
-                    />
+                <>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
+                    <div>
+                      <label>Bônus de CA</label>
+                      <input
+                        type="number"
+                        value={form.ca}
+                        onChange={(e) => set("ca", e.target.value)}
+                        placeholder="2"
+                      />
+                    </div>
+                    <div>
+                      <label>Penalidade DES</label>
+                      <input
+                        type="number"
+                        value={form.penalidadeDes}
+                        onChange={(e) => set("penalidadeDes", e.target.value)}
+                        placeholder="0"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label>Penalidade DES</label>
-                    <input
-                      type="number"
-                      value={form.penalidadeDes}
-                      onChange={(e) => set("penalidadeDes", e.target.value)}
-                      placeholder="-1"
-                    />
-                  </div>
-                </div>
+                  <p className="modal-hint">
+                    <i className="fas fa-lightbulb" /> Quando equipada, o bônus de CA é somado automaticamente na sua CR.
+                    A penalidade DES (geralmente negativa) também entra no cálculo.
+                  </p>
+                </>
               )}
 
               <label>Tags (separadas por vírgula)</label>
@@ -518,18 +748,22 @@ type CardCallbacks = {
   apagar: (id: string) => void;
 };
 
+type Ataque = { atributo: Atributo; bonus: number } | null;
+
 function SecaoItens({
   titulo,
   icone,
   itens,
   visivel,
   callbacks,
+  calcAtaque,
 }: {
   titulo: string;
   icone: string;
   itens: Item[];
   visivel: boolean;
   callbacks: CardCallbacks;
+  calcAtaque: (item: Item) => Ataque;
 }) {
   if (!visivel || itens.length === 0) return null;
   return (
@@ -542,6 +776,7 @@ function SecaoItens({
           <CardItem
             key={item.id}
             item={item}
+            ataque={calcAtaque(item)}
             onToggleFavorito={() => callbacks.toggleFavorito(item)}
             onToggleEquipar={() => callbacks.toggleEquipar(item)}
             onEdit={() => callbacks.abrirEdit(item)}
@@ -555,12 +790,14 @@ function SecaoItens({
 
 function CardItem({
   item,
+  ataque,
   onToggleFavorito,
   onToggleEquipar,
   onEdit,
   onDelete,
 }: {
   item: Item;
+  ataque: Ataque;
   onToggleFavorito: () => void;
   onToggleEquipar: () => void;
   onEdit: () => void;
@@ -591,15 +828,37 @@ function CardItem({
         </div>
       </div>
 
-      {item.tipo === "arma" && item.dano && (
+      {item.tipo === "arma" && (item.dano || ataque) && (
         <div style={{ fontSize: "0.85rem", color: "var(--color-power)", fontWeight: "bold", marginTop: 8 }}>
-          ⚔️ {item.dano} {item.modificador ? (item.modificador > 0 ? `+${item.modificador}` : item.modificador) : ""}
+          <i className="fas fa-khanda" /> {item.dano}
+          {item.modificador
+            ? item.modificador > 0
+              ? ` +${item.modificador}`
+              : ` ${item.modificador}`
+            : ""}
+          {ataque && (
+            <span style={{ marginLeft: 8, fontWeight: "normal", color: "var(--text-sec)" }}>
+              Ataque: <strong style={{ color: "var(--color-power)" }}>{formatarMod(ataque.bonus)}</strong>{" "}
+              <span style={{ fontSize: "0.75rem" }}>({SIGLA_ATRIBUTO[ataque.atributo]})</span>
+            </span>
+          )}
         </div>
       )}
-      {item.tipo === "armadura" && item.ca > 0 && (
+      {item.tipo === "armadura" && (item.ca > 0 || item.penalidadeDes !== 0) && (
         <div style={{ fontSize: "0.85rem", color: "#3498db", fontWeight: "bold", marginTop: 8 }}>
-          🛡️ CA {item.ca > 0 ? "+" : ""}{item.ca}{" "}
-          {item.penalidadeDes ? `(DES ${item.penalidadeDes})` : ""}
+          {item.ca > 0 && (
+            <span><i className="fas fa-shield-alt" /> +{item.ca} CA</span>
+          )}
+          {item.penalidadeDes !== 0 && (
+            <span style={{ marginLeft: 8 }}>
+              {item.penalidadeDes > 0 ? `+${item.penalidadeDes}` : item.penalidadeDes} DES
+            </span>
+          )}
+          {item.equipado && (
+            <span style={{ marginLeft: 8, fontSize: "0.75rem", color: "var(--text-sec)", fontWeight: "normal" }}>
+              · ativa na CR
+            </span>
+          )}
         </div>
       )}
 
