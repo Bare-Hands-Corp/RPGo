@@ -1365,6 +1365,109 @@ textarea.cal-input {
   gap: 8px;
 }
 
+/* ─── Icon Picker (tipo de clima) ────────────────────────── */
+.cal-icone-picker {
+  position: relative;
+}
+
+.cal-icone-picker-trigger {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1.1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.cal-icone-picker-trigger:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.cal-icone-picker-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  min-width: 240px;
+}
+
+.cal-icone-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+}
+
+.cal-icone-picker-opt {
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  padding: 0;
+}
+
+.cal-icone-picker-opt:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.cal-icone-picker-opt.ativo {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 18%, var(--bg-card));
+  color: var(--primary);
+}
+
+.cal-icone-picker-custom {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.cal-icone-picker-custom input {
+  flex: 1;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-main);
+  font-size: 0.8rem;
+  padding: 4px 8px;
+}
+
+.cal-icone-picker-limpar {
+  margin-top: 6px;
+  width: 100%;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-sec);
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 4px;
+  font-size: 0.75rem;
+}
+
+.cal-icone-picker-limpar:hover {
+  border-color: #e74c3c;
+  color: #e74c3c;
+}
+
 /* ─── Customizar calendário (modal config) ───────────────── */
 
 .cal-field-header {

@@ -4,6 +4,7 @@ import { useState } from "react";
 import Swal from "sweetalert2";
 import type { CalendarioConfig } from "@/lib/calendario/engine";
 import type { TipoClima } from "./types";
+import { ICONES_CLIMA_FA, IconeCal } from "./icones";
 
 const PESOS_PRESET = [0, 1, 2, 3, 5];
 
@@ -128,13 +129,9 @@ export function ModalTiposClima({
         ) : (
           <div className="cal-tipo-novo-form">
             <div className="cal-tipo-novo-header">
-              <input
-                type="text"
-                className="cal-tipo-icone-input"
-                placeholder="🌨️"
-                maxLength={4}
-                value={novoIcone}
-                onChange={(e) => setNovoIcone(e.target.value)}
+              <IconePickerClima
+                valor={novoIcone}
+                onChange={(v) => setNovoIcone(v)}
               />
               <input
                 type="text"
@@ -188,6 +185,94 @@ export function ModalTiposClima({
   );
 }
 
+// Picker de ícone FA pra tipo de clima. Mostra o ícone atual; clicar abre
+// um grid de FA comuns + input pra digitar uma classe customizada (ex: "fa-meteor").
+// Emoji legado continua renderizando via IconeCal.
+function IconePickerClima({
+  valor,
+  onChange,
+}: {
+  valor: string;
+  onChange: (v: string) => void;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const [custom, setCustom] = useState(valor && !ICONES_CLIMA_FA.some((i) => i.slug === valor) ? valor : "");
+
+  return (
+    <div className="cal-icone-picker">
+      <button
+        type="button"
+        className="cal-icone-picker-trigger"
+        onClick={() => setAberto((v) => !v)}
+        title="Escolher ícone"
+      >
+        {valor ? (
+          <IconeCal icone={valor} />
+        ) : (
+          <i className="fas fa-cloud-sun" style={{ opacity: 0.4 }} />
+        )}
+      </button>
+      {aberto && (
+        <div className="cal-icone-picker-pop">
+          <div className="cal-icone-picker-grid">
+            {ICONES_CLIMA_FA.map((ic) => (
+              <button
+                type="button"
+                key={ic.slug}
+                className={`cal-icone-picker-opt ${valor === ic.slug ? "ativo" : ""}`}
+                onClick={() => {
+                  onChange(ic.slug);
+                  setAberto(false);
+                }}
+                title={ic.nome}
+              >
+                <IconeCal icone={ic.slug} />
+              </button>
+            ))}
+          </div>
+          <div className="cal-icone-picker-custom">
+            <input
+              type="text"
+              placeholder="fa-meteor, fa-... ou emoji"
+              value={custom}
+              onChange={(e) => setCustom(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  onChange(custom.trim());
+                  setAberto(false);
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="cal-btn-primary-sm"
+              onClick={() => {
+                onChange(custom.trim());
+                setAberto(false);
+              }}
+            >
+              OK
+            </button>
+          </div>
+          {valor && (
+            <button
+              type="button"
+              className="cal-icone-picker-limpar"
+              onClick={() => {
+                onChange("");
+                setAberto(false);
+              }}
+            >
+              <i className="fas fa-ban" /> Limpar
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PesoPilulas({
   valor,
   onChange,
@@ -237,10 +322,17 @@ function TipoCard({
 }) {
   // Estado controlado local pros inputs (commit no blur).
   const [nome, setNome] = useState(tipo.nome);
-  const [icone, setIcone] = useState(tipo.icone || "");
   const [descricao, setDescricao] = useState(tipo.descricao || "");
 
-  function commit<K extends "nome" | "icone" | "descricao">(campo: K, valor: string) {
+  // Ícone aplica direto via onPatch (vem do IconePickerClima, sem blur).
+  function mudarIcone(v: string) {
+    const tratado = v.trim();
+    const atual = tipo.icone || "";
+    if (tratado === atual) return;
+    onPatch({ icone: tratado || null });
+  }
+
+  function commit<K extends "nome" | "descricao">(campo: K, valor: string) {
     const valorTratado = valor.trim();
     if (campo === "nome") {
       if (!valorTratado) {
@@ -258,10 +350,11 @@ function TipoCard({
       onPatch({ nome: valorTratado });
       return;
     }
-    const atual = campo === "icone" ? tipo.icone : tipo.descricao;
+    // Só sobra "descricao" — "nome" tem early return acima e "icone" vai pelo
+    // IconePickerClima (não pelo commit).
     const novo = valorTratado || null;
-    if (novo === atual) return;
-    onPatch({ [campo]: novo } as Partial<TipoClima>);
+    if (novo === (tipo.descricao ?? null)) return;
+    onPatch({ descricao: novo });
   }
 
   function mudarPeso(estacao: string, v: number) {
@@ -272,14 +365,9 @@ function TipoCard({
   return (
     <div className="cal-tipo-item">
       <div className="cal-tipo-cabecalho">
-        <input
-          type="text"
-          className="cal-tipo-icone-input"
-          value={icone}
-          placeholder="🌤️"
-          maxLength={4}
-          onChange={(e) => setIcone(e.target.value)}
-          onBlur={(e) => commit("icone", e.target.value)}
+        <IconePickerClima
+          valor={tipo.icone || ""}
+          onChange={(v) => mudarIcone(v)}
         />
         <div className="cal-tipo-nome-bloco">
           <input
