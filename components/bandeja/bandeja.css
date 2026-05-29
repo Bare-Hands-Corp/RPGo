@@ -202,6 +202,7 @@
 .roll-footer-row {
   align-items: flex-end;
   gap: 8px;
+  justify-content: center;
 }
 .roll-footer-field {
   display: flex;
@@ -212,10 +213,11 @@
   color: var(--text-sec);
   align-items: center;
   text-align: center;
+  min-width: 0;
 }
 .roll-footer-field input {
   width: 100%;
-  padding: 8px 10px;
+  padding: 8px 8px;
   text-align: center;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -224,7 +226,7 @@
   font-family: inherit;
   font-size: 0.95rem;
   font-weight: 700;
-  line-height: 1;
+  line-height: 1.15;
   box-sizing: border-box;
   font-variant-numeric: tabular-nums;
 }
@@ -240,7 +242,7 @@
 }
 .tray-footer input {
   width: 100%;
-  padding: 8px 10px;
+  padding: 8px 8px;
   text-align: center;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -249,7 +251,7 @@
   font-family: inherit;
   font-size: 0.95rem;
   font-weight: 700;
-  line-height: 1;
+  line-height: 1.15;
   box-sizing: border-box;
   font-variant-numeric: tabular-nums;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Swal from "sweetalert2";
 import {
   type Dado,
@@ -51,9 +51,13 @@ export function PainelRolador({
   const [modoGravacao, setModoGravacao] = useState(false);
   const [resultado, setResultado] = useState<Resultado>({ tipo: "preview" });
   const [presetsAbertos, setPresetsAbertos] = useState(false);
-  const [presets, setPresets] = useState<Preset[]>(() => getPresets(userId));
+  const [presets, setPresets] = useState<Preset[]>([]);
   const [pedindoNome, setPedindoNome] = useState(false);
   const [nomePresetTmp, setNomePresetTmp] = useState("");
+
+  useEffect(() => {
+    setPresets(getPresets(userId));
+  }, [userId]);
 
   const modificador = Number(modificadorTexto || 0);
   const quantidade = Number(quantidadeTexto || 1);
@@ -115,6 +119,14 @@ export function PainelRolador({
     }
     const valor = Math.max(1, Math.trunc(Number(quantidadeTexto) || 1));
     setQuantidadeTexto(String(valor));
+  }
+
+  function desfocarCampoAtivo(event: React.MouseEvent<HTMLDivElement>) {
+    const alvo = event.target as HTMLElement | null;
+    if (!alvo) return;
+    if (alvo.closest("input") || alvo.closest("button")) return;
+    const ativo = document.activeElement;
+    if (ativo instanceof HTMLElement) ativo.blur();
   }
 
   function alternarModoRolagem(modo: Exclude<ModoRolagem, "normal">) {
@@ -231,7 +243,13 @@ export function PainelRolador({
   function salvarPresetComNome() {
     const nv = nomePresetTmp.trim();
     if (!nv) return;
-    addPreset(userId, { nome: nv, dados, modificador });
+    addPreset(userId, {
+      nome: nv,
+      dados,
+      modificador,
+      modoRolagem,
+      quantidade: quantidadeValida,
+    });
     setPresets(getPresets(userId));
     setPedindoNome(false);
     setNomePresetTmp("");
@@ -265,7 +283,7 @@ export function PainelRolador({
 
   async function executarPreset(p: Preset) {
     if (modoGravacao) cancelarGravacao();
-    executarRolagem(p.dados, p.modificador, p.nome, quantidadeValida, modoRolagem);
+    executarRolagem(p.dados, p.modificador, p.nome, p.quantidade, p.modoRolagem);
   }
 
   async function apagarPreset(p: Preset) {
@@ -307,7 +325,7 @@ export function PainelRolador({
         ))}
       </div>
 
-      <div className="tray-footer roll-footer-row">
+      <div className="tray-footer roll-footer-row" onMouseDownCapture={desfocarCampoAtivo}>
         <label className="roll-footer-field">
           <span>Repetições</span>
           <input
@@ -435,7 +453,11 @@ export function PainelRolador({
                     onClick={() => executarPreset(p)}
                   >
                     <span className="preset-card-name">{p.nome}</span>
-                    <span className="preset-card-formula">{formulaTexto(p.dados, p.modificador)}</span>
+                    <span className="preset-card-formula">
+                      {formulaTexto(p.dados, p.modificador)}
+                      {p.quantidade > 1 ? ` ×${p.quantidade}` : ""}
+                      {p.modoRolagem !== "normal" ? ` · ${rotuloModo(p.modoRolagem)}` : ""}
+                    </span>
                     <button
                       type="button"
                       className="preset-card-del"

@@ -178,6 +178,17 @@
   min-width: 0;
 }
 
+.narrador-calendario-embed {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 8px 24px -16px rgba(0, 0, 0, 0.25);
+}
+
 .narrador-grid-jogadores {
   padding: 8px 0 0;
   gap: 24px;
