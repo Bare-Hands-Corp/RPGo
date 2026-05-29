@@ -1,0 +1,187 @@
+.dashboard-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 40px;
+}
+.section-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 30px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 10px;
+}
+.cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+}
+.card {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+    position: relative;
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+.personagem-card {
+    padding: 30px 20px;
+}
+.mesa-card {
+    padding: 0;
+    padding-bottom: 20px;
+    text-align: left;
+    align-items: stretch;
+}
+.card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+    border-color: var(--primary);
+}
+.mesa-banner-img {
+    width: 100%;
+    height: 150px;
+    object-fit: cover;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 15px;
+}
+.mesa-banner-placeholder {
+    width: 100%;
+    height: 150px;
+    background-color: #2e2e2e;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 15px;
+}
+.mesa-banner-placeholder span {
+    font-size: 3rem;
+    color: #ffffff;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+.mesa-card .card-body {
+    padding: 0 20px;
+    align-items: flex-start;
+}
+.card-banner {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    background-color: var(--bg-surface);
+    background-size: cover;
+    background-position: center;
+    position: relative;
+    flex-shrink: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+}
+.card-avatar-container {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    background-color: #2e2e2e;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-shrink: 0;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+}
+.card-avatar-container span {
+    font-size: 2.5rem;
+    color: #ffffff;
+    font-weight: bold;
+    font-family: sans-serif;
+    text-transform: uppercase;
+}
+.card-avatar {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 50%;
+}
+.card-body, .card-info {
+    padding: 0;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+.card-title {
+    font-size: 1.5rem;
+    color: var(--text-main);
+    margin: 0 0 8px 0;
+    font-weight: bold;
+}
+.card-subtitle {
+    font-size: 0.9rem;
+    color: var(--text-sec);
+}
+.btn-delete {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: rgba(220, 53, 69, 0.9);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    opacity: 0;
+    transition: all 0.2s;
+    z-index: 10;
+}
+.card:hover .btn-delete {
+    opacity: 1;
+}
+.btn-delete:hover {
+    transform: scale(1.1);
+    background: #dc3545;
+}
+
+#btnPaleta:hover, #btnSair:hover {
+    color: var(--primary) !important;
+    transform: scale(1.1);
+}
+
+#modalNovaMesa {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+}
+.modal-content {
+    background: var(--bg-page);
+    padding: 20px;
+    border-radius: 8px;
+    width: 100%;
+    max-width: 400px;
+}

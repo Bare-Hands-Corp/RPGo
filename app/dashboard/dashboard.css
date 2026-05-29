@@ -12,6 +12,48 @@
   margin-bottom: 40px;
 }
 
+.dashboard-header-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+.btn-entrar-mesa {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-sec);
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.btn-entrar-mesa:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 4%, transparent);
+}
+
+.btn-entrar-mesa:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.dashboard-header-actions .btn-primary {
+  white-space: nowrap;
+}
+
 .dashboard-header h1 {
   display: flex;
   align-items: center;
@@ -378,9 +420,118 @@
   justify-content: center;
   align-items: center;
   padding: 20px;
+  box-sizing: border-box;
+  overflow-y: auto;
 }
 
 .modal-content-mesa {
   width: 100%;
   max-width: 400px;
+}
+
+.modal-entrar-mesa {
+  width: min(460px, 100%);
+  max-width: none;
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: calc(100vh - 40px);
+}
+
+.modal-entrar-header {
+  display: flex;           /* ← era grid, agora flex */
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 20px;
+  width: 100%;
+  min-width: 0;
+}
+
+.modal-entrar-header > div {
+  flex: 1;
+  min-width: 0;            /* ← essencial para o texto quebrar */
+}
+
+.modal-entrar-mesa form,
+.modal-entrar-mesa .form-group {
+  min-width: 0;
+}
+
+.modal-entrar-header h2,
+.modal-entrar-header p,
+.modal-entrar-info,
+.modal-entrar-erro {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.modal-entrar-header h2 {
+  margin: 0;
+  color: var(--primary);
+}
+
+.modal-entrar-header p {
+  margin: 8px 0 0;
+  font-size: 0.88rem;
+  color: var(--text-sec);
+  line-height: 1.45;
+  white-space: normal;
+  max-width: 100%;
+}
+
+.modal-entrar-info {
+  margin: 0 0 10px;
+  font-size: 0.82rem;
+  color: var(--text-sec);
+  line-height: 1.45;
+  white-space: normal;
+  max-width: 100%;
+}
+
+.modal-close-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-sec);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  align-self: flex-start;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.modal-close-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.modal-entrar-mesa select.form-input {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modal-entrar-erro {
+  margin: 0 0 10px;
+  font-size: 0.85rem;
+  color: #e74c3c;
+}
+
+.modal-entrar-acoes {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  width: 100%;
+  flex-wrap: wrap;
+}
+
+.modal-entrar-acoes .btn-text,
+.modal-entrar-acoes .btn-primary {
+  flex: 1 1 160px;
+  min-width: 0;
 }

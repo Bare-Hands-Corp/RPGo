@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { CardPersonagem } from "./card-personagem";
 import { CardMesa } from "./card-mesa";
 import { BotaoNovaMesa } from "./nova-mesa";
+import { BotaoEntrarMesa } from "./entrar-mesa";
 import { LogoutButton } from "./logout-button";
 import { RealtimeRefresher } from "./realtime-refresher";
 import { ThemeButton } from "@/components/temas/theme-button";
@@ -38,7 +39,8 @@ export default async function DashboardPage() {
         <h1>
           <i className="fa-solid fa-dice-d20" /> Hand Rolls
         </h1>
-        <div style={{ display: "flex", gap: 15, alignItems: "center" }}>
+        <div className="dashboard-header-actions">
+          <BotaoEntrarMesa personagens={personagens} />
           <ThemeButton />
           <LogoutButton />
         </div>

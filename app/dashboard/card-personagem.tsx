@@ -14,7 +14,23 @@ type Personagem = {
   hpMax: number;
   ppAtual: number;
   ppMax: number;
-  mesa: { nome: string } | null;
+  mesa?: { nome: string } | null;
+};
+
+type DeleteAction = {
+  onDelete: () => Promise<void>;
+  confirmText: string;
+  iconClassName?: string;
+  title?: string;
+  confirmButtonText?: string;
+  successTitle?: string;
+  successText?: string;
+};
+
+type CardPersonagemProps = {
+  personagem: Personagem;
+  mostrarMesa?: boolean;
+  deleteAction?: DeleteAction;
 };
 
 function iniciais(nome: string): string {
@@ -43,17 +59,34 @@ function Barra({ label, atual, max, tipo }: { label: string; atual: number; max:
   );
 }
 
-export function CardPersonagem({ personagem: p }: { personagem: Personagem }) {
+export function CardPersonagem({
+  personagem: p,
+  mostrarMesa = true,
+  deleteAction,
+}: CardPersonagemProps) {
   const [escondido, setEscondido] = useState(false);
   if (escondido) return null;
 
   const temPp = p.ppMax > 0;
+  const acaoExclusao = deleteAction ?? {
+    onDelete: deletarPersonagem.bind(null, p.id),
+    confirmText: `Apagar "${p.nome}" permanentemente? Esta ação é irreversível.`,
+    iconClassName: "fa-solid fa-trash",
+    title: "Apagar",
+    confirmButtonText: "Sim, apagar!",
+    successTitle: "Apagado!",
+  };
 
   return (
     <Link href={`/ficha/${p.id}`} className="card-personagem">
       <DeleteButton
-        onDelete={deletarPersonagem.bind(null, p.id)}
-        confirmText={`Apagar "${p.nome}" permanentemente? Esta ação é irreversível.`}
+        onDelete={acaoExclusao.onDelete}
+        confirmText={acaoExclusao.confirmText}
+        iconClassName={acaoExclusao.iconClassName}
+        title={acaoExclusao.title}
+        confirmButtonText={acaoExclusao.confirmButtonText}
+        successTitle={acaoExclusao.successTitle}
+        successText={acaoExclusao.successText}
         onOptimisticHide={() => setEscondido(true)}
         onOptimisticRestore={() => setEscondido(false)}
       />
@@ -72,11 +105,13 @@ export function CardPersonagem({ personagem: p }: { personagem: Personagem }) {
           <Barra label="PV" atual={p.hpAtual} max={p.hpMax} tipo="hp" />
           {temPp && <Barra label="PP" atual={p.ppAtual} max={p.ppMax} tipo="pp" />}
         </div>
-        <div className={`mesa-footer ${p.mesa ? "com-mesa" : "sem-mesa"}`}>
-          <i className="fa-solid fa-anchor" />
-          <span className="mesa-text">{p.mesa?.nome || "Sem tripulação"}</span>
-          {p.mesa && <span className="mesa-badge">A BORDO</span>}
-        </div>
+        {mostrarMesa && (
+          <div className={`mesa-footer ${p.mesa ? "com-mesa" : "sem-mesa"}`}>
+            <i className="fa-solid fa-anchor" />
+            <span className="mesa-text">{p.mesa?.nome || "Sem tripulação"}</span>
+            {p.mesa && <span className="mesa-badge">A BORDO</span>}
+          </div>
+        )}
       </div>
     </Link>
   );
