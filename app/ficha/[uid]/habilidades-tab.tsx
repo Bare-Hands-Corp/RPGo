@@ -18,8 +18,11 @@ import {
   RECARGAS_HABILIDADE,
   TIPOS_HABILIDADE,
   computarDeltasInstantaneos,
+  formatarMod,
   lerEfeitos,
+  resolverAtributosNaFormula,
   resumoEfeito,
+  type Atributo,
   type EfeitoHabilidade,
   type OrigemHabilidade,
   type TipoHabilidade,
@@ -52,6 +55,7 @@ type Props = {
   personagemId: string;
   habilidades: Habilidade[];
   recursos: RecursoMinimo[];
+  atributos: Record<Atributo, number>;
 };
 
 type Patch =
@@ -84,7 +88,7 @@ function mostrarErro(err: unknown) {
 
 type Filtro = "todas" | "disponiveis" | "sem_custo";
 
-export function HabilidadesTab({ personagemId, habilidades, recursos }: Props) {
+export function HabilidadesTab({ personagemId, habilidades, recursos, atributos }: Props) {
   const [otimistas, aplicar] = useOptimistic(habilidades, aplicarPatch);
   const [, startTransition] = useTransition();
   const [modalAberto, setModalAberto] = useState(false);
@@ -307,6 +311,7 @@ export function HabilidadesTab({ personagemId, habilidades, recursos }: Props) {
                 key={`fav-${h.id}`}
                 habilidade={h}
                 recursoNomePorId={recursoNomePorId}
+                atributos={atributos}
                 onEdit={() => abrirEdit(h)}
                 onApagar={() => apagar(h.id, h.nome)}
                 onUsar={() => usar(h)}
@@ -335,6 +340,7 @@ export function HabilidadesTab({ personagemId, habilidades, recursos }: Props) {
                   key={h.id}
                   habilidade={h}
                   recursoNomePorId={recursoNomePorId}
+                  atributos={atributos}
                   onEdit={() => abrirEdit(h)}
                   onApagar={() => apagar(h.id, h.nome)}
                   onUsar={() => usar(h)}
@@ -376,6 +382,7 @@ export function HabilidadesTab({ personagemId, habilidades, recursos }: Props) {
 function CardHabilidade({
   habilidade,
   recursoNomePorId,
+  atributos,
   onEdit,
   onApagar,
   onUsar,
@@ -383,6 +390,7 @@ function CardHabilidade({
 }: {
   habilidade: Habilidade;
   recursoNomePorId: Map<string, string>;
+  atributos: Record<Atributo, number>;
   onEdit: () => void;
   onApagar: () => void;
   onUsar: () => void;
@@ -395,18 +403,29 @@ function CardHabilidade({
   // Efeitos com fórmula de dado viram links "rolar" que empilham na Bandeja
   // (separado do "Usar", que só debita custos + aplica deltas instantâneos).
   // `cura` só é rolável quando a fórmula tem dado (ex: "1d8+CON"); cura inteira
-  // ("10") já entra como delta instantâneo. Termos de atributo (CON…) no nome
-  // do preset — o usuário completa o modificador no Rolador.
-  const rolagens: { formula: string; dados: Dado[]; modificador: number }[] = [];
+  // ("10") já entra como delta instantâneo. Siglas de atributo (CON…) na fórmula
+  // são resolvidas pro modificador do personagem e somadas ao mod empilhado.
+  const rolagens: {
+    formula: string;
+    dados: Dado[];
+    modificador: number;
+    nota: string;
+  }[] = [];
   for (const e of efeitos) {
-    if (e.tipo === "rolagem") {
-      const p = parseFormulaDados(e.formula);
-      if (p.dados.length > 0 || p.modificador !== 0)
-        rolagens.push({ formula: e.formula, ...p });
-    } else if (e.tipo === "cura") {
-      const p = parseFormulaDados(e.valor);
-      if (p.dados.length > 0) rolagens.push({ formula: e.valor, ...p });
-    }
+    const fonte = e.tipo === "rolagem" ? e.formula : e.tipo === "cura" ? e.valor : null;
+    if (fonte == null) continue;
+    const p = parseFormulaDados(fonte);
+    const attr = resolverAtributosNaFormula(fonte, atributos);
+    const modTotal = p.modificador + attr.modificador;
+    // rolagem: rola se tem dado OU modificador resultante; cura: só com dado
+    // (cura inteira pura já é delta instantâneo, não vale rolar um número fixo).
+    const rolavel =
+      e.tipo === "rolagem" ? p.dados.length > 0 || modTotal !== 0 : p.dados.length > 0;
+    if (!rolavel) continue;
+    const nota = attr.usados
+      .map((u) => `${u.sigla} ${formatarMod(u.mod)}`)
+      .join(", ");
+    rolagens.push({ formula: fonte, dados: p.dados, modificador: modTotal, nota });
   }
 
   const custos: string[] = [];
@@ -513,7 +532,7 @@ function CardHabilidade({
               key={`r${i}`}
               type="button"
               className="hab-rolar"
-              title={`Empilhar ${r.formula} no Rolador`}
+              title={`Empilhar ${r.formula} no Rolador${r.nota ? ` · ${r.nota}` : ""}`}
               onClick={() =>
                 empilharRolagem({
                   dados: r.dados,
@@ -526,12 +545,7 @@ function CardHabilidade({
             </button>
           ))}
           {podeUsar && (
-            <button
-              type="button"
-              className="hab-usar"
-              onClick={onUsar}
-              title="Usar habilidade"
-            >
+            <button type="button" className="hab-usar" onClick={onUsar}>
               <i className="fas fa-play" /> Usar
             </button>
           )}
@@ -551,7 +565,6 @@ function ChipEfeito({ efeito }: { efeito: EfeitoHabilidade }) {
         color: meta.cor,
         borderColor: `color-mix(in oklch, ${meta.cor} 35%, transparent)`,
       }}
-      title={`${meta.nome}: ${resumoEfeito(efeito)}`}
     >
       <i className={`fas ${meta.icone}`} />
       <span className="efeito-chip-label">{meta.nome}</span>
@@ -1201,15 +1214,15 @@ function renderCorpo(
             <div>
               <label>Recurso</label>
               <select
-                value={e.recurso}
+                // Normaliza grafia legada (hpMax) pro slug canônico no display.
+                value={e.recurso === "hpMax" ? "hp-max" : e.recurso}
                 onChange={(ev) =>
                   onPatch({ recurso: ev.target.value } as Partial<EfeitoHabilidade>)
                 }
               >
                 <option value="">—</option>
                 <option value="pp">PP</option>
-                <option value="pa">PA</option>
-                <option value="hpMax">PV Máx</option>
+                <option value="hp-max">PV Máx</option>
                 {recursos.map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.nome}
@@ -1222,7 +1235,7 @@ function renderCorpo(
               label="Recurso"
               valor={e.recurso}
               onChange={(v) => onPatch({ recurso: v } as Partial<EfeitoHabilidade>)}
-              placeholder="pp, pa, hpMax ou id"
+              placeholder="pp, hp-max ou id do recurso"
             />
           )}
           <CampoNum
@@ -1242,14 +1255,33 @@ function renderCorpo(
             placeholder="1d8+CON, 2d6, 5…"
           />
           <Detalhes aberto={!!e.alvoCura}>
-            <Campo
-              label="Onde aplica"
-              valor={e.alvoCura ?? ""}
-              onChange={(v) =>
-                onPatch({ alvoCura: v || undefined } as Partial<EfeitoHabilidade>)
-              }
-              placeholder="pv (padrão), ppv, pp"
-            />
+            <div>
+              <label>Onde aplica</label>
+              <select
+                // PV é o padrão (alvoCura vazio); só grava slug pros outros
+                // pools. Aliases legados (ppv/pv-temp/pv) caem no canônico.
+                value={
+                  e.alvoCura === "pp"
+                    ? "pp"
+                    : e.alvoCura === "hp-temp" ||
+                        e.alvoCura === "hptemp" ||
+                        e.alvoCura === "pv-temp" ||
+                        e.alvoCura === "ppv"
+                      ? "hp-temp"
+                      : "hp"
+                }
+                onChange={(ev) => {
+                  const v = ev.target.value;
+                  onPatch({
+                    alvoCura: v === "hp" ? undefined : v,
+                  } as Partial<EfeitoHabilidade>);
+                }}
+              >
+                <option value="hp">PV (padrão)</option>
+                <option value="hp-temp">PV Temporário</option>
+                <option value="pp">PP</option>
+              </select>
+            </div>
           </Detalhes>
         </>
       );

@@ -297,6 +297,15 @@ export function RecursosSidebar({
                 +
               </button>
             </div>
+            <div className="progress-track">
+              <div
+                className="progress-fill"
+                style={{
+                  width: `${r.valorMax > 0 ? (clamp(r.valorAtual, 0, r.valorMax) / r.valorMax) * 100 : 0}%`,
+                  background: cor,
+                }}
+              />
+            </div>
           </div>
         );
       })}

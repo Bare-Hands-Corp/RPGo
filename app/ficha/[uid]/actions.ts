@@ -109,6 +109,7 @@ const ALLOWED_ACAO = [
   "atributoCd",
   "dano",
   "alcance",
+  "armaId",
 ] as const;
 
 type AcaoInput = Partial<Record<(typeof ALLOWED_ACAO)[number], unknown>>;
@@ -148,6 +149,9 @@ function normalizarAcaoInput(input: AcaoInput) {
   }
   if (input.dano !== undefined) data.dano = input.dano ? String(input.dano) : null;
   if (input.alcance !== undefined) data.alcance = input.alcance ? String(input.alcance) : null;
+  // Referência solta a um Item (arma). Não validamos ownership aqui: pior caso
+  // é um id que a UI não acha na lista de armas e cai no cálculo manual.
+  if (input.armaId !== undefined) data.armaId = input.armaId ? String(input.armaId) : null;
   return data;
 }
 
@@ -172,6 +176,7 @@ export async function criarAcao(personagemId: string, input: AcaoInput) {
       atributoCd: (data.atributoCd as string | null) ?? null,
       dano: (data.dano as string | null) ?? null,
       alcance: (data.alcance as string | null) ?? null,
+      armaId: (data.armaId as string | null) ?? null,
     },
   });
   revalidatePath(`/ficha/${personagemId}`);

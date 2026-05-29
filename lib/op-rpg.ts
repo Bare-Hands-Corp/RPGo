@@ -74,6 +74,40 @@ export const ATRIBUTOS: { slug: Atributo; sigla: string; nome: string }[] = [
   { slug: "presenca", sigla: "PRE", nome: "Presença" },
 ];
 
+const SIGLA_PARA_SLUG: Record<string, Atributo> = {
+  FOR: "forca",
+  DES: "destreza",
+  CON: "constituicao",
+  SAB: "sabedoria",
+  VON: "vontade",
+  PRE: "presenca",
+};
+
+// Resolve siglas de atributo (FOR, DES, CON…) numa fórmula livre pro modificador
+// somado dos modificadores correspondentes. Complementa `parseFormulaDados` (que
+// cuida de dados + constantes numéricas e ignora palavras): aqui pegamos só os
+// termos de atributo, pra empilhar uma rolagem tipo "1d8+CON" já resolvida.
+// Só siglas MAIÚSCULAS casam (convenção da ficha) — evita falso positivo com
+// palavras tipo "concentração". `usados` alimenta tooltip ("CON +3").
+export function resolverAtributosNaFormula(
+  expr: string,
+  atributos: Record<Atributo, number>,
+): { modificador: number; usados: { sigla: string; mod: number }[] } {
+  const usados: { sigla: string; mod: number }[] = [];
+  let total = 0;
+  if (!expr) return { modificador: 0, usados };
+  const re = /([+-]?)\s*\b(FOR|DES|CON|SAB|VON|PRE)\b/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(expr))) {
+    const sinal = m[1] === "-" ? -1 : 1;
+    const sigla = m[2];
+    const mod = sinal * modificador(atributos[SIGLA_PARA_SLUG[sigla]]);
+    total += mod;
+    usados.push({ sigla, mod });
+  }
+  return { modificador: total, usados };
+}
+
 // Slug = identificador estável usado em DB. Não traduz — em PT-BR sem acentos.
 export type PericiaSlug =
   | "atletismo"
@@ -325,6 +359,64 @@ export function bonusAtaqueArma(opts: {
   return { atributo, bonus: mod + prof + opts.modificadorArma };
 }
 
+// Lê propriedades cruas (Json do banco) filtrando pros slugs canônicos.
+export function lerPropriedadesArma(raw: unknown): PropriedadeArma[] {
+  if (!Array.isArray(raw)) return [];
+  const validas = new Set(PROPRIEDADES_ARMA.map((p) => p.slug));
+  return raw.filter(
+    (p): p is PropriedadeArma =>
+      typeof p === "string" && validas.has(p as PropriedadeArma),
+  );
+}
+
+const ALCANCES_ARMA_VALIDOS = new Set<string>(ALCANCES_ARMA.map((a) => a.slug));
+
+// Resolve o ataque de uma arma "ao vivo" a partir dos campos crus do Item:
+// atributo escolhido + bônus total (mod + prof + modificador da arma + bônus de
+// habilidade do alcance) + as fontes desse extra + alcance normalizado. Usado
+// pelo card do inventário e por Ações ligadas a uma arma (ex: Seiken na arma
+// marcial equipada), garantindo o mesmo cálculo nos dois lugares.
+export function resolverAtaqueArma(opts: {
+  alcanceRaw: string;
+  propriedadesRaw: unknown;
+  atributoOverride: string | null;
+  modificadorArma: number;
+  proficiente: boolean;
+  atributos: Record<Atributo, number>;
+  nivel: number;
+  efeitosAgregados: EfeitosAgregados;
+}): { atributo: Atributo; bonus: number; fontes: string[]; alcance: AlcanceArma } | null {
+  const alcance: AlcanceArma = ALCANCES_ARMA_VALIDOS.has(opts.alcanceRaw)
+    ? (opts.alcanceRaw as AlcanceArma)
+    : "corpo_a_corpo";
+  const base = bonusAtaqueArma({
+    alcance,
+    propriedades: lerPropriedadesArma(opts.propriedadesRaw),
+    atributoOverride: (opts.atributoOverride as Atributo | null) || null,
+    atributos: opts.atributos,
+    nivel: opts.nivel,
+    modificadorArma: opts.modificadorArma,
+    proficiente: opts.proficiente,
+  });
+  if (!base) return null;
+  // Bônus de habilidade: genérico (Ataque) + específico do alcance.
+  const generico = opts.efeitosAgregados.bonusAtaque;
+  const doAlcance =
+    alcance === "corpo_a_corpo"
+      ? opts.efeitosAgregados.bonusAtaqueCC
+      : opts.efeitosAgregados.bonusAtaqueDistancia;
+  const fontes = [
+    ...generico.fontes,
+    ...doAlcance.fontes.filter((f) => !generico.fontes.includes(f)),
+  ];
+  return {
+    atributo: base.atributo,
+    bonus: base.bonus + generico.valor + doAlcance.valor,
+    fontes,
+    alcance,
+  };
+}
+
 // ─── Técnicas / Ações ─────────────────────────────────────────────────
 
 // CD de uma técnica/salvaguarda forçada = 8 + bônus_prof + mod_atributo_primário.
@@ -528,7 +620,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   {
     id: "pv_max",
     nome: "PV Máximo",
-    descricao: "Aumenta o teto de PV",
+    descricao: "Aumenta o limite de PV",
     icone: "fa-heart-pulse",
     cor: "#e74c3c",
     grupo: "ajuste",
@@ -537,7 +629,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   {
     id: "pp_max",
     nome: "PP Máximo",
-    descricao: "Aumenta o teto de Pontos de Poder",
+    descricao: "Aumenta o limite de Pontos de Poder",
     icone: "fa-bolt",
     cor: "var(--color-power)",
     grupo: "ajuste",
@@ -915,8 +1007,8 @@ export const ALVOS_AGREGAVEIS: { slug: string; nome: string; grupo: string }[] =
   ...ATRIBUTOS.map((a) => ({ slug: a.slug, nome: a.nome, grupo: "Atributo" })),
   ...ATRIBUTOS.map((a) => ({
     slug: `teto-${a.slug}`,
-    nome: `Teto ${a.nome}`,
-    grupo: "Teto de Atributo",
+    nome: `Limite ${a.nome}`,
+    grupo: "Limite de Atributo",
   })),
   { slug: "cr", nome: "Classe de Resistência", grupo: "Derivado" },
   { slug: "iniciativa", nome: "Iniciativa", grupo: "Derivado" },
@@ -976,6 +1068,16 @@ export const ALVOS_CONTEXTUAIS: { slug: string; nome: string; grupo: string }[] 
 ];
 
 const ALVOS_CONTEXTUAIS_SET = new Set(ALVOS_CONTEXTUAIS.map((a) => a.slug));
+
+// Rótulo amigável de um slug de alvo canônico (perícia, salvaguarda, pool…),
+// pra chips/resumos não vazarem o slug cru ("hp-temp"). Cobre os dois catálogos
+// (agregáveis + contextuais); cai pro próprio slug se for texto livre.
+const ROTULO_ALVO = new Map<string, string>(
+  [...ALVOS_AGREGAVEIS, ...ALVOS_CONTEXTUAIS].map((a) => [a.slug, a.nome]),
+);
+export function rotuloAlvo(slug: string): string {
+  return ROTULO_ALVO.get(slug.trim().toLowerCase()) ?? slug;
+}
 
 // Marca o tipo de rolagem que tá acontecendo. Quem dispara a rolagem
 // monta um `ContextoRolagem`, e `casaContexto(alvo, ctx)` decide se o
@@ -1039,8 +1141,9 @@ export type EfeitosAgregados = {
   bonusPericia: Partial<Record<PericiaSlug, FonteValor>>;
   bonusSalvaguarda: Partial<Record<Atributo, FonteValor>>;
   bonusAtributo: Partial<Record<Atributo, FonteValor>>;
-  // Bônus no teto do atributo (ex: Mente Afiada eleva teto de SAB pra 26).
+  // Bônus no limite do atributo (ex: Mente Afiada eleva o limite de SAB pra 26).
   // Aplicação fica a cargo da UI que controla AVA; aqui é só consolidação.
+  // Campo segue `bonusTetoAtributo` / slug `teto-` (identificadores estáveis).
   bonusTetoAtributo: Partial<Record<Atributo, FonteValor>>;
   proficienciasPericia: Partial<Record<PericiaSlug, FonteLista>>;
   proficienciasSalvaguarda: Partial<Record<Atributo, FonteLista>>;
@@ -1156,15 +1259,19 @@ export function computarDeltasInstantaneos(
     ppMax: 0,
     recursos: {},
   };
+  // Slugs canônicos de pool: hp (PV atual), hp-temp, hp-max, pp (PP atual),
+  // pp-max. Aliases antigos (pv, ppv, pv-temp, hpMax, hptemp…) são tolerados
+  // aqui pra não quebrar habilidades já salvas no banco.
   for (const e of efeitos) {
     if (e.tipo === "cura") {
       const n = Number(e.valor);
       if (!Number.isFinite(n) || n <= 0) continue;
       const v = Math.trunc(n);
-      const onde = (e.alvoCura ?? "pv").trim().toLowerCase();
+      const onde = (e.alvoCura ?? "hp").trim().toLowerCase();
       if (onde === "pp") d.ppAtual += v;
-      else if (onde === "ppv" || onde === "pv-temp" || onde === "hp-temp") d.hpTemp += v;
-      else d.hpAtual += v;
+      else if (onde === "hp-temp" || onde === "hptemp" || onde === "pv-temp" || onde === "ppv")
+        d.hpTemp += v;
+      else d.hpAtual += v; // hp / pv / vazio
     } else if (e.tipo === "modificador") {
       const alvo = e.alvo.trim().toLowerCase();
       if (alvo === "hp-temp" || alvo === "hptemp") d.hpTemp += Math.trunc(e.valor);
@@ -1173,10 +1280,10 @@ export function computarDeltasInstantaneos(
     } else if (e.tipo === "recurso_delta") {
       const v = Math.trunc(e.valor);
       if (!v) continue;
-      const k = e.recurso.trim();
+      const k = e.recurso.trim(); // pode ser UUID de recurso custom (case-sensitive)
       if (k === "pp") d.ppAtual += v;
-      else if (k === "pa") continue;
-      else if (k === "hpMax") d.hpMax += v;
+      else if (k === "hp-max" || k === "hpMax" || k === "hpmax") d.hpMax += v;
+      else if (k === "pa") continue; // PA não é pool rastreável (legado)
       else d.recursos[k] = (d.recursos[k] ?? 0) + v;
     }
   }
@@ -1413,14 +1520,21 @@ function aplicarProficiencia(
 export function resumoEfeito(e: EfeitoHabilidade): string {
   switch (e.tipo) {
     case "modificador":
-      return `${formatarMod(e.valor)} ${e.alvo}`;
+      return `${formatarMod(e.valor)} ${rotuloAlvo(e.alvo)}`;
     case "vantagem":
     case "desvantagem":
-      return e.alvo;
+      return rotuloAlvo(e.alvo);
     case "proficiencia":
-      return `${e.alvo}${e.dobrada ? " (2×)" : ""}`;
-    case "recurso_delta":
-      return `${formatarMod(e.valor)} ${e.recurso}`;
+      return `${rotuloAlvo(e.alvo)}${e.dobrada ? " (2×)" : ""}`;
+    case "recurso_delta": {
+      const lbl =
+        e.recurso === "pp"
+          ? "PP"
+          : e.recurso === "hp-max" || e.recurso === "hpMax"
+            ? "PV Máx"
+            : e.recurso;
+      return `${formatarMod(e.valor)} ${lbl}`;
+    }
     case "cura":
       return e.valor;
     case "condicao_imune":
@@ -1450,7 +1564,7 @@ export function resumoEfeito(e: EfeitoHabilidade): string {
     case "acao_extra":
       return e.quantidade > 1 ? `${e.quantidade}× ${e.acao}` : e.acao;
     case "sucesso_auto":
-      return e.alvo;
+      return rotuloAlvo(e.alvo);
     case "livre":
       return e.texto;
   }

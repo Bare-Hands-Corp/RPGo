@@ -9,7 +9,7 @@ import {
   ATRIBUTOS,
   CATEGORIAS_ARMA,
   PROPRIEDADES_ARMA,
-  bonusAtaqueArma,
+  resolverAtaqueArma,
   formatarMod,
   type AlcanceArma,
   type Atributo,
@@ -338,36 +338,21 @@ export function InventarioTab({
 
   function calcAtaque(item: Item): Ataque {
     if (item.tipo !== "arma") return null;
-    const alcance: AlcanceArma = ALCANCES_ARMA_VALIDOS.has(item.alcance)
-      ? (item.alcance as AlcanceArma)
-      : "corpo_a_corpo";
-    const propriedades = lerPropriedades(item.propriedades);
-    const override = item.atributoAtaque as Atributo | null;
-    const base = bonusAtaqueArma({
-      alcance,
-      propriedades,
-      atributoOverride: override,
-      atributos,
-      nivel,
+    const r = resolverAtaqueArma({
+      alcanceRaw: item.alcance,
+      propriedadesRaw: item.propriedades,
+      atributoOverride: item.atributoAtaque,
       modificadorArma: item.modificador || 0,
       proficiente: item.proficienteArma,
+      atributos,
+      nivel,
+      efeitosAgregados,
     });
-    if (!base) return null;
-    // Soma bônus de habilidade: genérico (Ataque) + específico do alcance.
-    const ataqueGenerico = efeitosAgregados.bonusAtaque;
-    const ataqueAlcance =
-      alcance === "corpo_a_corpo"
-        ? efeitosAgregados.bonusAtaqueCC
-        : efeitosAgregados.bonusAtaqueDistancia;
-    const bonusHab = ataqueGenerico.valor + ataqueAlcance.valor;
-    const fontesHab = [
-      ...ataqueGenerico.fontes,
-      ...ataqueAlcance.fontes.filter((f) => !ataqueGenerico.fontes.includes(f)),
-    ];
+    if (!r) return null;
     return {
-      atributo: base.atributo,
-      bonus: base.bonus + bonusHab,
-      fontesHab: fontesHab.length ? fontesHab : undefined,
+      atributo: r.atributo,
+      bonus: r.bonus,
+      fontesHab: r.fontes.length ? r.fontes : undefined,
     };
   }
 

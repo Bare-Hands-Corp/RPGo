@@ -104,6 +104,7 @@ export function FichaTabs({
           atributos={atributos}
           recursos={recursos}
           efeitosAgregados={efeitosAgregados}
+          itens={itens}
         />
       </div>
 
@@ -112,6 +113,7 @@ export function FichaTabs({
           personagemId={personagemId}
           habilidades={habilidades}
           recursos={recursos}
+          atributos={atributos}
         />
       </div>
 

@@ -166,6 +166,10 @@ model Acao {
   atributoCd        String? @map("atributo_cd")         // atributo primário do usuário pra CD (8+prof+mod)
   dano              String?                              // "1d8 cortante", "2d6 fogo"
   alcance           String?                              // "cc 1,5 m", "9 m", "linha 18 m"
+  // Quando setado, acerto/dano vêm da arma equipada (Item.id) em vez do cálculo
+  // manual — ex: Seiken usando a arma marcial equipada. Referência solta (sem FK):
+  // se a arma sumir/desequipar, a UI cai no cálculo manual (atributoAtaque/dano).
+  armaId            String? @map("arma_id")
 
   @@map("acoes")
 }

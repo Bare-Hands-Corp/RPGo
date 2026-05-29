@@ -60,6 +60,7 @@ export type OpcoesD20 = {
 
 export type D20Resultado = {
   resultado: number; // valor final, após manter (vantagem) e aplicar floor.
+  mantido: number; // valor mantido CRU (após vant/desv, antes do floor).
   rolados: number[]; // 1 ou 2 d20 rolados (antes do floor).
   descartado: number | null; // o d20 descartado quando há vant/desv.
   critico: "sucesso" | "falha" | null;
@@ -95,7 +96,7 @@ export function rolarD20Contextual(opcoes: OpcoesD20 = {}): D20Resultado {
   const comFloor = floorD20 > 0 && mantido < floorD20;
   const resultado = comFloor ? floorD20 : mantido;
 
-  return { resultado, rolados, descartado, critico, comFloor };
+  return { resultado, mantido, rolados, descartado, critico, comFloor };
 }
 
 export function formulaTexto(dados: Dado[], modificador: number): string {

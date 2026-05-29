@@ -8,6 +8,7 @@ import {
   bonusAtaqueTecnica,
   cdTecnica,
   formatarMod,
+  resolverAtaqueArma,
   type Atributo,
   type EfeitosAgregados,
 } from "@/lib/op-rpg";
@@ -42,9 +43,24 @@ type Acao = {
   atributoCd: string | null;
   dano: string | null;
   alcance: string | null;
+  armaId: string | null;
 };
 
 type RecursoMinimo = { id: string; nome: string; cor: string | null };
+
+// Subconjunto de Item necessário pra resolver o ataque/dano de uma arma.
+type ItemArma = {
+  id: string;
+  nome: string;
+  tipo: string;
+  equipado: boolean;
+  dano: string | null;
+  modificador: number;
+  alcance: string;
+  propriedades: unknown;
+  atributoAtaque: string | null;
+  proficienteArma: boolean;
+};
 
 type Props = {
   personagemId: string;
@@ -53,6 +69,7 @@ type Props = {
   atributos: Record<Atributo, number>;
   recursos: RecursoMinimo[];
   efeitosAgregados: EfeitosAgregados;
+  itens: ItemArma[];
 };
 
 const SIGLA: Record<Atributo, string> = {
@@ -91,6 +108,7 @@ type FormState = {
   atributoCd: string;
   dano: string;
   alcance: string;
+  armaId: string;
 };
 
 const FORM_VAZIO: FormState = {
@@ -108,6 +126,7 @@ const FORM_VAZIO: FormState = {
   atributoCd: "",
   dano: "",
   alcance: "",
+  armaId: "",
 };
 
 // Une listas de fontes preservando ordem e removendo duplicatas.
@@ -134,7 +153,9 @@ export function AcoesTab({
   atributos,
   recursos,
   efeitosAgregados,
+  itens,
 }: Props) {
+  const armas = itens.filter((i) => i.tipo === "arma");
   const [acoesOtimistas, aplicarPatch] = useOptimistic(
     acoes,
     (state: Acao[], p: Patch) => {
@@ -170,6 +191,7 @@ export function AcoesTab({
       atributoCd: acao.atributoCd || "",
       dano: acao.dano || "",
       alcance: acao.alcance || "",
+      armaId: acao.armaId || "",
     });
     setModalAberto(true);
   }
@@ -210,6 +232,7 @@ export function AcoesTab({
       atributoCd: form.atributoCd || null,
       dano: form.dano || null,
       alcance: form.alcance || null,
+      armaId: form.armaId || null,
     };
 
     const editandoId = form.id;
@@ -297,6 +320,25 @@ export function AcoesTab({
                   );
                   const atributoAtq = acao.atributoAtaque as Atributo | null;
                   const atributoCd = acao.atributoCd as Atributo | null;
+                  // Arma ligada à ação (ex: Seiken usando a arma marcial
+                  // equipada). Só vale se a arma ainda existe E está equipada —
+                  // senão cai no cálculo manual (atributo + dano da ação).
+                  const arma = acao.armaId
+                    ? armas.find((a) => a.id === acao.armaId)
+                    : undefined;
+                  const armaLigada = arma?.equipado ? arma : undefined;
+                  const ataqueArma = armaLigada
+                    ? resolverAtaqueArma({
+                        alcanceRaw: armaLigada.alcance,
+                        propriedadesRaw: armaLigada.propriedades,
+                        atributoOverride: armaLigada.atributoAtaque,
+                        modificadorArma: armaLigada.modificador || 0,
+                        proficiente: armaLigada.proficienteArma,
+                        atributos,
+                        nivel,
+                        efeitosAgregados,
+                      })
+                    : null;
                   // Ação não distingue CC vs Distância (modelo só tem texto
                   // livre em alcance), então somamos os 3 buckets de ataque
                   // num bônus único; idem pra dano.
@@ -304,11 +346,6 @@ export function AcoesTab({
                     efeitosAgregados.bonusAtaque.valor +
                     efeitosAgregados.bonusAtaqueCC.valor +
                     efeitosAgregados.bonusAtaqueDistancia.valor;
-                  const fontesAtaque = juntarFontes(
-                    efeitosAgregados.bonusAtaque.fontes,
-                    efeitosAgregados.bonusAtaqueCC.fontes,
-                    efeitosAgregados.bonusAtaqueDistancia.fontes,
-                  );
                   const extraCd = efeitosAgregados.bonusCdTecnicas.valor;
                   const fontesCd = efeitosAgregados.bonusCdTecnicas.fontes;
                   const extraDano =
@@ -320,8 +357,29 @@ export function AcoesTab({
                     efeitosAgregados.bonusDanoCC.fontes,
                     efeitosAgregados.bonusDanoDistancia.fontes,
                   );
-                  // Dano é texto livre ("2d6 fogo"). Faz o parse pra empilhar os
-                  // dados; o bônus extra do agregador entra como modificador.
+                  // Acerto: vem da arma (que já embute o bônus de habilidade do
+                  // alcance) ou do cálculo manual da técnica.
+                  const bonusAtq = ataqueArma
+                    ? ataqueArma.bonus
+                    : atributoAtq
+                      ? bonusAtaqueTecnica({
+                          nivel,
+                          valorAtributo: atributos[atributoAtq],
+                        }) + extraAtaque
+                      : null;
+                  const fontesAtaque = ataqueArma
+                    ? ataqueArma.fontes
+                    : juntarFontes(
+                        efeitosAgregados.bonusAtaque.fontes,
+                        efeitosAgregados.bonusAtaqueCC.fontes,
+                        efeitosAgregados.bonusAtaqueDistancia.fontes,
+                      );
+                  const alcanceContexto = ataqueArma
+                    ? ataqueArma.alcance
+                    : inferirAlcance(acao.alcance);
+                  // Dano é texto livre ("2d6 fogo") e é sempre da ação: cada
+                  // técnica tem dano próprio, então a arma ligada entra só no
+                  // acerto, nunca no dano.
                   const danoParse = acao.dano ? parseFormulaDados(acao.dano) : null;
                   const danoRolavel =
                     !!danoParse &&
@@ -336,12 +394,6 @@ export function AcoesTab({
                       {fontesDano.length > 0 && <i className="fas fa-link prof-fonte" />}
                     </>
                   ) : null;
-                  const bonusAtq = atributoAtq
-                    ? bonusAtaqueTecnica({
-                        nivel,
-                        valorAtributo: atributos[atributoAtq],
-                      }) + extraAtaque
-                    : null;
                   const cd = atributoCd
                     ? cdTecnica({
                         nivel,
@@ -380,25 +432,27 @@ export function AcoesTab({
                       </button>
                       <div>
                         <div className="card-title">{acao.nome}</div>
-                        {(bonusAtq != null || cd != null || atributoSalv || acao.dano || acao.alcance) && (
+                        {(bonusAtq != null || cd != null || atributoSalv || acao.dano || acao.alcance || acao.armaId) && (
                           <div className="acao-stats">
                             {bonusAtq != null && (
                               <button
                                 type="button"
                                 className="acao-stat acao-rolar"
                                 title={`Empilhar ataque no Rolador${
+                                  ataqueArma ? ` · usa ${armaLigada?.nome}` : ""
+                                }${
                                   fontesAtaque.length
-                                    ? ` · ${formatarMod(extraAtaque)} de ${fontesAtaque.join(", ")}`
+                                    ? ` · inclui bônus de ${fontesAtaque.join(", ")}`
                                     : ""
                                 }`}
                                 onClick={() =>
                                   empilharD20(bonusAtq, `Atacar ${acao.nome}`, {
                                     tipo: "ataque",
-                                    alcance: inferirAlcance(acao.alcance),
+                                    alcance: alcanceContexto,
                                   })
                                 }
                               >
-                                <i className="fas fa-khanda" /> Atq <strong>{formatarMod(bonusAtq)}</strong>
+                                <i className="fas fa-crosshairs" /> Acerto <strong>{formatarMod(bonusAtq)}</strong>
                                 {fontesAtaque.length > 0 && <i className="fas fa-link prof-fonte" />}
                               </button>
                             )}
@@ -449,6 +503,17 @@ export function AcoesTab({
                             )}
                             {acao.alcance && (
                               <span className="acao-stat"><i className="fas fa-ruler-horizontal" /> {acao.alcance}</span>
+                            )}
+                            {armaLigada ? (
+                              <span className="acao-stat" title="O acerto vem desta arma equipada">
+                                <i className="fas fa-khanda" /> {armaLigada.nome}
+                              </span>
+                            ) : (
+                              acao.armaId && (
+                                <span className="acao-stat" style={{ color: "var(--text-sec)" }} title="A arma ligada não está equipada — acerto pelo cálculo manual">
+                                  <i className="fas fa-link-slash" /> arma não equipada
+                                </span>
+                              )
                             )}
                           </div>
                         )}
@@ -535,10 +600,33 @@ export function AcoesTab({
                 placeholder="Descreva o efeito..."
               />
 
-              <details className="modal-secao-detalhe" open={!!(form.dano || form.alcance || form.atributoAtaque || form.atributoSalv || form.atributoCd || form.tag)}>
+              <details className="modal-secao-detalhe" open={!!(form.dano || form.alcance || form.atributoAtaque || form.atributoSalv || form.atributoCd || form.tag || form.armaId)}>
                 <summary><i className="fas fa-gears" /> Mecânica de combate</summary>
                 <div className="modal-secao-corpo">
-                  <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
+                  <label>Acerto vem da arma</label>
+                  <select
+                    value={form.armaId}
+                    onChange={(e) => setF("armaId", e.target.value)}
+                  >
+                    <option value="">— cálculo manual —</option>
+                    {armas.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.nome}
+                        {a.equipado ? "" : " (desequipada)"}
+                      </option>
+                    ))}
+                  </select>
+                  {form.armaId ? (
+                    <p className="modal-hint" style={{ marginTop: 8 }}>
+                      <i className="fas fa-circle-info" /> Só o acerto vem desta arma (enquanto equipada); o dano é o desta ação. Sem arma equipada, o acerto cai no &quot;Ataque com&quot; abaixo.
+                    </p>
+                  ) : armas.length === 0 ? (
+                    <p className="modal-hint" style={{ marginTop: 8 }}>
+                      <i className="fas fa-lightbulb" /> Cadastre uma arma no Inventário pra poder usar o acerto dela nesta ação.
+                    </p>
+                  ) : null}
+
+                  <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10, marginTop: 10 }}>
                     <div>
                       <label>Dano</label>
                       <input
