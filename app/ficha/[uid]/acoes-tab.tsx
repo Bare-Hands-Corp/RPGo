@@ -11,6 +11,21 @@ import {
   type Atributo,
   type EfeitosAgregados,
 } from "@/lib/op-rpg";
+import { parseFormulaDados } from "@/lib/dice";
+import { empilharD20, empilharRolagem } from "@/lib/empilhar-rolagem";
+
+// O modelo de Ação só guarda alcance como texto livre, então inferimos CC vs
+// distância por palavra-chave / metragem pra montar o contexto da rolagem.
+// Best-effort: o usuário pode trocar o chip de alcance no Rolador (etapa 3.3).
+function inferirAlcance(alcance: string | null): "corpo_a_corpo" | "distancia" {
+  if (!alcance) return "corpo_a_corpo";
+  const t = alcance.toLowerCase();
+  if (/corpo a corpo|adjacente|toque|melee/.test(t)) return "corpo_a_corpo";
+  if (/dist|arremess|tiro|proj|longo|alcance/.test(t)) return "distancia";
+  const num = t.match(/(\d+(?:[.,]\d+)?)\s*m/);
+  if (num) return parseFloat(num[1].replace(",", ".")) >= 3 ? "distancia" : "corpo_a_corpo";
+  return "corpo_a_corpo";
+}
 
 type Acao = {
   id: string;
@@ -305,6 +320,22 @@ export function AcoesTab({
                     efeitosAgregados.bonusDanoCC.fontes,
                     efeitosAgregados.bonusDanoDistancia.fontes,
                   );
+                  // Dano é texto livre ("2d6 fogo"). Faz o parse pra empilhar os
+                  // dados; o bônus extra do agregador entra como modificador.
+                  const danoParse = acao.dano ? parseFormulaDados(acao.dano) : null;
+                  const danoRolavel =
+                    !!danoParse &&
+                    (danoParse.dados.length > 0 ||
+                      danoParse.modificador + extraDano !== 0);
+                  const danoInner = acao.dano ? (
+                    <>
+                      <i className="fas fa-burst" /> {acao.dano}
+                      {extraDano !== 0 && (
+                        <strong> {extraDano > 0 ? `+${extraDano}` : extraDano}</strong>
+                      )}
+                      {fontesDano.length > 0 && <i className="fas fa-link prof-fonte" />}
+                    </>
+                  ) : null;
                   const bonusAtq = atributoAtq
                     ? bonusAtaqueTecnica({
                         nivel,
@@ -352,36 +383,57 @@ export function AcoesTab({
                         {(bonusAtq != null || cd != null || atributoSalv || acao.dano || acao.alcance) && (
                           <div className="acao-stats">
                             {bonusAtq != null && (
-                              <span
-                                className="acao-stat"
-                                title={
+                              <button
+                                type="button"
+                                className="acao-stat acao-rolar"
+                                title={`Empilhar ataque no Rolador${
                                   fontesAtaque.length
-                                    ? `${formatarMod(extraAtaque)} de ${fontesAtaque.join(", ")}`
-                                    : undefined
+                                    ? ` · ${formatarMod(extraAtaque)} de ${fontesAtaque.join(", ")}`
+                                    : ""
+                                }`}
+                                onClick={() =>
+                                  empilharD20(bonusAtq, `Atacar ${acao.nome}`, {
+                                    tipo: "ataque",
+                                    alcance: inferirAlcance(acao.alcance),
+                                  })
                                 }
                               >
                                 <i className="fas fa-khanda" /> Atq <strong>{formatarMod(bonusAtq)}</strong>
                                 {fontesAtaque.length > 0 && <i className="fas fa-link prof-fonte" />}
-                              </span>
+                              </button>
                             )}
-                            {acao.dano && (
-                              <span
-                                className="acao-stat"
-                                title={
-                                  fontesDano.length
-                                    ? `${formatarMod(extraDano)} de ${fontesDano.join(", ")}`
-                                    : undefined
-                                }
-                              >
-                                <i className="fas fa-burst" /> {acao.dano}
-                                {extraDano !== 0 && (
-                                  <strong>
-                                    {" "}{extraDano > 0 ? `+${extraDano}` : extraDano}
-                                  </strong>
-                                )}
-                                {fontesDano.length > 0 && <i className="fas fa-link prof-fonte" />}
-                              </span>
-                            )}
+                            {danoParse &&
+                              (danoRolavel ? (
+                                <button
+                                  type="button"
+                                  className="acao-stat acao-rolar"
+                                  title={`Empilhar dano no Rolador${
+                                    fontesDano.length
+                                      ? ` · ${formatarMod(extraDano)} de ${fontesDano.join(", ")}`
+                                      : ""
+                                  }`}
+                                  onClick={() =>
+                                    empilharRolagem({
+                                      dados: danoParse.dados,
+                                      modificador: danoParse.modificador + extraDano,
+                                      nomePreset: `Dano ${acao.nome}`,
+                                    })
+                                  }
+                                >
+                                  {danoInner}
+                                </button>
+                              ) : (
+                                <span
+                                  className="acao-stat"
+                                  title={
+                                    fontesDano.length
+                                      ? `${formatarMod(extraDano)} de ${fontesDano.join(", ")}`
+                                      : undefined
+                                  }
+                                >
+                                  {danoInner}
+                                </span>
+                              ))}
                             {cd != null && atributoSalv && (
                               <span
                                 className="acao-stat"

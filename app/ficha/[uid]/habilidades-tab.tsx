@@ -24,6 +24,8 @@ import {
   type OrigemHabilidade,
   type TipoHabilidade,
 } from "@/lib/op-rpg";
+import { type Dado, parseFormulaDados } from "@/lib/dice";
+import { empilharRolagem } from "@/lib/empilhar-rolagem";
 
 type Habilidade = {
   id: string;
@@ -390,6 +392,23 @@ function CardHabilidade({
   const tipoMeta = TIPOS_HABILIDADE.find((t) => t.slug === habilidade.tipo);
   const podeUsar = habilidade.tipo === "ativa" || habilidade.tipo === "reativa";
 
+  // Efeitos com fórmula de dado viram links "rolar" que empilham na Bandeja
+  // (separado do "Usar", que só debita custos + aplica deltas instantâneos).
+  // `cura` só é rolável quando a fórmula tem dado (ex: "1d8+CON"); cura inteira
+  // ("10") já entra como delta instantâneo. Termos de atributo (CON…) no nome
+  // do preset — o usuário completa o modificador no Rolador.
+  const rolagens: { formula: string; dados: Dado[]; modificador: number }[] = [];
+  for (const e of efeitos) {
+    if (e.tipo === "rolagem") {
+      const p = parseFormulaDados(e.formula);
+      if (p.dados.length > 0 || p.modificador !== 0)
+        rolagens.push({ formula: e.formula, ...p });
+    } else if (e.tipo === "cura") {
+      const p = parseFormulaDados(e.valor);
+      if (p.dados.length > 0) rolagens.push({ formula: e.valor, ...p });
+    }
+  }
+
   const custos: string[] = [];
   if (habilidade.custoPp > 0) custos.push(`${habilidade.custoPp} PP`);
   if (habilidade.custoPa > 0) custos.push(`${habilidade.custoPa} PA`);
@@ -477,7 +496,7 @@ function CardHabilidade({
         )}
       </div>
 
-      {(custos.length > 0 || tags.length > 0 || podeUsar) && (
+      {(custos.length > 0 || tags.length > 0 || podeUsar || rolagens.length > 0) && (
         <div className="card-tags">
           {custos.map((c, i) => (
             <span key={`c${i}`} className="tag tag-custo">
@@ -488,6 +507,23 @@ function CardHabilidade({
             <span key={`t${i}`} className="tag">
               {t}
             </span>
+          ))}
+          {rolagens.map((r, i) => (
+            <button
+              key={`r${i}`}
+              type="button"
+              className="hab-rolar"
+              title={`Empilhar ${r.formula} no Rolador`}
+              onClick={() =>
+                empilharRolagem({
+                  dados: r.dados,
+                  modificador: r.modificador,
+                  nomePreset: `${habilidade.nome}: ${r.formula}`,
+                })
+              }
+            >
+              <i className="fas fa-dice" /> {r.formula}
+            </button>
           ))}
           {podeUsar && (
             <button

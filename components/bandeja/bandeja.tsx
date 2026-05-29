@@ -4,6 +4,8 @@ import { type CSSProperties, useCallback, useEffect, useRef, useState } from "re
 import { PainelRolador } from "./painel-rolador";
 import { PainelChat, type PainelChatHandle } from "./painel-chat";
 import type { MensagemSerializada } from "@/lib/mensagens";
+import { EVENTO_EMPILHAR, type EmpilharRolagemDetail } from "@/lib/empilhar-rolagem";
+import type { EfeitosContexto } from "@/lib/op-rpg";
 import "./bandeja.css";
 
 type Props = {
@@ -13,6 +15,9 @@ type Props = {
   personagemId?: string | null;
   // Pré-carregadas no SSR — passadas direto pro PainelChat como estado inicial.
   mensagensIniciais: MensagemSerializada[];
+  // Efeitos contextuais do personagem — o Rolador casa com o contexto da
+  // rolagem empilhada pra sugerir chips (vantagem, crit expandido…).
+  efeitosContexto?: EfeitosContexto;
 };
 
 type Aba = "rolador" | "chat";
@@ -29,6 +34,7 @@ export function Bandeja({
   sessionId,
   personagemId,
   mensagensIniciais,
+  efeitosContexto,
 }: Props) {
   const bandejaRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
@@ -161,6 +167,20 @@ export function Bandeja({
     };
   }, []);
 
+  // Empilhar uma rolagem vinda da ficha foca a tab Rolador e expande a Bandeja
+  // (a menos que abrirAuto === false). O preenchimento de dados/mod/contexto
+  // fica no PainelRolador, que escuta o mesmo evento.
+  useEffect(() => {
+    function ouvir(e: Event) {
+      const det = (e as CustomEvent<EmpilharRolagemDetail>).detail;
+      if (!det) return;
+      setAba("rolador");
+      if (det.abrirAuto !== false) setCollapsed(false);
+    }
+    window.addEventListener(EVENTO_EMPILHAR, ouvir);
+    return () => window.removeEventListener(EVENTO_EMPILHAR, ouvir);
+  }, []);
+
   const className =
     "bandeja " + `dock-${dock}` + (collapsed ? " collapsed" : "");
 
@@ -235,6 +255,7 @@ export function Bandeja({
             sessionId={sessionId}
             personagemId={personagemId || null}
             onMensagemCriada={onMensagemCriada}
+            efeitosContexto={efeitosContexto}
           />
         </div>
 

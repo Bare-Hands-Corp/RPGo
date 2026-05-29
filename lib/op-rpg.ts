@@ -1021,6 +1021,17 @@ export function casaContexto(alvoRaw: string, ctx: ContextoRolagem): boolean {
 type FonteValor = { valor: number; fontes: string[] };
 type FonteLista = { fontes: string[] };
 
+// Efeito que depende do contexto da rolagem (casa via `casaContexto`). Guardado
+// "cru" no agregado com alvo + fonte; quem rola decide se casa com o contexto
+// atual (ataque CC, perícia X…). Diferente de crit_range/floor_d20 (globais) e
+// reroll (por gatilho), que já têm bucket próprio.
+export type EfeitoContextual = {
+  tipo: "vantagem" | "desvantagem" | "sucesso_auto";
+  alvo: string;
+  fonte: string;
+  quando?: string;
+};
+
 // Agregação de todos os efeitos `modificador` e `proficiencia` das habilidades
 // do personagem. Resultado é "frio": pode ser calculado em qualquer momento
 // a partir da lista de habilidades, sem estado interno.
@@ -1062,6 +1073,9 @@ export type EfeitosAgregados = {
   // slug do alvo. Vários multiplicadores compõem por produto (×2 × ×1.5 = ×3).
   // Default 1 (sem efeito). Ordem com aditivo: (base + bônus) × fator.
   multiplicadores: Partial<Record<string, { fator: number; fontes: string[] }>>;
+  // Vantagem/desvantagem/sucesso_auto crus — casam com o contexto na hora de
+  // rolar (via `chipsDoContexto`). Não somam: importa só "casa ou não casa".
+  contextuais: EfeitoContextual[];
 };
 
 function vazio(): EfeitosAgregados {
@@ -1092,6 +1106,7 @@ function vazio(): EfeitosAgregados {
     rerolls: {},
     sentidos: {},
     multiplicadores: {},
+    contextuais: [],
   };
 }
 
@@ -1218,10 +1233,95 @@ export function agregarEfeitos(
         atual.fator *= e.fator;
         if (!atual.fontes.includes(h.nome)) atual.fontes.push(h.nome);
         out.multiplicadores[key] = atual;
+      } else if (
+        e.tipo === "vantagem" ||
+        e.tipo === "desvantagem" ||
+        e.tipo === "sucesso_auto"
+      ) {
+        const alvo = e.alvo.trim().toLowerCase();
+        if (alvo) {
+          out.contextuais.push({ tipo: e.tipo, alvo, fonte: h.nome, quando: e.quando });
+        }
       }
     }
   }
   return out;
+}
+
+// Chip aplicável a uma rolagem específica — derivado do agregado + contexto.
+// O Rolador (Bandeja) renderiza um por chip com toggle de override. Mecânicos
+// (vantagem/desvantagem/crit_range/floor_d20) mudam o d20; informativos
+// (sucesso_auto/reroll) só anotam na string da rolagem.
+export type ChipContexto = {
+  tipo: "vantagem" | "desvantagem" | "sucesso_auto" | "crit_range" | "floor_d20" | "reroll";
+  rotulo: string;
+  fontes: string[];
+  // Parâmetro do efeito (minimo do crit/floor, usos do reroll). Ignorado nos demais.
+  valor?: number;
+};
+
+// Subconjunto do agregado que o Rolador precisa pra montar os chips — evita
+// serializar o EfeitosAgregados inteiro como prop da Bandeja.
+export type EfeitosContexto = Pick<
+  EfeitosAgregados,
+  "contextuais" | "critRangeMinimo" | "floorD20" | "rerolls"
+>;
+
+export function chipsDoContexto(
+  agg: EfeitosContexto,
+  ctx: ContextoRolagem,
+): ChipContexto[] {
+  const chips: ChipContexto[] = [];
+
+  // Vantagem/desvantagem/sucesso_auto: agrupa por tipo as fontes que casam.
+  const grupos: Partial<Record<EfeitoContextual["tipo"], string[]>> = {};
+  for (const c of agg.contextuais) {
+    if (!casaContexto(c.alvo, ctx)) continue;
+    (grupos[c.tipo] ??= []).push(c.fonte);
+  }
+  if (grupos.vantagem)
+    chips.push({ tipo: "vantagem", rotulo: "Vantagem", fontes: dedup(grupos.vantagem) });
+  if (grupos.desvantagem)
+    chips.push({ tipo: "desvantagem", rotulo: "Desvantagem", fontes: dedup(grupos.desvantagem) });
+  if (grupos.sucesso_auto)
+    chips.push({ tipo: "sucesso_auto", rotulo: "Sucesso automático", fontes: dedup(grupos.sucesso_auto) });
+
+  // Crítico expandido só importa em ataque (crit só acontece atacando).
+  if (ctx.tipo === "ataque" && agg.critRangeMinimo.valor < 20) {
+    chips.push({
+      tipo: "crit_range",
+      rotulo: `Crítico ${agg.critRangeMinimo.valor}-20`,
+      fontes: agg.critRangeMinimo.fontes,
+      valor: agg.critRangeMinimo.valor,
+    });
+  }
+  // Floor no d20 vale pra qualquer rolagem de d20.
+  if (agg.floorD20.valor > 0) {
+    chips.push({
+      tipo: "floor_d20",
+      rotulo: `Mínimo ${agg.floorD20.valor} no d20`,
+      fontes: agg.floorD20.fontes,
+      valor: agg.floorD20.valor,
+    });
+  }
+  // Reroll: gatilho segue a mesma convenção de slug do casaContexto.
+  for (const [gatilho, fv] of Object.entries(agg.rerolls)) {
+    if (fv && fv.valor > 0 && casaContexto(gatilho, ctx)) {
+      chips.push({
+        tipo: "reroll",
+        rotulo: `Rerrolar (${fv.valor}×)`,
+        fontes: fv.fontes,
+        valor: fv.valor,
+      });
+      break;
+    }
+  }
+
+  return chips;
+}
+
+function dedup(xs: string[]): string[] {
+  return Array.from(new Set(xs));
 }
 
 // Aplica um único bônus num bucket FonteValor simples (não-indexado).

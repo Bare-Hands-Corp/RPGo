@@ -19,6 +19,7 @@ import {
   type Atributo,
   type EfeitosAgregados,
 } from "@/lib/op-rpg";
+import { empilharD20 } from "@/lib/empilhar-rolagem";
 
 type Personagem = {
   id: string;
@@ -342,11 +343,19 @@ export function PerfilSidebar({
           bonusArmadura={bonusArmadura + efeitosAgregados.bonusCR.valor}
         />
         <div
-          className="derivado-card"
+          className="derivado-card derivado-rolar"
           title={
             efeitosAgregados.bonusIniciativa.fontes.length
-              ? `+${efeitosAgregados.bonusIniciativa.valor} de ${efeitosAgregados.bonusIniciativa.fontes.join(", ")}`
-              : undefined
+              ? `Empilhar Iniciativa · +${efeitosAgregados.bonusIniciativa.valor} de ${efeitosAgregados.bonusIniciativa.fontes.join(", ")}`
+              : "Empilhar Iniciativa no Rolador"
+          }
+          onClick={() =>
+            empilharD20(
+              iniciativa(atributosEfetivos.destreza) +
+                efeitosAgregados.bonusIniciativa.valor,
+              "Iniciativa",
+              { tipo: "iniciativa" },
+            )
           }
         >
           <div className="derivado-label">Iniciativa</div>
@@ -394,12 +403,18 @@ export function PerfilSidebar({
           const bonus = efeitosAgregados.bonusAtributo[slug];
           return (
             <div
-              className="attr-card"
+              className="attr-card attr-rolar"
               key={label}
               title={
                 bonus
-                  ? `${formatarMod(bonus.valor)} de ${bonus.fontes.join(", ")}`
-                  : undefined
+                  ? `Empilhar Teste ${label} · ${formatarMod(bonus.valor)} de ${bonus.fontes.join(", ")}`
+                  : `Empilhar Teste ${label} no Rolador`
+              }
+              onClick={() =>
+                empilharD20(modificador(valor), `Teste ${label}`, {
+                  tipo: "teste-atributo",
+                  atributo: slug,
+                })
               }
             >
               <div className="attr-label">

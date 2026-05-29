@@ -50,6 +50,9 @@ type RolagemPayload = {
   detalhes: unknown;
   modificador: number;
   nomePreset?: string | null;
+  // String HTML já formatada (crítico, vantagem, fontes). Quando presente, o
+  // chat a renderiza direto em vez de reconstruir dos rolls.
+  texto?: string | null;
 };
 
 // Combina envio de rolagem + persistência de ultimaRolagem no personagem (se houver)
@@ -74,6 +77,7 @@ export async function registrarRolagem(
       detalhes: {
         rolls: rolagem.detalhes,
         nomePreset: rolagem.nomePreset || null,
+        texto: rolagem.texto || null,
       } as Prisma.InputJsonValue,
     },
   });

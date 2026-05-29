@@ -218,6 +218,68 @@
   color: var(--text-sec);
   font-family: inherit;
 }
+.rolador-contexto {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, transparent);
+  color: var(--primary);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.rolador-contexto i {
+  font-size: 0.75rem;
+}
+
+/* Chips contextuais (vantagem, crit expandido…) — toggle de override. */
+.rolador-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.rolador-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-sec);
+  opacity: 0.55;
+  transition: opacity 0.15s, border-color 0.15s, background 0.15s;
+}
+.rolador-chip i {
+  font-size: 0.68rem;
+}
+.rolador-chip.on {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--primary);
+}
+
+/* Dado descartado na vantagem/desvantagem + linha de fontes dos efeitos.
+   Usados tanto no Rolador quanto no chat (string persistida). */
+.dado-descartado {
+  opacity: 0.45;
+  text-decoration: line-through;
+  font-size: 0.85em;
+}
+.roll-fontes {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.72rem;
+  font-style: italic;
+  opacity: 0.8;
+}
 .roll-btn {
   background: var(--color-padrao);
   color: white;

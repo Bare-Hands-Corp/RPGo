@@ -22,6 +22,7 @@ import {
   togglePericiaDobrada,
   toggleSalvaguarda,
 } from "./actions";
+import { empilharD20 } from "@/lib/empilhar-rolagem";
 
 type Props = {
   personagemId: string;
@@ -193,7 +194,21 @@ export function PericiasTab({
                   disabled={!!profPorHab}
                   onChange={(e) => setSalvaguarda(a.slug, e.target.checked)}
                 />
-                <span className="prof-bonus">{formatarMod(bonus)}</span>
+                <button
+                  type="button"
+                  className="prof-bonus prof-rolar"
+                  title={`Empilhar Salv. ${a.nome} no Rolador`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    empilharD20(bonus, `Salv. ${a.nome}`, {
+                      tipo: "salvaguarda",
+                      atributo: a.slug,
+                    });
+                  }}
+                >
+                  {formatarMod(bonus)}
+                </button>
                 <span className="prof-nome">
                   {a.nome}
                   {(profPorHab || bonusHab) && (
@@ -260,7 +275,21 @@ export function PericiasTab({
                         disabled={!!profPorHab}
                         onChange={(e) => setPericia(p.slug, e.target.checked)}
                       />
-                      <span className="prof-bonus">{formatarMod(bonus)}</span>
+                      <button
+                        type="button"
+                        className="prof-bonus prof-rolar"
+                        title={`Empilhar ${p.nome} no Rolador`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          empilharD20(bonus, p.nome, {
+                            tipo: "pericia",
+                            pericia: p.slug,
+                          });
+                        }}
+                      >
+                        {formatarMod(bonus)}
+                      </button>
                       <span className="prof-nome">
                         {p.nome}
                         {(profPorHab || bonusHab) && (

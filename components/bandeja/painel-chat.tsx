@@ -194,10 +194,13 @@ function MensagemView({
       | {
           rolls?: Array<{ faces: number; sinal: 1 | -1; resultado: number }>;
           nomePreset?: string | null;
+          texto?: string | null;
         }
       | Array<{ faces: number; sinal: 1 | -1; resultado: number }>;
     const arr = Array.isArray(raw) ? raw : raw.rolls || [];
     const presetLabel = !Array.isArray(raw) ? raw.nomePreset || null : null;
+    // Rolagem contextual persiste a string já formatada (vantagem, crit, fontes).
+    const textoPronto = !Array.isArray(raw) ? raw.texto || null : null;
 
     let stringDados = "";
     arr.forEach((d, i) => {
@@ -212,6 +215,7 @@ function MensagemView({
     if (msg.modificador && msg.modificador !== 0) {
       stringDados += ` ${msg.modificador >= 0 ? "+" : "-"} ${Math.abs(msg.modificador)}`;
     }
+    const detalhesHtml = textoPronto ?? `[${msg.total}] = ${stringDados}`;
 
     return (
       <div className="chat-message roll-message">
@@ -227,7 +231,7 @@ function MensagemView({
           <div className="roll-total">{msg.total}</div>
           <div
             className="roll-details"
-            dangerouslySetInnerHTML={{ __html: `[${msg.total}] = ${stringDados}` }}
+            dangerouslySetInnerHTML={{ __html: detalhesHtml }}
           />
         </div>
       </div>

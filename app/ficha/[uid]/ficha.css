@@ -519,6 +519,18 @@
   line-height: 1.1;
 }
 
+/* Cards de atributo/iniciativa que empilham a rolagem ao clicar. */
+.attr-rolar,
+.derivado-rolar {
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.attr-rolar:hover,
+.derivado-rolar:hover {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, var(--bg-surface));
+}
+
 .cr-editavel {
   position: relative;
   cursor: pointer;
@@ -885,6 +897,23 @@
   color: var(--text-main);
 }
 
+/* Chip de Atq/Dano que empilha a rolagem na Bandeja ao clicar. */
+.acao-rolar {
+  border: 1px solid transparent;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.acao-rolar:hover {
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 35%, transparent);
+}
+
 .tag-custo {
   background: color-mix(in oklch, var(--color-bonus) 15%, transparent);
   color: var(--color-bonus);
@@ -1088,6 +1117,20 @@
   min-width: 36px;
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+/* Bônus de perícia/salvaguarda vira botão que empilha a rolagem na Bandeja. */
+.prof-rolar {
+  border: none;
+  background: none;
+  font-size: inherit;
+  padding: 2px 5px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.prof-rolar:hover {
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
 }
 
 .prof-row.prof-on .prof-bonus {
@@ -1381,6 +1424,28 @@
 .hab-usar:hover {
   filter: brightness(1.1);
   transform: translateY(-1px);
+}
+
+/* Link "rolar" — empilha a fórmula da habilidade na Bandeja. Outline pra
+   distinguir do "Usar" (sólido), que debita custos + aplica deltas. */
+.hab-rolar {
+  background: none;
+  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, transparent);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.hab-rolar:hover {
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  border-color: var(--primary);
 }
 
 /* ─── CHIPS DE EFEITO ─────────────────────────────────────── */

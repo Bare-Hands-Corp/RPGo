@@ -109,6 +109,12 @@ export default async function FichaPage({ params }: Params) {
         sessionId={sessionId}
         personagemId={personagem.id}
         mensagensIniciais={mensagensIniciais}
+        efeitosContexto={{
+          contextuais: efeitosAgregados.contextuais,
+          critRangeMinimo: efeitosAgregados.critRangeMinimo,
+          floorD20: efeitosAgregados.floorD20,
+          rerolls: efeitosAgregados.rerolls,
+        }}
       />
     </div>
   );
