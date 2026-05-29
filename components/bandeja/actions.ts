@@ -7,6 +7,7 @@ import {
   serializarMensagem,
   type MensagemSerializada,
 } from "@/lib/mensagens";
+import type { DadoRolado, ModoRolagem } from "@/lib/dice";
 import type { Prisma } from "@prisma/client";
 
 async function requireUser() {
@@ -45,10 +46,16 @@ export async function enviarMensagemTexto(
   return serializarMensagem(nova);
 }
 
-type RolagemPayload = {
+type RolagemExecucaoPayload = {
   total: number;
-  detalhes: unknown;
   modificador: number;
+  modo: ModoRolagem;
+  detalhes: DadoRolado[];
+};
+
+type BaseRolagemPayload = {
+  modificador: number;
+  modo: ModoRolagem;
   nomePreset?: string | null;
   tipoTeste?: boolean;
   pericia?: string | null;
@@ -58,6 +65,21 @@ type RolagemPayload = {
   solicitacaoTesteId?: string | null;
   alvoNome?: string | null;
 };
+
+type RolagemUnitariaPayload = BaseRolagemPayload & {
+  tipo: "rolagem";
+  total: number;
+  detalhes: DadoRolado[];
+};
+
+type RolagemLotePayload = BaseRolagemPayload & {
+  tipo: "lote";
+  total: number | null;
+  quantidade: number;
+  execucoes: RolagemExecucaoPayload[];
+};
+
+type RolagemPayload = RolagemUnitariaPayload | RolagemLotePayload;
 
 function obterStatusTeste(
   rolagem: RolagemPayload,
@@ -80,6 +102,13 @@ function extrairRoladas(detalhes: unknown): Array<{ resultado: number }> {
   return [];
 }
 
+function extrairRoladasDoPayload(rolagem: RolagemPayload): Array<{ resultado: number }> {
+  if (rolagem.tipo === "lote") {
+    return rolagem.execucoes[0]?.detalhes || [];
+  }
+  return rolagem.detalhes;
+}
+
 // Combina envio de rolagem + persistência de ultimaRolagem no personagem (se houver)
 // numa única chamada com queries em paralelo no servidor.
 export async function registrarRolagem(
@@ -99,16 +128,39 @@ export async function registrarRolagem(
       tipo: "rolagem",
       total: rolagem.total,
       modificador: rolagem.modificador,
-      detalhes: {
-        rolls: rolagem.detalhes,
-        nomePreset: rolagem.nomePreset || null,
-        tipoTeste: rolagem.tipoTeste || null,
-        pericia: rolagem.pericia || null,
-        cd: rolagem.cd ?? null,
-        sucesso: rolagem.sucesso ?? null,
-        privacidadeResultado: rolagem.privacidadeResultado ?? null,
-        solicitacaoTesteId: rolagem.solicitacaoTesteId ?? null,
-      } as Prisma.InputJsonValue,
+      detalhes: (
+        rolagem.tipo === "lote"
+          ? {
+              kind: "lote",
+              modo: rolagem.modo,
+              quantidade: rolagem.quantidade,
+              execucoes: rolagem.execucoes.map((execucao) => ({
+                total: execucao.total,
+                modificador: execucao.modificador,
+                modo: execucao.modo,
+                rolls: execucao.detalhes,
+              })),
+              nomePreset: rolagem.nomePreset || null,
+              tipoTeste: rolagem.tipoTeste || null,
+              pericia: rolagem.pericia || null,
+              cd: rolagem.cd ?? null,
+              sucesso: rolagem.sucesso ?? null,
+              privacidadeResultado: rolagem.privacidadeResultado ?? null,
+              solicitacaoTesteId: rolagem.solicitacaoTesteId ?? null,
+            }
+          : {
+              kind: "rolagem",
+              modo: rolagem.modo,
+              rolls: rolagem.detalhes,
+              nomePreset: rolagem.nomePreset || null,
+              tipoTeste: rolagem.tipoTeste || null,
+              pericia: rolagem.pericia || null,
+              cd: rolagem.cd ?? null,
+              sucesso: rolagem.sucesso ?? null,
+              privacidadeResultado: rolagem.privacidadeResultado ?? null,
+              solicitacaoTesteId: rolagem.solicitacaoTesteId ?? null,
+            }
+      ) as Prisma.InputJsonValue,
     },
   });
 
@@ -140,7 +192,7 @@ export async function registrarRolagem(
 
     if (detalhesSolicitacao) {
       const statusAtualizado = obterStatusTeste(rolagem, {
-        rolls: extrairRoladas(rolagem.detalhes),
+        rolls: extrairRoladasDoPayload(rolagem),
       });
       await prisma.mensagem.update({
         where: { id: rolagem.solicitacaoTesteId },

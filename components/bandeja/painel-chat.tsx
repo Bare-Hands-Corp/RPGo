@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import Swal from "sweetalert2";
-import { rolarDados } from "@/lib/dice";
+import { formatarResultadoRolagemHtml, rolarDados } from "@/lib/dice";
 import { createClient } from "@/lib/supabase/client";
 import {
   enviarMensagemTexto,
@@ -216,7 +216,16 @@ function MensagemView({
   if (msg.tipo === "rolagem" && msg.detalhes) {
     const raw = msg.detalhes as
       | {
+          kind?: "rolagem" | "lote";
           rolls?: Array<{ faces: number; sinal: 1 | -1; resultado: number }>;
+          execucoes?: Array<{
+            total: number;
+            modificador: number;
+            modo?: "normal" | "vantagem" | "desvantagem";
+            rolls?: Array<{ faces: number; sinal: 1 | -1; resultado: number }>;
+          }>;
+          quantidade?: number;
+          modo?: "normal" | "vantagem" | "desvantagem";
           nomePreset?: string | null;
           tipoTeste?: boolean | null;
           pericia?: string | null;
@@ -225,32 +234,31 @@ function MensagemView({
           privacidadeResultado?: boolean | null;
         }
       | Array<{ faces: number; sinal: 1 | -1; resultado: number }>;
+    const ehLote = !Array.isArray(raw) && raw.kind === "lote" && Array.isArray(raw.execucoes);
     const arr = Array.isArray(raw) ? raw : raw.rolls || [];
+    const execucoes = ehLote ? raw.execucoes || [] : [];
+    const quantidade = ehLote ? raw.quantidade || execucoes.length : 0;
+    const modo = !Array.isArray(raw) ? raw.modo || "normal" : "normal";
     const presetLabel = !Array.isArray(raw) ? raw.nomePreset || null : null;
     const testeLabel = !Array.isArray(raw) ? raw.pericia || null : null;
     const sucesso = !Array.isArray(raw) ? raw.sucesso ?? null : null;
     const privacidadeResultado = !Array.isArray(raw) ? raw.privacidadeResultado ?? true : true;
-
-    let stringDados = "";
-    arr.forEach((d, i) => {
-      const op =
-        i === 0 ? (d.sinal === -1 ? "- " : "") : d.sinal === 1 ? " + " : " - ";
-      let res = `${d.resultado}`;
-      if (d.resultado === 1) res = `<span class="crit-fail">${d.resultado}</span>`;
-      else if (d.resultado === d.faces)
-        res = `<span class="crit-success">${d.resultado}</span>`;
-      stringDados += `${op}(${res}) 1d${d.faces}`;
-    });
-    if (msg.modificador && msg.modificador !== 0) {
-      stringDados += ` ${msg.modificador >= 0 ? "+" : "-"} ${Math.abs(msg.modificador)}`;
-    }
+    const resultadoOculto = !privacidadeResultado;
+    const totalDisplay = resultadoOculto ? "?" : ehLote ? `${quantidade}x` : String(msg.total ?? "?");
+    const detalhesUnitarios = resultadoOculto
+      ? "Resultado oculto"
+      : formatarResultadoRolagemHtml({
+          detalhes: arr,
+          modificador: msg.modificador || 0,
+        });
+    const modoLabel = modo === "vantagem" ? "Vantagem" : modo === "desvantagem" ? "Desvantagem" : "Normal";
 
     return (
       <div className={"chat-message roll-message" + (sucesso === true ? " success" : sucesso === false ? " fail" : "") }>
         <div className="roll-header">
           {hora} <strong>{nome}</strong>
         </div>
-        {(testeLabel || presetLabel) && (
+        {(testeLabel || presetLabel || ehLote || modo !== "normal") && (
           <div className="roll-tags">
             {testeLabel && (
               <div className="teste-pericia-tag">
@@ -262,14 +270,45 @@ function MensagemView({
                 <i className="fas fa-bookmark" /> <span>{presetLabel}</span>
               </div>
             )}
+            {modo !== "normal" && (
+              <div className="roll-mode-tag">
+                <i className="fas fa-clone" /> <span>{modoLabel}</span>
+              </div>
+            )}
+            {ehLote && (
+              <div className="roll-mode-tag">
+                <i className="fas fa-layer-group" /> <span>{quantidade}x</span>
+              </div>
+            )}
           </div>
         )}
         <div className="roll-box">
-          <div className="roll-total">{privacidadeResultado ? msg.total : "?"}</div>
-          <div
-            className="roll-details"
-            dangerouslySetInnerHTML={{ __html: privacidadeResultado ? `[${msg.total}] = ${stringDados}` : "Resultado oculto" }}
-          />
+          <div className="roll-total">{totalDisplay}</div>
+          {ehLote ? (
+            resultadoOculto ? (
+              <div className="roll-details">Resultado oculto</div>
+            ) : (
+              <div className="roll-batch-list">
+                {execucoes.map((execucao, indice) => (
+                  <div key={indice} className="roll-batch-row">
+                    <span className="roll-batch-index">#{indice + 1}</span>
+                    <span className="roll-batch-total">[{execucao.total}]</span>
+                    <span
+                      className="roll-batch-formula"
+                      dangerouslySetInnerHTML={{
+                        __html: `= ${formatarResultadoRolagemHtml({
+                          detalhes: execucao.rolls || [],
+                          modificador: execucao.modificador,
+                        })}`,
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+            )
+          ) : (
+            <div className="roll-details" dangerouslySetInnerHTML={{ __html: detalhesUnitarios }} />
+          )}
         </div>
       </div>
     );
@@ -367,9 +406,11 @@ function TesteMensagemView({
         sessionId,
         userName,
         {
+          tipo: "rolagem",
           total: resultado.total,
           detalhes: resultado.detalhes,
           modificador,
+          modo: "normal",
           nomePreset: null,
           tipoTeste: true,
           pericia: detalhes.pericia || null,
