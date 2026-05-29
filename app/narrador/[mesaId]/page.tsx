@@ -2,8 +2,10 @@ import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { listarMensagensSessao } from "@/lib/mensagens";
+import { carregarCalendario } from "@/lib/calendario/carregar";
 import { NarradorShell } from "./painel-narrador";
 import "@/app/dashboard/dashboard.css";
+import "@/app/calendario/[mesaId]/calendario.css";
 import "./narrador.css";
 
 type Params = { params: Promise<{ mesaId: string }> };
@@ -17,8 +19,8 @@ export default async function NarradorPage({ params }: Params) {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // Mesa + mensagens pré-carregadas em paralelo (sessionId === mesaId aqui).
-  const [mesa, mensagensIniciais] = await Promise.all([
+  // Mesa + mensagens + calendário pré-carregados em paralelo.
+  const [mesa, mensagensIniciais, calendario] = await Promise.all([
     prisma.mesa.findUnique({
       where: { id: mesaId },
       include: {
@@ -28,12 +30,21 @@ export default async function NarradorPage({ params }: Params) {
       },
     }),
     listarMensagensSessao(mesaId),
+    carregarCalendario(mesaId, { isNarrador: true }),
   ]);
   if (!mesa) notFound();
+  if (!calendario) notFound();
 
   if (mesa.userId !== user.id) {
     redirect("/dashboard");
   }
 
-  return <NarradorShell mesa={mesa} userId={user.id} mensagensIniciais={mensagensIniciais} />;
+  return (
+    <NarradorShell
+      mesa={mesa}
+      userId={user.id}
+      mensagensIniciais={mensagensIniciais}
+      calendario={calendario}
+    />
+  );
 }

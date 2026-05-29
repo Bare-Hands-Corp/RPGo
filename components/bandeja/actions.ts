@@ -7,6 +7,7 @@ import {
   serializarMensagem,
   type MensagemSerializada,
 } from "@/lib/mensagens";
+import type { DadoRolado, ModoRolagem } from "@/lib/dice";
 import type { Prisma } from "@prisma/client";
 
 async function requireUser() {
@@ -45,12 +46,68 @@ export async function enviarMensagemTexto(
   return serializarMensagem(nova);
 }
 
-type RolagemPayload = {
+type RolagemExecucaoPayload = {
   total: number;
-  detalhes: unknown;
   modificador: number;
-  nomePreset?: string | null;
+  modo: ModoRolagem;
+  detalhes: DadoRolado[];
 };
+
+type BaseRolagemPayload = {
+  modificador: number;
+  modo: ModoRolagem;
+  nomePreset?: string | null;
+  tipoTeste?: boolean;
+  pericia?: string | null;
+  cd?: number | null;
+  sucesso?: boolean | null;
+  privacidadeResultado?: boolean | null;
+  solicitacaoTesteId?: string | null;
+  alvoNome?: string | null;
+};
+
+type RolagemUnitariaPayload = BaseRolagemPayload & {
+  tipo: "rolagem";
+  total: number;
+  detalhes: DadoRolado[];
+};
+
+type RolagemLotePayload = BaseRolagemPayload & {
+  tipo: "lote";
+  total: number | null;
+  quantidade: number;
+  execucoes: RolagemExecucaoPayload[];
+};
+
+type RolagemPayload = RolagemUnitariaPayload | RolagemLotePayload;
+
+function obterStatusTeste(
+  rolagem: RolagemPayload,
+  detalhes: { rolls?: Array<{ resultado: number }> } | null,
+): string {
+  const primeiroDado = detalhes?.rolls?.[0]?.resultado;
+  if (primeiroDado === 20) return "Sucesso Crítico";
+  if (primeiroDado === 1) return "Falha Crítica";
+  if (rolagem.sucesso === true) return "Sucesso";
+  if (rolagem.sucesso === false) return "Falha";
+  return "Aguardando resultado";
+}
+
+function extrairRoladas(detalhes: unknown): Array<{ resultado: number }> {
+  if (Array.isArray(detalhes)) return detalhes as Array<{ resultado: number }>;
+  if (detalhes && typeof detalhes === "object" && "rolls" in detalhes) {
+    const rolls = (detalhes as { rolls?: Array<{ resultado: number }> }).rolls;
+    return rolls || [];
+  }
+  return [];
+}
+
+function extrairRoladasDoPayload(rolagem: RolagemPayload): Array<{ resultado: number }> {
+  if (rolagem.tipo === "lote") {
+    return rolagem.execucoes[0]?.detalhes || [];
+  }
+  return rolagem.detalhes;
+}
 
 // Combina envio de rolagem + persistência de ultimaRolagem no personagem (se houver)
 // numa única chamada com queries em paralelo no servidor.
@@ -71,10 +128,39 @@ export async function registrarRolagem(
       tipo: "rolagem",
       total: rolagem.total,
       modificador: rolagem.modificador,
-      detalhes: {
-        rolls: rolagem.detalhes,
-        nomePreset: rolagem.nomePreset || null,
-      } as Prisma.InputJsonValue,
+      detalhes: (
+        rolagem.tipo === "lote"
+          ? {
+              kind: "lote",
+              modo: rolagem.modo,
+              quantidade: rolagem.quantidade,
+              execucoes: rolagem.execucoes.map((execucao) => ({
+                total: execucao.total,
+                modificador: execucao.modificador,
+                modo: execucao.modo,
+                rolls: execucao.detalhes,
+              })),
+              nomePreset: rolagem.nomePreset || null,
+              tipoTeste: rolagem.tipoTeste || null,
+              pericia: rolagem.pericia || null,
+              cd: rolagem.cd ?? null,
+              sucesso: rolagem.sucesso ?? null,
+              privacidadeResultado: rolagem.privacidadeResultado ?? null,
+              solicitacaoTesteId: rolagem.solicitacaoTesteId ?? null,
+            }
+          : {
+              kind: "rolagem",
+              modo: rolagem.modo,
+              rolls: rolagem.detalhes,
+              nomePreset: rolagem.nomePreset || null,
+              tipoTeste: rolagem.tipoTeste || null,
+              pericia: rolagem.pericia || null,
+              cd: rolagem.cd ?? null,
+              sucesso: rolagem.sucesso ?? null,
+              privacidadeResultado: rolagem.privacidadeResultado ?? null,
+              solicitacaoTesteId: rolagem.solicitacaoTesteId ?? null,
+            }
+      ) as Prisma.InputJsonValue,
     },
   });
 
@@ -86,7 +172,43 @@ export async function registrarRolagem(
         })
       : Promise.resolve(null);
 
-  const [nova] = await Promise.all([criar, atualizarPersonagem]);
+  const nova = await criar;
+  await atualizarPersonagem;
+
+  if (rolagem.solicitacaoTesteId && rolagem.alvoNome) {
+    const solicitacao = await prisma.mensagem.findUnique({
+      where: { id: rolagem.solicitacaoTesteId },
+      select: { detalhes: true },
+    });
+    const detalhesSolicitacao = (solicitacao?.detalhes as {
+      statusPorNome?: Record<string, string>;
+      pericia?: string | null;
+      cd?: number | null;
+      privacidadeCd?: boolean;
+      privacidadeResultado?: boolean;
+      alvos?: string[] | "TODOS";
+      alvosNomes?: string[];
+    } | null) ?? null;
+
+    if (detalhesSolicitacao) {
+      const statusAtualizado = obterStatusTeste(rolagem, {
+        rolls: extrairRoladasDoPayload(rolagem),
+      });
+      await prisma.mensagem.update({
+        where: { id: rolagem.solicitacaoTesteId },
+        data: {
+          detalhes: {
+            ...detalhesSolicitacao,
+            statusPorNome: {
+              ...(detalhesSolicitacao.statusPorNome || {}),
+              [rolagem.alvoNome]: statusAtualizado,
+            },
+          } as Prisma.InputJsonValue,
+        },
+      });
+    }
+  }
+
   return serializarMensagem(nova);
 }
 

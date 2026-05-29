@@ -10,6 +10,10 @@ import { CopyCodigoBadge } from "./copy-codigo-badge";
 import { NarradorRealtime } from "./realtime-refresher";
 import { Bandeja } from "@/components/bandeja/bandeja";
 import { ThemeButton } from "@/components/temas/theme-button";
+import { ModalSolicitarTeste } from "./modal-solicitar-teste";
+import { CalendarioRealtime } from "@/app/calendario/[mesaId]/realtime-refresher";
+import { CalendarioView } from "@/app/calendario/[mesaId]/calendario-view";
+import type { CalendarioCarregado } from "@/lib/calendario/carregar";
 
 type Personagem = {
   id: string;
@@ -34,19 +38,12 @@ type Props = {
   mesa: Mesa;
   userId: string;
   mensagensIniciais: MensagemSerializada[];
+  calendario: CalendarioCarregado;
 };
 
-type Aba = "jogadores" | "acoes";
+type Aba = "jogadores" | "acoes" | "calendario";
 
 const ACOES_PROTOTIPO = [
-  {
-    id: "calendario",
-    titulo: "Calendário",
-    icone: "fa-calendar-days",
-    descricao: "Abrir o calendário da mesa como narrador.",
-    href: (mesaId: string) => `/calendario/${mesaId}`,
-    destaque: true,
-  },
   {
     id: "testes",
     titulo: "Pedir Testes",
@@ -79,8 +76,10 @@ const ACOES_PROTOTIPO = [
   },
 ] as const;
 
-export function NarradorShell({ mesa, userId, mensagensIniciais }: Props) {
+export function NarradorShell({ mesa, userId, mensagensIniciais, calendario }: Props) {
   const [aba, setAba] = useState<Aba>("jogadores");
+  const [modalTesteAberto, setModalTesteAberto] = useState(false);
+  const [mensagemCriada, setMensagemCriada] = useState<MensagemSerializada | null>(null);
 
   return (
     <div className="narrador-container">
@@ -105,13 +104,9 @@ export function NarradorShell({ mesa, userId, mensagensIniciais }: Props) {
               <h1>{mesa.nome}</h1>
             </div>
             <div className="mesa-acoes">
-              <Link
-                href={`/calendario/${mesa.id}`}
-                className="codigo-badge"
-                style={{ textDecoration: "none" }}
-              >
-                <i className="fas fa-calendar-days" /> Calendário
-              </Link>
+              <div className="codigo-badge" aria-label="Calendário integrado">
+                <i className="fas fa-calendar-days" /> Calendário integrado
+              </div>
               <CopyCodigoBadge codigo={mesa.codigoAcesso} />
             </div>
           </div>
@@ -131,6 +126,13 @@ export function NarradorShell({ mesa, userId, mensagensIniciais }: Props) {
             onClick={() => setAba("acoes")}
           >
             <i className="fas fa-sparkles" /> Ações do Narrador
+          </button>
+          <button
+            type="button"
+            className={"narrador-tab" + (aba === "calendario" ? " active" : "")}
+            onClick={() => setAba("calendario")}
+          >
+            <i className="fas fa-calendar-days" /> Calendário
           </button>
         </nav>
 
@@ -176,6 +178,18 @@ export function NarradorShell({ mesa, userId, mensagensIniciais }: Props) {
                 })
               )}
             </section>
+          ) : aba === "calendario" ? (
+            <section className="narrador-calendario-embed">
+              <CalendarioRealtime mesaId={mesa.id} calendarioId={calendario.id} />
+              <CalendarioView
+                mesaId={mesa.id}
+                isNarrador={true}
+                config={calendario.config}
+                dataAtualDias={calendario.dataAtualDias}
+                eventos={calendario.eventos}
+                tiposClima={calendario.tiposClima}
+              />
+            </section>
           ) : (
             <section className="acoes-narrador-grid">
               {ACOES_PROTOTIPO.map((acao) => {
@@ -189,19 +203,11 @@ export function NarradorShell({ mesa, userId, mensagensIniciais }: Props) {
                       <p>{acao.descricao}</p>
                     </div>
                     <div className="acao-card-rodape">
-                      <span>{acao.id === "calendario" ? "Disponível agora" : "Protótipo"}</span>
+                      <span>Protótipo</span>
                       <i className="fas fa-arrow-right" />
                     </div>
                   </>
                 );
-
-                if (acao.id === "calendario") {
-                  return (
-                    <Link key={acao.id} href={acao.href(mesa.id)} className="acao-narrador-card">
-                      {conteudo}
-                    </Link>
-                  );
-                }
 
                 return (
                   <button
@@ -209,6 +215,10 @@ export function NarradorShell({ mesa, userId, mensagensIniciais }: Props) {
                     type="button"
                     className="acao-narrador-card"
                     onClick={() => {
+                      if (acao.id === "testes") {
+                        setModalTesteAberto(true);
+                        return;
+                      }
                       void Swal.fire({
                         icon: "info",
                         title: "Protótipo",
@@ -232,6 +242,15 @@ export function NarradorShell({ mesa, userId, mensagensIniciais }: Props) {
         userName={`Narrador (${mesa.nome})`}
         sessionId={mesa.id}
         mensagensIniciais={mensagensIniciais}
+        mensagemExternaCriada={mensagemCriada}
+      />
+
+      <ModalSolicitarTeste
+        mesaId={mesa.id}
+        aberto={modalTesteAberto}
+        onFechar={() => setModalTesteAberto(false)}
+        onCriada={(msg) => setMensagemCriada(msg)}
+        personagens={mesa.personagens.map((p) => ({ id: p.id, nome: p.nome, fotoUrl: p.fotoUrl }))}
       />
     </div>
   );

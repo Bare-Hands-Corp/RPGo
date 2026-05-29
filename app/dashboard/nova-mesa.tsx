@@ -2,17 +2,20 @@
 
 import { useState, useTransition } from "react";
 import { criarMesa } from "./actions";
+import { BannerUploadModal } from "./banner-upload-modal";
 
 export function BotaoNovaMesa() {
   const [aberto, setAberto] = useState(false);
   const [nome, setNome] = useState("");
   const [bannerUrl, setBannerUrl] = useState("");
+  const [bannerAberto, setBannerAberto] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   function fechar() {
     if (pending) return;
     setAberto(false);
+    setBannerAberto(false);
     setNome("");
     setBannerUrl("");
     setErro(null);
@@ -71,16 +74,38 @@ export function BotaoNovaMesa() {
                 />
               </div>
               <div className="form-group">
-                <label htmlFor="novaMesaBanner">URL do Banner (opcional)</label>
-                <input
-                  id="novaMesaBanner"
-                  type="url"
-                  className="form-input"
-                  placeholder="https://imagem.com/banner.jpg"
-                  value={bannerUrl}
-                  onChange={(e) => setBannerUrl(e.target.value)}
+                <label>Foto do Banner (opcional)</label>
+                <button
+                  type="button"
+                  className="banner-upload-trigger"
+                  onClick={() => setBannerAberto(true)}
                   disabled={pending}
-                />
+                >
+                  {bannerUrl ? (
+                    <>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={bannerUrl} alt="Banner selecionado" />
+                      <span>Trocar foto</span>
+                    </>
+                  ) : (
+                    <>
+                      <i className="fa-solid fa-image" />
+                      <span>Clique, arraste ou cole uma imagem</span>
+                    </>
+                  )}
+                </button>
+                <p className="banner-upload-hint">A imagem será recortada antes de salvar a mesa.</p>
+                {bannerUrl && (
+                  <button
+                    type="button"
+                    className="btn-text"
+                    onClick={() => setBannerUrl("")}
+                    disabled={pending}
+                    style={{ padding: 0, marginTop: 8 }}
+                  >
+                    Remover foto
+                  </button>
+                )}
               </div>
               {erro && (
                 <p style={{ color: "#e74c3c", fontSize: "0.85rem", marginTop: 10 }}>{erro}</p>
@@ -103,6 +128,12 @@ export function BotaoNovaMesa() {
           </div>
         </div>
       )}
+
+      <BannerUploadModal
+        aberto={bannerAberto}
+        onFechar={() => setBannerAberto(false)}
+        onUpload={(url) => setBannerUrl(url)}
+      />
     </>
   );
 }

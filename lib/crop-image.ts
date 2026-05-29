@@ -20,15 +20,30 @@ function carregarImagem(src: string): Promise<HTMLImageElement> {
 export async function recortarParaBlob(
   imageSrc: string,
   pixelCrop: PixelCrop,
-  outputSize = 300,
+  outputWidth = 300,
+  outputHeight?: number,
 ): Promise<Blob> {
   const image = await carregarImagem(imageSrc);
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D não suportado.");
 
-  canvas.width = outputSize;
-  canvas.height = outputSize;
+  // Se a altura não foi fornecida, calcule preservando a proporção do recorte
+  const outH = typeof outputHeight === "number"
+    ? outputHeight
+    : Math.max(1, Math.round(outputWidth * (pixelCrop.height / pixelCrop.width)));
+
+  canvas.width = outputWidth;
+  canvas.height = outH;
+
+  // Melhor qualidade de interpolação ao redimensionar
+  ctx.imageSmoothingEnabled = true;
+  // Alguns ambientes TS não tipam imageSmoothingQuality; usar como any evita erro
+  try {
+    (ctx as CanvasRenderingContext2D & { imageSmoothingQuality?: 'low' | 'medium' | 'high' }).imageSmoothingQuality = "high";
+  } catch {
+    // ignore se não suportado
+  }
 
   ctx.drawImage(
     image,
@@ -38,8 +53,8 @@ export async function recortarParaBlob(
     pixelCrop.height,
     0,
     0,
-    outputSize,
-    outputSize,
+    canvas.width,
+    canvas.height,
   );
 
   return new Promise((resolve, reject) => {
@@ -48,8 +63,8 @@ export async function recortarParaBlob(
         if (blob) resolve(blob);
         else reject(new Error("Falha ao gerar blob da imagem."));
       },
+      // PNG é lossless; se precisar controlar qualidade use 'image/jpeg'
       "image/png",
-      0.9,
     );
   });
 }

@@ -424,9 +424,132 @@
   overflow-y: auto;
 }
 
+.modal-overlay-banner {
+  z-index: 1100;
+}
+
 .modal-content-mesa {
   width: 100%;
   max-width: 400px;
+}
+
+.modal-banner-upload {
+  width: min(640px, 100%);
+  max-width: none;
+}
+
+.banner-upload-trigger {
+  width: 100%;
+  min-height: 170px;
+  border: 2px dashed var(--border);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  border-radius: 14px;
+  padding: 14px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: border-color 0.15s, background 0.15s, transform 0.15s;
+  box-sizing: border-box;
+}
+
+.banner-upload-trigger:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 6%, transparent);
+  transform: translateY(-1px);
+}
+
+.banner-upload-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.75;
+}
+
+.banner-upload-trigger img {
+  width: 100%;
+  height: 132px;
+  object-fit: cover;
+  border-radius: 10px;
+  display: block;
+}
+
+.banner-upload-trigger i {
+  font-size: 2rem;
+  color: var(--text-sec);
+}
+
+.banner-upload-trigger span {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-main);
+  text-align: center;
+}
+
+.banner-upload-hint,
+.banner-upload-help {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+  color: var(--text-sec);
+  line-height: 1.4;
+}
+
+.banner-upload-dropzone {
+  border: 2px dashed var(--border);
+  padding: 30px 20px;
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.2s, border-color 0.2s;
+  margin-top: 12px;
+}
+
+.banner-upload-dropzone:hover,
+.banner-upload-dropzone.dragover {
+  background: color-mix(in oklch, var(--primary) 6%, transparent);
+  border-color: var(--primary);
+}
+
+.banner-upload-dropzone i {
+  font-size: 2rem;
+  color: var(--text-sec);
+  display: block;
+  margin-bottom: 10px;
+}
+
+.banner-upload-dropzone p {
+  color: var(--text-sec);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.banner-upload-cropper-area {
+  position: relative;
+  width: 100%;
+  height: 260px;
+  background: #000;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-top: 12px;
+}
+
+.banner-upload-zoom {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.banner-upload-zoom label {
+  font-size: 0.8rem;
+  color: var(--text-sec);
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.banner-upload-zoom input[type="range"] {
+  flex: 1;
 }
 
 .modal-entrar-mesa {

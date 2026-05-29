@@ -2,7 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Swal from "sweetalert2";
-import { type Dado, formulaTexto, rolarDados } from "@/lib/dice";
+import {
+  type Dado,
+  formulaTexto,
+  formatarResultadoRolagemHtml,
+  rolarDados,
+  rolarLote,
+  type ModoRolagem,
+} from "@/lib/dice";
 import { addPreset, getPresets, removePreset, type Preset } from "@/lib/presets";
 import { registrarRolagem } from "./actions";
 import type { MensagemSerializada } from "@/lib/mensagens";
@@ -21,7 +28,13 @@ const FACES = [4, 6, 8, 10, 12, 20, 100] as const;
 // última rolagem (mantido até o usuário mexer em qualquer input).
 type Resultado =
   | { tipo: "preview" }
-  | { tipo: "rolado"; total: number; detalhesHtml: string };
+  | { tipo: "rolado"; total: string; detalhesHtml: string };
+
+function rotuloModo(modo: ModoRolagem): string {
+  if (modo === "vantagem") return "Vantagem";
+  if (modo === "desvantagem") return "Desvantagem";
+  return "Normal";
+}
 
 export function PainelRolador({
   userId,
@@ -31,8 +44,10 @@ export function PainelRolador({
   onMensagemCriada,
 }: Props) {
   const [dados, setDados] = useState<Dado[]>([]);
-  const [modificador, setModificador] = useState(0);
+  const [modificadorTexto, setModificadorTexto] = useState("0");
   const [negativo, setNegativo] = useState(false);
+  const [modoRolagem, setModoRolagem] = useState<ModoRolagem>("normal");
+  const [quantidadeTexto, setQuantidadeTexto] = useState("1");
   const [modoGravacao, setModoGravacao] = useState(false);
   const [resultado, setResultado] = useState<Resultado>({ tipo: "preview" });
   const [presetsAbertos, setPresetsAbertos] = useState(false);
@@ -44,7 +59,11 @@ export function PainelRolador({
     setPresets(getPresets(userId));
   }, [userId]);
 
+  const modificador = Number(modificadorTexto || 0);
+  const quantidade = Number(quantidadeTexto || 1);
   const vazio = dados.length === 0 && modificador === 0;
+  const quantidadeValida = Math.max(1, Math.trunc(quantidade || 0));
+  const loteAtivo = quantidadeValida > 1;
 
   const preview = useMemo(() => {
     if (vazio) {
@@ -52,11 +71,18 @@ export function PainelRolador({
         total: "--",
         detalhes: modoGravacao
           ? "Monte a rolagem do preset..."
-          : "Selecione dados...",
+          : loteAtivo
+            ? `Lote ${quantidadeValida}x · ${rotuloModo(modoRolagem).toLowerCase()}`
+            : "Selecione dados...",
       };
     }
-    return { total: "??", detalhes: formulaTexto(dados, modificador) };
-  }, [vazio, dados, modificador, modoGravacao]);
+    return {
+      total: "??",
+      detalhes: `${formulaTexto(dados, modificador)}${loteAtivo ? ` ×${quantidadeValida}` : ""}${
+        modoRolagem !== "normal" ? ` · ${rotuloModo(modoRolagem)}` : ""
+      }`,
+    };
+  }, [vazio, dados, modificador, modoGravacao, loteAtivo, quantidadeValida, modoRolagem]);
 
   const display =
     resultado.tipo === "rolado"
@@ -68,58 +94,131 @@ export function PainelRolador({
     setResultado({ tipo: "preview" });
   }
 
-  function mudarMod(v: number) {
-    setModificador(v);
+  function mudarMod(v: string) {
+    setModificadorTexto(v);
+    setResultado({ tipo: "preview" });
+  }
+
+  function mudarQuantidade(v: string) {
+    setQuantidadeTexto(v);
+    setResultado({ tipo: "preview" });
+  }
+
+  function normalizarModificador() {
+    if (modificadorTexto.trim() === "") {
+      setModificadorTexto("0");
+      return;
+    }
+    setModificadorTexto(String(Number(modificadorTexto) || 0));
+  }
+
+  function normalizarQuantidade() {
+    if (quantidadeTexto.trim() === "") {
+      setQuantidadeTexto("1");
+      return;
+    }
+    const valor = Math.max(1, Math.trunc(Number(quantidadeTexto) || 1));
+    setQuantidadeTexto(String(valor));
+  }
+
+  function desfocarCampoAtivo(event: React.MouseEvent<HTMLDivElement>) {
+    const alvo = event.target as HTMLElement | null;
+    if (!alvo) return;
+    if (alvo.closest("input") || alvo.closest("button")) return;
+    const ativo = document.activeElement;
+    if (ativo instanceof HTMLElement) ativo.blur();
+  }
+
+  function alternarModoRolagem(modo: Exclude<ModoRolagem, "normal">) {
+    setModoRolagem((atual) => (atual === modo ? "normal" : modo));
     setResultado({ tipo: "preview" });
   }
 
   function limpar() {
     setDados([]);
-    setModificador(0);
+    setModificadorTexto("0");
     setNegativo(false);
+    setModoRolagem("normal");
+    setQuantidadeTexto("1");
     setResultado({ tipo: "preview" });
   }
 
-  function executarRolagem(dadosUsar: Dado[], modUsar: number, nomePreset: string | null) {
+  function executarRolagem(
+    dadosUsar: Dado[],
+    modUsar: number,
+    nomePreset: string | null,
+    quantidadeUsar: number,
+    modoUsar: ModoRolagem,
+  ) {
     if (dadosUsar.length === 0 && modUsar === 0) return;
-    const r = rolarDados(dadosUsar, modUsar);
+    const prefixo = nomePreset ? `[${nomePreset}] ` : "";
 
-    // Formata detalhes (com crit-success/fail)
-    let stringFinal = "";
-    r.detalhes.forEach((d, i) => {
-      const op =
-        i === 0 ? (d.sinal === -1 ? "- " : "") : d.sinal === 1 ? " + " : " - ";
-      let res = `${d.resultado}`;
-      if (d.resultado === 1) res = `<span class="crit-fail">${d.resultado}</span>`;
-      else if (d.resultado === d.faces)
-        res = `<span class="crit-success">${d.resultado}</span>`;
-      stringFinal += `${op}(${res}) 1d${d.faces}`;
-    });
-    if (modUsar !== 0) {
-      stringFinal += ` ${modUsar >= 0 ? "+" : "-"} ${Math.abs(modUsar)}`;
+    if (quantidadeUsar > 1) {
+      const lote = rolarLote(dadosUsar, modUsar, quantidadeUsar, modoUsar);
+      const linhas = lote.execucoes
+        .map(
+          (execucao, indice) =>
+            `<div class="roll-batch-row"><span class="roll-batch-index">#${indice + 1}</span><span class="roll-batch-total">[${execucao.total}]</span><span class="roll-batch-formula">= ${formatarResultadoRolagemHtml(execucao)}</span></div>`,
+        )
+        .join("");
+      const resumo = `${quantidadeUsar}x ${rotuloModo(modoUsar).toLowerCase()}`;
+
+      setResultado({
+        tipo: "rolado",
+        total: `${quantidadeUsar}x`,
+        detalhesHtml: `[${resumo}] ${formulaTexto(dadosUsar, modUsar)}${modUsar !== 0 ? ` ${modUsar >= 0 ? "+" : "-"} ${Math.abs(modUsar)}` : ""}<div class="roll-batch-list">${linhas}</div>`,
+      });
+
+      const ultimaRolagemTexto = personagemId ? `${prefixo}[${resumo}] ${formulaTexto(dadosUsar, modUsar)}` : null;
+
+      registrarRolagem(
+        sessionId,
+        userName,
+        {
+          tipo: "lote",
+          total: null,
+          quantidade: lote.quantidade,
+          modificador: modUsar,
+          modo: modoUsar,
+          execucoes: lote.execucoes.map((execucao) => ({
+            total: execucao.total,
+            modificador: execucao.modificador,
+            modo: execucao.modo,
+            detalhes: execucao.detalhes,
+          })),
+          nomePreset: nomePreset || null,
+        },
+        personagemId,
+        ultimaRolagemTexto,
+      )
+        .then((msg) => onMensagemCriada(msg))
+        .catch((err) => console.error(err));
+      return;
     }
+
+    const r = rolarDados(dadosUsar, modUsar, modoUsar);
+    const stringFinal = formatarResultadoRolagemHtml(r);
 
     setResultado({
       tipo: "rolado",
-      total: r.total,
+      total: String(r.total),
       detalhesHtml: `[${r.total}] = ${stringFinal}`,
     });
 
     // Uma única chamada: registra a mensagem no chat E salva ultimaRolagem no
     // personagem (em paralelo no servidor). Retorna a mensagem pra append local.
     const textoLimpo = stringFinal.replace(/<[^>]*>?/gm, "");
-    const prefixo = nomePreset ? `[${nomePreset}] ` : "";
-    const ultimaRolagemTexto = personagemId
-      ? `${prefixo}[${r.total}] = ${textoLimpo}`
-      : null;
+    const ultimaRolagemTexto = personagemId ? `${prefixo}[${r.total}] = ${textoLimpo}` : null;
 
     registrarRolagem(
       sessionId,
       userName,
       {
+        tipo: "rolagem",
         total: r.total,
         detalhes: r.detalhes,
         modificador: modUsar,
+        modo: modoUsar,
         nomePreset: nomePreset || null,
       },
       personagemId,
@@ -136,7 +235,7 @@ export function PainelRolador({
       setNomePresetTmp("");
       return;
     }
-    executarRolagem(dados, modificador, null);
+    executarRolagem(dados, modificador, null, quantidadeValida, modoRolagem);
     // Mantém modificador, limpa só os dados (igual legacy)
     setDados([]);
   }
@@ -144,13 +243,21 @@ export function PainelRolador({
   function salvarPresetComNome() {
     const nv = nomePresetTmp.trim();
     if (!nv) return;
-    addPreset(userId, { nome: nv, dados, modificador });
+    addPreset(userId, {
+      nome: nv,
+      dados,
+      modificador,
+      modoRolagem,
+      quantidade: quantidadeValida,
+    });
     setPresets(getPresets(userId));
     setPedindoNome(false);
     setNomePresetTmp("");
     setModoGravacao(false);
     setDados([]);
-    setModificador(0);
+    setModificadorTexto("0");
+    setModoRolagem("normal");
+    setQuantidadeTexto("1");
     setResultado({ tipo: "preview" });
     setPresetsAbertos(true);
   }
@@ -158,21 +265,25 @@ export function PainelRolador({
   function entrarGravacao() {
     setModoGravacao(true);
     setDados([]);
-    setModificador(0);
+    setModificadorTexto("0");
     setNegativo(false);
+    setModoRolagem("normal");
+    setQuantidadeTexto("1");
     setResultado({ tipo: "preview" });
   }
 
   function cancelarGravacao() {
     setModoGravacao(false);
     setDados([]);
-    setModificador(0);
+    setModificadorTexto("0");
+    setModoRolagem("normal");
+    setQuantidadeTexto("1");
     setResultado({ tipo: "preview" });
   }
 
   async function executarPreset(p: Preset) {
     if (modoGravacao) cancelarGravacao();
-    executarRolagem(p.dados, p.modificador, p.nome);
+    executarRolagem(p.dados, p.modificador, p.nome, p.quantidade, p.modoRolagem);
   }
 
   async function apagarPreset(p: Preset) {
@@ -214,19 +325,63 @@ export function PainelRolador({
         ))}
       </div>
 
-      <div className="tray-footer">
-        <div style={{ flex: 1 }}>
-          <label style={{ fontSize: "0.7rem", color: "var(--text-sec)" }}>Modificador</label>
+      <div className="tray-footer roll-footer-row" onMouseDownCapture={desfocarCampoAtivo}>
+        <label className="roll-footer-field">
+          <span>Repetições</span>
           <input
-            type="number"
-            value={modificador}
-            onChange={(e) => mudarMod(Number(e.target.value) || 0)}
-            placeholder="+0"
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={quantidadeTexto}
+            onFocus={() => {
+              if (quantidadeTexto === "0") setQuantidadeTexto("");
+            }}
+            onChange={(e) => mudarQuantidade(e.target.value)}
+            onBlur={normalizarQuantidade}
           />
-        </div>
+        </label>
+
+        <span className="roll-footer-separator">x</span>
+
+        <label className="roll-footer-field roll-footer-mod">
+          <span>Modificador</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="-?[0-9]*"
+            value={modificadorTexto}
+            onFocus={() => {
+              if (modificadorTexto === "0") setModificadorTexto("");
+            }}
+            onChange={(e) => mudarMod(e.target.value)}
+            placeholder="+0"
+            onBlur={normalizarModificador}
+          />
+        </label>
+
         <button type="button" className="clear-btn" title="Limpar" onClick={limpar}>
           <i className="fas fa-trash" />
         </button>
+      </div>
+
+      <div className="roll-settings">
+        <div className="roll-mode-switch" role="group" aria-label="Modo de rolagem">
+          {([
+            ["vantagem", "Vant.", "fa-clone", "vantagem"],
+            ["desvantagem", "Desv.", "fa-clone", "desvantagem"],
+          ] as const).map(([modo, texto, icone, tipo]) => (
+            <button
+              key={modo}
+              type="button"
+              className={"roll-toggle-btn " + tipo + (modoRolagem === modo ? " active" : "")}
+              onClick={() => alternarModoRolagem(modo)}
+              aria-pressed={modoRolagem === modo}
+            >
+              <i className={`fas ${icone}`} />
+              <span>{texto}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       <button
@@ -235,7 +390,7 @@ export function PainelRolador({
         onClick={clicarRolar}
         disabled={vazio}
       >
-        {modoGravacao ? "SALVAR PRESET" : "ROLAR!"}
+        {modoGravacao ? "SALVAR PRESET" : loteAtivo ? `ROLAR X${quantidadeValida}` : "ROLAR!"}
       </button>
 
       <div className="tray-result-box">
@@ -298,7 +453,11 @@ export function PainelRolador({
                     onClick={() => executarPreset(p)}
                   >
                     <span className="preset-card-name">{p.nome}</span>
-                    <span className="preset-card-formula">{formulaTexto(p.dados, p.modificador)}</span>
+                    <span className="preset-card-formula">
+                      {formulaTexto(p.dados, p.modificador)}
+                      {p.quantidade > 1 ? ` ×${p.quantidade}` : ""}
+                      {p.modoRolagem !== "normal" ? ` · ${rotuloModo(p.modoRolagem)}` : ""}
+                    </span>
                     <button
                       type="button"
                       className="preset-card-del"
