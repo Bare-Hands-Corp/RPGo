@@ -19,6 +19,7 @@ type Props = {
   personagemId: string;
   mesaId: string | null;
   nivel: number;
+  exaustao: number;
   atributos: Record<Atributo, number>;
   proficienciasRaw: unknown;
   cargaMaxima: number;
@@ -54,6 +55,7 @@ export function FichaTabs({
   personagemId,
   mesaId,
   nivel,
+  exaustao,
   atributos,
   proficienciasRaw,
   cargaMaxima,
@@ -101,6 +103,7 @@ export function FichaTabs({
           personagemId={personagemId}
           acoes={acoes}
           nivel={nivel}
+          exaustao={exaustao}
           atributos={atributos}
           recursos={recursos}
           efeitosAgregados={efeitosAgregados}
@@ -121,6 +124,7 @@ export function FichaTabs({
         <PericiasTab
           personagemId={personagemId}
           nivel={nivel}
+          exaustao={exaustao}
           atributos={atributos}
           proficienciasRaw={proficienciasRaw}
           efeitosAgregados={efeitosAgregados}
@@ -139,6 +143,7 @@ export function FichaTabs({
           berries={berries}
           itens={itens}
           nivel={nivel}
+          exaustao={exaustao}
           atributos={atributos}
           efeitosAgregados={efeitosAgregados}
         />

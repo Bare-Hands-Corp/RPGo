@@ -10,10 +10,12 @@ import { CrEditavel } from "./cr-editavel";
 import { ExaustaoControle } from "./exaustao-controle";
 import {
   bonusProficiencia,
+  deslocamentoEfetivo,
   formatarMod,
   iniciativa,
   lerProficiencias,
   modificador,
+  penalidadeD20Exaustao,
   percepcaoPassiva,
   progresso,
   type Atributo,
@@ -33,6 +35,7 @@ type Personagem = {
   ppAtual: number;
   ppMax: number;
   exaustao: number;
+  deslocamento: number;
   forca: number;
   destreza: number;
   constituicao: number;
@@ -67,6 +70,7 @@ type PatchPersonagem = Partial<
     | "ppAtual"
     | "ppMax"
     | "tipoDadoVida"
+    | "deslocamento"
     | "forca"
     | "destreza"
     | "constituicao"
@@ -182,6 +186,25 @@ export function PerfilSidebar({
   const hpMaxEfetivo = multHpMax ? Math.round(hpMaxBase * multHpMax.fator) : hpMaxBase;
   const ppMaxEfetivo = multPpMax ? Math.round(ppMaxBase * multPpMax.fator) : ppMaxBase;
 
+  // Penalidade de exaustão em testes de d20 (−2 × nível). Some no acerto, nos
+  // testes de atributo, na iniciativa, etc. — todos derivam dela aqui na ficha.
+  const penD20 = penalidadeD20Exaustao(p.exaustao);
+
+  // Deslocamento: base + bônus de habilidade, reduzido pela exaustão.
+  const deslocBonus = efeitosAgregados.bonusDeslocamento;
+  const deslocBruto = Math.max(0, p.deslocamento + deslocBonus.valor);
+  const deslocEfetivo = deslocamentoEfetivo(p.deslocamento, deslocBonus.valor, p.exaustao);
+  const deslocReduzido = deslocEfetivo !== deslocBruto;
+  const deslocTitulo =
+    [
+      deslocBonus.fontes.length
+        ? `${formatarMod(deslocBonus.valor)} de ${deslocBonus.fontes.join(", ")}`
+        : null,
+      deslocReduzido ? `Reduzido por exaustão (de ${deslocBruto} m)` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ") || undefined;
+
   return (
     <aside className="sidebar">
       <div className="sidebar-icons right">
@@ -191,6 +214,7 @@ export function PerfilSidebar({
             hpMax: p.hpMax,
             ppMax: p.ppMax,
             tipoDadoVida: p.tipoDadoVida,
+            deslocamento: p.deslocamento,
             forca: p.forca,
             destreza: p.destreza,
             constituicao: p.constituicao,
@@ -333,6 +357,17 @@ export function PerfilSidebar({
         </span>
       </div>
 
+      <div className="recurso-linha" title={deslocTitulo}>
+        <span className="recurso-icone"><i className="fas fa-person-running" /></span>
+        <span className="recurso-nome">Deslocamento</span>
+        <span className={`stat-values ${deslocReduzido ? "valor-exausto" : ""}`}>
+          {deslocEfetivo.toLocaleString("pt-BR")} m
+          {(deslocBonus.fontes.length > 0 || deslocReduzido) && (
+            <i className="fas fa-link prof-fonte" />
+          )}
+        </span>
+      </div>
+
       <RecursosSidebar personagemId={p.id} recursos={p.recursos} />
 
       <div className="derivados-grid">
@@ -342,30 +377,33 @@ export function PerfilSidebar({
           crOutros={p.crOutros}
           bonusArmadura={bonusArmadura + efeitosAgregados.bonusCR.valor}
         />
-        <div
-          className="derivado-card derivado-rolar"
-          title={
-            efeitosAgregados.bonusIniciativa.fontes.length
-              ? `Empilhar Iniciativa · +${efeitosAgregados.bonusIniciativa.valor} de ${efeitosAgregados.bonusIniciativa.fontes.join(", ")}`
-              : "Empilhar Iniciativa no Rolador"
-          }
-          onClick={() =>
-            empilharD20(
-              iniciativa(atributosEfetivos.destreza) +
-                efeitosAgregados.bonusIniciativa.valor,
-              "Iniciativa",
-              { tipo: "iniciativa" },
-            )
-          }
-        >
-          <div className="derivado-label">Iniciativa</div>
-          <div className="derivado-value">
-            {formatarMod(
-              iniciativa(atributosEfetivos.destreza) +
-                efeitosAgregados.bonusIniciativa.valor,
-            )}
-          </div>
-        </div>
+        {(() => {
+          const iniBruta =
+            iniciativa(atributosEfetivos.destreza) +
+            efeitosAgregados.bonusIniciativa.valor;
+          const iniEf = iniBruta - penD20;
+          const titulo =
+            [
+              efeitosAgregados.bonusIniciativa.fontes.length
+                ? `+${efeitosAgregados.bonusIniciativa.valor} de ${efeitosAgregados.bonusIniciativa.fontes.join(", ")}`
+                : null,
+              penD20 ? `−${penD20} de exaustão` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ");
+          return (
+            <div
+              className="derivado-card derivado-rolar"
+              title={`Empilhar Iniciativa no Rolador${titulo ? ` · ${titulo}` : ""}`}
+              onClick={() => empilharD20(iniEf, "Iniciativa", { tipo: "iniciativa" })}
+            >
+              <div className="derivado-label">Iniciativa</div>
+              <div className={`derivado-value ${penD20 > 0 ? "valor-exausto" : ""}`}>
+                {formatarMod(iniEf)}
+              </div>
+            </div>
+          );
+        })()}
         <div
           className="derivado-card"
           title={
@@ -401,17 +439,20 @@ export function PerfilSidebar({
         ).map(([label, slug]) => {
           const valor = atributosEfetivos[slug];
           const bonus = efeitosAgregados.bonusAtributo[slug];
+          const modEf = modificador(valor) - penD20;
+          const titulo = [
+            bonus ? `${formatarMod(bonus.valor)} de ${bonus.fontes.join(", ")}` : null,
+            penD20 ? `−${penD20} de exaustão` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ");
           return (
             <div
               className="attr-card attr-rolar"
               key={label}
-              title={
-                bonus
-                  ? `Empilhar Teste ${label} · ${formatarMod(bonus.valor)} de ${bonus.fontes.join(", ")}`
-                  : `Empilhar Teste ${label} no Rolador`
-              }
+              title={`Empilhar Teste ${label} no Rolador${titulo ? ` · ${titulo}` : ""}`}
               onClick={() =>
-                empilharD20(modificador(valor), `Teste ${label}`, {
+                empilharD20(modEf, `Teste ${label}`, {
                   tipo: "teste-atributo",
                   atributo: slug,
                 })
@@ -421,7 +462,9 @@ export function PerfilSidebar({
                 {label}
                 {bonus && <i className="fas fa-link prof-fonte" />}
               </div>
-              <div className="attr-value">{formatarMod(modificador(valor))}</div>
+              <div className={`attr-value ${penD20 > 0 ? "valor-exausto" : ""}`}>
+                {formatarMod(modEf)}
+              </div>
               <div className="attr-base">{valor}</div>
             </div>
           );

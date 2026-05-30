@@ -257,6 +257,13 @@
   font-weight: 600;
 }
 
+/* Valor reduzido por exaustão (deslocamento, bônus de testes de d20) —
+   amarelo pra deixar claro que não é o valor base da ficha. */
+.valor-exausto,
+.valor-exausto strong {
+  color: #e8c24a;
+}
+
 /* ─── COLOR PICKER (modal de Recurso) ────────────────────── */
 .cor-picker {
   display: flex;

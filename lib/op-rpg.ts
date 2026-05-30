@@ -15,10 +15,12 @@ export function formatarMod(mod: number): string {
 // Bônus de proficiência por nível (livro do jogador, p. 32).
 // 1–6 → +2, 7–10 → +3, 11–14 → +4, 15–18 → +5, 19–20 → +6.
 export function bonusProficiencia(nivel: number): number {
-  if (nivel >= 19) return 6;
-  if (nivel >= 15) return 5;
-  if (nivel >= 11) return 4;
-  if (nivel >= 7) return 3;
+  // Progressão padrão D&D 5e: +2 + ⌊(nível−1)/4⌋ (sobe a cada 4 níveis a
+  // partir do 5). Faixas: 1–4 +2, 5–8 +3, 9–12 +4, 13–16 +5, 17–20 +6.
+  if (nivel >= 17) return 6;
+  if (nivel >= 13) return 5;
+  if (nivel >= 9) return 4;
+  if (nivel >= 5) return 3;
   return 2;
 }
 
@@ -437,15 +439,43 @@ export function bonusAtaqueTecnica(opts: {
 
 // ─── Exaustão ─────────────────────────────────────────────────────────
 
-// Efeitos por nível (D&D 5e padrão; OP RPG segue a mesma tabela).
-export const EXAUSTAO_EFEITOS: { nivel: number; efeito: string }[] = [
-  { nivel: 1, efeito: "Desvantagem em testes de atributo." },
-  { nivel: 2, efeito: "Deslocamento reduzido pela metade." },
-  { nivel: 3, efeito: "Desvantagem em ataques e salvaguardas." },
-  { nivel: 4, efeito: "PV máximo reduzido pela metade." },
-  { nivel: 5, efeito: "Deslocamento reduzido a 0." },
-  { nivel: 6, efeito: "Morte." },
+// Efeitos por nível — regra OP RPG (v1.5.7), NÃO a do D&D 5e. A exaustão é
+// acumulativa (1–6); cada nível aplica DOIS efeitos cumulativos:
+//   • d20: resultado de qualquer teste com d20 reduzido em −2 × nível.
+//   • Deslocamento: reduzido em −1,5 m × nível.
+// Nível 6 = desmaio. Sai 1 nível por descanso longo.
+export const EXAUSTAO_EFEITOS: {
+  nivel: number;
+  d20: number; // penalidade no resultado do d20 (negativa)
+  deslocamento: number; // redução de deslocamento em metros (negativa)
+  desmaio?: boolean;
+}[] = [
+  { nivel: 1, d20: -2, deslocamento: -1.5 },
+  { nivel: 2, d20: -4, deslocamento: -3 },
+  { nivel: 3, d20: -6, deslocamento: -4.5 },
+  { nivel: 4, d20: -8, deslocamento: -6 },
+  { nivel: 5, d20: -10, deslocamento: -7.5 },
+  { nivel: 6, d20: -10, deslocamento: -9, desmaio: true },
 ];
+
+// Deslocamento efetivo em metros: (base + bônus de habilidade) − 1,5 m por
+// nível de exaustão (regra OP RPG). Nível 6 = desmaio → 0. Nunca negativo.
+export function deslocamentoEfetivo(
+  base: number,
+  bonus: number,
+  exaustao: number,
+): number {
+  const bruto = Math.max(0, base + bonus);
+  if (exaustao >= 6) return 0;
+  return Math.max(0, bruto - 1.5 * Math.max(0, exaustao));
+}
+
+// Penalidade em testes de d20 por exaustão (regra OP RPG): −2 × nível, somada
+// ao resultado de qualquer teste que use d20. Retorna valor ≥ 0 (quem consome
+// subtrai). Nível 6 é desmaio — mantém −10 caso ainda role.
+export function penalidadeD20Exaustao(exaustao: number): number {
+  return Math.max(0, Math.min(5, exaustao)) * 2;
+}
 
 // ─── Habilidades — taxonomia de origens, tipos e efeitos ─────────────
 

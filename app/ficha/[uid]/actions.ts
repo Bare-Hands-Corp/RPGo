@@ -70,6 +70,7 @@ const ALLOWED_PERSONAGEM = [
   "tipoDadoVida",
   "dadosVidaGastos",
   "crOutros",
+  "deslocamento",
 ] as const;
 
 type PersonagemPatch = Partial<
@@ -219,6 +220,7 @@ const ALLOWED_ITEM = [
   "favorito",
   "categoria",
   "alcance",
+  "alcanceMetros",
   "propriedades",
   "atributoAtaque",
   "proficienteArma",
@@ -274,6 +276,11 @@ function normalizarItemInput(input: ItemInput) {
     if (!ALCANCES_VALIDOS.has(v)) throw new Error("Alcance inválido.");
     data.alcance = v;
   }
+  if (input.alcanceMetros !== undefined) {
+    // Texto livre descritivo; corta em 40 chars como defesa.
+    const v = input.alcanceMetros ? String(input.alcanceMetros).trim().slice(0, 40) : "";
+    data.alcanceMetros = v || null;
+  }
   if (input.propriedades !== undefined) {
     data.propriedades = normalizarPropriedades(input.propriedades);
   }
@@ -309,6 +316,7 @@ export async function criarItem(personagemId: string, input: ItemInput) {
       penalidadeDes: (data.penalidadeDes as number) ?? 0,
       categoria: (data.categoria as string) ?? "cortante",
       alcance: (data.alcance as string) ?? "corpo_a_corpo",
+      alcanceMetros: (data.alcanceMetros as string | null) ?? null,
       propriedades: (data.propriedades as string[]) ?? [],
       atributoAtaque: (data.atributoAtaque as string | null) ?? null,
       proficienteArma:

@@ -10,6 +10,7 @@ import {
   formatarMod,
   lerProficiencias,
   modificador,
+  penalidadeD20Exaustao,
   type Atributo,
   type EfeitosAgregados,
   type PericiaSlug,
@@ -27,6 +28,7 @@ import { empilharD20 } from "@/lib/empilhar-rolagem";
 type Props = {
   personagemId: string;
   nivel: number;
+  exaustao: number;
   atributos: Record<Atributo, number>;
   proficienciasRaw: unknown;
   efeitosAgregados: EfeitosAgregados;
@@ -87,10 +89,14 @@ function mostrarErro(err: unknown) {
 export function PericiasTab({
   personagemId,
   nivel,
+  exaustao,
   atributos,
   proficienciasRaw,
   efeitosAgregados,
 }: Props) {
+  // Penalidade de exaustão (−2 × nível) some em todo teste de d20 — perícia e
+  // salvaguarda. Reflete já no número exibido (amarelo) e no que vai pro Rolador.
+  const penD20 = penalidadeD20Exaustao(exaustao);
   const inicial = lerProficiencias(proficienciasRaw);
   const [prof, aplicarPatch] = useOptimistic(inicial, aplicar);
   const [, startTransition] = useTransition();
@@ -170,15 +176,17 @@ export function PericiasTab({
             const outros = prof.outrosSalvaguardas[a.slug] ?? 0;
             const bonusHab = efeitosAgregados.bonusSalvaguarda[a.slug];
             const outrosTotal = outros + (bonusHab?.valor ?? 0);
-            const bonus = bonusSalvaguarda({
-              valorAtributo: atributos[a.slug],
-              nivel,
-              proficiente,
-              outros: outrosTotal,
-            });
+            const bonus =
+              bonusSalvaguarda({
+                valorAtributo: atributos[a.slug],
+                nivel,
+                proficiente,
+                outros: outrosTotal,
+              }) - penD20;
             const tituloFontes = [
               profPorHab && `Proficiência: ${profPorHab.fontes.join(", ")}`,
               bonusHab && `${formatarMod(bonusHab.valor)} de ${bonusHab.fontes.join(", ")}`,
+              penD20 > 0 && `−${penD20} de exaustão`,
             ]
               .filter(Boolean)
               .join("\n");
@@ -196,8 +204,8 @@ export function PericiasTab({
                 />
                 <button
                   type="button"
-                  className="prof-bonus prof-rolar"
-                  title={`Empilhar Salv. ${a.nome} no Rolador`}
+                  className={`prof-bonus prof-rolar ${penD20 > 0 ? "valor-exausto" : ""}`}
+                  title={`Empilhar Salv. ${a.nome} no Rolador${penD20 ? ` · −${penD20} de exaustão` : ""}`}
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -248,18 +256,20 @@ export function PericiasTab({
                   const outros = prof.outrosPericias[p.slug] ?? 0;
                   const bonusHab = efeitosAgregados.bonusPericia[p.slug];
                   const outrosTotal = outros + (bonusHab?.valor ?? 0);
-                  const bonus = bonusPericia({
-                    pericia: p,
-                    valorAtributo: atributos[a.slug],
-                    nivel,
-                    proficiente,
-                    dobrado,
-                    outros: outrosTotal,
-                  });
+                  const bonus =
+                    bonusPericia({
+                      pericia: p,
+                      valorAtributo: atributos[a.slug],
+                      nivel,
+                      proficiente,
+                      dobrado,
+                      outros: outrosTotal,
+                    }) - penD20;
                   const tituloFontes = [
                     profPorHab && `Proficiência: ${profPorHab.fontes.join(", ")}`,
                     bonusHab &&
                       `${formatarMod(bonusHab.valor)} de ${bonusHab.fontes.join(", ")}`,
+                    penD20 > 0 && `−${penD20} de exaustão`,
                   ]
                     .filter(Boolean)
                     .join("\n");
@@ -277,8 +287,8 @@ export function PericiasTab({
                       />
                       <button
                         type="button"
-                        className="prof-bonus prof-rolar"
-                        title={`Empilhar ${p.nome} no Rolador`}
+                        className={`prof-bonus prof-rolar ${penD20 > 0 ? "valor-exausto" : ""}`}
+                        title={`Empilhar ${p.nome} no Rolador${penD20 ? ` · −${penD20} de exaustão` : ""}`}
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();

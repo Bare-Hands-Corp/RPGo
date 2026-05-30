@@ -8,6 +8,7 @@ import {
   bonusAtaqueTecnica,
   cdTecnica,
   formatarMod,
+  penalidadeD20Exaustao,
   resolverAtaqueArma,
   type Atributo,
   type EfeitosAgregados,
@@ -66,6 +67,7 @@ type Props = {
   personagemId: string;
   acoes: Acao[];
   nivel: number;
+  exaustao: number;
   atributos: Record<Atributo, number>;
   recursos: RecursoMinimo[];
   efeitosAgregados: EfeitosAgregados;
@@ -150,11 +152,15 @@ export function AcoesTab({
   personagemId,
   acoes,
   nivel,
+  exaustao,
   atributos,
   recursos,
   efeitosAgregados,
   itens,
 }: Props) {
+  // Penalidade de exaustão (−2 × nível) some no acerto (teste de d20). NÃO entra
+  // no dano (não é d20) nem na CD da técnica (quem rola é o alvo).
+  const penD20 = penalidadeD20Exaustao(exaustao);
   const armas = itens.filter((i) => i.tipo === "arma");
   const [acoesOtimistas, aplicarPatch] = useOptimistic(
     acoes,
@@ -437,22 +443,22 @@ export function AcoesTab({
                             {bonusAtq != null && (
                               <button
                                 type="button"
-                                className="acao-stat acao-rolar"
+                                className={`acao-stat acao-rolar ${penD20 > 0 ? "valor-exausto" : ""}`}
                                 title={`Empilhar ataque no Rolador${
                                   ataqueArma ? ` · usa ${armaLigada?.nome}` : ""
                                 }${
                                   fontesAtaque.length
                                     ? ` · inclui bônus de ${fontesAtaque.join(", ")}`
                                     : ""
-                                }`}
+                                }${penD20 ? ` · −${penD20} de exaustão` : ""}`}
                                 onClick={() =>
-                                  empilharD20(bonusAtq, `Atacar ${acao.nome}`, {
+                                  empilharD20(bonusAtq - penD20, `Atacar ${acao.nome}`, {
                                     tipo: "ataque",
                                     alcance: alcanceContexto,
                                   })
                                 }
                               >
-                                <i className="fas fa-crosshairs" /> Acerto <strong>{formatarMod(bonusAtq)}</strong>
+                                <i className="fas fa-crosshairs" /> Acerto <strong>{formatarMod(bonusAtq - penD20)}</strong>
                                 {fontesAtaque.length > 0 && <i className="fas fa-link prof-fonte" />}
                               </button>
                             )}

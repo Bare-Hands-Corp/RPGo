@@ -71,6 +71,7 @@ export default async function FichaPage({ params }: Params) {
         personagemId={personagem.id}
         mesaId={personagem.mesaId}
         nivel={personagem.nivel}
+        exaustao={personagem.exaustao}
         atributos={{
           forca: personagem.forca + (efeitosAgregados.bonusAtributo.forca?.valor ?? 0),
           destreza:

@@ -69,6 +69,11 @@ model Personagem {
   // CR total = 10 + mod_DES + crOutros.
   crOutros          Int    @default(0)    @map("cr_outros")
 
+  // Deslocamento terrestre base em metros (a espécie define; 9 m é o padrão).
+  // Exaustão reduz na exibição (½ no nível 2, 0 no 5) e bônus de habilidade
+  // somam via agregador (efeito `deslocamento` → bonusDeslocamento).
+  deslocamento      Int    @default(9)
+
   // Atributos desnormalizados para simplicidade de queries
   forca         Int     @default(0)
   destreza      Int     @default(0)
@@ -134,6 +139,9 @@ model Item {
   // Alcance: define o cálculo padrão do atributo de ataque (FOR/DES).
   // "corpo_a_corpo" | "distancia"
   alcance          String  @default("corpo_a_corpo")
+  // Alcance real em metros — texto livre, descritivo (ex: "1,5 m", "9/15 m",
+  // "cone 3 m"). Complementa a categoria `alcance` com o número exibido no card.
+  alcanceMetros    String? @map("alcance_metros")
   // Propriedades canônicas (Acuidade, Arremesso, etc) — array de slugs.
   propriedades     Json    @default("[]")
   // Override manual do atributo de ataque ("forca", "destreza", "sabedoria", …).

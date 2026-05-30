@@ -9,6 +9,7 @@ import {
   ATRIBUTOS,
   CATEGORIAS_ARMA,
   PROPRIEDADES_ARMA,
+  penalidadeD20Exaustao,
   resolverAtaqueArma,
   formatarMod,
   type AlcanceArma,
@@ -33,6 +34,7 @@ type Item = {
   favorito: boolean;
   categoria: string;
   alcance: string;
+  alcanceMetros: string | null;
   propriedades: unknown;
   atributoAtaque: string | null;
   proficienteArma: boolean;
@@ -47,6 +49,7 @@ type Props = {
   berries: number;
   itens: Item[];
   nivel: number;
+  exaustao: number;
   atributos: Record<Atributo, number>;
   efeitosAgregados: EfeitosAgregados;
 };
@@ -89,6 +92,7 @@ type FormState = {
   penalidadeDes: string;
   categoria: CategoriaArma;
   alcance: AlcanceArma;
+  alcanceMetros: string;
   propriedades: PropriedadeArma[];
   atributoAtaque: string; // "" = auto
   proficienteArma: boolean;
@@ -107,6 +111,7 @@ const FORM_VAZIO: FormState = {
   penalidadeDes: "",
   categoria: "cortante",
   alcance: "corpo_a_corpo",
+  alcanceMetros: "",
   propriedades: [],
   atributoAtaque: "",
   proficienteArma: true,
@@ -118,9 +123,12 @@ export function InventarioTab({
   berries,
   itens,
   nivel,
+  exaustao,
   atributos,
   efeitosAgregados,
 }: Props) {
+  // Penalidade de exaustão (−2 × nível) some no acerto da arma (teste de d20).
+  const penD20 = penalidadeD20Exaustao(exaustao);
   const [mostrarEquipados, setMostrarEquipados] = useState(false);
   const [categoria, setCategoria] = useState<Categoria>("arsenal");
   const [modalAberto, setModalAberto] = useState(false);
@@ -170,6 +178,7 @@ export function InventarioTab({
       alcance: ALCANCES_ARMA_VALIDOS.has(item.alcance)
         ? (item.alcance as AlcanceArma)
         : "corpo_a_corpo",
+      alcanceMetros: item.alcanceMetros || "",
       propriedades: lerPropriedades(item.propriedades),
       atributoAtaque: item.atributoAtaque || "",
       proficienteArma: item.proficienteArma,
@@ -221,6 +230,7 @@ export function InventarioTab({
       penalidadeDes: form.tipo === "armadura" ? Number(form.penalidadeDes) || 0 : 0,
       categoria: ehArma ? form.categoria : "cortante",
       alcance: ehArma ? form.alcance : "corpo_a_corpo",
+      alcanceMetros: ehArma ? form.alcanceMetros.trim() || null : null,
       propriedades: ehArma ? form.propriedades : [],
       atributoAtaque: ehArma && form.atributoAtaque ? form.atributoAtaque : null,
       proficienteArma: ehArma ? form.proficienteArma : true,
@@ -253,6 +263,7 @@ export function InventarioTab({
           favorito: false,
           categoria: payload.categoria,
           alcance: payload.alcance,
+          alcanceMetros: payload.alcanceMetros,
           propriedades: payload.propriedades,
           atributoAtaque: payload.atributoAtaque,
           proficienteArma: payload.proficienteArma,
@@ -351,8 +362,9 @@ export function InventarioTab({
     if (!r) return null;
     return {
       atributo: r.atributo,
-      bonus: r.bonus,
+      bonus: r.bonus - penD20,
       fontesHab: r.fontes.length ? r.fontes : undefined,
+      exausto: penD20 > 0,
     };
   }
 
@@ -618,6 +630,16 @@ export function InventarioTab({
                     ))}
                   </div>
 
+                  <label style={{ marginTop: 10 }}>Alcance em metros</label>
+                  <input
+                    type="text"
+                    value={form.alcanceMetros}
+                    onChange={(e) => set("alcanceMetros", e.target.value)}
+                    placeholder={
+                      form.alcance === "distancia" ? "Ex: 9/15 m" : "Ex: 1,5 m"
+                    }
+                  />
+
                   <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 2fr", gap: 10, marginTop: 12 }}>
                     <div>
                       <label>Dado de Dano</label>
@@ -772,7 +794,12 @@ type CardCallbacks = {
   apagar: (id: string) => void;
 };
 
-type Ataque = { atributo: Atributo; bonus: number; fontesHab?: string[] } | null;
+type Ataque = {
+  atributo: Atributo;
+  bonus: number;
+  fontesHab?: string[];
+  exausto?: boolean;
+} | null;
 
 function SecaoItens({
   titulo,
@@ -863,13 +890,25 @@ function CardItem({
           {ataque && (
             <span
               style={{ marginLeft: 8, fontWeight: "normal", color: "var(--text-sec)" }}
-              title={ataque.fontesHab?.length ? `Inclui bônus de ${ataque.fontesHab.join(", ")}` : undefined}
+              title={
+                [
+                  ataque.fontesHab?.length ? `Inclui bônus de ${ataque.fontesHab.join(", ")}` : null,
+                  ataque.exausto ? "Reduzido por exaustão" : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || undefined
+              }
             >
-              Ataque: <strong style={{ color: "var(--color-power)" }}>{formatarMod(ataque.bonus)}</strong>{" "}
+              Ataque: <strong style={{ color: ataque.exausto ? "#e8c24a" : "var(--color-power)" }}>{formatarMod(ataque.bonus)}</strong>{" "}
               <span style={{ fontSize: "0.75rem" }}>({SIGLA_ATRIBUTO[ataque.atributo]})</span>
               {ataque.fontesHab?.length ? <i className="fas fa-link prof-fonte" /> : null}
             </span>
           )}
+        </div>
+      )}
+      {item.tipo === "arma" && item.alcanceMetros && (
+        <div style={{ fontSize: "0.78rem", color: "var(--text-sec)", marginTop: 4 }}>
+          <i className="fas fa-ruler-horizontal" /> {item.alcanceMetros}
         </div>
       )}
       {item.tipo === "armadura" && (item.ca > 0 || item.penalidadeDes !== 0) && (

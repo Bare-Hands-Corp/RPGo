@@ -8,6 +8,7 @@ type Atributos = {
   hpMax: number;
   ppMax: number;
   tipoDadoVida: string;
+  deslocamento: number;
   forca: number;
   destreza: number;
   constituicao: number;
@@ -108,6 +109,14 @@ export function EditFichaModal({ personagemId, inicial, onOtimista }: Props) {
                     <option value="d10">d10</option>
                     <option value="d12">d12</option>
                   </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label>Desloc. (m)</label>
+                  <input
+                    type="number"
+                    value={valores.deslocamento}
+                    onChange={(e) => set("deslocamento", e.target.value)}
+                  />
                 </div>
               </div>
 
