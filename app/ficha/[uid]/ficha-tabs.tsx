@@ -14,6 +14,7 @@ type Acao = React.ComponentProps<typeof AcoesTab>["acoes"][number];
 type Item = React.ComponentProps<typeof InventarioTab>["itens"][number];
 type RecursoRef = React.ComponentProps<typeof AcoesTab>["recursos"][number];
 type Habilidade = React.ComponentProps<typeof HabilidadesTab>["habilidades"][number];
+type PericiaCustom = React.ComponentProps<typeof PericiasTab>["periciasCustom"][number];
 
 type Props = {
   personagemId: string;
@@ -23,6 +24,7 @@ type Props = {
   penalidadeDesArmadura: number;
   atributos: Record<Atributo, number>;
   proficienciasRaw: unknown;
+  periciasCustom: PericiaCustom[];
   cargaMaxima: number;
   berries: number;
   acoes: Acao[];
@@ -60,6 +62,7 @@ export function FichaTabs({
   penalidadeDesArmadura,
   atributos,
   proficienciasRaw,
+  periciasCustom,
   cargaMaxima,
   berries,
   acoes,
@@ -120,6 +123,7 @@ export function FichaTabs({
           habilidades={habilidades}
           recursos={recursos}
           atributos={atributos}
+          periciasCustom={periciasCustom}
         />
       </div>
 
@@ -131,6 +135,7 @@ export function FichaTabs({
           penalidadeDesArmadura={penalidadeDesArmadura}
           atributos={atributos}
           proficienciasRaw={proficienciasRaw}
+          periciasCustom={periciasCustom}
           efeitosAgregados={efeitosAgregados}
         />
       </div>

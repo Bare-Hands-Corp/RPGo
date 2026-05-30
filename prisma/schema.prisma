@@ -6,6 +6,7 @@
 //   ALTER TABLE itens               REPLICA IDENTITY FULL;
 //   ALTER TABLE acoes               REPLICA IDENTITY FULL;
 //   ALTER TABLE habilidades         REPLICA IDENTITY FULL;
+//   ALTER TABLE pericias_custom     REPLICA IDENTITY FULL;
 //   ALTER TABLE recursos            REPLICA IDENTITY FULL;
 //   ALTER TABLE mensagens           REPLICA IDENTITY FULL;
 //   ALTER TABLE mesas               REPLICA IDENTITY FULL;
@@ -88,12 +89,42 @@ model Personagem {
   // e nunca consultado de forma cruzada entre personagens.
   proficiencias Json    @default("{}")
 
-  itens        Item[]
-  acoes        Acao[]
-  recursos     Recurso[]
-  habilidades  Habilidade[]
+  itens          Item[]
+  acoes          Acao[]
+  recursos       Recurso[]
+  habilidades    Habilidade[]
+  periciasCustom PericiaCustom[]
 
   @@map("personagens")
+}
+
+// Perícia customizada do personagem — perícias que não existem no set fixo do
+// livro (ex: vindas de Profissão, homebrew). As 18 perícias canônicas vivem em
+// Personagem.proficiencias (Json); estas viram linhas próprias porque o conjunto
+// é aberto. Proficiência/dobrada/bônus ficam na própria linha (não no Json),
+// pra deletar a perícia limpar tudo junto, sem chaves órfãs.
+model PericiaCustom {
+  id            String     @id @default(uuid())
+  personagemId  String     @map("personagem_id")
+  personagem    Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
+
+  nome          String
+  // Slug derivado do nome, estável e único por personagem. É o que efeitos de
+  // habilidade (modificador/proficiencia) referenciam e o que casaContexto usa.
+  slug          String
+  // "forca" | "destreza" | "constituicao" | "sabedoria" | "vontade" | "presenca"
+  atributo      String
+  // Texto livre — de onde a perícia veio (ex: "Profissão Capitão"). Só exibição.
+  origem        String     @default("")
+
+  proficiente   Boolean    @default(false)
+  dobrada       Boolean    @default(false)
+  bonusOutros   Int        @default(0) @map("bonus_outros")
+  ordem         Int        @default(0)
+
+  @@unique([personagemId, slug])
+  @@index([personagemId, ordem])
+  @@map("pericias_custom")
 }
 
 // Recurso = pool numérico customizado (ex: Pontos de Carateca, Pontos de Ambição,

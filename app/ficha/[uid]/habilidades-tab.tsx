@@ -1,6 +1,13 @@
 "use client";
 
-import { useMemo, useOptimistic, useState, useTransition } from "react";
+import {
+  createContext,
+  useContext,
+  useMemo,
+  useOptimistic,
+  useState,
+  useTransition,
+} from "react";
 import Swal from "sweetalert2";
 import {
   atualizarHabilidade,
@@ -13,6 +20,7 @@ import {
   ALVOS_CONTEXTUAIS,
   ALVOS_SUBSTITUIVEIS,
   ATRIBUTOS,
+  alvosPericiaCustom,
   GRUPOS_PRESET,
   META_EFEITOS,
   ORIGENS_HABILIDADE,
@@ -53,11 +61,19 @@ type Habilidade = {
 
 type RecursoMinimo = { id: string; nome: string };
 
+type AlvoEntry = { slug: string; nome: string; grupo: string };
+
+// Perícias customizadas do personagem, no formato de alvo de efeito. Disponível
+// pros SelectAlvo/datalist via contexto pra não precisar drilar a prop por toda
+// a árvore do editor (EditorEfeito → renderCorpo → SelectAlvo).
+const AlvosCustomContext = createContext<AlvoEntry[]>([]);
+
 type Props = {
   personagemId: string;
   habilidades: Habilidade[];
   recursos: RecursoMinimo[];
   atributos: Record<Atributo, number>;
+  periciasCustom: { slug: string; nome: string }[];
 };
 
 type Patch =
@@ -90,9 +106,16 @@ function mostrarErro(err: unknown) {
 
 type Filtro = "todas" | "disponiveis" | "sem_custo";
 
-export function HabilidadesTab({ personagemId, habilidades, recursos, atributos }: Props) {
+export function HabilidadesTab({
+  personagemId,
+  habilidades,
+  recursos,
+  atributos,
+  periciasCustom,
+}: Props) {
   const [otimistas, aplicar] = useOptimistic(habilidades, aplicarPatch);
   const [, startTransition] = useTransition();
+  const alvosCustom = useMemo(() => alvosPericiaCustom(periciasCustom), [periciasCustom]);
   const [modalAberto, setModalAberto] = useState(false);
   const [edit, setEdit] = useState<Habilidade | null>(null);
   const [filtro, setFiltro] = useState<Filtro>("todas");
@@ -257,7 +280,7 @@ export function HabilidadesTab({ personagemId, habilidades, recursos, atributos 
   }
 
   return (
-    <div>
+    <AlvosCustomContext.Provider value={alvosCustom}>
       <div
         style={{
           display: "flex",
@@ -376,7 +399,7 @@ export function HabilidadesTab({ personagemId, habilidades, recursos, atributos 
           onSalvar={salvarForm}
         />
       )}
-    </div>
+    </AlvosCustomContext.Provider>
   );
 }
 
@@ -603,6 +626,7 @@ function HabilidadeModal({
   onCancelar: () => void;
   onSalvar: (d: HabilidadeFormDados) => void;
 }) {
+  const periciasCustom = useContext(AlvosCustomContext);
   const [nome, setNome] = useState(inicial?.nome ?? "");
   const [origem, setOrigem] = useState<OrigemHabilidade>(
     (inicial?.origem as OrigemHabilidade) ?? "livre",
@@ -902,7 +926,7 @@ function HabilidadeModal({
         {/* Sugestões canônicas pros campos de alvo automatizáveis.
             Texto livre continua aceito; só não modifica cálculo. */}
         <datalist id="alvos-efeito">
-          {ALVOS_AGREGAVEIS.map((a) => (
+          {[...ALVOS_AGREGAVEIS, ...periciasCustom].map((a) => (
             <option key={a.slug} value={a.slug}>
               {a.nome} ({a.grupo})
             </option>
@@ -991,13 +1015,21 @@ function SelectAlvo({
   placeholder?: string;
   alvos?: typeof ALVOS_AGREGAVEIS;
 }) {
-  const slugsCanonicos = new Set(alvos.map((a) => a.slug));
+  // Perícias customizadas entram nas listas que já oferecem perícias (modificador,
+  // proficiência, vantagem, substituição) — não no multiplicador (Derivado/Pool).
+  const periciasCustom = useContext(AlvosCustomContext);
+  const alvosFinais =
+    periciasCustom.length > 0 && alvos.some((a) => a.grupo === "Perícia")
+      ? [...alvos, ...periciasCustom]
+      : alvos;
+
+  const slugsCanonicos = new Set(alvosFinais.map((a) => a.slug));
   // Se o valor existente não está na lista canônica, automaticamente vira "outro".
   const ehOutro = valor !== "" && !slugsCanonicos.has(valor);
   const [modoOutro, setModoOutro] = useState(ehOutro);
 
   const grupos: Record<string, typeof ALVOS_AGREGAVEIS> = {};
-  for (const a of alvos) {
+  for (const a of alvosFinais) {
     (grupos[a.grupo] ||= []).push(a);
   }
 

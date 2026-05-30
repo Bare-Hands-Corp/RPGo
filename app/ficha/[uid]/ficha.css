@@ -1230,6 +1230,55 @@
   color: var(--text-main);
 }
 
+/* ─── Perícias customizadas ─────────────────────────────── */
+/* Botão "+ Nova perícia" no cabeçalho da seção, empurrado pra direita. */
+.pericia-custom-add {
+  margin-left: auto;
+  font-size: 0.8rem;
+  padding: 4px 10px;
+}
+
+/* A linha custom tem mais controles (editar/apagar) que a built-in, então a
+   célula precisa de mais largura — senão lápis/lixeira estouram pra fora da
+   borda. min-width:0 deixa o nome encolher pra os botões caberem dentro. */
+.prof-grid-custom {
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+}
+
+.prof-grid-custom .prof-nome {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+/* Sigla do atributo + origem, ao lado do nome. */
+.pericia-custom-meta {
+  font-size: 0.7rem;
+  color: var(--text-sec);
+  font-weight: 400;
+}
+
+/* Ações inline (editar / apagar) no fim da linha da perícia custom. */
+.pericia-custom-acao {
+  border: none;
+  background: none;
+  color: var(--text-sec);
+  font-size: 0.75rem;
+  padding: 3px 5px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.pericia-custom-acao:hover {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+}
+
+.pericia-custom-acao.perigo:hover {
+  color: #fff;
+  background: #d33;
+}
+
 /* ─── CARDS DE TIPO (modal de item/ação) ─────────────────── */
 .tipo-cards {
   display: grid;

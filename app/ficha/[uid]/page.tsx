@@ -35,6 +35,7 @@ export default async function FichaPage({ params }: Params) {
         acoes: true,
         recursos: { orderBy: [{ ordem: "asc" }, { nome: "asc" }] },
         habilidades: { orderBy: [{ ordem: "asc" }, { criadoEm: "asc" }] },
+        periciasCustom: { orderBy: [{ ordem: "asc" }, { nome: "asc" }] },
       },
     }),
   ]);
@@ -51,9 +52,18 @@ export default async function FichaPage({ params }: Params) {
   // Bandeja: sessionId = mesa quando o personagem tá numa, senão usa o próprio personagem.
   const sessionId = personagem.mesaId || personagem.id;
 
+  // Slugs das perícias customizadas — permite que efeitos de habilidade
+  // (modificador/proficiência) mirem uma perícia custom e caiam no agregador.
+  const slugsPericiaCustom = new Set(
+    personagem.periciasCustom.map((p) => p.slug),
+  );
+
   // Agrega efeitos das habilidades (modificadores + proficiências) pra alvos
-  // canônicos. Computado no servidor — frio, sem estado, barato.
-  const efeitosAgregados = agregarEfeitos(personagem.habilidades);
+  // canônicos + perícias custom. Computado no servidor — frio, sem estado, barato.
+  const efeitosAgregados = agregarEfeitos(
+    personagem.habilidades,
+    slugsPericiaCustom,
+  );
 
   // Penalidade de DES das armaduras equipadas (geralmente negativa). Reduz o
   // modificador de DES em todos os cálculos derivados (CR, iniciativa, salv/
@@ -100,6 +110,17 @@ export default async function FichaPage({ params }: Params) {
             personagem.presenca + (efeitosAgregados.bonusAtributo.presenca?.valor ?? 0),
         }}
         proficienciasRaw={personagem.proficiencias}
+        periciasCustom={personagem.periciasCustom.map((p) => ({
+          id: p.id,
+          nome: p.nome,
+          slug: p.slug,
+          atributo: p.atributo,
+          origem: p.origem,
+          proficiente: p.proficiente,
+          dobrada: p.dobrada,
+          bonusOutros: p.bonusOutros,
+          ordem: p.ordem,
+        }))}
         efeitosAgregados={efeitosAgregados}
         cargaMaxima={personagem.cargaMaxima}
         berries={personagem.berries}

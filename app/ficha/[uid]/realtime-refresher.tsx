@@ -66,6 +66,16 @@ export function FichaRealtime({ personagemId }: { personagemId: string }) {
         },
         () => router.refresh(),
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "pericias_custom",
+          filter: `personagem_id=eq.${personagemId}`,
+        },
+        () => router.refresh(),
+      )
       .subscribe();
 
     return () => {

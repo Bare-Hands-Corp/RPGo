@@ -11,6 +11,7 @@ import {
   lerEfeitos,
   lerProficiencias,
   normalizarEfeito,
+  slugPericiaCustom,
   type Atributo,
   type EfeitoHabilidade,
   type PericiaSlug,
@@ -351,7 +352,7 @@ export async function deletarItem(personagemId: string, itemId: string) {
 
 // ─── Proficiências (perícias e salvaguardas) ──────────────
 const PERICIAS_VALIDAS = new Set(PERICIAS.map((p) => p.slug));
-const ATRIBUTOS_VALIDOS = new Set(ATRIBUTOS.map((a) => a.slug));
+const ATRIBUTOS_VALIDOS = new Set<string>(ATRIBUTOS.map((a) => a.slug));
 
 function toggleEm<T extends string>(lista: T[], slug: T, ligado: boolean): T[] {
   const set = new Set(lista);
@@ -466,6 +467,126 @@ export async function setSalvaguardaOutros(
   await prisma.personagem.update({
     where: { id: personagemId },
     data: { proficiencias: prof },
+  });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+// ─── Perícias customizadas ────────────────────────────────
+// Perícias fora do set fixo (Profissão, homebrew). Cada uma é uma linha em
+// pericias_custom; proficiência/dobrada/bônus vivem na própria linha.
+function serializarPericiaCustom(p: {
+  id: string;
+  nome: string;
+  slug: string;
+  atributo: string;
+  origem: string;
+  proficiente: boolean;
+  dobrada: boolean;
+  bonusOutros: number;
+  ordem: number;
+}) {
+  return {
+    id: p.id,
+    nome: p.nome,
+    slug: p.slug,
+    atributo: p.atributo,
+    origem: p.origem,
+    proficiente: p.proficiente,
+    dobrada: p.dobrada,
+    bonusOutros: p.bonusOutros,
+    ordem: p.ordem,
+  };
+}
+
+export async function criarPericiaCustom(
+  personagemId: string,
+  input: { nome: string; atributo: string; origem?: string },
+) {
+  await autorizar(personagemId);
+
+  const nome = String(input.nome ?? "").trim();
+  if (!nome) throw new Error("Dê um nome à perícia.");
+  if (!ATRIBUTOS_VALIDOS.has(input.atributo)) throw new Error("Atributo inválido.");
+  const origem = String(input.origem ?? "").trim();
+
+  // Slug único por personagem — deriva do nome evitando colisão com built-ins
+  // e com as customizadas que já existem.
+  const existentes = await prisma.periciaCustom.findMany({
+    where: { personagemId },
+    select: { slug: true },
+  });
+  const slug = slugPericiaCustom(nome, new Set(existentes.map((p) => p.slug)));
+
+  const criada = await prisma.periciaCustom.create({
+    data: {
+      personagemId,
+      nome,
+      slug,
+      atributo: input.atributo,
+      origem,
+      ordem: existentes.length,
+    },
+  });
+  revalidatePath(`/ficha/${personagemId}`);
+  return serializarPericiaCustom(criada);
+}
+
+const ALLOWED_PERICIA_CUSTOM = [
+  "nome",
+  "atributo",
+  "origem",
+  "proficiente",
+  "dobrada",
+  "bonusOutros",
+] as const;
+
+type PericiaCustomPatch = Partial<
+  Record<(typeof ALLOWED_PERICIA_CUSTOM)[number], unknown>
+>;
+
+export async function patchPericiaCustom(
+  personagemId: string,
+  id: string,
+  patch: PericiaCustomPatch,
+) {
+  await autorizar(personagemId);
+
+  const data: Record<string, unknown> = {};
+  for (const key of ALLOWED_PERICIA_CUSTOM) {
+    if (patch[key] !== undefined) data[key] = patch[key];
+  }
+
+  if (typeof data.nome === "string") {
+    const nome = data.nome.trim();
+    if (!nome) throw new Error("Nome inválido.");
+    data.nome = nome;
+  }
+  if (data.atributo !== undefined && !ATRIBUTOS_VALIDOS.has(String(data.atributo))) {
+    throw new Error("Atributo inválido.");
+  }
+  if (typeof data.origem === "string") data.origem = data.origem.trim();
+  if (data.bonusOutros !== undefined) {
+    const n = Number(data.bonusOutros);
+    if (!Number.isFinite(n)) throw new Error("Valor inválido.");
+    data.bonusOutros = Math.trunc(n);
+  }
+  // Invariantes: dobrar exige proficiência; tirar proficiência tira o dobro.
+  if (data.dobrada === true) data.proficiente = true;
+  if (data.proficiente === false) data.dobrada = false;
+
+  if (Object.keys(data).length === 0) return;
+
+  await prisma.periciaCustom.update({
+    where: { id, personagemId },
+    data,
+  });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+export async function deletarPericiaCustom(personagemId: string, id: string) {
+  await autorizar(personagemId);
+  await prisma.periciaCustom.delete({
+    where: { id, personagemId },
   });
   revalidatePath(`/ficha/${personagemId}`);
 }

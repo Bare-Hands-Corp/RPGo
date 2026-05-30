@@ -12,12 +12,16 @@ import {
   lerProficiencias,
   modificador,
   penalidadeD20Exaustao,
+  slugPericiaCustom,
   type Atributo,
   type EfeitosAgregados,
   type PericiaSlug,
   type Proficiencias,
 } from "@/lib/op-rpg";
 import {
+  criarPericiaCustom,
+  deletarPericiaCustom,
+  patchPericiaCustom,
   setPericiaOutros,
   setSalvaguardaOutros,
   togglePericia,
@@ -28,6 +32,18 @@ import { empilharD20 } from "@/lib/empilhar-rolagem";
 import { useExaustaoOtimista } from "./use-exaustao-otimista";
 import { MarcaExausto } from "./marca-exausto";
 
+export type PericiaCustomRow = {
+  id: string;
+  nome: string;
+  slug: string;
+  atributo: string;
+  origem: string;
+  proficiente: boolean;
+  dobrada: boolean;
+  bonusOutros: number;
+  ordem: number;
+};
+
 type Props = {
   personagemId: string;
   nivel: number;
@@ -35,6 +51,7 @@ type Props = {
   penalidadeDesArmadura: number;
   atributos: Record<Atributo, number>;
   proficienciasRaw: unknown;
+  periciasCustom: PericiaCustomRow[];
   efeitosAgregados: EfeitosAgregados;
 };
 
@@ -80,6 +97,20 @@ function aplicar(state: Proficiencias, p: Patch): Proficiencias {
   return { ...state, salvaguardas };
 }
 
+type PatchCustom =
+  | { kind: "create"; pericia: PericiaCustomRow }
+  | { kind: "update"; id: string; patch: Partial<PericiaCustomRow> }
+  | { kind: "delete"; id: string };
+
+function aplicarCustom(
+  state: PericiaCustomRow[],
+  p: PatchCustom,
+): PericiaCustomRow[] {
+  if (p.kind === "create") return [...state, p.pericia];
+  if (p.kind === "delete") return state.filter((c) => c.id !== p.id);
+  return state.map((c) => (c.id === p.id ? { ...c, ...p.patch } : c));
+}
+
 function mostrarErro(err: unknown) {
   Swal.fire({
     icon: "error",
@@ -97,6 +128,7 @@ export function PericiasTab({
   penalidadeDesArmadura,
   atributos,
   proficienciasRaw,
+  periciasCustom,
   efeitosAgregados,
 }: Props) {
   // Penalidade de exaustão (−2 × nível) some em todo teste de d20 — perícia e
@@ -116,7 +148,12 @@ export function PericiasTab({
   const desReduz = penalidadeDesArmadura < 0;
   const inicial = lerProficiencias(proficienciasRaw);
   const [prof, aplicarPatch] = useOptimistic(inicial, aplicar);
+  const [custom, aplicarCustomPatch] = useOptimistic(periciasCustom, aplicarCustom);
   const [, startTransition] = useTransition();
+
+  // Modal de criar/editar perícia custom. `editAlvo` null = criando.
+  const [modalAberto, setModalAberto] = useState(false);
+  const [editAlvo, setEditAlvo] = useState<PericiaCustomRow | null>(null);
 
   function setPericia(slug: PericiaSlug, ligado: boolean) {
     startTransition(async () => {
@@ -169,6 +206,101 @@ export function PericiasTab({
         await setSalvaguardaOutros(personagemId, atributo, valor);
       } catch (err) {
         mostrarErro(err);
+      }
+    });
+  }
+
+  // ─── Perícias customizadas ───────────────────────────────
+  function setProfCustom(c: PericiaCustomRow, proficiente: boolean) {
+    startTransition(async () => {
+      // Tirar a proficiência também tira o dobro (espelha o servidor).
+      aplicarCustomPatch({
+        kind: "update",
+        id: c.id,
+        patch: { proficiente, dobrada: proficiente ? c.dobrada : false },
+      });
+      try {
+        await patchPericiaCustom(personagemId, c.id, { proficiente });
+      } catch (err) {
+        mostrarErro(err);
+      }
+    });
+  }
+
+  function setDobroCustom(c: PericiaCustomRow, dobrada: boolean) {
+    startTransition(async () => {
+      aplicarCustomPatch({ kind: "update", id: c.id, patch: { dobrada } });
+      try {
+        await patchPericiaCustom(personagemId, c.id, { dobrada });
+      } catch (err) {
+        mostrarErro(err);
+      }
+    });
+  }
+
+  function setOutrosCustom(c: PericiaCustomRow, valor: number) {
+    startTransition(async () => {
+      aplicarCustomPatch({ kind: "update", id: c.id, patch: { bonusOutros: valor } });
+      try {
+        await patchPericiaCustom(personagemId, c.id, { bonusOutros: valor });
+      } catch (err) {
+        mostrarErro(err);
+      }
+    });
+  }
+
+  async function apagarCustom(c: PericiaCustomRow) {
+    const r = await Swal.fire({
+      title: "Apagar perícia",
+      text: `Remover "${c.nome}"?`,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#d33",
+      confirmButtonText: "Apagar",
+      cancelButtonText: "Cancelar",
+      background: "var(--bg-card)",
+      color: "var(--text-main)",
+    });
+    if (!r.isConfirmed) return;
+    startTransition(async () => {
+      aplicarCustomPatch({ kind: "delete", id: c.id });
+      try {
+        await deletarPericiaCustom(personagemId, c.id);
+      } catch (err) {
+        mostrarErro(err);
+      }
+    });
+  }
+
+  function salvarCustom(dados: { nome: string; atributo: Atributo; origem: string }) {
+    const alvo = editAlvo;
+    setModalAberto(false);
+    setEditAlvo(null);
+    startTransition(async () => {
+      if (alvo) {
+        aplicarCustomPatch({ kind: "update", id: alvo.id, patch: dados });
+        try {
+          await patchPericiaCustom(personagemId, alvo.id, dados);
+        } catch (err) {
+          mostrarErro(err);
+        }
+      } else {
+        const slugsUsados = new Set(custom.map((c) => c.slug));
+        const nova: PericiaCustomRow = {
+          id: "temp-" + Math.random().toString(36).slice(2),
+          slug: slugPericiaCustom(dados.nome, slugsUsados),
+          proficiente: false,
+          dobrada: false,
+          bonusOutros: 0,
+          ordem: custom.length,
+          ...dados,
+        };
+        aplicarCustomPatch({ kind: "create", pericia: nova });
+        try {
+          await criarPericiaCustom(personagemId, dados);
+        } catch (err) {
+          mostrarErro(err);
+        }
       }
     });
   }
@@ -284,7 +416,6 @@ export function PericiasTab({
                   const exausto = penD20 > 0 || desReduzEste;
                   const bonus =
                     bonusPericia({
-                      pericia: p,
                       valorAtributo: atributosParaTeste[sub.atributo],
                       nivel,
                       proficiente,
@@ -360,6 +491,137 @@ export function PericiasTab({
           );
         },
       )}
+
+      <section>
+        <div className="section-header">
+          <i className="fas fa-pen-ruler" style={{ color: "var(--color-power)" }} />
+          <h3>Perícias Customizadas</h3>
+          <button
+            type="button"
+            className="btn-rect outline pericia-custom-add"
+            onClick={() => {
+              setEditAlvo(null);
+              setModalAberto(true);
+            }}
+          >
+            + Nova perícia
+          </button>
+        </div>
+        {custom.length === 0 ? (
+          <p style={{ color: "var(--text-sec)", fontSize: "0.85rem" }}>
+            Perícias fora do set padrão — vindas de Profissão, treinamento ou homebrew.
+          </p>
+        ) : (
+          <div className="prof-grid prof-grid-custom">
+            {custom.map((c) => {
+              const at = (c.atributo as Atributo) ?? "forca";
+              const profPorHab = efeitosAgregados.proficienciasPericia[c.slug];
+              const proficiente = c.proficiente || !!profPorHab;
+              const bonusHab = efeitosAgregados.bonusPericia[c.slug];
+              const outrosTotal = c.bonusOutros + (bonusHab?.valor ?? 0);
+              const sub = atributoDeCalculo(c.slug, at, subs);
+              const desReduzEste = sub.atributo === "destreza" && desReduz;
+              const exausto = penD20 > 0 || desReduzEste;
+              const bonus =
+                bonusPericia({
+                  valorAtributo: atributosParaTeste[sub.atributo],
+                  nivel,
+                  proficiente,
+                  dobrado: c.dobrada,
+                  outros: outrosTotal,
+                }) - penD20;
+              const tituloFontes = [
+                sub.substituido &&
+                  `Usa ${sub.atributo.toUpperCase().slice(0, 3)} por ${sub.fontes.join(", ")}`,
+                profPorHab && `Proficiência: ${profPorHab.fontes.join(", ")}`,
+                bonusHab && `${formatarMod(bonusHab.valor)} de ${bonusHab.fontes.join(", ")}`,
+                desReduzEste && `−${Math.abs(penalidadeDesArmadura)} de DES (armadura)`,
+                penD20 > 0 && `−${penD20} de exaustão`,
+              ]
+                .filter(Boolean)
+                .join("\n");
+              return (
+                <div
+                  key={c.id}
+                  className={`prof-row ${proficiente ? "prof-on" : ""}`}
+                  title={tituloFontes || undefined}
+                >
+                  <input
+                    type="checkbox"
+                    checked={c.proficiente}
+                    disabled={!!profPorHab}
+                    onChange={(e) => setProfCustom(c, e.target.checked)}
+                  />
+                  <button
+                    type="button"
+                    className={`prof-bonus prof-rolar ${exausto ? "valor-exausto" : ""}`}
+                    title={`Empilhar ${c.nome} no Rolador`}
+                    onClick={() =>
+                      empilharD20(bonus, c.nome, { tipo: "pericia", pericia: c.slug })
+                    }
+                  >
+                    {formatarMod(bonus)}
+                    {penD20 > 0 && <MarcaExausto titulo={`−${penD20} de exaustão`} />}
+                  </button>
+                  <span className="prof-nome">
+                    {c.nome}{" "}
+                    <span className="pericia-custom-meta">
+                      ({at.toUpperCase().slice(0, 3)}
+                      {c.origem ? ` · ${c.origem}` : ""})
+                    </span>
+                    {(profPorHab || bonusHab) && (
+                      <i className="fas fa-link prof-fonte" title={tituloFontes} />
+                    )}
+                  </span>
+                  {proficiente && (
+                    <button
+                      type="button"
+                      className={`prof-dobro ${c.dobrada ? "ativo" : ""}`}
+                      onClick={() => setDobroCustom(c, !c.dobrada)}
+                    >
+                      2×
+                    </button>
+                  )}
+                  <OutrosInput
+                    valor={c.bonusOutros}
+                    onSalvar={(v) => setOutrosCustom(c, v)}
+                  />
+                  <button
+                    type="button"
+                    className="pericia-custom-acao"
+                    title="Editar"
+                    onClick={() => {
+                      setEditAlvo(c);
+                      setModalAberto(true);
+                    }}
+                  >
+                    <i className="fas fa-pen" />
+                  </button>
+                  <button
+                    type="button"
+                    className="pericia-custom-acao perigo"
+                    title="Apagar"
+                    onClick={() => apagarCustom(c)}
+                  >
+                    <i className="fas fa-trash" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {modalAberto && (
+        <ModalPericiaCustom
+          inicial={editAlvo}
+          onSalvar={salvarCustom}
+          onCancelar={() => {
+            setModalAberto(false);
+            setEditAlvo(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -421,5 +683,85 @@ function OutrosInput({
     >
       {formatarMod(valor)}
     </button>
+  );
+}
+
+// Modal de criar/editar perícia custom. Otimismo fica no pai (PericiasTab);
+// aqui é só o formulário. `inicial` null = criando.
+function ModalPericiaCustom({
+  inicial,
+  onSalvar,
+  onCancelar,
+}: {
+  inicial: PericiaCustomRow | null;
+  onSalvar: (dados: { nome: string; atributo: Atributo; origem: string }) => void;
+  onCancelar: () => void;
+}) {
+  const [nome, setNome] = useState(inicial?.nome ?? "");
+  const [atributo, setAtributo] = useState<Atributo>(
+    (inicial?.atributo as Atributo) ?? "vontade",
+  );
+  const [origem, setOrigem] = useState(inicial?.origem ?? "");
+
+  function submeter(e: React.FormEvent) {
+    e.preventDefault();
+    const limpo = nome.trim();
+    if (!limpo) return;
+    onSalvar({ nome: limpo, atributo, origem: origem.trim() });
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onCancelar}>
+      <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+        <h2>{inicial ? "Editar perícia" : "Nova perícia"}</h2>
+        <p style={{ fontSize: "0.8rem", color: "var(--text-sec)", marginBottom: 15 }}>
+          Perícias fora do set padrão (Profissão, treinamento, homebrew).
+        </p>
+        <form onSubmit={submeter}>
+          <label>Nome</label>
+          <input
+            type="text"
+            value={nome}
+            autoFocus
+            onChange={(e) => setNome(e.target.value)}
+            placeholder="ex: Pilotagem, Culinária…"
+          />
+
+          <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+            <div style={{ flex: 1 }}>
+              <label>Atributo</label>
+              <select
+                value={atributo}
+                onChange={(e) => setAtributo(e.target.value as Atributo)}
+              >
+                {ATRIBUTOS.map((a) => (
+                  <option key={a.slug} value={a.slug}>
+                    {a.nome}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div style={{ flex: 1 }}>
+              <label>Origem (opcional)</label>
+              <input
+                type="text"
+                value={origem}
+                onChange={(e) => setOrigem(e.target.value)}
+                placeholder="ex: Profissão Capitão"
+              />
+            </div>
+          </div>
+
+          <div className="modal-actions">
+            <button type="button" className="modal-btn-cancel" onClick={onCancelar}>
+              Cancelar
+            </button>
+            <button type="submit" className="modal-btn-save">
+              Salvar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }

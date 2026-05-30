@@ -159,6 +159,43 @@ export const PERICIAS: Pericia[] = [
   { slug: "provocacao", nome: "Provocação", atributo: "presenca" },
 ];
 
+// ─── Perícias customizadas ────────────────────────────────────────────
+// Perícias fora do set fixo (Profissão, homebrew). Vivem em linhas próprias
+// (tabela pericias_custom), não no Json de proficiências.
+const PERICIAS_BUILTIN_SLUGS = new Set<string>(PERICIAS.map((p) => p.slug));
+
+// Deriva um slug estável a partir do nome: sem acentos, minúsculo, só [a-z0-9-].
+// `existentes` evita colisão com slugs já usados (built-in ou outras custom):
+// na colisão, sufixa -2, -3… Usado ao criar uma perícia custom.
+export function slugPericiaCustom(nome: string, existentes: Set<string> = new Set()): string {
+  const base =
+    nome
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "") // remove diacríticos
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "pericia";
+  const reservados = new Set([...PERICIAS_BUILTIN_SLUGS, ...existentes]);
+  if (!reservados.has(base)) return base;
+  let i = 2;
+  while (reservados.has(`${base}-${i}`)) i++;
+  return `${base}-${i}`;
+}
+
+// Entradas de datalist/select pra perícias customizadas, no mesmo formato dos
+// ALVOS_* canônicos. O editor de habilidades concatena estas às listas fixas pra
+// que o usuário escolha uma perícia custom como alvo de modificador/proficiência/
+// vantagem (em vez de digitar o slug na mão).
+export function alvosPericiaCustom(
+  periciasCustom: { slug: string; nome: string }[],
+): { slug: string; nome: string; grupo: string }[] {
+  return periciasCustom.map((p) => ({
+    slug: p.slug,
+    nome: p.nome,
+    grupo: "Perícia (custom)",
+  }));
+}
+
 // ─── Proficiências (estrutura armazenada em Personagem.proficiencias) ─
 
 export type Proficiencias = {
@@ -197,7 +234,6 @@ export function lerProficiencias(raw: unknown): Proficiencias {
 // Bônus total de uma perícia: mod_atributo + (proficiente ? bonus_prof : 0) * (dobrado ? 2 : 1) + outros.
 // Dobro de zero = zero (não-proficiente com flag "dobrado" ainda dá 0).
 export function bonusPericia(opts: {
-  pericia: Pericia;
   valorAtributo: number;
   nivel: number;
   proficiente: boolean;
@@ -1162,7 +1198,9 @@ export function rotuloAlvo(slug: string): string {
 export type ContextoRolagem =
   | { tipo: "ataque"; alcance: "corpo_a_corpo" | "distancia" }
   | { tipo: "salvaguarda"; atributo: Atributo; concentracao?: boolean }
-  | { tipo: "pericia"; pericia: PericiaSlug }
+  // `pericia` é string livre: cobre as 18 canônicas e perícias customizadas
+  // (slug por-personagem, fora do set canônico).
+  | { tipo: "pericia"; pericia: string }
   | { tipo: "teste-atributo"; atributo: Atributo }
   | { tipo: "iniciativa" };
 
@@ -1173,20 +1211,24 @@ export function casaContexto(alvoRaw: string, ctx: ContextoRolagem): boolean {
   const alvo = alvoRaw.trim().toLowerCase();
   if (!alvo) return false;
   if (alvo === "qualquer") return true;
-  if (!ALVOS_CONTEXTUAIS_SET.has(alvo)) return false;
 
   switch (ctx.tipo) {
     case "ataque":
+      if (!ALVOS_CONTEXTUAIS_SET.has(alvo)) return false;
       if (alvo === "ataque") return true;
       if (alvo === "ataque-cc" && ctx.alcance === "corpo_a_corpo") return true;
       if (alvo === "ataque-distancia" && ctx.alcance === "distancia") return true;
       return false;
     case "salvaguarda":
+      if (!ALVOS_CONTEXTUAIS_SET.has(alvo)) return false;
       if (alvo === "salvaguarda") return true;
       if (alvo === `salv-${ctx.atributo}`) return true;
       if (alvo === "concentracao" && ctx.concentracao) return true;
       return false;
     case "pericia":
+      // Casa por igualdade exata com o slug rolado — não exige presença no set
+      // canônico, então perícias customizadas (slug por-personagem) também casam.
+      // Sem risco de falso-positivo: ctx.pericia é sempre uma perícia que existe.
       if (alvo === "teste") return true;
       return alvo === ctx.pericia;
     case "teste-atributo":
@@ -1215,14 +1257,16 @@ export type EfeitoContextual = {
 // do personagem. Resultado é "frio": pode ser calculado em qualquer momento
 // a partir da lista de habilidades, sem estado interno.
 export type EfeitosAgregados = {
-  bonusPericia: Partial<Record<PericiaSlug, FonteValor>>;
+  // Indexado por slug de perícia: canônica (PericiaSlug) ou customizada (slug
+  // livre por-personagem) — por isso a chave é string, não PericiaSlug.
+  bonusPericia: Partial<Record<string, FonteValor>>;
   bonusSalvaguarda: Partial<Record<Atributo, FonteValor>>;
   bonusAtributo: Partial<Record<Atributo, FonteValor>>;
   // Bônus no limite do atributo (ex: Mente Afiada eleva o limite de SAB pra 26).
   // Aplicação fica a cargo da UI que controla AVA; aqui é só consolidação.
   // Campo segue `bonusTetoAtributo` / slug `teto-` (identificadores estáveis).
   bonusTetoAtributo: Partial<Record<Atributo, FonteValor>>;
-  proficienciasPericia: Partial<Record<PericiaSlug, FonteLista>>;
+  proficienciasPericia: Partial<Record<string, FonteLista>>;
   proficienciasSalvaguarda: Partial<Record<Atributo, FonteLista>>;
   bonusCR: FonteValor;
   bonusIniciativa: FonteValor;
@@ -1378,6 +1422,10 @@ export function computarDeltasInstantaneos(
 // contextuais (etapa 3), `livre` é só descritiva.
 export function agregarEfeitos(
   habilidades: { nome: string; tipo: string; efeitos: unknown }[],
+  // Slugs de perícias customizadas do personagem. Permite que `modificador` e
+  // `proficiencia` mirando uma perícia custom caiam em bonusPericia/
+  // proficienciasPericia em vez de virarem efeito descritivo sem dono.
+  slugsPericiaCustom: Set<string> = new Set(),
 ): EfeitosAgregados {
   const out = vazio();
   for (const h of habilidades) {
@@ -1385,9 +1433,9 @@ export function agregarEfeitos(
     const efeitos = lerEfeitos(h.efeitos);
     for (const e of efeitos) {
       if (e.tipo === "modificador") {
-        aplicarModificador(out, e.alvo, e.valor, h.nome);
+        aplicarModificador(out, e.alvo, e.valor, h.nome, slugsPericiaCustom);
       } else if (e.tipo === "proficiencia") {
-        aplicarProficiencia(out, e.alvo, h.nome);
+        aplicarProficiencia(out, e.alvo, h.nome, slugsPericiaCustom);
       } else if (e.tipo === "crit_range") {
         // Menor "minimo" vence (faixa mais ampla).
         if (e.minimo < out.critRangeMinimo.valor) out.critRangeMinimo.valor = e.minimo;
@@ -1534,6 +1582,7 @@ function aplicarModificador(
   alvoRaw: string,
   valor: number,
   fonte: string,
+  slugsPericiaCustom: Set<string> = new Set(),
 ) {
   const alvo = alvoRaw.trim().toLowerCase();
   if (!alvo || !valor) return;
@@ -1561,7 +1610,14 @@ function aplicarModificador(
   }
   // Derivados e pools — slug → bucket simples. Map evita switch gigante.
   const bucket = BUCKETS_SIMPLES[alvo];
-  if (bucket) somarBucketSimples(bucket(out), valor, fonte);
+  if (bucket) {
+    somarBucketSimples(bucket(out), valor, fonte);
+    return;
+  }
+  // Perícia customizada — só captura o slug se nenhum alvo reservado o reivindicou.
+  if (slugsPericiaCustom.has(alvo)) {
+    somarFonteValor(out.bonusPericia, alvo, valor, fonte);
+  }
 }
 
 // Cada slug aponta pro bucket FonteValor correspondente em EfeitosAgregados.
@@ -1593,10 +1649,11 @@ function aplicarProficiencia(
   out: EfeitosAgregados,
   alvoRaw: string,
   fonte: string,
+  slugsPericiaCustom: Set<string> = new Set(),
 ) {
   const alvo = alvoRaw.trim().toLowerCase();
   if (!alvo) return;
-  if (PERICIAS_SET.has(alvo)) {
+  if (PERICIAS_SET.has(alvo) || slugsPericiaCustom.has(alvo)) {
     adicionarFonteLista(out.proficienciasPericia, alvo, fonte);
     return;
   }
