@@ -10,6 +10,7 @@ import { CrEditavel } from "./cr-editavel";
 import { ExaustaoControle } from "./exaustao-controle";
 import { MarcaExausto } from "./marca-exausto";
 import {
+  atributoDeCalculo,
   bonusProficiencia,
   deslocamentoEfetivo,
   formatarMod,
@@ -61,6 +62,15 @@ function pct(atual: number, max: number): number {
   if (!max) return 0;
   return Math.max(0, Math.min(100, (atual / max) * 100));
 }
+
+const SIGLA_ATRIBUTO: Record<Atributo, string> = {
+  forca: "FOR",
+  destreza: "DES",
+  constituicao: "CON",
+  sabedoria: "SAB",
+  vontade: "VON",
+  presenca: "PRE",
+};
 
 type PatchPersonagem = Partial<
   Pick<
@@ -117,9 +127,11 @@ function aplicarDelta(
 export function PerfilSidebar({
   personagem: inicial,
   efeitosAgregados,
+  penalidadeDesArmadura,
 }: {
   personagem: Personagem;
   efeitosAgregados: EfeitosAgregados;
+  penalidadeDesArmadura: number;
 }) {
   // useOptimistic do personagem inteiro: o EditFichaModal e qualquer outro
   // editor podem aplicar patches via `aplicarOtimista` pra refletir mudanças
@@ -162,15 +174,17 @@ export function PerfilSidebar({
     ? Math.max(0, Math.min(100, ((p.pe - peBase) / (peProximo - peBase)) * 100))
     : 100;
 
-  // CR ganha automaticamente o `ca` + `penalidadeDes` de cada armadura equipada.
-  const bonusArmadura = p.itens.reduce(
-    (acc, i) => (i.tipo === "armadura" && i.equipado ? acc + i.ca + i.penalidadeDes : acc),
+  // CR ganha automaticamente o `ca` de cada armadura equipada. A penalidade de
+  // DES NÃO entra aqui — é aplicada via `atributosParaTeste` (reduz o mod de DES),
+  // pra também pegar iniciativa/salv/perícia e respeitar substituição de atributo.
+  const caArmadura = p.itens.reduce(
+    (acc, i) => (i.tipo === "armadura" && i.equipado ? acc + i.ca : acc),
     0,
   );
 
   // Atributos efetivos: valor base + bônus vindo de habilidades.
   // Usado pelos cards de atributo (exibição) e por derivados (Iniciativa,
-  // Percepção Passiva). CR tem caminho próprio em CrEditavel (recebe DES).
+  // Percepção Passiva).
   const atributosEfetivos: Record<Atributo, number> = {
     forca: p.forca + (efeitosAgregados.bonusAtributo.forca?.valor ?? 0),
     destreza: p.destreza + (efeitosAgregados.bonusAtributo.destreza?.valor ?? 0),
@@ -180,6 +194,17 @@ export function PerfilSidebar({
     vontade: p.vontade + (efeitosAgregados.bonusAtributo.vontade?.valor ?? 0),
     presenca: p.presenca + (efeitosAgregados.bonusAtributo.presenca?.valor ?? 0),
   };
+
+  // Atributos para TESTES de d20 e CR: igual aos efetivos, mas com a DES
+  // reduzida pela penalidade da armadura. Reduzir a pontuação em 2× a penalidade
+  // (do modificador) reduz o modificador em exatamente a penalidade. Cálculos
+  // que usam outro atributo (substituição) leem o valor não-ajustado e escapam.
+  const atributosParaTeste: Record<Atributo, number> = {
+    ...atributosEfetivos,
+    destreza: atributosEfetivos.destreza + 2 * penalidadeDesArmadura,
+  };
+  const subs = efeitosAgregados.substituicoesAtributo;
+  const desReduz = penalidadeDesArmadura < 0;
 
   // Percepção Passiva considera proficiência em Percepção, manual OU via habilidade.
   const profPercepcao =
@@ -381,22 +406,49 @@ export function PerfilSidebar({
       <RecursosSidebar personagemId={p.id} recursos={p.recursos} />
 
       <div className="derivados-grid">
-        <CrEditavel
-          personagemId={p.id}
-          destreza={atributosEfetivos.destreza}
-          crOutros={p.crOutros}
-          bonusArmadura={bonusArmadura + efeitosAgregados.bonusCR.valor}
-        />
         {(() => {
-          const iniBruta =
-            iniciativa(atributosEfetivos.destreza) +
-            efeitosAgregados.bonusIniciativa.valor;
-          const iniEf = iniBruta - penD20;
+          const crAtrib = atributoDeCalculo("cr", "destreza", subs);
+          const crDesReduz = crAtrib.atributo === "destreza" && desReduz;
           const titulo =
             [
+              crAtrib.substituido
+                ? `Usa ${SIGLA_ATRIBUTO[crAtrib.atributo]} por ${crAtrib.fontes.join(", ")}`
+                : null,
+              crDesReduz ? `−${Math.abs(penalidadeDesArmadura)} de DES (armadura)` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ") || undefined;
+          return (
+            <CrEditavel
+              personagemId={p.id}
+              atributoScore={atributosParaTeste[crAtrib.atributo]}
+              crOutros={p.crOutros}
+              bonusFixo={caArmadura + efeitosAgregados.bonusCR.valor}
+              siglaSubstituida={
+                crAtrib.substituido ? SIGLA_ATRIBUTO[crAtrib.atributo] : undefined
+              }
+              titulo={titulo}
+              reduzido={crDesReduz}
+            />
+          );
+        })()}
+        {(() => {
+          const iniAtrib = atributoDeCalculo("iniciativa", "destreza", subs);
+          const iniDesReduz = iniAtrib.atributo === "destreza" && desReduz;
+          const iniBruta =
+            iniciativa(atributosParaTeste[iniAtrib.atributo]) +
+            efeitosAgregados.bonusIniciativa.valor;
+          const iniEf = iniBruta - penD20;
+          const reduzido = penD20 > 0 || iniDesReduz;
+          const titulo =
+            [
+              iniAtrib.substituido
+                ? `Usa ${SIGLA_ATRIBUTO[iniAtrib.atributo]} por ${iniAtrib.fontes.join(", ")}`
+                : null,
               efeitosAgregados.bonusIniciativa.fontes.length
                 ? `+${efeitosAgregados.bonusIniciativa.valor} de ${efeitosAgregados.bonusIniciativa.fontes.join(", ")}`
                 : null,
+              iniDesReduz ? `−${Math.abs(penalidadeDesArmadura)} de DES (armadura)` : null,
               penD20 ? `−${penD20} de exaustão` : null,
             ]
               .filter(Boolean)
@@ -408,7 +460,7 @@ export function PerfilSidebar({
               onClick={() => empilharD20(iniEf, "Iniciativa", { tipo: "iniciativa" })}
             >
               <div className="derivado-label">Iniciativa</div>
-              <div className={`derivado-value ${penD20 > 0 ? "valor-exausto" : ""}`}>
+              <div className={`derivado-value ${reduzido ? "valor-exausto" : ""}`}>
                 {formatarMod(iniEf)}
                 {penD20 > 0 && <MarcaExausto titulo={`−${penD20} de exaustão`} />}
               </div>

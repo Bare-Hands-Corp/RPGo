@@ -273,6 +273,14 @@
   opacity: 0.9;
 }
 
+/* Sigla do atributo que substitui o padrão num cálculo (ex: CR via FOR). */
+.cr-atributo-sub {
+  font-size: 0.6em;
+  font-weight: 700;
+  color: var(--primary);
+  vertical-align: super;
+}
+
 /* ─── COLOR PICKER (modal de Recurso) ────────────────────── */
 .cor-picker {
   display: flex;

@@ -20,6 +20,7 @@ type Props = {
   mesaId: string | null;
   nivel: number;
   exaustao: number;
+  penalidadeDesArmadura: number;
   atributos: Record<Atributo, number>;
   proficienciasRaw: unknown;
   cargaMaxima: number;
@@ -56,6 +57,7 @@ export function FichaTabs({
   mesaId,
   nivel,
   exaustao,
+  penalidadeDesArmadura,
   atributos,
   proficienciasRaw,
   cargaMaxima,
@@ -104,6 +106,7 @@ export function FichaTabs({
           acoes={acoes}
           nivel={nivel}
           exaustao={exaustao}
+          penalidadeDesArmadura={penalidadeDesArmadura}
           atributos={atributos}
           recursos={recursos}
           efeitosAgregados={efeitosAgregados}
@@ -125,6 +128,7 @@ export function FichaTabs({
           personagemId={personagemId}
           nivel={nivel}
           exaustao={exaustao}
+          penalidadeDesArmadura={penalidadeDesArmadura}
           atributos={atributos}
           proficienciasRaw={proficienciasRaw}
           efeitosAgregados={efeitosAgregados}
@@ -144,6 +148,7 @@ export function FichaTabs({
           itens={itens}
           nivel={nivel}
           exaustao={exaustao}
+          penalidadeDesArmadura={penalidadeDesArmadura}
           atributos={atributos}
           efeitosAgregados={efeitosAgregados}
         />

@@ -70,6 +70,7 @@ type Props = {
   acoes: Acao[];
   nivel: number;
   exaustao: number;
+  penalidadeDesArmadura: number;
   atributos: Record<Atributo, number>;
   recursos: RecursoMinimo[];
   efeitosAgregados: EfeitosAgregados;
@@ -155,6 +156,7 @@ export function AcoesTab({
   acoes,
   nivel,
   exaustao: exaustaoServer,
+  penalidadeDesArmadura,
   atributos,
   recursos,
   efeitosAgregados,
@@ -164,6 +166,14 @@ export function AcoesTab({
   // no dano (não é d20) nem na CD da técnica (quem rola é o alvo). Otimista.
   const exaustao = useExaustaoOtimista(exaustaoServer);
   const penD20 = penalidadeD20Exaustao(exaustao);
+
+  // DES reduzida pela armadura: cálculos que usam DES (ataque/CD com DES) leem a
+  // pontuação ajustada; FOR e outros leem o valor real.
+  const atributosParaTeste: Record<Atributo, number> = {
+    ...atributos,
+    destreza: atributos.destreza + 2 * penalidadeDesArmadura,
+  };
+  const desReduz = penalidadeDesArmadura < 0;
   const armas = itens.filter((i) => i.tipo === "arma");
   const [acoesOtimistas, aplicarPatch] = useOptimistic(
     acoes,
@@ -343,7 +353,7 @@ export function AcoesTab({
                         atributoOverride: armaLigada.atributoAtaque,
                         modificadorArma: armaLigada.modificador || 0,
                         proficiente: armaLigada.proficienteArma,
-                        atributos,
+                        atributos: atributosParaTeste,
                         nivel,
                         efeitosAgregados,
                       })
@@ -373,9 +383,12 @@ export function AcoesTab({
                     : atributoAtq
                       ? bonusAtaqueTecnica({
                           nivel,
-                          valorAtributo: atributos[atributoAtq],
+                          valorAtributo: atributosParaTeste[atributoAtq],
                         }) + extraAtaque
                       : null;
+                  // DES reduzida pela armadura morde o acerto quando ele usa DES.
+                  const atributoAcerto = ataqueArma ? ataqueArma.atributo : atributoAtq;
+                  const desReduzAtq = atributoAcerto === "destreza" && desReduz;
                   const fontesAtaque = ataqueArma
                     ? ataqueArma.fontes
                     : juntarFontes(
@@ -406,7 +419,7 @@ export function AcoesTab({
                   const cd = atributoCd
                     ? cdTecnica({
                         nivel,
-                        valorAtributoPrim: atributos[atributoCd],
+                        valorAtributoPrim: atributosParaTeste[atributoCd],
                       }) + extraCd
                     : null;
                   const atributoSalv = acao.atributoSalv as Atributo | null;
@@ -446,14 +459,14 @@ export function AcoesTab({
                             {bonusAtq != null && (
                               <button
                                 type="button"
-                                className={`acao-stat acao-rolar ${penD20 > 0 ? "valor-exausto" : ""}`}
+                                className={`acao-stat acao-rolar ${penD20 > 0 || desReduzAtq ? "valor-exausto" : ""}`}
                                 title={`Empilhar ataque no Rolador${
                                   ataqueArma ? ` · usa ${armaLigada?.nome}` : ""
                                 }${
                                   fontesAtaque.length
                                     ? ` · inclui bônus de ${fontesAtaque.join(", ")}`
                                     : ""
-                                }${penD20 ? ` · −${penD20} de exaustão` : ""}`}
+                                }${desReduzAtq ? ` · −${Math.abs(penalidadeDesArmadura)} de DES (armadura)` : ""}${penD20 ? ` · −${penD20} de exaustão` : ""}`}
                                 onClick={() =>
                                   empilharD20(bonusAtq - penD20, `Atacar ${acao.nome}`, {
                                     tipo: "ataque",

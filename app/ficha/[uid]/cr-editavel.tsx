@@ -6,20 +6,38 @@ import { patchPersonagem } from "./actions";
 
 type Props = {
   personagemId: string;
-  destreza: number;
+  // Pontuação do atributo que a CR usa (DES por padrão, ou outro se uma
+  // habilidade substituiu). Já vem com a penalidade de DES da armadura embutida
+  // quando o atributo é DES (via `atributosParaTeste` no pai).
+  atributoScore: number;
   crOutros: number;
-  bonusArmadura: number;
+  // Bônus fixo somado à CR: CA das armaduras equipadas + bônus de habilidade.
+  bonusFixo: number;
+  // Sigla do atributo usado, mostrada só quando substituído (ex: "FOR").
+  siglaSubstituida?: string;
+  // Tooltip com as fontes (substituição, penalidade de DES…).
+  titulo?: string;
+  // Marca amarela quando a penalidade de DES da armadura está reduzindo a CR.
+  reduzido?: boolean;
 };
 
-// Card de CR clicável. Mostra o total (10 + mod_DES + outros + armadura) e
-// expande um input pequeno pra editar o bônus "outros". O bônus de armadura
-// vem das peças equipadas e não é editável aqui.
-export function CrEditavel({ personagemId, destreza, crOutros, bonusArmadura }: Props) {
+// Card de CR clicável. Mostra o total (10 + mod_atributo + outros + fixo) e
+// expande um input pequeno pra editar o bônus "outros". CA/penalidade vêm das
+// peças equipadas; o atributo pode ser trocado por habilidade.
+export function CrEditavel({
+  personagemId,
+  atributoScore,
+  crOutros,
+  bonusFixo,
+  siglaSubstituida,
+  titulo,
+  reduzido,
+}: Props) {
   const [otimista, aplicar] = useOptimistic(crOutros, (_: number, novo: number) => novo);
   const [, startTransition] = useTransition();
   const [editando, setEditando] = useState(false);
 
-  const total = crBase(destreza, otimista) + bonusArmadura;
+  const total = crBase(atributoScore, otimista) + bonusFixo;
 
   function commit(raw: string) {
     setEditando(false);
@@ -52,9 +70,18 @@ export function CrEditavel({ personagemId, destreza, crOutros, bonusArmadura }: 
       onClick={() => !editando && setEditando(true)}
       role="button"
       tabIndex={0}
+      title={titulo}
     >
-      <div className="derivado-label">CR</div>
-      <div className="derivado-value">{total}</div>
+      <div className="derivado-label">
+        CR
+        {siglaSubstituida && (
+          <span className="cr-atributo-sub" title={titulo}>
+            {" "}
+            {siglaSubstituida}
+          </span>
+        )}
+      </div>
+      <div className={`derivado-value ${reduzido ? "valor-exausto" : ""}`}>{total}</div>
       {editando ? (
         <input
           type="text"

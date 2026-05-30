@@ -52,6 +52,7 @@ type Props = {
   itens: Item[];
   nivel: number;
   exaustao: number;
+  penalidadeDesArmadura: number;
   atributos: Record<Atributo, number>;
   efeitosAgregados: EfeitosAgregados;
 };
@@ -126,12 +127,20 @@ export function InventarioTab({
   itens,
   nivel,
   exaustao: exaustaoServer,
+  penalidadeDesArmadura,
   atributos,
   efeitosAgregados,
 }: Props) {
   // Penalidade de exaustão (−2 × nível) some no acerto da arma (teste de d20).
   const exaustao = useExaustaoOtimista(exaustaoServer);
   const penD20 = penalidadeD20Exaustao(exaustao);
+
+  // DES reduzida pela armadura: armas que usam DES leem a pontuação ajustada.
+  const atributosParaTeste: Record<Atributo, number> = {
+    ...atributos,
+    destreza: atributos.destreza + 2 * penalidadeDesArmadura,
+  };
+  const desReduz = penalidadeDesArmadura < 0;
   const [mostrarEquipados, setMostrarEquipados] = useState(false);
   const [categoria, setCategoria] = useState<Categoria>("arsenal");
   const [modalAberto, setModalAberto] = useState(false);
@@ -358,7 +367,7 @@ export function InventarioTab({
       atributoOverride: item.atributoAtaque,
       modificadorArma: item.modificador || 0,
       proficiente: item.proficienteArma,
-      atributos,
+      atributos: atributosParaTeste,
       nivel,
       efeitosAgregados,
     });
@@ -367,7 +376,7 @@ export function InventarioTab({
       atributo: r.atributo,
       bonus: r.bonus - penD20,
       fontesHab: r.fontes.length ? r.fontes : undefined,
-      exausto: penD20 > 0,
+      exausto: penD20 > 0 || (r.atributo === "destreza" && desReduz),
     };
   }
 
@@ -896,7 +905,7 @@ function CardItem({
               title={
                 [
                   ataque.fontesHab?.length ? `Inclui bônus de ${ataque.fontesHab.join(", ")}` : null,
-                  ataque.exausto ? "Reduzido por exaustão" : null,
+                  ataque.exausto ? "Acerto reduzido por penalidade ativa (exaustão/armadura)" : null,
                 ]
                   .filter(Boolean)
                   .join(" · ") || undefined

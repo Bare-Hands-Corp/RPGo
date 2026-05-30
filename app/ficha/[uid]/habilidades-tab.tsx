@@ -11,6 +11,8 @@ import {
 import {
   ALVOS_AGREGAVEIS,
   ALVOS_CONTEXTUAIS,
+  ALVOS_SUBSTITUIVEIS,
+  ATRIBUTOS,
   GRUPOS_PRESET,
   META_EFEITOS,
   ORIGENS_HABILIDADE,
@@ -1379,6 +1381,35 @@ function renderCorpo(
             onChange={(v) => onPatch({ fator: v } as Partial<EfeitoHabilidade>)}
             step={0.1}
           />
+        </>
+      );
+    case "substituir_atributo":
+      return (
+        <>
+          <div>
+            <label>Cálculo</label>
+            <SelectAlvo
+              valor={e.alvo}
+              onChange={(v) => onPatch({ alvo: v } as Partial<EfeitoHabilidade>)}
+              alvos={ALVOS_SUBSTITUIVEIS}
+              placeholder="cr, iniciativa, salv-forca…"
+            />
+          </div>
+          <div>
+            <label>Passa a usar o atributo</label>
+            <select
+              value={e.atributo}
+              onChange={(ev) =>
+                onPatch({ atributo: ev.target.value as Atributo } as Partial<EfeitoHabilidade>)
+              }
+            >
+              {ATRIBUTOS.map((a) => (
+                <option key={a.slug} value={a.slug}>
+                  {a.sigla} — {a.nome}
+                </option>
+              ))}
+            </select>
+          </div>
         </>
       );
     case "rolagem":

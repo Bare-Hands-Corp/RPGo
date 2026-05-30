@@ -604,6 +604,7 @@ const TIPOS_EFEITO_VALIDOS = new Set<TipoEfeito>([
   "imunidade",
   "deslocamento",
   "multiplicador",
+  "substituir_atributo",
   "rolagem",
   "trigger",
   "crit_range",

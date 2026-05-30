@@ -548,6 +548,7 @@ export type TipoEfeito =
   | "imunidade"
   | "deslocamento"
   | "multiplicador"
+  | "substituir_atributo"
   | "rolagem"
   | "trigger"
   | "crit_range"
@@ -572,6 +573,9 @@ export type EfeitoHabilidade =
   | { tipo: "imunidade"; tipoDano: string }
   | { tipo: "deslocamento"; tipoMov: string; valor: number }
   | { tipo: "multiplicador"; alvo: string; fator: number }
+  // Faz um cálculo derivado (CR, iniciativa, salvaguarda, perícia) usar outro
+  // atributo no lugar do padrão. Ex: "Revestimento Interno" → CR usa Força.
+  | { tipo: "substituir_atributo"; alvo: string; atributo: Atributo }
   | { tipo: "rolagem"; formula: string; quando?: string }
   | { tipo: "trigger"; gatilho: string; efeito: string }
   // Faixa de crítico expandida (19-20, 18-20…). minimo = 19 significa
@@ -612,6 +616,7 @@ export const META_EFEITOS: Record<
   imunidade:        { nome: "Imunidade",         icone: "fa-shield",         cor: "var(--color-react)" },
   deslocamento:     { nome: "Deslocamento",      icone: "fa-person-running", cor: "var(--primary)" },
   multiplicador:    { nome: "Multiplica",        icone: "fa-xmark",          cor: "var(--color-power)" },
+  substituir_atributo: { nome: "Trocar Atributo", icone: "fa-right-left",    cor: "var(--primary)" },
   rolagem:          { nome: "Rolagem",           icone: "fa-dice",           cor: "var(--primary)" },
   trigger:          { nome: "Gatilho",           icone: "fa-bell",           cor: "var(--color-power)" },
   crit_range:       { nome: "Crítico Expandido", icone: "fa-burst",          cor: "var(--color-power)" },
@@ -691,6 +696,15 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     cor: "var(--color-power)",
     grupo: "ajuste",
     criar: () => ({ tipo: "multiplicador", alvo: "", fator: 2 }),
+  },
+  {
+    id: "substituir_atributo",
+    nome: "Trocar atributo de…",
+    descricao: "CR, iniciativa ou teste usa outro atributo (ex: CR via FOR)",
+    icone: "fa-right-left",
+    cor: "var(--primary)",
+    grupo: "avancado",
+    criar: () => ({ tipo: "substituir_atributo", alvo: "", atributo: "forca" }),
   },
   // ─ Buff / Debuff ─
   {
@@ -966,6 +980,12 @@ export function normalizarEfeito(
     case "multiplicador":
       if (!str(obj.alvo)) return null;
       return { tipo, alvo: str(obj.alvo), fator: num(obj.fator) };
+    case "substituir_atributo": {
+      const alvo = str(obj.alvo);
+      const atributo = str(obj.atributo);
+      if (!alvo || !ATRIBUTOS_SET.has(atributo)) return null;
+      return { tipo, alvo, atributo: atributo as Atributo };
+    }
     case "rolagem":
       if (!str(obj.formula)) return null;
       return {
@@ -1099,6 +1119,33 @@ export const ALVOS_CONTEXTUAIS: { slug: string; nome: string; grupo: string }[] 
 
 const ALVOS_CONTEXTUAIS_SET = new Set(ALVOS_CONTEXTUAIS.map((a) => a.slug));
 
+// Cálculos cujo atributo pode ser trocado por um efeito `substituir_atributo`.
+// Só os derivados que usam um atributo fixo (CR/iniciativa via DES) ou testes
+// (salvaguardas, perícias). Ataque/CD já têm seletor de atributo na própria Ação.
+export const ALVOS_SUBSTITUIVEIS: { slug: string; nome: string; grupo: string }[] = [
+  { slug: "cr", nome: "Classe de Resistência", grupo: "Derivado" },
+  { slug: "iniciativa", nome: "Iniciativa", grupo: "Derivado" },
+  ...ATRIBUTOS.map((a) => ({
+    slug: `salv-${a.slug}`,
+    nome: `Salv. ${a.nome}`,
+    grupo: "Salvaguarda",
+  })),
+  ...PERICIAS.map((p) => ({ slug: p.slug, nome: p.nome, grupo: "Perícia" })),
+];
+
+// Resolve o atributo efetivo de um cálculo derivado: se uma habilidade
+// substituiu o atributo daquele alvo, usa o novo; senão, o padrão.
+export function atributoDeCalculo(
+  alvo: string,
+  padrao: Atributo,
+  subs: Partial<Record<string, { atributo: Atributo; fontes: string[] }>>,
+): { atributo: Atributo; fontes: string[]; substituido: boolean } {
+  const s = subs[alvo.trim().toLowerCase()];
+  return s
+    ? { atributo: s.atributo, fontes: s.fontes, substituido: true }
+    : { atributo: padrao, fontes: [], substituido: false };
+}
+
 // Rótulo amigável de um slug de alvo canônico (perícia, salvaguarda, pool…),
 // pra chips/resumos não vazarem o slug cru ("hp-temp"). Cobre os dois catálogos
 // (agregáveis + contextuais); cai pro próprio slug se for texto livre.
@@ -1209,6 +1256,9 @@ export type EfeitosAgregados = {
   // Vantagem/desvantagem/sucesso_auto crus — casam com o contexto na hora de
   // rolar (via `chipsDoContexto`). Não somam: importa só "casa ou não casa".
   contextuais: EfeitoContextual[];
+  // Substituição de atributo por cálculo (CR/iniciativa/salvaguarda/perícia).
+  // Indexado pelo slug do alvo; a primeira habilidade a definir vence.
+  substituicoesAtributo: Partial<Record<string, { atributo: Atributo; fontes: string[] }>>;
 };
 
 function vazio(): EfeitosAgregados {
@@ -1240,6 +1290,7 @@ function vazio(): EfeitosAgregados {
     sentidos: {},
     multiplicadores: {},
     contextuais: [],
+    substituicoesAtributo: {},
   };
 }
 
@@ -1370,6 +1421,17 @@ export function agregarEfeitos(
         atual.fator *= e.fator;
         if (!atual.fontes.includes(h.nome)) atual.fontes.push(h.nome);
         out.multiplicadores[key] = atual;
+      } else if (e.tipo === "substituir_atributo") {
+        const alvo = e.alvo.trim().toLowerCase();
+        if (alvo && ATRIBUTOS_SET.has(e.atributo)) {
+          const atual = out.substituicoesAtributo[alvo];
+          if (!atual) {
+            // Primeira habilidade a definir a substituição vence.
+            out.substituicoesAtributo[alvo] = { atributo: e.atributo, fontes: [h.nome] };
+          } else if (!atual.fontes.includes(h.nome)) {
+            atual.fontes.push(h.nome);
+          }
+        }
       } else if (
         e.tipo === "vantagem" ||
         e.tipo === "desvantagem" ||
@@ -1579,6 +1641,10 @@ export function resumoEfeito(e: EfeitoHabilidade): string {
       return `${e.tipoMov} ${e.valor}m`;
     case "multiplicador":
       return `${e.alvo} ×${e.fator}`;
+    case "substituir_atributo": {
+      const sigla = ATRIBUTOS.find((a) => a.slug === e.atributo)?.sigla ?? e.atributo;
+      return `${rotuloAlvo(e.alvo)} → ${sigla}`;
+    }
     case "rolagem":
       return e.formula;
     case "trigger":

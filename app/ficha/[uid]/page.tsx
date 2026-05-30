@@ -55,6 +55,14 @@ export default async function FichaPage({ params }: Params) {
   // canônicos. Computado no servidor — frio, sem estado, barato.
   const efeitosAgregados = agregarEfeitos(personagem.habilidades);
 
+  // Penalidade de DES das armaduras equipadas (geralmente negativa). Reduz o
+  // modificador de DES em todos os cálculos derivados (CR, iniciativa, salv/
+  // perícia de DES, ataque à distância) — não só na CR.
+  const penalidadeDesArmadura = personagem.itens.reduce(
+    (acc, i) => (i.tipo === "armadura" && i.equipado ? acc + i.penalidadeDes : acc),
+    0,
+  );
+
   // Pré-carrega mensagens do chat + calendário (se houver mesa) em paralelo.
   const [mensagensIniciais, calendario] = await Promise.all([
     listarMensagensSessao(sessionId),
@@ -66,12 +74,17 @@ export default async function FichaPage({ params }: Params) {
   return (
     <div className="ficha-layout">
       <FichaRealtime personagemId={personagem.id} />
-      <PerfilSidebar personagem={personagem} efeitosAgregados={efeitosAgregados} />
+      <PerfilSidebar
+        personagem={personagem}
+        efeitosAgregados={efeitosAgregados}
+        penalidadeDesArmadura={penalidadeDesArmadura}
+      />
       <FichaTabs
         personagemId={personagem.id}
         mesaId={personagem.mesaId}
         nivel={personagem.nivel}
         exaustao={personagem.exaustao}
+        penalidadeDesArmadura={penalidadeDesArmadura}
         atributos={{
           forca: personagem.forca + (efeitosAgregados.bonusAtributo.forca?.valor ?? 0),
           destreza:
