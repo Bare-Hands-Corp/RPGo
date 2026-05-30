@@ -1632,6 +1632,87 @@ function renderCorpo(
           </Detalhes>
         </>
       );
+    case "dano_min":
+      return (
+        <>
+          <div style={{ gridColumn: "1 / -1", fontSize: "0.8rem", color: "var(--text-sec)" }}>
+            Garante <strong>metade do dano máximo</strong> da rolagem (arredonda pra
+            cima). Aparece como chip ao empilhar o dano no Rolador.
+          </div>
+          <Detalhes aberto={!!e.quando}>
+            <Campo
+              label="Quando se aplica"
+              valor={e.quando ?? ""}
+              onChange={(v) =>
+                onPatch({ quando: v || undefined } as Partial<EfeitoHabilidade>)
+              }
+              placeholder="opcional"
+            />
+          </Detalhes>
+        </>
+      );
+    case "alcance":
+      return (
+        <>
+          <CampoNum
+            label="Metros a somar"
+            valor={e.valor}
+            onChange={(v) => onPatch({ valor: v } as Partial<EfeitoHabilidade>)}
+          />
+          <div style={{ gridColumn: "1 / -1", fontSize: "0.75rem", color: "var(--text-sec)" }}>
+            Descritivo — anota a fonte no chip de ataque (não soma no valor da arma).
+          </div>
+          <Detalhes aberto={!!e.quando}>
+            <Campo
+              label="Quando se aplica"
+              valor={e.quando ?? ""}
+              onChange={(v) =>
+                onPatch({ quando: v || undefined } as Partial<EfeitoHabilidade>)
+              }
+              placeholder="opcional"
+            />
+          </Detalhes>
+        </>
+      );
+    case "ignora":
+      return (
+        <div style={{ gridColumn: "1 / -1" }}>
+          <label>O que ignora</label>
+          <input
+            type="text"
+            value={e.alvo}
+            onChange={(ev) =>
+              onPatch({ alvo: ev.target.value } as Partial<EfeitoHabilidade>)
+            }
+            placeholder="resistência, imunidade, reação, cobertura…"
+            list="ignora-comuns"
+          />
+          <datalist id="ignora-comuns">
+            <option value="resistência" />
+            <option value="imunidade" />
+            <option value="reação" />
+            <option value="cobertura" />
+          </datalist>
+        </div>
+      );
+    case "trocar_dano":
+      return (
+        <div style={{ gridColumn: "1 / -1" }}>
+          <Campo
+            label="Novo tipo de dano"
+            valor={e.tipoDano}
+            onChange={(v) => onPatch({ tipoDano: v } as Partial<EfeitoHabilidade>)}
+            placeholder="verdadeiro, fogo, cortante…"
+          />
+        </div>
+      );
+    case "crit_imune":
+      return (
+        <div style={{ gridColumn: "1 / -1", fontSize: "0.8rem", color: "var(--text-sec)" }}>
+          Não pode sofrer acerto crítico. Efeito defensivo — mostra no card; a
+          exibição na barra de defesas vem depois.
+        </div>
+      );
     case "livre":
       return (
         <div style={{ gridColumn: "1 / -1" }}>

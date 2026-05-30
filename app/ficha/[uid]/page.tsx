@@ -149,6 +149,10 @@ export default async function FichaPage({ params }: Params) {
           critRangeMinimo: efeitosAgregados.critRangeMinimo,
           floorD20: efeitosAgregados.floorD20,
           rerolls: efeitosAgregados.rerolls,
+          danoMinMetade: efeitosAgregados.danoMinMetade,
+          trocaDano: efeitosAgregados.trocaDano,
+          ignora: efeitosAgregados.ignora,
+          bonusAlcance: efeitosAgregados.bonusAlcance,
         }}
       />
     </div>

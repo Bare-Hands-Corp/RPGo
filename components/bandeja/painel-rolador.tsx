@@ -43,6 +43,10 @@ const ICONE_CHIP: Record<ChipContexto["tipo"], string> = {
   crit_range: "fa-burst",
   floor_d20: "fa-circle-up",
   reroll: "fa-rotate",
+  dano_min: "fa-shield-halved",
+  trocar_dano: "fa-fire",
+  ignora: "fa-bolt-lightning",
+  alcance: "fa-ruler-horizontal",
 };
 
 const FACES = [4, 6, 8, 10, 12, 20, 100] as const;
@@ -61,6 +65,9 @@ type OpcoesContextuais = {
   desvantagem: boolean;
   floorD20: number;
   critRange: number;
+  // Piso de dano (etapa 3.5): eleva o TOTAL ao mínimo garantido. 0 = sem piso.
+  // Vale só em rolagem de dano — calculado a partir da fórmula (metade do máx).
+  danoMinFloor: number;
 };
 
 // Snapshot de uma rolagem contextual que ofereceu rerroll — fica "pendente" até
@@ -132,6 +139,12 @@ function montarDadosContextuais(
 
   if (modUsar !== 0) {
     stringDados += ` ${modUsar >= 0 ? "+" : "-"} ${Math.abs(modUsar)}`;
+  }
+
+  // Piso de dano: eleva o total ao mínimo garantido, mostrando o cru riscado.
+  if (opc.danoMinFloor > 0 && total < opc.danoMinFloor) {
+    stringDados += ` <span class="dado-descartado" title="elevado pelo piso de dano">${total}</span>`;
+    total = opc.danoMinFloor;
   }
 
   return { total, rolls, stringDados };
@@ -326,11 +339,19 @@ export function PainelRolador({
     const valorChip = (t: ChipContexto["tipo"]) =>
       chips.find((c) => c.tipo === t)?.valor;
 
+    // Piso de dano = metade do dano MÁXIMO da fórmula (arredonda pra cima).
+    // Máximo: dado positivo rende `faces`, negativo rende -1 (mínimo do dado).
+    const maxDano =
+      modUsar + dadosUsar.reduce((s, d) => s + (d.sinal > 0 ? d.faces : -1), 0);
+    const danoMinFloor =
+      ligado("dano_min") && maxDano > 0 ? Math.ceil(maxDano / 2) : 0;
+
     const opc: OpcoesContextuais = {
       vantagem: ligado("vantagem"),
       desvantagem: ligado("desvantagem"),
       floorD20: ligado("floor_d20") ? valorChip("floor_d20") ?? 0 : 0,
       critRange: ligado("crit_range") ? valorChip("crit_range") ?? 20 : 20,
+      danoMinFloor,
     };
 
     // Anota as fontes dos efeitos ligados (exceto reroll, que vira interação).

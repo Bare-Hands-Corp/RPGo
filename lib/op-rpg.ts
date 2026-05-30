@@ -593,6 +593,11 @@ export type TipoEfeito =
   | "sentido"
   | "acao_extra"
   | "sucesso_auto"
+  | "dano_min"
+  | "alcance"
+  | "ignora"
+  | "trocar_dano"
+  | "crit_imune"
   | "livre";
 
 export type EfeitoHabilidade =
@@ -633,6 +638,22 @@ export type EfeitoHabilidade =
   // (ex: "concentracao", "intuicao", "salv-vontade"); quando descreve a
   // condição opcional.
   | { tipo: "sucesso_auto"; alvo: string; quando?: string }
+  // Piso de dano: garante metade do dano MÁXIMO da fórmula rolada (arredonda
+  // pra cima). Ex: "Preparação pra Batalha". Sem parâmetro — o piso depende da
+  // fórmula, calculado no Rolador. `quando` é descritivo opcional.
+  | { tipo: "dano_min"; quando?: string }
+  // Soma metros ao alcance de uma arma. DESCRITIVO: anota a fonte no chip de
+  // ataque (não há campo numérico de alcance — `Item.alcanceMetros` é texto livre).
+  | { tipo: "alcance"; valor: number; quando?: string }
+  // Ignora uma defesa do alvo (resistência, imunidade, reação, cobertura).
+  // Informativo: anota no chip de ataque/dano. `alvo` = o que ignora.
+  | { tipo: "ignora"; alvo: string }
+  // Substitui o tipo de dano (ex: Destruição Interna → Verdadeiro; Haki Ígneo →
+  // Fogo). Informativo: anota no chip de dano.
+  | { tipo: "trocar_dano"; tipoDano: string }
+  // Imune a acerto crítico (defensivo). Descritivo no card; passiva na sidebar
+  // fica pra etapa 4 (junto de resistências/imunidades).
+  | { tipo: "crit_imune" }
   | { tipo: "livre"; texto: string };
 
 export const META_EFEITOS: Record<
@@ -661,6 +682,11 @@ export const META_EFEITOS: Record<
   sentido:          { nome: "Sentido",            icone: "fa-eye",            cor: "var(--color-react)" },
   acao_extra:       { nome: "Ação Extra",         icone: "fa-forward",        cor: "var(--color-power)" },
   sucesso_auto:     { nome: "Sucesso Auto",       icone: "fa-check",          cor: "var(--color-bonus)" },
+  dano_min:         { nome: "Piso de Dano",       icone: "fa-shield-halved",  cor: "var(--color-power)" },
+  alcance:          { nome: "Alcance Extra",      icone: "fa-ruler-horizontal", cor: "var(--primary)" },
+  ignora:           { nome: "Ignora Defesa",      icone: "fa-bolt-lightning", cor: "var(--color-power)" },
+  trocar_dano:      { nome: "Troca Tipo de Dano", icone: "fa-fire",           cor: "var(--color-power)" },
+  crit_imune:       { nome: "Imune a Crítico",    icone: "fa-shield",         cor: "var(--color-react)" },
   livre:            { nome: "Livre",             icone: "fa-feather",        cor: "var(--text-sec)" },
 };
 
@@ -891,6 +917,52 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     grupo: "buff",
     criar: () => ({ tipo: "sucesso_auto", alvo: "" }),
   },
+  {
+    id: "dano_min",
+    nome: "Piso de Dano",
+    descricao: "Garante metade do dano máximo da rolagem",
+    icone: "fa-shield-halved",
+    cor: "var(--color-power)",
+    grupo: "ativo",
+    criar: () => ({ tipo: "dano_min" }),
+  },
+  {
+    id: "alcance",
+    nome: "Alcance Extra",
+    descricao: "Soma metros ao alcance de uma arma",
+    icone: "fa-ruler-horizontal",
+    cor: "var(--primary)",
+    grupo: "ativo",
+    criar: () => ({ tipo: "alcance", valor: 0 }),
+  },
+  {
+    id: "ignora",
+    nome: "Ignora Defesa",
+    descricao: "Ignora resistência, imunidade, reação ou cobertura",
+    icone: "fa-bolt-lightning",
+    cor: "var(--color-power)",
+    grupo: "ativo",
+    criar: () => ({ tipo: "ignora", alvo: "resistência" }),
+  },
+  {
+    id: "trocar_dano",
+    nome: "Troca Tipo de Dano",
+    descricao: "Muda o tipo de dano (vira Verdadeiro, Fogo…)",
+    icone: "fa-fire",
+    cor: "var(--color-power)",
+    grupo: "ativo",
+    criar: () => ({ tipo: "trocar_dano", tipoDano: "" }),
+  },
+  // ─ Defesa ─
+  {
+    id: "crit_imune",
+    nome: "Imune a Crítico",
+    descricao: "Não pode sofrer acerto crítico",
+    icone: "fa-shield",
+    cor: "var(--color-react)",
+    grupo: "defesa",
+    criar: () => ({ tipo: "crit_imune" }),
+  },
   // ─ Avançado ─
   {
     id: "rolagem",
@@ -1070,6 +1142,22 @@ export function normalizarEfeito(
         ...(str(obj.quando) ? { quando: str(obj.quando) } : {}),
       };
     }
+    case "dano_min":
+      return { tipo, ...(str(obj.quando) ? { quando: str(obj.quando) } : {}) };
+    case "alcance":
+      return {
+        tipo,
+        valor: Math.trunc(num(obj.valor)),
+        ...(str(obj.quando) ? { quando: str(obj.quando) } : {}),
+      };
+    case "ignora":
+      if (!str(obj.alvo)) return null;
+      return { tipo, alvo: str(obj.alvo) };
+    case "trocar_dano":
+      if (!str(obj.tipoDano)) return null;
+      return { tipo, tipoDano: str(obj.tipoDano) };
+    case "crit_imune":
+      return { tipo };
     case "livre":
       if (!str(obj.texto)) return null;
       return { tipo, texto: str(obj.texto) };
@@ -1202,7 +1290,11 @@ export type ContextoRolagem =
   // (slug por-personagem, fora do set canônico).
   | { tipo: "pericia"; pericia: string }
   | { tipo: "teste-atributo"; atributo: Atributo }
-  | { tipo: "iniciativa" };
+  | { tipo: "iniciativa" }
+  // Rolagem de DANO (não é d20). Carrega o alcance pra casar efeitos CC/distância.
+  // Efeitos de d20 (vantagem/reroll/crit/floor) NÃO se aplicam; só os de dano
+  // (dano_min/trocar_dano/ignora) — ver `chipsDoContexto`.
+  | { tipo: "dano"; alcance: "corpo_a_corpo" | "distancia" };
 
 // Verifica se um alvo (slug salvo no efeito) casa com o contexto da
 // rolagem. Slugs livres (fora de ALVOS_CONTEXTUAIS) NUNCA casam — viram
@@ -1210,6 +1302,9 @@ export type ContextoRolagem =
 export function casaContexto(alvoRaw: string, ctx: ContextoRolagem): boolean {
   const alvo = alvoRaw.trim().toLowerCase();
   if (!alvo) return false;
+  // Dano não é d20 — vantagem/desvantagem/sucesso_auto/reroll (e o curinga
+  // "qualquer") nunca casam. Efeitos de dano têm bucket próprio (não passam aqui).
+  if (ctx.tipo === "dano") return false;
   if (alvo === "qualquer") return true;
 
   switch (ctx.tipo) {
@@ -1303,6 +1398,21 @@ export type EfeitosAgregados = {
   // Substituição de atributo por cálculo (CR/iniciativa/salvaguarda/perícia).
   // Indexado pelo slug do alvo; a primeira habilidade a definir vence.
   substituicoesAtributo: Partial<Record<string, { atributo: Atributo; fontes: string[] }>>;
+  // ─ Contextuais de dano/ataque (etapa 3.5) ─
+  // Piso de dano (metade do MÁXIMO da fórmula). Presença = ativo; sem valor —
+  // o piso depende da fórmula rolada, então é calculado no Rolador. Fontes somam.
+  danoMinMetade: FonteLista;
+  // Troca de tipo de dano. Primeira habilidade a definir vence; fontes acumulam.
+  trocaDano: { tipoDano: string; fontes: string[] } | null;
+  // Defesas ignoradas (resistência/imunidade/reação/cobertura). Indexado pelo
+  // que ignora; fontes acumulam.
+  ignora: Partial<Record<string, FonteLista>>;
+  // Metros extras de alcance de arma — DESCRITIVO (anota no chip de ataque).
+  bonusAlcance: FonteValor;
+  // Imune a acerto crítico (defensivo). Presença = imune; fontes acumulam.
+  // Não é consumido no Rolador (é sobre ser atacado) — exibição passiva fica
+  // pra etapa 4. Fica no agregado pra futura sidebar de defesas.
+  critImune: FonteLista;
 };
 
 function vazio(): EfeitosAgregados {
@@ -1335,6 +1445,11 @@ function vazio(): EfeitosAgregados {
     multiplicadores: {},
     contextuais: [],
     substituicoesAtributo: {},
+    danoMinMetade: { fontes: [] },
+    trocaDano: null,
+    ignora: {},
+    bonusAlcance: { valor: 0, fontes: [] },
+    critImune: { fontes: [] },
   };
 }
 
@@ -1489,6 +1604,22 @@ export function agregarEfeitos(
         if (alvo) {
           out.contextuais.push({ tipo: e.tipo, alvo, fonte: h.nome, quando: e.quando });
         }
+      } else if (e.tipo === "dano_min") {
+        if (!out.danoMinMetade.fontes.includes(h.nome)) out.danoMinMetade.fontes.push(h.nome);
+      } else if (e.tipo === "crit_imune") {
+        if (!out.critImune.fontes.includes(h.nome)) out.critImune.fontes.push(h.nome);
+      } else if (e.tipo === "alcance") {
+        if (e.valor) somarBucketSimples(out.bonusAlcance, e.valor, h.nome);
+      } else if (e.tipo === "ignora") {
+        const k = e.alvo.trim().toLowerCase();
+        if (k) adicionarFonteLista(out.ignora, k, h.nome);
+      } else if (e.tipo === "trocar_dano") {
+        const t = e.tipoDano.trim();
+        if (t) {
+          // Primeira a definir vence; demais só acumulam fonte.
+          if (!out.trocaDano) out.trocaDano = { tipoDano: t, fontes: [h.nome] };
+          else if (!out.trocaDano.fontes.includes(h.nome)) out.trocaDano.fontes.push(h.nome);
+        }
       }
     }
   }
@@ -1500,10 +1631,21 @@ export function agregarEfeitos(
 // (vantagem/desvantagem/crit_range/floor_d20) mudam o d20; informativos
 // (sucesso_auto/reroll) só anotam na string da rolagem.
 export type ChipContexto = {
-  tipo: "vantagem" | "desvantagem" | "sucesso_auto" | "crit_range" | "floor_d20" | "reroll";
+  tipo:
+    | "vantagem"
+    | "desvantagem"
+    | "sucesso_auto"
+    | "crit_range"
+    | "floor_d20"
+    | "reroll"
+    | "dano_min"
+    | "trocar_dano"
+    | "ignora"
+    | "alcance";
   rotulo: string;
   fontes: string[];
-  // Parâmetro do efeito (minimo do crit/floor, usos do reroll). Ignorado nos demais.
+  // Parâmetro do efeito (minimo do crit/floor, usos do reroll, metros do alcance).
+  // Ignorado nos demais.
   valor?: number;
 };
 
@@ -1511,7 +1653,14 @@ export type ChipContexto = {
 // serializar o EfeitosAgregados inteiro como prop da Bandeja.
 export type EfeitosContexto = Pick<
   EfeitosAgregados,
-  "contextuais" | "critRangeMinimo" | "floorD20" | "rerolls"
+  | "contextuais"
+  | "critRangeMinimo"
+  | "floorD20"
+  | "rerolls"
+  | "danoMinMetade"
+  | "trocaDano"
+  | "ignora"
+  | "bonusAlcance"
 >;
 
 export function chipsDoContexto(
@@ -1519,49 +1668,87 @@ export function chipsDoContexto(
   ctx: ContextoRolagem,
 ): ChipContexto[] {
   const chips: ChipContexto[] = [];
+  const ehDano = ctx.tipo === "dano";
 
-  // Vantagem/desvantagem/sucesso_auto: agrupa por tipo as fontes que casam.
-  const grupos: Partial<Record<EfeitoContextual["tipo"], string[]>> = {};
-  for (const c of agg.contextuais) {
-    if (!casaContexto(c.alvo, ctx)) continue;
-    (grupos[c.tipo] ??= []).push(c.fonte);
-  }
-  if (grupos.vantagem)
-    chips.push({ tipo: "vantagem", rotulo: "Vantagem", fontes: dedup(grupos.vantagem) });
-  if (grupos.desvantagem)
-    chips.push({ tipo: "desvantagem", rotulo: "Desvantagem", fontes: dedup(grupos.desvantagem) });
-  if (grupos.sucesso_auto)
-    chips.push({ tipo: "sucesso_auto", rotulo: "Sucesso automático", fontes: dedup(grupos.sucesso_auto) });
-
-  // Crítico expandido só importa em ataque (crit só acontece atacando).
-  if (ctx.tipo === "ataque" && agg.critRangeMinimo.valor < 20) {
-    chips.push({
-      tipo: "crit_range",
-      rotulo: `Crítico ${agg.critRangeMinimo.valor}-20`,
-      fontes: agg.critRangeMinimo.fontes,
-      valor: agg.critRangeMinimo.valor,
-    });
-  }
-  // Floor no d20 vale pra qualquer rolagem de d20.
-  if (agg.floorD20.valor > 0) {
-    chips.push({
-      tipo: "floor_d20",
-      rotulo: `Mínimo ${agg.floorD20.valor} no d20`,
-      fontes: agg.floorD20.fontes,
-      valor: agg.floorD20.valor,
-    });
-  }
-  // Reroll: gatilho segue a mesma convenção de slug do casaContexto.
-  for (const [gatilho, fv] of Object.entries(agg.rerolls)) {
-    if (fv && fv.valor > 0 && casaContexto(gatilho, ctx)) {
-      chips.push({
-        tipo: "reroll",
-        rotulo: `Rerrolar (${fv.valor}×)`,
-        fontes: fv.fontes,
-        valor: fv.valor,
-      });
-      break;
+  // ─ Efeitos de d20 — só em rolagens de d20 (não em dano) ─
+  if (!ehDano) {
+    // Vantagem/desvantagem/sucesso_auto: agrupa por tipo as fontes que casam.
+    const grupos: Partial<Record<EfeitoContextual["tipo"], string[]>> = {};
+    for (const c of agg.contextuais) {
+      if (!casaContexto(c.alvo, ctx)) continue;
+      (grupos[c.tipo] ??= []).push(c.fonte);
     }
+    if (grupos.vantagem)
+      chips.push({ tipo: "vantagem", rotulo: "Vantagem", fontes: dedup(grupos.vantagem) });
+    if (grupos.desvantagem)
+      chips.push({ tipo: "desvantagem", rotulo: "Desvantagem", fontes: dedup(grupos.desvantagem) });
+    if (grupos.sucesso_auto)
+      chips.push({ tipo: "sucesso_auto", rotulo: "Sucesso automático", fontes: dedup(grupos.sucesso_auto) });
+
+    // Crítico expandido só importa em ataque (crit só acontece atacando).
+    if (ctx.tipo === "ataque" && agg.critRangeMinimo.valor < 20) {
+      chips.push({
+        tipo: "crit_range",
+        rotulo: `Crítico ${agg.critRangeMinimo.valor}-20`,
+        fontes: agg.critRangeMinimo.fontes,
+        valor: agg.critRangeMinimo.valor,
+      });
+    }
+    // Floor no d20 vale pra qualquer rolagem de d20.
+    if (agg.floorD20.valor > 0) {
+      chips.push({
+        tipo: "floor_d20",
+        rotulo: `Mínimo ${agg.floorD20.valor} no d20`,
+        fontes: agg.floorD20.fontes,
+        valor: agg.floorD20.valor,
+      });
+    }
+    // Reroll: gatilho segue a mesma convenção de slug do casaContexto.
+    for (const [gatilho, fv] of Object.entries(agg.rerolls)) {
+      if (fv && fv.valor > 0 && casaContexto(gatilho, ctx)) {
+        chips.push({
+          tipo: "reroll",
+          rotulo: `Rerrolar (${fv.valor}×)`,
+          fontes: fv.fontes,
+          valor: fv.valor,
+        });
+        break;
+      }
+    }
+  }
+
+  // ─ Efeitos de dano/ataque (etapa 3.5) ─
+  // Piso de dano: só em rolagem de dano. Sem valor — o Rolador calcula a partir
+  // da fórmula (metade do máximo dos dados).
+  if (ehDano && agg.danoMinMetade.fontes.length) {
+    chips.push({
+      tipo: "dano_min",
+      rotulo: "Dano mín. (½ do máx)",
+      fontes: agg.danoMinMetade.fontes,
+    });
+  }
+  // Troca de tipo de dano: só em dano.
+  if (ehDano && agg.trocaDano) {
+    chips.push({
+      tipo: "trocar_dano",
+      rotulo: `Dano vira ${agg.trocaDano.tipoDano}`,
+      fontes: agg.trocaDano.fontes,
+    });
+  }
+  // Ignora defesa: vale em ataque e em dano (anotação informativa).
+  if (ctx.tipo === "ataque" || ehDano) {
+    for (const [alvo, fl] of Object.entries(agg.ignora)) {
+      if (fl) chips.push({ tipo: "ignora", rotulo: `Ignora ${alvo}`, fontes: fl.fontes });
+    }
+  }
+  // Alcance extra: descritivo, só no chip de ataque.
+  if (ctx.tipo === "ataque" && agg.bonusAlcance.valor > 0) {
+    chips.push({
+      tipo: "alcance",
+      rotulo: `+${agg.bonusAlcance.valor} m de alcance`,
+      fontes: agg.bonusAlcance.fontes,
+      valor: agg.bonusAlcance.valor,
+    });
   }
 
   return chips;
@@ -1718,6 +1905,16 @@ export function resumoEfeito(e: EfeitoHabilidade): string {
       return e.quantidade > 1 ? `${e.quantidade}× ${e.acao}` : e.acao;
     case "sucesso_auto":
       return rotuloAlvo(e.alvo);
+    case "dano_min":
+      return "metade do máx";
+    case "alcance":
+      return `+${e.valor} m alcance`;
+    case "ignora":
+      return `ignora ${e.alvo}`;
+    case "trocar_dano":
+      return `→ ${e.tipoDano}`;
+    case "crit_imune":
+      return "imune a crítico";
     case "livre":
       return e.texto;
   }

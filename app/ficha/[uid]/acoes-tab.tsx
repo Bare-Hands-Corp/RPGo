@@ -494,6 +494,9 @@ export function AcoesTab({
                                       dados: danoParse.dados,
                                       modificador: danoParse.modificador + extraDano,
                                       nomePreset: `Dano ${acao.nome}`,
+                                      // Contexto de dano casa dano_min/trocar_dano/
+                                      // ignora no Rolador (etapa 3.5).
+                                      contexto: { tipo: "dano", alcance: alcanceContexto },
                                     })
                                   }
                                 >
