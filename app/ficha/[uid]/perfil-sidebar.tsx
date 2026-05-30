@@ -8,6 +8,7 @@ import { AvatarUploadModal } from "./avatar-upload-modal";
 import { RecursosSidebar, type Recurso } from "./recursos-sidebar";
 import { CrEditavel } from "./cr-editavel";
 import { ExaustaoControle } from "./exaustao-controle";
+import { MarcaExausto } from "./marca-exausto";
 import {
   bonusProficiencia,
   deslocamentoEfetivo,
@@ -71,6 +72,7 @@ type PatchPersonagem = Partial<
     | "ppMax"
     | "tipoDadoVida"
     | "deslocamento"
+    | "exaustao"
     | "forca"
     | "destreza"
     | "constituicao"
@@ -89,6 +91,8 @@ type DeltaPersonagem = Partial<{
   deltaPpAtual: number;
   deltaHpMax: number;
   deltaPpMax: number;
+  // Absoluto (não delta) — o ExaustaoControle manda o nível novo direto.
+  exaustao: number;
 }>;
 
 function aplicarDelta(
@@ -134,7 +138,12 @@ export function PerfilSidebar({
     function ouvir(e: Event) {
       const det = (e as CustomEvent<DeltaPersonagem>).detail;
       if (!det) return;
-      setShadow((s) => aplicarDelta(s, inicial, det));
+      setShadow((s) => {
+        const next = aplicarDelta(s, inicial, det);
+        // Exaustão vem absoluta (do ExaustaoControle), não como delta.
+        if (typeof det.exaustao === "number") next.exaustao = det.exaustao;
+        return next;
+      });
     }
     window.addEventListener("rpgo:patch-personagem", ouvir);
     return () => window.removeEventListener("rpgo:patch-personagem", ouvir);
@@ -362,8 +371,9 @@ export function PerfilSidebar({
         <span className="recurso-nome">Deslocamento</span>
         <span className={`stat-values ${deslocReduzido ? "valor-exausto" : ""}`}>
           {deslocEfetivo.toLocaleString("pt-BR")} m
-          {(deslocBonus.fontes.length > 0 || deslocReduzido) && (
-            <i className="fas fa-link prof-fonte" />
+          {deslocBonus.fontes.length > 0 && <i className="fas fa-link prof-fonte" />}
+          {deslocReduzido && (
+            <MarcaExausto titulo={`Reduzido por exaustão (de ${deslocBruto} m)`} />
           )}
         </span>
       </div>
@@ -400,6 +410,7 @@ export function PerfilSidebar({
               <div className="derivado-label">Iniciativa</div>
               <div className={`derivado-value ${penD20 > 0 ? "valor-exausto" : ""}`}>
                 {formatarMod(iniEf)}
+                {penD20 > 0 && <MarcaExausto titulo={`−${penD20} de exaustão`} />}
               </div>
             </div>
           );
@@ -464,6 +475,7 @@ export function PerfilSidebar({
               </div>
               <div className={`attr-value ${penD20 > 0 ? "valor-exausto" : ""}`}>
                 {formatarMod(modEf)}
+                {penD20 > 0 && <MarcaExausto titulo={`−${penD20} de exaustão`} />}
               </div>
               <div className="attr-base">{valor}</div>
             </div>

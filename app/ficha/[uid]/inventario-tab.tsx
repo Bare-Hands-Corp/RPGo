@@ -18,6 +18,8 @@ import {
   type EfeitosAgregados,
   type PropriedadeArma,
 } from "@/lib/op-rpg";
+import { useExaustaoOtimista } from "./use-exaustao-otimista";
+import { MarcaExausto } from "./marca-exausto";
 
 type Item = {
   id: string;
@@ -123,11 +125,12 @@ export function InventarioTab({
   berries,
   itens,
   nivel,
-  exaustao,
+  exaustao: exaustaoServer,
   atributos,
   efeitosAgregados,
 }: Props) {
   // Penalidade de exaustão (−2 × nível) some no acerto da arma (teste de d20).
+  const exaustao = useExaustaoOtimista(exaustaoServer);
   const penD20 = penalidadeD20Exaustao(exaustao);
   const [mostrarEquipados, setMostrarEquipados] = useState(false);
   const [categoria, setCategoria] = useState<Categoria>("arsenal");
@@ -902,6 +905,7 @@ function CardItem({
               Ataque: <strong style={{ color: ataque.exausto ? "#e8c24a" : "var(--color-power)" }}>{formatarMod(ataque.bonus)}</strong>{" "}
               <span style={{ fontSize: "0.75rem" }}>({SIGLA_ATRIBUTO[ataque.atributo]})</span>
               {ataque.fontesHab?.length ? <i className="fas fa-link prof-fonte" /> : null}
+              {ataque.exausto && <MarcaExausto titulo="Reduzido por exaustão" />}
             </span>
           )}
         </div>

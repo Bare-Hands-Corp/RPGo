@@ -24,6 +24,8 @@ import {
   toggleSalvaguarda,
 } from "./actions";
 import { empilharD20 } from "@/lib/empilhar-rolagem";
+import { useExaustaoOtimista } from "./use-exaustao-otimista";
+import { MarcaExausto } from "./marca-exausto";
 
 type Props = {
   personagemId: string;
@@ -89,13 +91,15 @@ function mostrarErro(err: unknown) {
 export function PericiasTab({
   personagemId,
   nivel,
-  exaustao,
+  exaustao: exaustaoServer,
   atributos,
   proficienciasRaw,
   efeitosAgregados,
 }: Props) {
   // Penalidade de exaustão (−2 × nível) some em todo teste de d20 — perícia e
   // salvaguarda. Reflete já no número exibido (amarelo) e no que vai pro Rolador.
+  // Otimista: atualiza na hora quando o ExaustaoControle muda o nível.
+  const exaustao = useExaustaoOtimista(exaustaoServer);
   const penD20 = penalidadeD20Exaustao(exaustao);
   const inicial = lerProficiencias(proficienciasRaw);
   const [prof, aplicarPatch] = useOptimistic(inicial, aplicar);
@@ -216,6 +220,7 @@ export function PericiasTab({
                   }}
                 >
                   {formatarMod(bonus)}
+                  {penD20 > 0 && <MarcaExausto titulo={`−${penD20} de exaustão`} />}
                 </button>
                 <span className="prof-nome">
                   {a.nome}
@@ -299,6 +304,7 @@ export function PericiasTab({
                         }}
                       >
                         {formatarMod(bonus)}
+                        {penD20 > 0 && <MarcaExausto titulo={`−${penD20} de exaustão`} />}
                       </button>
                       <span className="prof-nome">
                         {p.nome}

@@ -2,6 +2,7 @@
 
 import { useOptimistic, useTransition } from "react";
 import { patchPersonagem } from "./actions";
+import { penalidadeD20Exaustao } from "@/lib/op-rpg";
 
 type Props = {
   personagemId: string;
@@ -20,13 +21,30 @@ export function ExaustaoControle({ personagemId, exaustao }: Props) {
     if (clamped === otimista) return;
     startTransition(async () => {
       aplicar(clamped);
+      // Propaga o nível novo pra sidebar e abas refletirem os debuffs de d20 e
+      // deslocamento na hora (otimismo cross-componente, sem esperar revalidate).
+      window.dispatchEvent(
+        new CustomEvent("rpgo:patch-personagem", { detail: { exaustao: clamped } }),
+      );
       try {
         await patchPersonagem(personagemId, { exaustao: clamped });
       } catch {
         aplicar(exaustao);
+        window.dispatchEvent(
+          new CustomEvent("rpgo:patch-personagem", { detail: { exaustao } }),
+        );
       }
     });
   }
+
+  // Resumo dos debuffs ativos pra mostrar na própria linha (fonte do efeito).
+  const penD20 = penalidadeD20Exaustao(otimista);
+  const resumoPenalidades =
+    otimista >= MAX_NIVEL
+      ? "Desmaio"
+      : otimista > 0
+        ? `−${penD20} em testes de d20 · −${(1.5 * otimista).toLocaleString("pt-BR")} m de deslocamento`
+        : null;
 
   return (
     <div
@@ -60,6 +78,9 @@ export function ExaustaoControle({ personagemId, exaustao }: Props) {
           +
         </button>
       </div>
+      {resumoPenalidades && (
+        <span className="exaustao-penalidades">{resumoPenalidades}</span>
+      )}
     </div>
   );
 }

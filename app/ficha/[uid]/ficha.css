@@ -264,6 +264,24 @@
   color: #e8c24a;
 }
 
+/* Marca explícita de "afetado por exaustão" — ícone 🛏 amarelo, espaçado,
+   ao lado do valor reduzido pro jogador identificar a fonte do debuff. */
+.exausto-marca {
+  margin-left: 5px;
+  font-size: 0.7em;
+  color: #e8c24a;
+  opacity: 0.9;
+}
+
+/* Resumo das penalidades ativas na linha de Exaustão. */
+.exaustao-penalidades {
+  flex-basis: 100%;
+  margin-top: 4px;
+  font-size: 0.7rem;
+  color: #e8c24a;
+  text-align: right;
+}
+
 /* ─── COLOR PICKER (modal de Recurso) ────────────────────── */
 .cor-picker {
   display: flex;

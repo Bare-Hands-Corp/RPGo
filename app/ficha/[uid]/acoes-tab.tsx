@@ -15,6 +15,8 @@ import {
 } from "@/lib/op-rpg";
 import { parseFormulaDados } from "@/lib/dice";
 import { empilharD20, empilharRolagem } from "@/lib/empilhar-rolagem";
+import { useExaustaoOtimista } from "./use-exaustao-otimista";
+import { MarcaExausto } from "./marca-exausto";
 
 // O modelo de Ação só guarda alcance como texto livre, então inferimos CC vs
 // distância por palavra-chave / metragem pra montar o contexto da rolagem.
@@ -152,14 +154,15 @@ export function AcoesTab({
   personagemId,
   acoes,
   nivel,
-  exaustao,
+  exaustao: exaustaoServer,
   atributos,
   recursos,
   efeitosAgregados,
   itens,
 }: Props) {
   // Penalidade de exaustão (−2 × nível) some no acerto (teste de d20). NÃO entra
-  // no dano (não é d20) nem na CD da técnica (quem rola é o alvo).
+  // no dano (não é d20) nem na CD da técnica (quem rola é o alvo). Otimista.
+  const exaustao = useExaustaoOtimista(exaustaoServer);
   const penD20 = penalidadeD20Exaustao(exaustao);
   const armas = itens.filter((i) => i.tipo === "arma");
   const [acoesOtimistas, aplicarPatch] = useOptimistic(
@@ -460,6 +463,7 @@ export function AcoesTab({
                               >
                                 <i className="fas fa-crosshairs" /> Acerto <strong>{formatarMod(bonusAtq - penD20)}</strong>
                                 {fontesAtaque.length > 0 && <i className="fas fa-link prof-fonte" />}
+                                {penD20 > 0 && <MarcaExausto titulo={`−${penD20} de exaustão`} />}
                               </button>
                             )}
                             {danoParse &&
