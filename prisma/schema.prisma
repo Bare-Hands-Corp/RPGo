@@ -10,6 +10,7 @@
 //   ALTER TABLE calendarios         REPLICA IDENTITY FULL;
 //   ALTER TABLE tipos_clima         REPLICA IDENTITY FULL;
 //   ALTER TABLE eventos_calendario  REPLICA IDENTITY FULL;
+//   ALTER TABLE ameacas             REPLICA IDENTITY FULL;
 // E adicione cada tabela na lista de publicações do Realtime no Supabase Dashboard.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -31,8 +32,42 @@ model Mesa {
   bannerUrl    String?      @map("banner_url")
   personagens  Personagem[]
   calendario   Calendario?
+  ameacas      Ameaca[]
 
   @@map("mesas")
+}
+
+model Ameaca {
+  id                  String   @id @default(uuid())
+  mesaId              String   @map("mesa_id")
+  mesa                Mesa     @relation(fields: [mesaId], references: [id], onDelete: Cascade)
+
+  nome                String
+  classeResistencia   Int      @default(0) @map("classe_resistencia")
+  pontosVida          Int      @default(0) @map("pontos_vida")
+  classeDificuldade   Int      @default(0) @map("classe_dificuldade")
+  nivelDesafio        Int      @default(0) @map("nivel_desafio")
+  deslocamento        Int      @default(0)
+  deslocamentoNado    Int?     @map("deslocamento_nado")
+  pontosPoder         Int      @default(0) @map("pontos_poder")
+  bonusProficiencia   Int      @default(0) @map("bonus_proficiencia")
+
+  forca               Int      @default(0)
+  destreza            Int      @default(0)
+  constituicao        Int      @default(0)
+  sabedoria           Int      @default(0)
+  presenca            Int      @default(0)
+  vontade             Int      @default(0)
+
+  caracteristicas      Json
+  aspectos             Json
+  acoes                Json
+
+  criadoEm            DateTime @default(now()) @map("criado_em")
+  atualizadoEm        DateTime @updatedAt      @map("atualizado_em")
+
+  @@index([mesaId, nome])
+  @@map("ameacas")
 }
 
 model Personagem {
