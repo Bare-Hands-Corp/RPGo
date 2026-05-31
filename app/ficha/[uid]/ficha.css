@@ -308,18 +308,23 @@
   color: var(--color-react);
 }
 
-/* Cada entrada (uma fonte de defesa) é uma linha de pílulas que quebra sozinha,
-   com o ⚡ de condicional no fim. Várias entradas empilham. */
+/* Cada entrada (uma fonte de defesa) empilha: linha de pílulas + legenda opcional
+   da condição. Várias entradas empilham na vertical. */
 .defesa-valores {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .defesa-entrada {
   display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.defesa-pills {
+  display: flex;
   flex-wrap: wrap;
-  align-items: center;
   gap: 5px;
 }
 
@@ -333,12 +338,19 @@
   cursor: default;
 }
 
-/* ⚡ amarelo no fim da entrada — sinaliza defesa condicional (só ao ativar a
-   habilidade / enquanto tiver PV temporário). Tooltip explica na entrada. */
-.defesa-cond-icone {
+/* Defesa condicional: pílulas com leve transparência + legenda em texto
+   explicando o porquê (some quando o PV temp zera / só ao ativar). Substitui o
+   antigo ícone de raio, que ficava solto. */
+.defesa-entrada.cond .defesa-chip {
+  opacity: 0.72;
+}
+
+.defesa-cond-nota {
   font-size: 0.66rem;
-  color: var(--color-power);
-  margin-left: 2px;
+  font-style: italic;
+  color: var(--sidebar-text-sec);
+  opacity: 0.85;
+  padding-left: 2px;
 }
 
 /* Sigla do atributo que substitui o padrão num cálculo (ex: CR via FOR). */

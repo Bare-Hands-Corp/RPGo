@@ -522,19 +522,21 @@ export function PerfilSidebar({
                 {linhas.map(([nome, d, st]) => (
                   <div
                     key={`${prefixo}-${nome}`}
-                    className="defesa-entrada"
-                    title={titulo(d.fontes, st.motivo)}
+                    className={`defesa-entrada${st.condicional ? " cond" : ""}`}
+                    title={titulo(d.fontes, undefined)}
                   >
-                    {nome
-                      .split(/\s*,\s*/)
-                      .filter(Boolean)
-                      .map((v, j) => (
-                        <span key={j} className="defesa-chip">
-                          {v}
-                        </span>
-                      ))}
-                    {st.condicional && (
-                      <i className="fas fa-bolt defesa-cond-icone" title="condicional" />
+                    <div className="defesa-pills">
+                      {nome
+                        .split(/\s*,\s*/)
+                        .filter(Boolean)
+                        .map((v, j) => (
+                          <span key={j} className="defesa-chip">
+                            {v}
+                          </span>
+                        ))}
+                    </div>
+                    {st.condicional && st.motivo && (
+                      <span className="defesa-cond-nota">{st.motivo}</span>
                     )}
                   </div>
                 ))}
@@ -552,15 +554,12 @@ export function PerfilSidebar({
               {grupo("fa-virus-slash", "Imune à condição", condImun, "cond")}
               {critVis && (
                 <div className="defesa-grupo">
-                  <span
-                    className="defesa-rotulo"
-                    title={titulo(critImune.fontes, critSt.motivo)}
-                  >
+                  <span className="defesa-rotulo" title={titulo(critImune.fontes, undefined)}>
                     <i className="fas fa-burst" /> Imune a crítico
-                    {critSt.condicional && (
-                      <i className="fas fa-bolt defesa-cond-icone" title="condicional" />
-                    )}
                   </span>
+                  {critSt.condicional && critSt.motivo && (
+                    <span className="defesa-cond-nota">{critSt.motivo}</span>
+                  )}
                 </div>
               )}
             </div>
