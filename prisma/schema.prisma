@@ -245,6 +245,11 @@ model Habilidade {
   favorita          Boolean    @default(false)
   ordem             Int        @default(0)
 
+  // Estado "ligada" de habilidade sustentada (ativa/reativa com efeito sustentado).
+  // Enquanto true, os efeitos sustentados entram no agregador como uma passiva.
+  // Habilidade só-instantânea (cura pura) não usa esse campo (continua no "Usar").
+  ligada            Boolean    @default(false)
+
   // Lista de efeitos estruturados (ver lib/op-rpg.ts EfeitoHabilidade).
   efeitos           Json       @default("[]")
 

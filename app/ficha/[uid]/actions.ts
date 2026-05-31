@@ -869,9 +869,17 @@ export async function deletarHabilidade(
 // numa única transação. PA não tem campo dedicado no Personagem — quem
 // quiser controle automático cria um Recurso customizado "PA".
 // `condicao_aplicar` é adiado pra etapa 4 (não há tabela de condições ativas).
-export async function usarHabilidade(
+//
+// `extraHabData` é mesclado no update da habilidade (ex: `{ ligada: true }` ao
+// ligar uma sustentada). `incluirMax: false` deixa hp-max/pp-max fora dos
+// deltas instantâneos — ao LIGAR uma sustentada, o bônus de máximo é revertível
+// e vive no agregado (bonusHpMax/bonusPpMax enquanto ligada), não no valor
+// armazenado. Botão "Usar" usa o default (instantâneo permanente).
+async function aplicarUsoHabilidade(
   personagemId: string,
   habilidadeId: string,
+  extraHabData: Record<string, unknown> = {},
+  { incluirMax = true }: { incluirMax?: boolean } = {},
 ) {
   const { personagem } = await autorizar(personagemId);
 
@@ -901,7 +909,7 @@ export async function usarHabilidade(
   // Cura aceita só inteiro puro no e.valor (ex: "5"). Fórmulas tipo
   // "1d8+CON" ficam descritivas — não há roller no server.
   const efeitos = lerEfeitos(hab.efeitos);
-  const deltas = computarDeltasInstantaneos(efeitos);
+  const deltas = computarDeltasInstantaneos(efeitos, { incluirMax });
   const recursoIds = Object.keys(deltas.recursos);
 
   // Busca recursos referenciados pelos efeitos pra validar existência + clampar.
@@ -962,11 +970,13 @@ export async function usarHabilidade(
       }),
     );
   }
-  if (hab.usos != null) {
+  const habData: Record<string, unknown> = { ...extraHabData };
+  if (hab.usos != null) habData.usosAtual = (hab.usosAtual ?? hab.usos) - 1;
+  if (Object.keys(habData).length > 0) {
     ops.push(
       prisma.habilidade.update({
-        where: { id: hab.id },
-        data: { usosAtual: (hab.usosAtual ?? hab.usos) - 1 },
+        where: { id: hab.id, personagemId },
+        data: habData,
       }),
     );
   }
@@ -975,6 +985,38 @@ export async function usarHabilidade(
     await prisma.$transaction(ops);
   }
   revalidatePath(`/ficha/${personagemId}`);
+}
+
+// Botão "Usar" de habilidade não-sustentada (ou ativa só-instantânea): consome
+// custos + aplica efeitos instantâneos, sem estado persistente.
+export async function usarHabilidade(personagemId: string, habilidadeId: string) {
+  await aplicarUsoHabilidade(personagemId, habilidadeId);
+}
+
+// Liga/desliga uma habilidade sustentada (ativa/reativa com efeito sustentado).
+// LIGAR consome custos + aplica os instantâneos (cura/PV-temp/recurso; hp-max/
+// pp-max ficam no agregado, revertíveis) e marca `ligada=true`. DESLIGAR só
+// limpa `ligada` — sem reembolso de custo nem reversão de PV temp já concedido.
+export async function alternarHabilidade(
+  personagemId: string,
+  habilidadeId: string,
+  ligada: boolean,
+) {
+  if (!ligada) {
+    await autorizar(personagemId);
+    await prisma.habilidade.update({
+      where: { id: habilidadeId, personagemId },
+      data: { ligada: false },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
+    return;
+  }
+  await aplicarUsoHabilidade(
+    personagemId,
+    habilidadeId,
+    { ligada: true },
+    { incluirMax: false },
+  );
 }
 
 function clamp(n: number, min: number, max: number): number {

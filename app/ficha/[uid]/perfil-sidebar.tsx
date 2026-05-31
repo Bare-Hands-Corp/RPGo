@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useOptimistic, useState } from "react";
+import { useEffect, useMemo, useOptimistic, useState } from "react";
 import Link from "next/link";
 import { EditableStat } from "./editable-stat";
 import { EditFichaModal } from "./edit-ficha-modal";
@@ -10,6 +10,7 @@ import { CrEditavel } from "./cr-editavel";
 import { ExaustaoControle } from "./exaustao-controle";
 import { MarcaExausto } from "./marca-exausto";
 import {
+  agregarEfeitos,
   atributoDeCalculo,
   bonusProficiencia,
   deslocamentoEfetivo,
@@ -23,7 +24,6 @@ import {
   progresso,
   type Atributo,
   type DefesaAgregada,
-  type EfeitosAgregados,
 } from "@/lib/op-rpg";
 import { empilharD20 } from "@/lib/empilhar-rolagem";
 
@@ -58,6 +58,16 @@ type Personagem = {
     ca: number;
     penalidadeDes: number;
   }>;
+};
+
+// Habilidade crua o suficiente pra `agregarEfeitos` recomputar o agregado na
+// sidebar (id pra casar com o overlay de `ligada`).
+type HabSidebar = {
+  id: string;
+  nome: string;
+  tipo: string;
+  efeitos: unknown;
+  ligada: boolean;
 };
 
 function pct(atual: number, max: number): number {
@@ -128,11 +138,15 @@ function aplicarDelta(
 
 export function PerfilSidebar({
   personagem: inicial,
-  efeitosAgregados,
+  habilidades,
+  slugsPericiaCustom,
   penalidadeDesArmadura,
 }: {
   personagem: Personagem;
-  efeitosAgregados: EfeitosAgregados;
+  // Habilidades cruas — a sidebar recomputa o agregado client-side pra refletir
+  // o toggle `ligada` na hora (defesas/atributos/etc.), sem esperar o server.
+  habilidades: HabSidebar[];
+  slugsPericiaCustom: string[];
   penalidadeDesArmadura: number;
 }) {
   // useOptimistic do personagem inteiro: o EditFichaModal e qualquer outro
@@ -162,6 +176,38 @@ export function PerfilSidebar({
     window.addEventListener("rpgo:patch-personagem", ouvir);
     return () => window.removeEventListener("rpgo:patch-personagem", ouvir);
   }, [inicial]);
+
+  // Overlay otimista do estado `ligada` por habilidade. HabilidadesTab dispara
+  // `rpgo:toggle-habilidade` ao ligar/desligar; a sidebar sobrescreve e recomputa
+  // o agregado na hora.
+  const [ligadaOverlay, setLigadaOverlay] = useState<Record<string, boolean>>({});
+  // Reset do overlay quando as habilidades chegam frescas do server (revalidate)
+  // — feito durante o render (padrão React), não em effect, pra não disparar
+  // set-state-in-effect.
+  const [habsAnterior, setHabsAnterior] = useState(habilidades);
+  if (habsAnterior !== habilidades) {
+    setHabsAnterior(habilidades);
+    setLigadaOverlay({});
+  }
+  useEffect(() => {
+    function ouvir(e: Event) {
+      const det = (e as CustomEvent<{ id: string; ligada: boolean }>).detail;
+      if (!det) return;
+      setLigadaOverlay((o) => ({ ...o, [det.id]: det.ligada }));
+    }
+    window.addEventListener("rpgo:toggle-habilidade", ouvir);
+    return () => window.removeEventListener("rpgo:toggle-habilidade", ouvir);
+  }, []);
+
+  // Agregado recomputado a partir das habilidades + overlay de `ligada`. Mesma
+  // função pura do server (page.tsx) — barata, frio. Substitui a antiga prop
+  // `efeitosAgregados`: agora reage ao toggle sem round-trip.
+  const efeitosAgregados = useMemo(() => {
+    const habs = habilidades.map((h) =>
+      h.id in ligadaOverlay ? { ...h, ligada: ligadaOverlay[h.id] } : h,
+    );
+    return agregarEfeitos(habs, new Set(slugsPericiaCustom));
+  }, [habilidades, ligadaOverlay, slugsPericiaCustom]);
 
   const [p, aplicarOtimista] = useOptimistic(
     { ...inicial, ...shadow },
@@ -489,22 +535,21 @@ export function PerfilSidebar({
       </div>
 
       {(() => {
-        // Painel de defesas (read-only): lê do agregador, não muta nada.
-        // `estadoDefesa(d, hpTemp)` resolve visibilidade: defesa atrelada a PV
-        // temp some quando o PV temp (otimista) zera. Marcadas com ⚡ quando
-        // condicionais (só ao ativar / enquanto tiver PV temp).
+        // Painel de defesas (read-only): lê do agregador recomputado, não muta
+        // nada. Defesa só está aqui se vier de passiva OU de habilidade ligada
+        // (o gate é no agregador) — então é sempre visível; `estadoDefesa` só
+        // marca como condicional (esmaecida + legenda) quando vem de ligada.
         type Linha = [string, DefesaAgregada, ReturnType<typeof estadoDefesa>];
-        const visiveis = (entradas: [string, DefesaAgregada | undefined][]): Linha[] =>
+        const linhas = (entradas: [string, DefesaAgregada | undefined][]): Linha[] =>
           entradas
             .filter((e): e is [string, DefesaAgregada] => !!e[1])
-            .map(([nome, d]) => [nome, d, estadoDefesa(d, p.hpTemp)] as Linha)
-            .filter(([, , st]) => st.visivel);
-        const resist = visiveis(Object.entries(efeitosAgregados.resistencias));
-        const imun = visiveis(Object.entries(efeitosAgregados.imunidades));
-        const condImun = visiveis(Object.entries(efeitosAgregados.condicoesImunes));
+            .map(([nome, d]) => [nome, d, estadoDefesa(d)] as Linha);
+        const resist = linhas(Object.entries(efeitosAgregados.resistencias));
+        const imun = linhas(Object.entries(efeitosAgregados.imunidades));
+        const condImun = linhas(Object.entries(efeitosAgregados.condicoesImunes));
         const critImune = efeitosAgregados.critImune;
-        const critSt = estadoDefesa(critImune, p.hpTemp);
-        const critVis = critImune.fontes.length > 0 && critSt.visivel;
+        const critSt = estadoDefesa(critImune);
+        const critVis = critImune.fontes.length > 0;
         if (!resist.length && !imun.length && !condImun.length && !critVis) {
           return null;
         }

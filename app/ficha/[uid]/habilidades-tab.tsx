@@ -10,6 +10,7 @@ import {
 } from "react";
 import Swal from "sweetalert2";
 import {
+  alternarHabilidade,
   atualizarHabilidade,
   criarHabilidade,
   deletarHabilidade,
@@ -32,6 +33,7 @@ import {
   lerEfeitos,
   resolverAtributosNaFormula,
   resumoEfeito,
+  temEfeitoSustentado,
   type Atributo,
   type EfeitoHabilidade,
   type OrigemHabilidade,
@@ -57,6 +59,7 @@ type Habilidade = {
   favorita: boolean;
   ordem: number;
   efeitos: unknown;
+  ligada: boolean;
 };
 
 type RecursoMinimo = { id: string; nome: string };
@@ -188,7 +191,27 @@ export function HabilidadesTab({
     });
   }
 
-  async function usar(h: Habilidade) {
+  // `ligar`: null = botão "Usar" de habilidade não-sustentada (consome, sem
+  // estado); true = liga sustentada (consome + marca ligada); false = desliga
+  // (sem custo, sem confirmação, sem reversão de pools já concedidos).
+  async function acionar(h: Habilidade, ligar: boolean | null) {
+    if (ligar === false) {
+      window.dispatchEvent(
+        new CustomEvent("rpgo:toggle-habilidade", {
+          detail: { id: h.id, ligada: false },
+        }),
+      );
+      startTransition(async () => {
+        aplicar({ kind: "update", id: h.id, patch: { ligada: false } });
+        try {
+          await alternarHabilidade(personagemId, h.id, false);
+        } catch (err) {
+          mostrarErro(err);
+        }
+      });
+      return;
+    }
+
     const custos: string[] = [];
     if (h.custoPp > 0) custos.push(`<b>${h.custoPp}</b> PP`);
     if (h.custoPa > 0) custos.push(`<b>${h.custoPa}</b> PA`);
@@ -199,14 +222,16 @@ export function HabilidadesTab({
     }
     if (h.usos != null) custos.push(`<b>1</b> uso`);
     const c = await Swal.fire({
-      title: `Usar ${h.nome}?`,
+      title: ligar ? `Ligar ${h.nome}?` : `Usar ${h.nome}?`,
       html:
         custos.length > 0
           ? `Vai consumir: ${custos.join(", ")}.`
-          : "Sem custo configurado — só marca a habilidade como usada.",
+          : ligar
+            ? "Sem custo configurado — só liga a habilidade."
+            : "Sem custo configurado — só marca a habilidade como usada.",
       icon: "question",
       showCancelButton: true,
-      confirmButtonText: "Usar",
+      confirmButtonText: ligar ? "Ligar" : "Usar",
       cancelButtonText: "Cancelar",
       background: "var(--bg-card)",
       color: "var(--text-main)",
@@ -214,9 +239,13 @@ export function HabilidadesTab({
     if (!c.isConfirmed) return;
 
     // Otimismo cross-tab: dispara deltas pra sidebar (HP/PP) e RecursosSidebar
-    // refletirem antes do server. Mirror da lógica de `usarHabilidade` no
-    // server — `computarDeltasInstantaneos` é a fonte única.
-    const deltas = computarDeltasInstantaneos(lerEfeitos(h.efeitos));
+    // refletirem antes do server. Mirror da lógica do server — ao LIGAR,
+    // hp-max/pp-max ficam de fora (incluirMax:false): são bônus sustentados que
+    // vêm do agregado (a sidebar recomputa com o `ligada` otimista via
+    // rpgo:toggle-habilidade), não deltas instantâneos.
+    const deltas = computarDeltasInstantaneos(lerEfeitos(h.efeitos), {
+      incluirMax: !ligar,
+    });
     const deltaPersonagem = {
       deltaHpAtual: deltas.hpAtual || undefined,
       deltaHpTemp: deltas.hpTemp || undefined,
@@ -239,11 +268,20 @@ export function HabilidadesTab({
         new CustomEvent("rpgo:patch-recurso", { detail: deltaRecursos }),
       );
     }
+    if (ligar) {
+      window.dispatchEvent(
+        new CustomEvent("rpgo:toggle-habilidade", {
+          detail: { id: h.id, ligada: true },
+        }),
+      );
+    }
 
     startTransition(async () => {
       aplicar({ kind: "usar", id: h.id });
+      if (ligar) aplicar({ kind: "update", id: h.id, patch: { ligada: true } });
       try {
-        await usarHabilidade(personagemId, h.id);
+        if (ligar) await alternarHabilidade(personagemId, h.id, true);
+        else await usarHabilidade(personagemId, h.id);
       } catch (err) {
         mostrarErro(err);
       }
@@ -266,6 +304,7 @@ export function HabilidadesTab({
           id: "temp-" + Math.random().toString(36).slice(2),
           favorita: false,
           ordem: 0,
+          ligada: false,
           ...dados,
           efeitos: dados.efeitos,
         };
@@ -339,7 +378,8 @@ export function HabilidadesTab({
                 atributos={atributos}
                 onEdit={() => abrirEdit(h)}
                 onApagar={() => apagar(h.id, h.nome)}
-                onUsar={() => usar(h)}
+                onUsar={() => acionar(h, null)}
+                onAlternar={() => acionar(h, !h.ligada)}
                 onFavorita={() => toggleFavorita(h)}
               />
             ))}
@@ -368,7 +408,8 @@ export function HabilidadesTab({
                   atributos={atributos}
                   onEdit={() => abrirEdit(h)}
                   onApagar={() => apagar(h.id, h.nome)}
-                  onUsar={() => usar(h)}
+                  onUsar={() => acionar(h, null)}
+                  onAlternar={() => acionar(h, !h.ligada)}
                   onFavorita={() => toggleFavorita(h)}
                 />
               ))}
@@ -411,6 +452,7 @@ function CardHabilidade({
   onEdit,
   onApagar,
   onUsar,
+  onAlternar,
   onFavorita,
 }: {
   habilidade: Habilidade;
@@ -419,11 +461,16 @@ function CardHabilidade({
   onEdit: () => void;
   onApagar: () => void;
   onUsar: () => void;
+  onAlternar: () => void;
   onFavorita: () => void;
 }) {
   const efeitos = lerEfeitos(habilidade.efeitos);
   const tipoMeta = TIPOS_HABILIDADE.find((t) => t.slug === habilidade.tipo);
-  const podeUsar = habilidade.tipo === "ativa" || habilidade.tipo === "reativa";
+  const ehAtivavel = habilidade.tipo === "ativa" || habilidade.tipo === "reativa";
+  // Habilidade ativável com efeito sustentado ganha switch on/off (estado
+  // `ligada`); sem efeito sustentado (cura pura etc.) mantém o "Usar" pontual.
+  const mostrarToggle = ehAtivavel && temEfeitoSustentado(efeitos);
+  const mostrarUsar = ehAtivavel && !mostrarToggle;
 
   // Efeitos com fórmula de dado viram links "rolar" que empilham na Bandeja
   // (separado do "Usar", que só debita custos + aplica deltas instantâneos).
@@ -476,8 +523,10 @@ function CardHabilidade({
       ? "type-padrao"
       : "type-comum";
 
+  const ligadaAtiva = mostrarToggle && habilidade.ligada;
+
   return (
-    <div className={`action-card ${tipoClass}`}>
+    <div className={`action-card ${tipoClass}${ligadaAtiva ? " hab-card-ligada" : ""}`}>
       <button
         type="button"
         className={`btn-favorito ${habilidade.favorita ? "ativo" : ""}`}
@@ -540,7 +589,11 @@ function CardHabilidade({
         )}
       </div>
 
-      {(custos.length > 0 || tags.length > 0 || podeUsar || rolagens.length > 0) && (
+      {(custos.length > 0 ||
+        tags.length > 0 ||
+        mostrarUsar ||
+        mostrarToggle ||
+        rolagens.length > 0) && (
         <div className="card-tags">
           {custos.map((c, i) => (
             <span key={`c${i}`} className="tag tag-custo">
@@ -569,9 +622,24 @@ function CardHabilidade({
               <i className="fas fa-dice" /> {r.formula}
             </button>
           ))}
-          {podeUsar && (
+          {mostrarUsar && (
             <button type="button" className="hab-usar" onClick={onUsar}>
               <i className="fas fa-play" /> Usar
+            </button>
+          )}
+          {mostrarToggle && (
+            <button
+              type="button"
+              className={`hab-toggle${habilidade.ligada ? " ligada" : ""}`}
+              role="switch"
+              aria-checked={habilidade.ligada}
+              title={habilidade.ligada ? "Desligar habilidade" : "Ligar habilidade"}
+              onClick={onAlternar}
+            >
+              <span className="hab-toggle-trilho">
+                <span className="hab-toggle-bolha" />
+              </span>
+              {habilidade.ligada ? "Ligada" : "Desligada"}
             </button>
           )}
         </div>

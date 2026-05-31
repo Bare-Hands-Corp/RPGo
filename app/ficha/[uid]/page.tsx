@@ -86,7 +86,8 @@ export default async function FichaPage({ params }: Params) {
       <FichaRealtime personagemId={personagem.id} />
       <PerfilSidebar
         personagem={personagem}
-        efeitosAgregados={efeitosAgregados}
+        habilidades={personagem.habilidades}
+        slugsPericiaCustom={[...slugsPericiaCustom]}
         penalidadeDesArmadura={penalidadeDesArmadura}
       />
       <FichaTabs

@@ -1335,40 +1335,29 @@ export function casaContexto(alvoRaw: string, ctx: ContextoRolagem): boolean {
 }
 
 type FonteValor = { valor: number; fontes: string[] };
-// Defesa agregada pro painel da sidebar. Guarda de que tipo de fonte veio, pra
-// o painel decidir se mostra (e como):
-// - `passiva`: alguma fonte passiva → defesa SEMPRE ligada (vence tudo).
-// - `ligadoHpTemp`: alguma fonte ativável que concede PV temp → atrelada ao PV
-//   temp (some quando zera). É a "dependência do efeito principal".
-// - `ativaSimples`: alguma fonte ativável SEM PV temp → não dá pra inferir
-//   estado; mostra sempre marcada "só ao ativar".
-// `estadoDefesa(d, hpTemp)` resolve a exibição final.
+// Defesa agregada pro painel da sidebar. `passiva` marca se ALGUMA fonte é
+// passiva (traço permanente → sempre ligada). Defesa que só vem de habilidade
+// ativável só entra no agregado quando a habilidade está LIGADA (o gate é o
+// `h.ligada` no agregador), então sua presença já significa "ativa agora";
+// `estadoDefesa` só decide o marcador condicional.
 export type DefesaAgregada = {
   fontes: string[];
   passiva: boolean;
-  ligadoHpTemp: boolean;
-  ativaSimples: boolean;
 };
 
-// Origem de uma defesa, derivada do tipo da habilidade + se ela concede PV temp.
-export type OrigemDefesa = "passiva" | "tempHp" | "ativa";
-
-// Resolve como o painel de defesas deve exibir uma defesa, dado o PV temp atual.
-// Atrela "efeito secundário" (defesa) ao "principal" (PV temp): se a defesa só
-// vem de habilidade que dá PV temp e o PV temp zerou, ela some.
+// Resolve o marcador de uma defesa no painel. Defesa de fonte passiva é traço
+// permanente (sem marcador). Defesa que só vem de habilidade ligada é
+// condicional (esmaecida + legenda "enquanto X estiver ativa") — some sozinha
+// quando a habilidade desliga, porque aí não é mais agregada.
 export function estadoDefesa(
   d: DefesaAgregada,
-  hpTemp: number,
-): { visivel: boolean; condicional: boolean; motivo?: string } {
-  if (d.passiva) return { visivel: true, condicional: false };
-  // Só atrela ao PV temp se TODA fonte condicional for de PV temp — uma fonte
-  // ativável sem PV temp impede a inferência (cai no "só ao ativar").
-  if (d.ligadoHpTemp && !d.ativaSimples) {
-    return hpTemp > 0
-      ? { visivel: true, condicional: true, motivo: "enquanto tiver PV temporário" }
-      : { visivel: false, condicional: true };
-  }
-  return { visivel: true, condicional: true, motivo: "só ao ativar a habilidade" };
+): { condicional: boolean; motivo?: string } {
+  if (d.passiva) return { condicional: false };
+  const nomes = d.fontes.join(", ");
+  return {
+    condicional: true,
+    motivo: `enquanto ${nomes || "a habilidade"} estiver ativa`,
+  };
 }
 type FonteLista = { fontes: string[] };
 
@@ -1490,7 +1479,7 @@ function vazio(): EfeitosAgregados {
     trocaDano: null,
     ignora: {},
     bonusAlcance: { valor: 0, fontes: [] },
-    critImune: { fontes: [], passiva: false, ligadoHpTemp: false, ativaSimples: false },
+    critImune: { fontes: [], passiva: false },
     resistencias: {},
     imunidades: {},
     condicoesImunes: {},
@@ -1519,14 +1508,11 @@ function adicionarFonteLista(
   bucket[key] = atual;
 }
 
-// Marca a origem de uma defesa numa entrada (acumula fonte + liga a flag da
-// origem). Várias fontes compõem: passiva torna sempre-ligada, PV temp atrela
-// ao pool, ativa-simples força "só ao ativar".
-function marcarOrigemDefesa(d: DefesaAgregada, fonte: string, origem: OrigemDefesa) {
+// Marca uma fonte numa defesa (acumula fonte + liga `passiva` se a fonte for
+// passiva). Uma única fonte passiva já torna a defesa um traço permanente.
+function marcarOrigemDefesa(d: DefesaAgregada, fonte: string, passiva: boolean) {
   if (!d.fontes.includes(fonte)) d.fontes.push(fonte);
-  if (origem === "passiva") d.passiva = true;
-  else if (origem === "tempHp") d.ligadoHpTemp = true;
-  else d.ativaSimples = true;
+  if (passiva) d.passiva = true;
 }
 
 // Adiciona uma defesa (resistência/imunidade/condição) ao bucket do painel.
@@ -1535,13 +1521,12 @@ function aplicarDefesa(
   bucket: Partial<Record<string, DefesaAgregada>>,
   chaveRaw: string,
   fonte: string,
-  origem: OrigemDefesa,
+  passiva: boolean,
 ) {
   const k = chaveRaw.trim();
   if (!k) return;
-  const atual =
-    bucket[k] ?? { fontes: [], passiva: false, ligadoHpTemp: false, ativaSimples: false };
-  marcarOrigemDefesa(atual, fonte, origem);
+  const atual = bucket[k] ?? { fontes: [], passiva: false };
+  marcarOrigemDefesa(atual, fonte, passiva);
   bucket[k] = atual;
 }
 
@@ -1560,6 +1545,11 @@ export type DeltasInstantaneos = {
 
 export function computarDeltasInstantaneos(
   efeitos: EfeitoHabilidade[],
+  // `incluirMax: false` ignora `modificador` em hp-max/pp-max. Usado ao LIGAR
+  // uma habilidade sustentada: bônus de PV/PP máximo são revertíveis, então
+  // vivem no agregado (bonusHpMax/bonusPpMax enquanto ligada) em vez de baterem
+  // permanentemente no valor armazenado. cura/PV-temp/recurso seguem instantâneos.
+  { incluirMax = true }: { incluirMax?: boolean } = {},
 ): DeltasInstantaneos {
   const d: DeltasInstantaneos = {
     hpAtual: 0,
@@ -1585,8 +1575,8 @@ export function computarDeltasInstantaneos(
     } else if (e.tipo === "modificador") {
       const alvo = e.alvo.trim().toLowerCase();
       if (alvo === "hp-temp" || alvo === "hptemp") d.hpTemp += Math.trunc(e.valor);
-      else if (alvo === "hp-max" || alvo === "hpmax") d.hpMax += Math.trunc(e.valor);
-      else if (alvo === "pp-max" || alvo === "ppmax") d.ppMax += Math.trunc(e.valor);
+      else if (incluirMax && (alvo === "hp-max" || alvo === "hpmax")) d.hpMax += Math.trunc(e.valor);
+      else if (incluirMax && (alvo === "pp-max" || alvo === "ppmax")) d.ppMax += Math.trunc(e.valor);
     } else if (e.tipo === "recurso_delta") {
       const v = Math.trunc(e.valor);
       if (!v) continue;
@@ -1600,15 +1590,60 @@ export function computarDeltasInstantaneos(
   return d;
 }
 
-// Varre habilidades e aplica efeitos `modificador` e `proficiencia` nos
-// alvos canônicos. Alvos não reconhecidos são ignorados silenciosamente.
-// Regra geral: só `passiva` entra no agregado — `ativa` é consumida no botão
-// "Usar" (efeitos instantâneos), `reativa` aguarda rolagens contextuais (etapa
-// 3), `livre` é só descritiva. EXCEÇÃO: defesas (resistência/imunidade/imune a
-// condição/imune a crítico) são traços e agregam de qualquer tipo — de fonte
-// ativável entram marcadas como condicionais (só valem ao ativar).
+// Um efeito é "sustentado" quando o agregador o transforma num traço/bônus
+// persistente (aplicado enquanto a habilidade estiver passiva ou ligada e
+// revertido ao desligar). NÃO são sustentados: os instantâneos (cura,
+// recurso_delta, `modificador` em hp-temp — grants one-shot que persistem) nem
+// os puramente descritivos (livre/trigger/rolagem/condicao_*/sentido/acao_extra).
+// `modificador` em hp-max/pp-max É sustentado (bônus de máximo revertível).
+export function efeitoEhSustentado(e: EfeitoHabilidade): boolean {
+  switch (e.tipo) {
+    case "modificador": {
+      const a = e.alvo.trim().toLowerCase();
+      return a !== "hp-temp" && a !== "hptemp";
+    }
+    case "vantagem":
+    case "desvantagem":
+    case "sucesso_auto":
+    case "reroll":
+    case "floor_d20":
+    case "crit_range":
+    case "proficiencia":
+    case "resistencia":
+    case "imunidade":
+    case "condicao_imune":
+    case "crit_imune":
+    case "multiplicador":
+    case "substituir_atributo":
+    case "deslocamento":
+    case "dano_min":
+    case "alcance":
+    case "ignora":
+    case "trocar_dano":
+      return true;
+    default:
+      return false;
+  }
+}
+
+// Habilidade ativável (ativa/reativa) com ≥1 efeito sustentado ganha toggle
+// on/off (estado `ligada`) em vez do botão "Usar" de disparo único. Auto-detect:
+// sem passo novo de autoria.
+export function temEfeitoSustentado(efeitos: EfeitoHabilidade[]): boolean {
+  return efeitos.some(efeitoEhSustentado);
+}
+
+// Varre habilidades e aplica efeitos sustentados (modificador, proficiência,
+// contextuais, defesas, multiplicador…) nos alvos canônicos. Alvos não
+// reconhecidos são ignorados silenciosamente.
+// Gate único: um efeito sustentado entra no agregado quando a habilidade é
+// `passiva` (sempre ligada) OU está `ligada` (habilidade sustentada que o
+// usuário ativou via toggle). `ativa`/`reativa` DESLIGADA não agrega nada;
+// quando ligada, agrega exatamente como uma passiva (e some ao desligar).
+// Efeitos instantâneos (cura/PV-temp/recurso) não entram aqui — são consumidos
+// por `computarDeltasInstantaneos` no momento de ligar/usar.
 export function agregarEfeitos(
-  habilidades: { nome: string; tipo: string; efeitos: unknown }[],
+  habilidades: { nome: string; tipo: string; efeitos: unknown; ligada?: boolean }[],
   // Slugs de perícias customizadas do personagem. Permite que `modificador` e
   // `proficiencia` mirando uma perícia custom caiam em bonusPericia/
   // proficienciasPericia em vez de virarem efeito descritivo sem dono.
@@ -1617,37 +1652,29 @@ export function agregarEfeitos(
   const out = vazio();
   for (const h of habilidades) {
     const ehPassiva = h.tipo === "passiva";
+    // Habilidade não-passiva só agrega enquanto ligada. Passiva sempre agrega.
+    if (!ehPassiva && h.ligada !== true) continue;
     const efeitos = lerEfeitos(h.efeitos);
-    // Origem das defesas desta habilidade: passiva > (ativável que concede PV
-    // temp) > ativável simples. Atrela "efeito secundário" (defesa) ao
-    // "principal" (PV temp) quando a habilidade dá PV temp.
-    const concedeHpTemp = !ehPassiva && computarDeltasInstantaneos(efeitos).hpTemp > 0;
-    const origemDefesa: OrigemDefesa = ehPassiva
-      ? "passiva"
-      : concedeHpTemp
-        ? "tempHp"
-        : "ativa";
     for (const e of efeitos) {
       // Defesas (resistência/imunidade/imune a condição/imune a crítico) são
-      // TRAÇOS, não rolagens — agregam de QUALQUER tipo de habilidade.
+      // traços; `passiva` marca se a fonte é permanente (vs. condicional ao
+      // estado ligada).
       if (e.tipo === "resistencia") {
-        aplicarDefesa(out.resistencias, e.tipoDano, h.nome, origemDefesa);
+        aplicarDefesa(out.resistencias, e.tipoDano, h.nome, ehPassiva);
         continue;
       }
       if (e.tipo === "imunidade") {
-        aplicarDefesa(out.imunidades, e.tipoDano, h.nome, origemDefesa);
+        aplicarDefesa(out.imunidades, e.tipoDano, h.nome, ehPassiva);
         continue;
       }
       if (e.tipo === "condicao_imune") {
-        aplicarDefesa(out.condicoesImunes, e.condicao, h.nome, origemDefesa);
+        aplicarDefesa(out.condicoesImunes, e.condicao, h.nome, ehPassiva);
         continue;
       }
       if (e.tipo === "crit_imune") {
-        marcarOrigemDefesa(out.critImune, h.nome, origemDefesa);
+        marcarOrigemDefesa(out.critImune, h.nome, ehPassiva);
         continue;
       }
-      // Demais efeitos (rolagem + passivos somáveis) só de habilidade passiva.
-      if (!ehPassiva) continue;
       if (e.tipo === "modificador") {
         aplicarModificador(out, e.alvo, e.valor, h.nome, slugsPericiaCustom);
       } else if (e.tipo === "proficiencia") {
