@@ -1335,10 +1335,41 @@ export function casaContexto(alvoRaw: string, ctx: ContextoRolagem): boolean {
 }
 
 type FonteValor = { valor: number; fontes: string[] };
-// Defesa passiva agregada pro painel da sidebar. `condicional` = só vem de
-// habilidade ativável (ativa/reativa), logo só vale ao ativar; uma única fonte
-// passiva torna a defesa sempre-ligada (condicional = false).
-export type DefesaAgregada = { fontes: string[]; condicional: boolean };
+// Defesa agregada pro painel da sidebar. Guarda de que tipo de fonte veio, pra
+// o painel decidir se mostra (e como):
+// - `passiva`: alguma fonte passiva → defesa SEMPRE ligada (vence tudo).
+// - `ligadoHpTemp`: alguma fonte ativável que concede PV temp → atrelada ao PV
+//   temp (some quando zera). É a "dependência do efeito principal".
+// - `ativaSimples`: alguma fonte ativável SEM PV temp → não dá pra inferir
+//   estado; mostra sempre marcada "só ao ativar".
+// `estadoDefesa(d, hpTemp)` resolve a exibição final.
+export type DefesaAgregada = {
+  fontes: string[];
+  passiva: boolean;
+  ligadoHpTemp: boolean;
+  ativaSimples: boolean;
+};
+
+// Origem de uma defesa, derivada do tipo da habilidade + se ela concede PV temp.
+export type OrigemDefesa = "passiva" | "tempHp" | "ativa";
+
+// Resolve como o painel de defesas deve exibir uma defesa, dado o PV temp atual.
+// Atrela "efeito secundário" (defesa) ao "principal" (PV temp): se a defesa só
+// vem de habilidade que dá PV temp e o PV temp zerou, ela some.
+export function estadoDefesa(
+  d: DefesaAgregada,
+  hpTemp: number,
+): { visivel: boolean; condicional: boolean; motivo?: string } {
+  if (d.passiva) return { visivel: true, condicional: false };
+  // Só atrela ao PV temp se TODA fonte condicional for de PV temp — uma fonte
+  // ativável sem PV temp impede a inferência (cai no "só ao ativar").
+  if (d.ligadoHpTemp && !d.ativaSimples) {
+    return hpTemp > 0
+      ? { visivel: true, condicional: true, motivo: "enquanto tiver PV temporário" }
+      : { visivel: false, condicional: true };
+  }
+  return { visivel: true, condicional: true, motivo: "só ao ativar a habilidade" };
+}
 type FonteLista = { fontes: string[] };
 
 // Efeito que depende do contexto da rolagem (casa via `casaContexto`). Guardado
@@ -1459,7 +1490,7 @@ function vazio(): EfeitosAgregados {
     trocaDano: null,
     ignora: {},
     bonusAlcance: { valor: 0, fontes: [] },
-    critImune: { fontes: [], condicional: true },
+    critImune: { fontes: [], passiva: false, ligadoHpTemp: false, ativaSimples: false },
     resistencias: {},
     imunidades: {},
     condicoesImunes: {},
@@ -1488,20 +1519,29 @@ function adicionarFonteLista(
   bucket[key] = atual;
 }
 
-// Adiciona uma defesa (resistência/imunidade) ao bucket do painel. `condicional`
-// vem de habilidade ativável; uma fonte passiva (condicional=false) torna a
-// defesa sempre-ligada. Casing da chave é preservado pra exibição.
+// Marca a origem de uma defesa numa entrada (acumula fonte + liga a flag da
+// origem). Várias fontes compõem: passiva torna sempre-ligada, PV temp atrela
+// ao pool, ativa-simples força "só ao ativar".
+function marcarOrigemDefesa(d: DefesaAgregada, fonte: string, origem: OrigemDefesa) {
+  if (!d.fontes.includes(fonte)) d.fontes.push(fonte);
+  if (origem === "passiva") d.passiva = true;
+  else if (origem === "tempHp") d.ligadoHpTemp = true;
+  else d.ativaSimples = true;
+}
+
+// Adiciona uma defesa (resistência/imunidade/condição) ao bucket do painel.
+// Casing da chave é preservado pra exibição.
 function aplicarDefesa(
   bucket: Partial<Record<string, DefesaAgregada>>,
   chaveRaw: string,
   fonte: string,
-  condicional: boolean,
+  origem: OrigemDefesa,
 ) {
   const k = chaveRaw.trim();
   if (!k) return;
-  const atual = bucket[k] ?? { fontes: [], condicional: true };
-  if (!atual.fontes.includes(fonte)) atual.fontes.push(fonte);
-  if (!condicional) atual.condicional = false; // fonte passiva → sempre-ligada
+  const atual =
+    bucket[k] ?? { fontes: [], passiva: false, ligadoHpTemp: false, ativaSimples: false };
+  marcarOrigemDefesa(atual, fonte, origem);
   bucket[k] = atual;
 }
 
@@ -1578,25 +1618,32 @@ export function agregarEfeitos(
   for (const h of habilidades) {
     const ehPassiva = h.tipo === "passiva";
     const efeitos = lerEfeitos(h.efeitos);
+    // Origem das defesas desta habilidade: passiva > (ativável que concede PV
+    // temp) > ativável simples. Atrela "efeito secundário" (defesa) ao
+    // "principal" (PV temp) quando a habilidade dá PV temp.
+    const concedeHpTemp = !ehPassiva && computarDeltasInstantaneos(efeitos).hpTemp > 0;
+    const origemDefesa: OrigemDefesa = ehPassiva
+      ? "passiva"
+      : concedeHpTemp
+        ? "tempHp"
+        : "ativa";
     for (const e of efeitos) {
       // Defesas (resistência/imunidade/imune a condição/imune a crítico) são
-      // TRAÇOS, não rolagens — agregam de QUALQUER tipo de habilidade. De fonte
-      // não-passiva (ativa/reativa) entram como CONDICIONAIS (só valem ao ativar).
+      // TRAÇOS, não rolagens — agregam de QUALQUER tipo de habilidade.
       if (e.tipo === "resistencia") {
-        aplicarDefesa(out.resistencias, e.tipoDano, h.nome, !ehPassiva);
+        aplicarDefesa(out.resistencias, e.tipoDano, h.nome, origemDefesa);
         continue;
       }
       if (e.tipo === "imunidade") {
-        aplicarDefesa(out.imunidades, e.tipoDano, h.nome, !ehPassiva);
+        aplicarDefesa(out.imunidades, e.tipoDano, h.nome, origemDefesa);
         continue;
       }
       if (e.tipo === "condicao_imune") {
-        aplicarDefesa(out.condicoesImunes, e.condicao, h.nome, !ehPassiva);
+        aplicarDefesa(out.condicoesImunes, e.condicao, h.nome, origemDefesa);
         continue;
       }
       if (e.tipo === "crit_imune") {
-        if (!out.critImune.fontes.includes(h.nome)) out.critImune.fontes.push(h.nome);
-        if (ehPassiva) out.critImune.condicional = false;
+        marcarOrigemDefesa(out.critImune, h.nome, origemDefesa);
         continue;
       }
       // Demais efeitos (rolagem + passivos somáveis) só de habilidade passiva.

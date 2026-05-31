@@ -19,6 +19,7 @@ import {
   modificador,
   penalidadeD20Exaustao,
   percepcaoPassiva,
+  estadoDefesa,
   progresso,
   type Atributo,
   type DefesaAgregada,
@@ -488,43 +489,44 @@ export function PerfilSidebar({
       </div>
 
       {(() => {
-        // Painel de defesas (read-only): lê do agregador, não muta nada. Só
-        // aparece se houver alguma defesa. Entradas condicionais (vindas de
-        // habilidade ativável) ganham ⚡ — só valem ao ativar a habilidade.
-        const resist = Object.entries(efeitosAgregados.resistencias);
-        const imun = Object.entries(efeitosAgregados.imunidades);
-        const condImun = Object.entries(efeitosAgregados.condicoesImunes);
+        // Painel de defesas (read-only): lê do agregador, não muta nada.
+        // `estadoDefesa(d, hpTemp)` resolve visibilidade: defesa atrelada a PV
+        // temp some quando o PV temp (otimista) zera. Marcadas com ⚡ quando
+        // condicionais (só ao ativar / enquanto tiver PV temp).
+        type Linha = [string, DefesaAgregada, ReturnType<typeof estadoDefesa>];
+        const visiveis = (entradas: [string, DefesaAgregada | undefined][]): Linha[] =>
+          entradas
+            .filter((e): e is [string, DefesaAgregada] => !!e[1])
+            .map(([nome, d]) => [nome, d, estadoDefesa(d, p.hpTemp)] as Linha)
+            .filter(([, , st]) => st.visivel);
+        const resist = visiveis(Object.entries(efeitosAgregados.resistencias));
+        const imun = visiveis(Object.entries(efeitosAgregados.imunidades));
+        const condImun = visiveis(Object.entries(efeitosAgregados.condicoesImunes));
         const critImune = efeitosAgregados.critImune;
-        if (!resist.length && !imun.length && !condImun.length && !critImune.fontes.length) {
+        const critSt = estadoDefesa(critImune, p.hpTemp);
+        const critVis = critImune.fontes.length > 0 && critSt.visivel;
+        if (!resist.length && !imun.length && !condImun.length && !critVis) {
           return null;
         }
-        const tituloDefesa = (d?: DefesaAgregada) => {
-          const partes = [
-            d?.fontes.length ? `de ${d.fontes.join(", ")}` : null,
-            d?.condicional ? "só ao ativar a habilidade" : null,
-          ].filter(Boolean);
-          return partes.length ? partes.join(" · ") : undefined;
-        };
-        const grupo = (
-          icone: string,
-          rotulo: string,
-          entradas: [string, DefesaAgregada | undefined][],
-          prefixo: string,
-        ) =>
-          entradas.length > 0 && (
+        const titulo = (fontes: string[], motivo?: string) =>
+          [fontes.length ? `de ${fontes.join(", ")}` : null, motivo]
+            .filter(Boolean)
+            .join(" · ") || undefined;
+        const grupo = (icone: string, rotulo: string, linhas: Linha[], prefixo: string) =>
+          linhas.length > 0 && (
             <div className="defesa-grupo">
               <span className="defesa-rotulo">
                 <i className={`fas ${icone}`} /> {rotulo}
               </span>
               <span className="defesa-chips">
-                {entradas.map(([nome, d]) => (
+                {linhas.map(([nome, d, st]) => (
                   <span
                     key={`${prefixo}-${nome}`}
-                    className={`defesa-chip${d?.condicional ? " defesa-cond" : ""}`}
-                    title={tituloDefesa(d)}
+                    className={`defesa-chip${st.condicional ? " defesa-cond" : ""}`}
+                    title={titulo(d.fontes, st.motivo)}
                   >
                     {nome}
-                    {d?.condicional && <i className="fas fa-bolt defesa-cond-icone" />}
+                    {st.condicional && <i className="fas fa-bolt defesa-cond-icone" />}
                   </span>
                 ))}
               </span>
@@ -539,14 +541,14 @@ export function PerfilSidebar({
               {grupo("fa-shield-halved", "Resistência", resist, "res")}
               {grupo("fa-shield", "Imunidade", imun, "imu")}
               {grupo("fa-virus-slash", "Imune à condição", condImun, "cond")}
-              {critImune.fontes.length > 0 && (
+              {critVis && (
                 <div className="defesa-grupo">
                   <span
-                    className={`defesa-rotulo defesa-flag${critImune.condicional ? " defesa-cond" : ""}`}
-                    title={tituloDefesa(critImune)}
+                    className={`defesa-rotulo defesa-flag${critSt.condicional ? " defesa-cond" : ""}`}
+                    title={titulo(critImune.fontes, critSt.motivo)}
                   >
                     <i className="fas fa-burst" /> Imune a crítico
-                    {critImune.condicional && <i className="fas fa-bolt defesa-cond-icone" />}
+                    {critSt.condicional && <i className="fas fa-bolt defesa-cond-icone" />}
                   </span>
                 </div>
               )}
