@@ -273,6 +273,59 @@
   opacity: 0.9;
 }
 
+/* Painel de defesas (read-only): resistências/imunidades/imune a crítico,
+   lido do agregador de efeitos. Só aparece quando há algo a mostrar. */
+.defesas-secao {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.defesa-grupo {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--color-react);
+  border-radius: 8px;
+  font-size: 0.8rem;
+}
+
+.defesa-rotulo {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  color: var(--sidebar-text-sec);
+  font-weight: 600;
+}
+
+.defesa-rotulo i {
+  color: var(--color-react);
+}
+
+/* Linha-flag (imune a crítico) ocupa a linha toda — sem chips. */
+.defesa-flag {
+  font-weight: 700;
+}
+
+.defesa-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.defesa-chip {
+  padding: 1px 7px;
+  background: var(--border);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  text-transform: capitalize;
+  cursor: default;
+}
+
 /* Sigla do atributo que substitui o padrão num cálculo (ex: CR via FOR). */
 .cr-atributo-sub {
   font-size: 0.6em;

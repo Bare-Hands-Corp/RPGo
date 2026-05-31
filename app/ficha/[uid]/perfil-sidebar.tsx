@@ -486,6 +486,64 @@ export function PerfilSidebar({
         </div>
       </div>
 
+      {(() => {
+        // Painel de defesas (read-only): lê do agregador, não muta nada. Só
+        // aparece se houver alguma resistência/imunidade/imune a crítico.
+        const resist = Object.entries(efeitosAgregados.resistencias);
+        const imun = Object.entries(efeitosAgregados.imunidades);
+        const condImun = Object.entries(efeitosAgregados.condicoesImunes);
+        const critImune = efeitosAgregados.critImune.fontes;
+        if (!resist.length && !imun.length && !condImun.length && !critImune.length) {
+          return null;
+        }
+        const grupo = (
+          icone: string,
+          rotulo: string,
+          entradas: [string, { fontes: string[] } | undefined][],
+          prefixo: string,
+        ) =>
+          entradas.length > 0 && (
+            <div className="defesa-grupo">
+              <span className="defesa-rotulo">
+                <i className={`fas ${icone}`} /> {rotulo}
+              </span>
+              <span className="defesa-chips">
+                {entradas.map(([nome, fl]) => (
+                  <span
+                    key={`${prefixo}-${nome}`}
+                    className="defesa-chip"
+                    title={fl?.fontes.length ? `de ${fl.fontes.join(", ")}` : undefined}
+                  >
+                    {nome}
+                  </span>
+                ))}
+              </span>
+            </div>
+          );
+        return (
+          <>
+            <div className="bar-label" style={{ marginTop: 15, color: "var(--color-react)" }}>
+              DEFESAS
+            </div>
+            <div className="defesas-secao">
+              {grupo("fa-shield-halved", "Resistência", resist, "res")}
+              {grupo("fa-shield", "Imunidade", imun, "imu")}
+              {grupo("fa-virus-slash", "Imune à condição", condImun, "cond")}
+              {critImune.length > 0 && (
+                <div className="defesa-grupo">
+                  <span
+                    className="defesa-rotulo defesa-flag"
+                    title={`de ${critImune.join(", ")}`}
+                  >
+                    <i className="fas fa-burst" /> Imune a crítico
+                  </span>
+                </div>
+              )}
+            </div>
+          </>
+        );
+      })()}
+
       <div className="bar-label" style={{ marginTop: 15, color: "var(--color-power)" }}>
         ATRIBUTOS
       </div>

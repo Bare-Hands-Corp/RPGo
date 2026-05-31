@@ -1410,9 +1410,14 @@ export type EfeitosAgregados = {
   // Metros extras de alcance de arma — DESCRITIVO (anota no chip de ataque).
   bonusAlcance: FonteValor;
   // Imune a acerto crítico (defensivo). Presença = imune; fontes acumulam.
-  // Não é consumido no Rolador (é sobre ser atacado) — exibição passiva fica
-  // pra etapa 4. Fica no agregado pra futura sidebar de defesas.
+  // Não é consumido no Rolador (é sobre ser atacado) — só exibição na sidebar.
   critImune: FonteLista;
+  // ─ Defesas passivas (painel read-only da sidebar) ─
+  // Resistências e imunidades a tipo de dano + imunidades a condição. Indexados
+  // pelo nome (casing preservado); fontes acumulam. Só exibição, não mutam nada.
+  resistencias: Partial<Record<string, FonteLista>>;
+  imunidades: Partial<Record<string, FonteLista>>;
+  condicoesImunes: Partial<Record<string, FonteLista>>;
 };
 
 function vazio(): EfeitosAgregados {
@@ -1450,6 +1455,9 @@ function vazio(): EfeitosAgregados {
     ignora: {},
     bonusAlcance: { valor: 0, fontes: [] },
     critImune: { fontes: [] },
+    resistencias: {},
+    imunidades: {},
+    condicoesImunes: {},
   };
 }
 
@@ -1620,6 +1628,15 @@ export function agregarEfeitos(
           if (!out.trocaDano) out.trocaDano = { tipoDano: t, fontes: [h.nome] };
           else if (!out.trocaDano.fontes.includes(h.nome)) out.trocaDano.fontes.push(h.nome);
         }
+      } else if (e.tipo === "resistencia") {
+        const k = e.tipoDano.trim();
+        if (k) adicionarFonteLista(out.resistencias, k, h.nome);
+      } else if (e.tipo === "imunidade") {
+        const k = e.tipoDano.trim();
+        if (k) adicionarFonteLista(out.imunidades, k, h.nome);
+      } else if (e.tipo === "condicao_imune") {
+        const k = e.condicao.trim();
+        if (k) adicionarFonteLista(out.condicoesImunes, k, h.nome);
       }
     }
   }
