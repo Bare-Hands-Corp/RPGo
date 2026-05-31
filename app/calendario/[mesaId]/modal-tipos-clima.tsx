@@ -34,7 +34,6 @@ export function ModalTiposClima({
 }: Props) {
   const [mostrarForm, setMostrarForm] = useState(false);
 
-  // Form novo tipo
   const [novoNome, setNovoNome] = useState("");
   const [novoIcone, setNovoIcone] = useState("");
   const [novoDescricao, setNovoDescricao] = useState("");

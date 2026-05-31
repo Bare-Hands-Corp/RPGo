@@ -405,7 +405,6 @@ export function InventarioTab({
     corBarra = "var(--color-bonus)";
   }
 
-  // Filtro + agrupamento
   const ordenados = [...itensOtimistas].sort((a, b) => a.nome.localeCompare(b.nome));
   const visiveis = mostrarEquipados ? ordenados.filter((i) => i.equipado) : ordenados;
 
