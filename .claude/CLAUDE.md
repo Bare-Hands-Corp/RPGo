@@ -69,3 +69,9 @@ Ficha de RPG online (One Piece) com chat, rolador de dados, inventário, calend�
 - Não chamar `supabase.auth.getUser()` em loop / hot path do cliente.
 - Não pollar REST — usar realtime + `router.refresh()` ou append local.
 - Não criar arquivos `*.md` ou `README` em rota nova sem pedido explícito.
+
+## Commits
+- Mensagens **mínimas**: uma linha curta, sem corpo/descrição, sem narrativa nem lista de arquivos.
+- Manter o prefixo de área quando houver (`ficha:`, `calendario:`, `bandeja:`, `gitignore:`).
+- Nunca adicionar `Co-Authored-By` (nem variantes).
+- Pode misturar escopos num mesmo commit — o que importa é a mensagem ficar pequena e direta.
