@@ -518,18 +518,27 @@ export function PerfilSidebar({
               <span className="defesa-rotulo">
                 <i className={`fas ${icone}`} /> {rotulo}
               </span>
-              <span className="defesa-chips">
+              <div className="defesa-valores">
                 {linhas.map(([nome, d, st]) => (
-                  <span
+                  <div
                     key={`${prefixo}-${nome}`}
-                    className={`defesa-chip${st.condicional ? " defesa-cond" : ""}`}
+                    className="defesa-entrada"
                     title={titulo(d.fontes, st.motivo)}
                   >
-                    {nome}
-                    {st.condicional && <i className="fas fa-bolt defesa-cond-icone" />}
-                  </span>
+                    {nome
+                      .split(/\s*,\s*/)
+                      .filter(Boolean)
+                      .map((v, j) => (
+                        <span key={j} className="defesa-chip">
+                          {v}
+                        </span>
+                      ))}
+                    {st.condicional && (
+                      <i className="fas fa-bolt defesa-cond-icone" title="condicional" />
+                    )}
+                  </div>
                 ))}
-              </span>
+              </div>
             </div>
           );
         return (
@@ -544,11 +553,13 @@ export function PerfilSidebar({
               {critVis && (
                 <div className="defesa-grupo">
                   <span
-                    className={`defesa-rotulo defesa-flag${critSt.condicional ? " defesa-cond" : ""}`}
+                    className="defesa-rotulo"
                     title={titulo(critImune.fontes, critSt.motivo)}
                   >
                     <i className="fas fa-burst" /> Imune a crítico
-                    {critSt.condicional && <i className="fas fa-bolt defesa-cond-icone" />}
+                    {critSt.condicional && (
+                      <i className="fas fa-bolt defesa-cond-icone" title="condicional" />
+                    )}
                   </span>
                 </div>
               )}

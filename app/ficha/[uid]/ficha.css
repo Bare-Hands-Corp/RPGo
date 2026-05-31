@@ -274,71 +274,71 @@
 }
 
 /* Painel de defesas (read-only): resistências/imunidades/imune a crítico,
-   lido do agregador de efeitos. Só aparece quando há algo a mostrar. */
+   lido do agregador de efeitos. Só aparece quando há algo a mostrar. Layout em
+   coluna: rótulo (header) em cima, pílulas de valores embaixo com folga. */
 .defesas-secao {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .defesa-grupo {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 6px 10px;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px 11px;
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-left: 3px solid var(--color-react);
   border-radius: 8px;
-  font-size: 0.8rem;
 }
 
 .defesa-rotulo {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  flex-shrink: 0;
+  gap: 6px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--sidebar-text-sec);
-  font-weight: 600;
 }
 
 .defesa-rotulo i {
   color: var(--color-react);
 }
 
-/* Linha-flag (imune a crítico) ocupa a linha toda — sem chips. */
-.defesa-flag {
-  font-weight: 700;
+/* Cada entrada (uma fonte de defesa) é uma linha de pílulas que quebra sozinha,
+   com o ⚡ de condicional no fim. Várias entradas empilham. */
+.defesa-valores {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.defesa-chips {
+.defesa-entrada {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  align-items: center;
+  gap: 5px;
 }
 
 .defesa-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 1px 7px;
+  padding: 2px 9px;
   background: var(--border);
   border-radius: 999px;
-  font-size: 0.72rem;
+  font-size: 0.74rem;
+  line-height: 1.45;
   text-transform: capitalize;
   cursor: default;
 }
 
-/* Defesa condicional (vinda de habilidade ativável) — borda tracejada + ⚡
-   amarelo, sinalizando que só vale quando a habilidade está ativa. */
-.defesa-chip.defesa-cond {
-  border: 1px dashed var(--color-power);
-  background: transparent;
-}
-
+/* ⚡ amarelo no fim da entrada — sinaliza defesa condicional (só ao ativar a
+   habilidade / enquanto tiver PV temporário). Tooltip explica na entrada. */
 .defesa-cond-icone {
-  font-size: 0.62rem;
+  font-size: 0.66rem;
   color: var(--color-power);
+  margin-left: 2px;
 }
 
 /* Sigla do atributo que substitui o padrão num cálculo (ex: CR via FOR). */
