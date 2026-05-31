@@ -21,6 +21,7 @@ import {
   percepcaoPassiva,
   progresso,
   type Atributo,
+  type DefesaAgregada,
   type EfeitosAgregados,
 } from "@/lib/op-rpg";
 import { empilharD20 } from "@/lib/empilhar-rolagem";
@@ -488,18 +489,26 @@ export function PerfilSidebar({
 
       {(() => {
         // Painel de defesas (read-only): lê do agregador, não muta nada. Só
-        // aparece se houver alguma resistência/imunidade/imune a crítico.
+        // aparece se houver alguma defesa. Entradas condicionais (vindas de
+        // habilidade ativável) ganham ⚡ — só valem ao ativar a habilidade.
         const resist = Object.entries(efeitosAgregados.resistencias);
         const imun = Object.entries(efeitosAgregados.imunidades);
         const condImun = Object.entries(efeitosAgregados.condicoesImunes);
-        const critImune = efeitosAgregados.critImune.fontes;
-        if (!resist.length && !imun.length && !condImun.length && !critImune.length) {
+        const critImune = efeitosAgregados.critImune;
+        if (!resist.length && !imun.length && !condImun.length && !critImune.fontes.length) {
           return null;
         }
+        const tituloDefesa = (d?: DefesaAgregada) => {
+          const partes = [
+            d?.fontes.length ? `de ${d.fontes.join(", ")}` : null,
+            d?.condicional ? "só ao ativar a habilidade" : null,
+          ].filter(Boolean);
+          return partes.length ? partes.join(" · ") : undefined;
+        };
         const grupo = (
           icone: string,
           rotulo: string,
-          entradas: [string, { fontes: string[] } | undefined][],
+          entradas: [string, DefesaAgregada | undefined][],
           prefixo: string,
         ) =>
           entradas.length > 0 && (
@@ -508,13 +517,14 @@ export function PerfilSidebar({
                 <i className={`fas ${icone}`} /> {rotulo}
               </span>
               <span className="defesa-chips">
-                {entradas.map(([nome, fl]) => (
+                {entradas.map(([nome, d]) => (
                   <span
                     key={`${prefixo}-${nome}`}
-                    className="defesa-chip"
-                    title={fl?.fontes.length ? `de ${fl.fontes.join(", ")}` : undefined}
+                    className={`defesa-chip${d?.condicional ? " defesa-cond" : ""}`}
+                    title={tituloDefesa(d)}
                   >
                     {nome}
+                    {d?.condicional && <i className="fas fa-bolt defesa-cond-icone" />}
                   </span>
                 ))}
               </span>
@@ -529,13 +539,14 @@ export function PerfilSidebar({
               {grupo("fa-shield-halved", "Resistência", resist, "res")}
               {grupo("fa-shield", "Imunidade", imun, "imu")}
               {grupo("fa-virus-slash", "Imune à condição", condImun, "cond")}
-              {critImune.length > 0 && (
+              {critImune.fontes.length > 0 && (
                 <div className="defesa-grupo">
                   <span
-                    className="defesa-rotulo defesa-flag"
-                    title={`de ${critImune.join(", ")}`}
+                    className={`defesa-rotulo defesa-flag${critImune.condicional ? " defesa-cond" : ""}`}
+                    title={tituloDefesa(critImune)}
                   >
                     <i className="fas fa-burst" /> Imune a crítico
+                    {critImune.condicional && <i className="fas fa-bolt defesa-cond-icone" />}
                   </span>
                 </div>
               )}

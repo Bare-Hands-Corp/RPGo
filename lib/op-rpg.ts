@@ -1335,6 +1335,10 @@ export function casaContexto(alvoRaw: string, ctx: ContextoRolagem): boolean {
 }
 
 type FonteValor = { valor: number; fontes: string[] };
+// Defesa passiva agregada pro painel da sidebar. `condicional` = só vem de
+// habilidade ativável (ativa/reativa), logo só vale ao ativar; uma única fonte
+// passiva torna a defesa sempre-ligada (condicional = false).
+export type DefesaAgregada = { fontes: string[]; condicional: boolean };
 type FonteLista = { fontes: string[] };
 
 // Efeito que depende do contexto da rolagem (casa via `casaContexto`). Guardado
@@ -1409,15 +1413,16 @@ export type EfeitosAgregados = {
   ignora: Partial<Record<string, FonteLista>>;
   // Metros extras de alcance de arma — DESCRITIVO (anota no chip de ataque).
   bonusAlcance: FonteValor;
-  // Imune a acerto crítico (defensivo). Presença = imune; fontes acumulam.
-  // Não é consumido no Rolador (é sobre ser atacado) — só exibição na sidebar.
-  critImune: FonteLista;
-  // ─ Defesas passivas (painel read-only da sidebar) ─
+  // Imune a acerto crítico (defensivo). Presença (fontes) = imune. Não é
+  // consumido no Rolador (é sobre ser atacado) — só exibição na sidebar.
+  critImune: DefesaAgregada;
+  // ─ Defesas (painel read-only da sidebar) ─
   // Resistências e imunidades a tipo de dano + imunidades a condição. Indexados
-  // pelo nome (casing preservado); fontes acumulam. Só exibição, não mutam nada.
-  resistencias: Partial<Record<string, FonteLista>>;
-  imunidades: Partial<Record<string, FonteLista>>;
-  condicoesImunes: Partial<Record<string, FonteLista>>;
+  // pelo nome (casing preservado). Agregam de QUALQUER tipo de habilidade (é
+  // traço, não rolagem); de fonte ativável entram como condicional. Só exibição.
+  resistencias: Partial<Record<string, DefesaAgregada>>;
+  imunidades: Partial<Record<string, DefesaAgregada>>;
+  condicoesImunes: Partial<Record<string, DefesaAgregada>>;
 };
 
 function vazio(): EfeitosAgregados {
@@ -1454,7 +1459,7 @@ function vazio(): EfeitosAgregados {
     trocaDano: null,
     ignora: {},
     bonusAlcance: { valor: 0, fontes: [] },
-    critImune: { fontes: [] },
+    critImune: { fontes: [], condicional: true },
     resistencias: {},
     imunidades: {},
     condicoesImunes: {},
@@ -1481,6 +1486,23 @@ function adicionarFonteLista(
   const atual = bucket[key] ?? { fontes: [] };
   if (!atual.fontes.includes(fonte)) atual.fontes.push(fonte);
   bucket[key] = atual;
+}
+
+// Adiciona uma defesa (resistência/imunidade) ao bucket do painel. `condicional`
+// vem de habilidade ativável; uma fonte passiva (condicional=false) torna a
+// defesa sempre-ligada. Casing da chave é preservado pra exibição.
+function aplicarDefesa(
+  bucket: Partial<Record<string, DefesaAgregada>>,
+  chaveRaw: string,
+  fonte: string,
+  condicional: boolean,
+) {
+  const k = chaveRaw.trim();
+  if (!k) return;
+  const atual = bucket[k] ?? { fontes: [], condicional: true };
+  if (!atual.fontes.includes(fonte)) atual.fontes.push(fonte);
+  if (!condicional) atual.condicional = false; // fonte passiva → sempre-ligada
+  bucket[k] = atual;
 }
 
 // Deltas instantâneos aplicados quando uma habilidade ativa é usada. Cura,
@@ -1540,9 +1562,11 @@ export function computarDeltasInstantaneos(
 
 // Varre habilidades e aplica efeitos `modificador` e `proficiencia` nos
 // alvos canônicos. Alvos não reconhecidos são ignorados silenciosamente.
-// Só habilidades `passiva` entram no agregado — `ativa` é consumida no
-// botão "Usar" (efeitos instantâneos), `reativa` aguarda rolagens
-// contextuais (etapa 3), `livre` é só descritiva.
+// Regra geral: só `passiva` entra no agregado — `ativa` é consumida no botão
+// "Usar" (efeitos instantâneos), `reativa` aguarda rolagens contextuais (etapa
+// 3), `livre` é só descritiva. EXCEÇÃO: defesas (resistência/imunidade/imune a
+// condição/imune a crítico) são traços e agregam de qualquer tipo — de fonte
+// ativável entram marcadas como condicionais (só valem ao ativar).
 export function agregarEfeitos(
   habilidades: { nome: string; tipo: string; efeitos: unknown }[],
   // Slugs de perícias customizadas do personagem. Permite que `modificador` e
@@ -1552,9 +1576,31 @@ export function agregarEfeitos(
 ): EfeitosAgregados {
   const out = vazio();
   for (const h of habilidades) {
-    if (h.tipo !== "passiva") continue;
+    const ehPassiva = h.tipo === "passiva";
     const efeitos = lerEfeitos(h.efeitos);
     for (const e of efeitos) {
+      // Defesas (resistência/imunidade/imune a condição/imune a crítico) são
+      // TRAÇOS, não rolagens — agregam de QUALQUER tipo de habilidade. De fonte
+      // não-passiva (ativa/reativa) entram como CONDICIONAIS (só valem ao ativar).
+      if (e.tipo === "resistencia") {
+        aplicarDefesa(out.resistencias, e.tipoDano, h.nome, !ehPassiva);
+        continue;
+      }
+      if (e.tipo === "imunidade") {
+        aplicarDefesa(out.imunidades, e.tipoDano, h.nome, !ehPassiva);
+        continue;
+      }
+      if (e.tipo === "condicao_imune") {
+        aplicarDefesa(out.condicoesImunes, e.condicao, h.nome, !ehPassiva);
+        continue;
+      }
+      if (e.tipo === "crit_imune") {
+        if (!out.critImune.fontes.includes(h.nome)) out.critImune.fontes.push(h.nome);
+        if (ehPassiva) out.critImune.condicional = false;
+        continue;
+      }
+      // Demais efeitos (rolagem + passivos somáveis) só de habilidade passiva.
+      if (!ehPassiva) continue;
       if (e.tipo === "modificador") {
         aplicarModificador(out, e.alvo, e.valor, h.nome, slugsPericiaCustom);
       } else if (e.tipo === "proficiencia") {
@@ -1614,8 +1660,6 @@ export function agregarEfeitos(
         }
       } else if (e.tipo === "dano_min") {
         if (!out.danoMinMetade.fontes.includes(h.nome)) out.danoMinMetade.fontes.push(h.nome);
-      } else if (e.tipo === "crit_imune") {
-        if (!out.critImune.fontes.includes(h.nome)) out.critImune.fontes.push(h.nome);
       } else if (e.tipo === "alcance") {
         if (e.valor) somarBucketSimples(out.bonusAlcance, e.valor, h.nome);
       } else if (e.tipo === "ignora") {
@@ -1628,15 +1672,6 @@ export function agregarEfeitos(
           if (!out.trocaDano) out.trocaDano = { tipoDano: t, fontes: [h.nome] };
           else if (!out.trocaDano.fontes.includes(h.nome)) out.trocaDano.fontes.push(h.nome);
         }
-      } else if (e.tipo === "resistencia") {
-        const k = e.tipoDano.trim();
-        if (k) adicionarFonteLista(out.resistencias, k, h.nome);
-      } else if (e.tipo === "imunidade") {
-        const k = e.tipoDano.trim();
-        if (k) adicionarFonteLista(out.imunidades, k, h.nome);
-      } else if (e.tipo === "condicao_imune") {
-        const k = e.condicao.trim();
-        if (k) adicionarFonteLista(out.condicoesImunes, k, h.nome);
       }
     }
   }

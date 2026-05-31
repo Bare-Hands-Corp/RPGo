@@ -318,12 +318,27 @@
 }
 
 .defesa-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   padding: 1px 7px;
   background: var(--border);
   border-radius: 999px;
   font-size: 0.72rem;
   text-transform: capitalize;
   cursor: default;
+}
+
+/* Defesa condicional (vinda de habilidade ativável) — borda tracejada + ⚡
+   amarelo, sinalizando que só vale quando a habilidade está ativa. */
+.defesa-chip.defesa-cond {
+  border: 1px dashed var(--color-power);
+  background: transparent;
+}
+
+.defesa-cond-icone {
+  font-size: 0.62rem;
+  color: var(--color-power);
 }
 
 /* Sigla do atributo que substitui o padrão num cálculo (ex: CR via FOR). */
