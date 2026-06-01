@@ -49,3 +49,7 @@ Thumbs.db
 # ─── Claude (skills locais e config pessoal) ────────────────
 .claude/skills/
 .claude/settings.local.json
+.claude/CLAUDE.md
+
+# ─── Handoff entre sessões (artefato de sessão, não código) ─
+HANDOFF.md

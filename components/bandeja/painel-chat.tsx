@@ -227,6 +227,8 @@ function MensagemView({
           quantidade?: number;
           modo?: "normal" | "vantagem" | "desvantagem";
           nomePreset?: string | null;
+          // Rolagem contextual persiste a string já formatada (vantagem, crit, fontes).
+          texto?: string | null;
           tipoTeste?: boolean | null;
           pericia?: string | null;
           cd?: number | null;
@@ -240,14 +242,18 @@ function MensagemView({
     const quantidade = ehLote ? raw.quantidade || execucoes.length : 0;
     const modo = !Array.isArray(raw) ? raw.modo || "normal" : "normal";
     const presetLabel = !Array.isArray(raw) ? raw.nomePreset || null : null;
+    const textoPronto = !Array.isArray(raw) ? raw.texto || null : null;
     const testeLabel = !Array.isArray(raw) ? raw.pericia || null : null;
     const sucesso = !Array.isArray(raw) ? raw.sucesso ?? null : null;
     const privacidadeResultado = !Array.isArray(raw) ? raw.privacidadeResultado ?? true : true;
     const resultadoOculto = !privacidadeResultado;
     const totalDisplay = resultadoOculto ? "?" : ehLote ? `${quantidade}x` : String(msg.total ?? "?");
+    // Rolagem contextual já traz a string formatada (`texto`); só reconstrói
+    // dos rolls quando ela não existe.
     const detalhesUnitarios = resultadoOculto
       ? "Resultado oculto"
-      : formatarResultadoRolagemHtml({
+      : textoPronto ??
+        formatarResultadoRolagemHtml({
           detalhes: arr,
           modificador: msg.modificador || 0,
         });

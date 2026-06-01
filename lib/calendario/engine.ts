@@ -26,7 +26,9 @@ export type DataExpandida = {
   estacao: string;
 };
 
-export type FaseLua = { fracao: number; nome: string; emoji: string };
+// `icone` é uma classe FontAwesome completa (ex: "fas fa-moon fa-flip-horizontal").
+// Antes era um emoji; mantido o nome do campo "icone" pra alinhar com TipoClima.
+export type FaseLua = { fracao: number; nome: string; icone: string };
 
 export type TipoClimaLike = {
   id: string;
@@ -124,15 +126,21 @@ export function estacaoDoMes(mes: number, config: CalendarioConfig): string {
   return config.estacoes[0]?.nome ?? "Indefinida";
 }
 
-const FASES_LUA: { limite: number; nome: string; emoji: string }[] = [
-  { limite: 0.03, nome: "Lua Nova", emoji: "🌑" },
-  { limite: 0.22, nome: "Crescente", emoji: "🌒" },
-  { limite: 0.28, nome: "Quarto Crescente", emoji: "🌓" },
-  { limite: 0.47, nome: "Crescente Gibosa", emoji: "🌔" },
-  { limite: 0.53, nome: "Lua Cheia", emoji: "🌕" },
-  { limite: 0.72, nome: "Minguante Gibosa", emoji: "🌖" },
-  { limite: 0.78, nome: "Quarto Minguante", emoji: "🌗" },
-  { limite: 0.97, nome: "Minguante", emoji: "🌘" },
+// FA Free não tem ícone único pra cada uma das 8 fases. Mapeamento aproximado:
+// far fa-circle  = anel vazio (Lua Nova)
+// fa-circle      = círculo cheio (Lua Cheia)
+// fa-moon        = lua crescente estilizada
+// fa-circle-half-stroke = meio preenchido (Quartos)
+// fa-flip-horizontal espelha pra distinguir crescente vs minguante.
+const FASES_LUA: { limite: number; nome: string; icone: string }[] = [
+  { limite: 0.03, nome: "Lua Nova", icone: "far fa-circle" },
+  { limite: 0.22, nome: "Crescente", icone: "fas fa-moon" },
+  { limite: 0.28, nome: "Quarto Crescente", icone: "fas fa-circle-half-stroke" },
+  { limite: 0.47, nome: "Crescente Gibosa", icone: "fas fa-moon fa-flip-horizontal" },
+  { limite: 0.53, nome: "Lua Cheia", icone: "fas fa-circle" },
+  { limite: 0.72, nome: "Minguante Gibosa", icone: "fas fa-moon" },
+  { limite: 0.78, nome: "Quarto Minguante", icone: "fas fa-circle-half-stroke fa-flip-horizontal" },
+  { limite: 0.97, nome: "Minguante", icone: "fas fa-moon fa-flip-horizontal" },
 ];
 
 export function fasesLua(dataDias: number, cicloLuaDias: number): FaseLua {
@@ -140,9 +148,9 @@ export function fasesLua(dataDias: number, cicloLuaDias: number): FaseLua {
   let f = (dataDias % ciclo) / ciclo;
   if (f < 0) f += 1;
   for (const fase of FASES_LUA) {
-    if (f < fase.limite) return { fracao: f, nome: fase.nome, emoji: fase.emoji };
+    if (f < fase.limite) return { fracao: f, nome: fase.nome, icone: fase.icone };
   }
-  return { fracao: f, nome: "Lua Nova", emoji: "🌑" };
+  return { fracao: f, nome: "Lua Nova", icone: "far fa-circle" };
 }
 
 export function dataRelativa(dataDias: number, refDias: number): string {

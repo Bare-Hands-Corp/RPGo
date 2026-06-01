@@ -23,6 +23,7 @@ import {
   setarDataAtual,
 } from "./actions";
 import { GridMensal } from "./grid-mensal";
+import { IconeCal } from "./icones";
 import { ListaEventos } from "./lista-eventos";
 import { GeradorClimaCard } from "./gerador-card";
 import { ModalEvento } from "./modal-evento";
@@ -412,7 +413,7 @@ export function CalendarioView({
           <div className="cal-today-chip cal-chip-tint-lua">
             <span className="cal-chip-kicker">LUA</span>
             <div className="cal-chip-main">
-              <span>{lua.emoji}</span> <span>{lua.nome}</span>
+              <IconeCal icone={lua.icone} /> <span>{lua.nome}</span>
             </div>
             <div className="cal-chip-sub">
               {diaCiclo}/{Math.round(ciclo)}
@@ -423,7 +424,8 @@ export function CalendarioView({
             <div className="cal-chip-main">
               {climaHoje ? (
                 <>
-                  <span>{tipoClimaHoje?.icone || "🌤️"}</span> {climaHoje.titulo}
+                  <IconeCal icone={tipoClimaHoje?.icone} fallback="fa-cloud-sun" />{" "}
+                  {climaHoje.titulo}
                 </>
               ) : (
                 "—"

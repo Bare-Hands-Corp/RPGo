@@ -264,6 +264,125 @@
   color: var(--text-sec);
   font-family: inherit;
 }
+.rolador-contexto {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, transparent);
+  color: var(--primary);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.rolador-contexto i {
+  font-size: 0.75rem;
+}
+
+/* Chips contextuais (vantagem, crit expandido…) — toggle de override. */
+.rolador-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.rolador-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-sec);
+  opacity: 0.55;
+  transition: opacity 0.15s, border-color 0.15s, background 0.15s;
+}
+.rolador-chip i {
+  font-size: 0.68rem;
+}
+.rolador-chip.on {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--primary);
+}
+
+/* Banner de rerrolagem pendente (etapa 3.3) — aparece sob o resultado quando a
+   rolagem ofereceu reroll; segura a persistência no chat até Manter. */
+.rolador-pendente {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-bonus) 40%, transparent);
+  background: color-mix(in srgb, var(--color-bonus) 12%, transparent);
+}
+.rolador-pendente-info {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--color-bonus);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rolador-pendente-acoes {
+  display: flex;
+  gap: 8px;
+}
+.rolador-pendente-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+  transition: filter 0.15s, opacity 0.15s;
+}
+.rolador-pendente-btn:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+.rolador-pendente-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.rolador-pendente-btn.rerrolar {
+  border-color: color-mix(in srgb, var(--color-bonus) 50%, transparent);
+  color: var(--color-bonus);
+}
+.rolador-pendente-btn.manter {
+  background: var(--color-padrao);
+  border-color: var(--color-padrao);
+  color: #fff;
+}
+
+/* Dado descartado na vantagem/desvantagem + linha de fontes dos efeitos.
+   Usados tanto no Rolador quanto no chat (string persistida). */
+.dado-descartado {
+  opacity: 0.45;
+  text-decoration: line-through;
+  font-size: 0.85em;
+}
+.roll-fontes {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.72rem;
+  font-style: italic;
+  opacity: 0.8;
+}
 .roll-btn {
   background: var(--color-padrao);
   color: white;

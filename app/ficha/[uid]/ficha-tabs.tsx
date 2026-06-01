@@ -2,28 +2,58 @@
 
 import { useState } from "react";
 import { AcoesTab } from "./acoes-tab";
+import { HabilidadesTab } from "./habilidades-tab";
 import { InventarioTab } from "./inventario-tab";
+import { PericiasTab } from "./pericias-tab";
+import { TripulacaoTab } from "./tripulacao-tab";
 import { CalendarioView } from "@/app/calendario/[mesaId]/calendario-view";
 import { CalendarioRealtime } from "@/app/calendario/[mesaId]/realtime-refresher";
 import type { CalendarioCarregado } from "@/lib/calendario/carregar";
+import type { Atributo, EfeitosAgregados } from "@/lib/op-rpg";
 
 type Acao = React.ComponentProps<typeof AcoesTab>["acoes"][number];
 type Item = React.ComponentProps<typeof InventarioTab>["itens"][number];
+type RecursoRef = React.ComponentProps<typeof AcoesTab>["recursos"][number];
+type Habilidade = React.ComponentProps<typeof HabilidadesTab>["habilidades"][number];
+type PericiaCustom = React.ComponentProps<typeof PericiasTab>["periciasCustom"][number];
+type Tripulante = React.ComponentProps<typeof TripulacaoTab>["tripulantes"][number];
+type Navio = React.ComponentProps<typeof TripulacaoTab>["navio"];
 
 type Props = {
   personagemId: string;
   mesaId: string | null;
+  nivel: number;
+  exaustao: number;
+  penalidadeDesArmadura: number;
+  atributos: Record<Atributo, number>;
+  proficienciasRaw: unknown;
+  periciasCustom: PericiaCustom[];
   cargaMaxima: number;
+  berries: number;
   acoes: Acao[];
   itens: Item[];
+  recursos: RecursoRef[];
+  habilidades: Habilidade[];
+  efeitosAgregados: EfeitosAgregados;
   calendario: CalendarioCarregado | null;
   isNarradorDaMesa: boolean;
+  tripulantes: Tripulante[];
+  navio: Navio;
 };
 
-type TabId = "combate" | "missoes" | "inventario" | "tripulacao" | "calendario";
+type TabId =
+  | "combate"
+  | "habilidades"
+  | "pericias"
+  | "missoes"
+  | "inventario"
+  | "tripulacao"
+  | "calendario";
 
 const TABS_BASE: { id: TabId; label: string; icone: string }[] = [
   { id: "combate", label: "Combate", icone: "fa-fist-raised" },
+  { id: "habilidades", label: "Habilidades", icone: "fa-star" },
+  { id: "pericias", label: "Perícias", icone: "fa-dice-d20" },
   { id: "missoes", label: "Missões", icone: "fa-scroll" },
   { id: "inventario", label: "Inventário", icone: "fa-sack-dollar" },
   { id: "tripulacao", label: "Tripulação", icone: "fa-users" },
@@ -32,11 +62,23 @@ const TABS_BASE: { id: TabId; label: string; icone: string }[] = [
 export function FichaTabs({
   personagemId,
   mesaId,
+  nivel,
+  exaustao,
+  penalidadeDesArmadura,
+  atributos,
+  proficienciasRaw,
+  periciasCustom,
   cargaMaxima,
+  berries,
   acoes,
   itens,
+  recursos,
+  habilidades,
+  efeitosAgregados,
   calendario,
   isNarradorDaMesa,
+  tripulantes,
+  navio,
 }: Props) {
   const [ativa, setAtiva] = useState<TabId>("combate");
 
@@ -69,7 +111,41 @@ export function FichaTabs({
       {/* Mantém todas as abas montadas (display:none nas inativas) pra preservar
           estado otimista durante mutações em background. */}
       <div hidden={ativa !== "combate"}>
-        <AcoesTab personagemId={personagemId} acoes={acoes} />
+        <AcoesTab
+          personagemId={personagemId}
+          acoes={acoes}
+          nivel={nivel}
+          exaustao={exaustao}
+          penalidadeDesArmadura={penalidadeDesArmadura}
+          atributos={atributos}
+          recursos={recursos}
+          efeitosAgregados={efeitosAgregados}
+          itens={itens}
+          habilidades={habilidades}
+        />
+      </div>
+
+      <div hidden={ativa !== "habilidades"}>
+        <HabilidadesTab
+          personagemId={personagemId}
+          habilidades={habilidades}
+          recursos={recursos}
+          atributos={atributos}
+          periciasCustom={periciasCustom}
+        />
+      </div>
+
+      <div hidden={ativa !== "pericias"}>
+        <PericiasTab
+          personagemId={personagemId}
+          nivel={nivel}
+          exaustao={exaustao}
+          penalidadeDesArmadura={penalidadeDesArmadura}
+          atributos={atributos}
+          proficienciasRaw={proficienciasRaw}
+          periciasCustom={periciasCustom}
+          efeitosAgregados={efeitosAgregados}
+        />
       </div>
 
       <div hidden={ativa !== "missoes"} className="placeholder-tab">
@@ -81,13 +157,24 @@ export function FichaTabs({
         <InventarioTab
           personagemId={personagemId}
           cargaMaxima={cargaMaxima}
+          berries={berries}
           itens={itens}
+          nivel={nivel}
+          exaustao={exaustao}
+          penalidadeDesArmadura={penalidadeDesArmadura}
+          atributos={atributos}
+          efeitosAgregados={efeitosAgregados}
         />
       </div>
 
-      <div hidden={ativa !== "tripulacao"} className="placeholder-tab">
-        <i className="fas fa-users" />
-        <p>Tripulação — em construção.</p>
+      <div hidden={ativa !== "tripulacao"}>
+        <TripulacaoTab
+          personagemId={personagemId}
+          mesaId={mesaId}
+          isNarradorDaMesa={isNarradorDaMesa}
+          tripulantes={tripulantes}
+          navio={navio}
+        />
       </div>
 
       {mesaId && calendario && (

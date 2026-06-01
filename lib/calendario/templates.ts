@@ -70,12 +70,13 @@ export type TipoClimaDefault = {
   pesos: Record<string, number>;
 };
 
+// Ícones em classe FontAwesome (sem prefixo "fas"; o renderer adiciona).
 export const TIPOS_CLIMA_DEFAULT: TipoClimaDefault[] = [
-  { nome: "Sol forte",     icone: "☀️", descricao: "Dia ensolarado, calor intenso.",            pesos: { Primavera: 3, "Verão": 6, Outono: 1, Inverno: 0 } },
-  { nome: "Nublado",       icone: "☁️", descricao: "Céu encoberto, sem chuva.",                 pesos: { Primavera: 3, "Verão": 2, Outono: 3, Inverno: 3 } },
-  { nome: "Chuva fraca",   icone: "🌧️", descricao: "Chuva leve, contínua.",                    pesos: { Primavera: 4, "Verão": 2, Outono: 4, Inverno: 2 } },
-  { nome: "Tempestade",    icone: "⛈️", descricao: "Chuva forte com raios e ventos.",           pesos: { Primavera: 1, "Verão": 2, Outono: 3, Inverno: 1 } },
-  { nome: "Neve",          icone: "❄️", descricao: "Queda de neve. Temperatura abaixo de zero.", pesos: { Primavera: 0, "Verão": 0, Outono: 0, Inverno: 4 } },
-  { nome: "Vento intenso", icone: "💨", descricao: "Ventania forte, dificulta navegação.",      pesos: { Primavera: 2, "Verão": 1, Outono: 3, Inverno: 2 } },
-  { nome: "Neblina densa", icone: "🌫️", descricao: "Visibilidade reduzida, ar úmido.",          pesos: { Primavera: 1, "Verão": 0, Outono: 2, Inverno: 2 } },
+  { nome: "Sol forte",     icone: "fa-sun",               descricao: "Dia ensolarado, calor intenso.",             pesos: { Primavera: 3, "Verão": 6, Outono: 1, Inverno: 0 } },
+  { nome: "Nublado",       icone: "fa-cloud",             descricao: "Céu encoberto, sem chuva.",                  pesos: { Primavera: 3, "Verão": 2, Outono: 3, Inverno: 3 } },
+  { nome: "Chuva fraca",   icone: "fa-cloud-rain",        descricao: "Chuva leve, contínua.",                      pesos: { Primavera: 4, "Verão": 2, Outono: 4, Inverno: 2 } },
+  { nome: "Tempestade",    icone: "fa-cloud-bolt",        descricao: "Chuva forte com raios e ventos.",            pesos: { Primavera: 1, "Verão": 2, Outono: 3, Inverno: 1 } },
+  { nome: "Neve",          icone: "fa-snowflake",         descricao: "Queda de neve. Temperatura abaixo de zero.", pesos: { Primavera: 0, "Verão": 0, Outono: 0, Inverno: 4 } },
+  { nome: "Vento intenso", icone: "fa-wind",              descricao: "Ventania forte, dificulta navegação.",       pesos: { Primavera: 2, "Verão": 1, Outono: 3, Inverno: 2 } },
+  { nome: "Neblina densa", icone: "fa-smog",              descricao: "Visibilidade reduzida, ar úmido.",           pesos: { Primavera: 1, "Verão": 0, Outono: 2, Inverno: 2 } },
 ];

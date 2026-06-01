@@ -7,6 +7,7 @@ import {
   dataRelativa,
 } from "@/lib/calendario/engine";
 import type { EventoCal, TipoClima } from "./types";
+import { IconeCal } from "./icones";
 
 const JANELA_PADRAO = 6;
 const JANELA_EXPANDIDA = 30;
@@ -104,7 +105,10 @@ export function ListaEventos({
             const tipoClima = ev.tipoClimaId
               ? tiposClima.find((t) => t.id === ev.tipoClimaId)
               : null;
-            const icone = ev.tipo === "climatico" ? tipoClima?.icone || "🌤️" : "📜";
+            const icone =
+              ev.tipo === "climatico"
+                ? tipoClima?.icone || "fa-cloud-sun"
+                : "fa-scroll";
             const data = dataParaDias(ev.dataDias, config);
             const rel = dataRelativa(ev.dataDias, dataAtualDias);
             const tipoLabel = ev.tipo === "climatico" ? "CLIMA" : "NARRATIVO";
@@ -122,7 +126,7 @@ export function ListaEventos({
                 </div>
                 <div className="cal-evento-corpo">
                   <div className="cal-evento-titulo-linha">
-                    <span className="cal-evento-icone-inline">{icone}</span>
+                    <IconeCal icone={icone} className="cal-evento-icone-inline" />
                     <span className="cal-evento-titulo">{ev.titulo}</span>
                   </div>
                   <div className="cal-evento-meta">
