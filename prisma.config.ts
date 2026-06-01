@@ -1,7 +1,10 @@
 // Configuração do Prisma 7+ — substitui o uso de `directUrl` no schema.
 // O DIRECT_URL aqui é usado APENAS pelas operações de CLI (db push, migrate, etc).
 // Em runtime, o PrismaClient continua usando DATABASE_URL definido no schema.
-import dotenv from "dotenv";
+// Carrega .env.local (padrão Next.js) antes de .env pra alinhar com o runtime.
+import { config as loadEnv } from "dotenv";
+loadEnv({ path: ".env.local" });
+loadEnv();
 import { defineConfig } from "prisma/config";
 
 dotenv.config({ path: ".env.local" });

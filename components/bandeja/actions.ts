@@ -51,12 +51,18 @@ type RolagemExecucaoPayload = {
   modificador: number;
   modo: ModoRolagem;
   detalhes: DadoRolado[];
+  // String HTML já formatada da execução (dado descartado, crit, piso) — usada
+  // pelo lote contextual. Ausente no lote manual (o chat reconstrói dos rolls).
+  texto?: string | null;
 };
 
 type BaseRolagemPayload = {
   modificador: number;
   modo: ModoRolagem;
   nomePreset?: string | null;
+  // String HTML já formatada (crítico, vantagem, fontes). Quando presente, o
+  // chat a renderiza direto em vez de reconstruir dos rolls.
+  texto?: string | null;
   tipoTeste?: boolean;
   pericia?: string | null;
   cd?: number | null;
@@ -139,6 +145,7 @@ export async function registrarRolagem(
                 modificador: execucao.modificador,
                 modo: execucao.modo,
                 rolls: execucao.detalhes,
+                texto: execucao.texto ?? null,
               })),
               nomePreset: rolagem.nomePreset || null,
               tipoTeste: rolagem.tipoTeste || null,
@@ -153,6 +160,9 @@ export async function registrarRolagem(
               modo: rolagem.modo,
               rolls: rolagem.detalhes,
               nomePreset: rolagem.nomePreset || null,
+              // String HTML já formatada (vantagem, crit, fontes) da rolagem
+              // contextual. O chat a renderiza direto quando presente.
+              texto: rolagem.texto || null,
               tipoTeste: rolagem.tipoTeste || null,
               pericia: rolagem.pericia || null,
               cd: rolagem.cd ?? null,
@@ -172,8 +182,7 @@ export async function registrarRolagem(
         })
       : Promise.resolve(null);
 
-  const nova = await criar;
-  await atualizarPersonagem;
+  const [nova] = await Promise.all([criar, atualizarPersonagem]);
 
   if (rolagem.solicitacaoTesteId && rolagem.alvoNome) {
     const solicitacao = await prisma.mensagem.findUnique({

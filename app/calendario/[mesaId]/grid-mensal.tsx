@@ -6,6 +6,7 @@ import {
   fasesLua,
 } from "@/lib/calendario/engine";
 import type { EventoCal, TipoClima } from "./types";
+import { IconeCal } from "./icones";
 
 type Props = {
   config: CalendarioConfig;
@@ -74,7 +75,7 @@ export function GridMensal({
           const narrativoPrincipal = narrativos[0];
 
           const iconeClima = climatico
-            ? tiposClima.find((t) => t.id === climatico.tipoClimaId)?.icone || "🌤️"
+            ? tiposClima.find((t) => t.id === climatico.tipoClimaId)?.icone || "fa-cloud-sun"
             : null;
 
           const luaDia = fasesLua(dataDias, config.cicloLuaDias);
@@ -89,7 +90,9 @@ export function GridMensal({
             >
               <div className="cal-dia-topo">
                 <span className="cal-dia-num">{String(d).padStart(2, "0")}</span>
-                {iconeClima && <span className="cal-dia-icone-clima">{iconeClima}</span>}
+                {iconeClima && (
+                  <IconeCal icone={iconeClima} className="cal-dia-icone-clima" />
+                )}
               </div>
               <div className="cal-dia-evento-meio">
                 {narrativoPrincipal && (
@@ -106,7 +109,7 @@ export function GridMensal({
               </div>
               <div className="cal-dia-base">
                 <span className="cal-dia-lua" title={luaDia.nome}>
-                  {luaDia.emoji}
+                  <IconeCal icone={luaDia.icone} />
                 </span>
                 {extras && <span className="cal-dia-extras">{extras}</span>}
               </div>

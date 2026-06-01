@@ -223,10 +223,14 @@ function MensagemView({
             modificador: number;
             modo?: "normal" | "vantagem" | "desvantagem";
             rolls?: Array<{ faces: number; sinal: 1 | -1; resultado: number }>;
+            // Lote contextual: string HTML já formatada da linha (descartado/crit/piso).
+            texto?: string | null;
           }>;
           quantidade?: number;
           modo?: "normal" | "vantagem" | "desvantagem";
           nomePreset?: string | null;
+          // Rolagem contextual persiste a string já formatada (vantagem, crit, fontes).
+          texto?: string | null;
           tipoTeste?: boolean | null;
           pericia?: string | null;
           cd?: number | null;
@@ -240,14 +244,18 @@ function MensagemView({
     const quantidade = ehLote ? raw.quantidade || execucoes.length : 0;
     const modo = !Array.isArray(raw) ? raw.modo || "normal" : "normal";
     const presetLabel = !Array.isArray(raw) ? raw.nomePreset || null : null;
+    const textoPronto = !Array.isArray(raw) ? raw.texto || null : null;
     const testeLabel = !Array.isArray(raw) ? raw.pericia || null : null;
     const sucesso = !Array.isArray(raw) ? raw.sucesso ?? null : null;
     const privacidadeResultado = !Array.isArray(raw) ? raw.privacidadeResultado ?? true : true;
     const resultadoOculto = !privacidadeResultado;
     const totalDisplay = resultadoOculto ? "?" : ehLote ? `${quantidade}x` : String(msg.total ?? "?");
+    // Rolagem contextual já traz a string formatada (`texto`); só reconstrói
+    // dos rolls quando ela não existe.
     const detalhesUnitarios = resultadoOculto
       ? "Resultado oculto"
-      : formatarResultadoRolagemHtml({
+      : textoPronto ??
+        formatarResultadoRolagemHtml({
           detalhes: arr,
           modificador: msg.modificador || 0,
         });
@@ -296,10 +304,13 @@ function MensagemView({
                     <span
                       className="roll-batch-formula"
                       dangerouslySetInnerHTML={{
-                        __html: `= ${formatarResultadoRolagemHtml({
-                          detalhes: execucao.rolls || [],
-                          modificador: execucao.modificador,
-                        })}`,
+                        __html: `= ${
+                          execucao.texto ??
+                          formatarResultadoRolagemHtml({
+                            detalhes: execucao.rolls || [],
+                            modificador: execucao.modificador,
+                          })
+                        }`,
                       }}
                     />
                   </div>

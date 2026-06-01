@@ -5,8 +5,12 @@
 //   ALTER TABLE personagens         REPLICA IDENTITY FULL;
 //   ALTER TABLE itens               REPLICA IDENTITY FULL;
 //   ALTER TABLE acoes               REPLICA IDENTITY FULL;
+//   ALTER TABLE habilidades         REPLICA IDENTITY FULL;
+//   ALTER TABLE pericias_custom     REPLICA IDENTITY FULL;
+//   ALTER TABLE recursos            REPLICA IDENTITY FULL;
 //   ALTER TABLE mensagens           REPLICA IDENTITY FULL;
 //   ALTER TABLE mesas               REPLICA IDENTITY FULL;
+//   ALTER TABLE navios              REPLICA IDENTITY FULL;
 //   ALTER TABLE calendarios         REPLICA IDENTITY FULL;
 //   ALTER TABLE tipos_clima         REPLICA IDENTITY FULL;
 //   ALTER TABLE eventos_calendario  REPLICA IDENTITY FULL;
@@ -33,6 +37,7 @@ model Mesa {
   personagens  Personagem[]
   calendario   Calendario?
   ameacas      Ameaca[]
+  navio        Navio?
 
   @@map("mesas")
 }
@@ -68,6 +73,34 @@ model Ameaca {
 
   @@index([mesaId, nome])
   @@map("ameacas")
+// Navio da tripulação — 1:1 com a Mesa (a tripulação humana é a própria Mesa:
+// os personagens que compartilham o mesaId). Ficha enxuta: guardamos só as
+// escolhas (tamanho, madeira) e os valores mutáveis; PV máx/canhões máx/
+// tripulantes/deques derivam do tamanho e CR/BR derivam da madeira via
+// lib/navio.ts (tabelas do cap. 14 do livro). Qualquer membro da mesa edita.
+model Navio {
+  id        String  @id @default(uuid())
+  mesaId    String  @unique @map("mesa_id")
+  mesa      Mesa    @relation(fields: [mesaId], references: [id], onDelete: Cascade)
+
+  nome      String  @default("")
+  // "pequeno" | "medio" | "grande" | "enorme" | "colossal" — deriva PV máx,
+  // canhões máx, tripulantes, deques e desaceleração por peso.
+  tamanho   String  @default("pequeno")
+  // "cedro" | "carvalho" | "cerejeira" | "adam" — deriva CR e Bônus de Resistência.
+  madeira   String  @default("cedro")
+
+  pvAtual       Int    @default(0) @map("pv_atual")
+  // Velocidade em nós (soma das velas − desaceleração ± correnteza). No MVP é
+  // input direto — sem decompor mastros/velas item-a-item.
+  velocidadeNos Int    @default(0) @map("velocidade_nos")
+  // Nº de canhões instalados; o limite máx vem do tamanho.
+  canhoes       Int    @default(0)
+  descricao     String @default("")
+
+  criadoEm  DateTime @default(now()) @map("criado_em")
+
+  @@map("navios")
 }
 
 model Personagem {
@@ -79,12 +112,39 @@ model Personagem {
   nome          String
   fotoUrl       String? @map("foto_url")
   nivel         Int     @default(1)
+  pe            Int     @default(0)
   hpAtual       Int     @default(0)  @map("hp_atual")
   hpMax         Int     @default(0)  @map("hp_max")
+  hpTemp        Int     @default(0)  @map("hp_temp")
   ppAtual       Int     @default(0)  @map("pp_atual")
   ppMax         Int     @default(0)  @map("pp_max")
+  exaustao      Int     @default(0)
   cargaMaxima   Float   @default(20) @map("carga_maxima")
   ultimaRolagem String? @map("ultima_rolagem")
+
+  // Economia
+  berries           Int    @default(0)
+
+  // Dado de Vida — tipo vem do Estilo de Combate (d6..d12).
+  // dadosVidaGastos = quantos já foram gastos em descansos curtos.
+  // Total disponível = nivel - dadosVidaGastos.
+  tipoDadoVida      String @default("d8") @map("tipo_dado_vida")
+  dadosVidaGastos   Int    @default(0)    @map("dados_vida_gastos")
+
+  // Bônus extra na CR (armadura, escudo, característica, etc).
+  // CR total = 10 + mod_DES + crOutros.
+  crOutros          Int    @default(0)    @map("cr_outros")
+
+  // Deslocamento terrestre base em metros (a espécie define; 9 m é o padrão).
+  // Exaustão reduz na exibição (½ no nível 2, 0 no 5) e bônus de habilidade
+  // somam via agregador (efeito `deslocamento` → bonusDeslocamento).
+  deslocamento      Int    @default(9)
+
+  // Deslocamento de nado base em metros (stat próprio de espécie, não derivado
+  // do terrestre: Humano 4,5; Sireno 18; usuário de Akuma no Mi 0). Float por
+  // causa dos meios-metros. Efeito `deslocamento` com tipoMov `nadar` prevalece
+  // o maior contra este base (ver agregarEfeitos).
+  nado              Float  @default(4.5)
 
   // Atributos desnormalizados para simplicidade de queries
   forca         Int     @default(0)
@@ -94,10 +154,68 @@ model Personagem {
   vontade       Int     @default(0)
   presenca      Int     @default(0)
 
-  itens  Item[]
-  acoes  Acao[]
+  // Proficiências (perícias e salvaguardas). Estrutura:
+  // { pericias: string[], periciasDobradas: string[], salvaguardas: string[] }
+  // Mantido como Json (não tabela separada) porque é set fixo (17 perícias, 6 salvaguardas)
+  // e nunca consultado de forma cruzada entre personagens.
+  proficiencias Json    @default("{}")
+
+  itens          Item[]
+  acoes          Acao[]
+  recursos       Recurso[]
+  habilidades    Habilidade[]
+  periciasCustom PericiaCustom[]
 
   @@map("personagens")
+}
+
+// Perícia customizada do personagem — perícias que não existem no set fixo do
+// livro (ex: vindas de Profissão, homebrew). As 18 perícias canônicas vivem em
+// Personagem.proficiencias (Json); estas viram linhas próprias porque o conjunto
+// é aberto. Proficiência/dobrada/bônus ficam na própria linha (não no Json),
+// pra deletar a perícia limpar tudo junto, sem chaves órfãs.
+model PericiaCustom {
+  id            String     @id @default(uuid())
+  personagemId  String     @map("personagem_id")
+  personagem    Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
+
+  nome          String
+  // Slug derivado do nome, estável e único por personagem. É o que efeitos de
+  // habilidade (modificador/proficiencia) referenciam e o que casaContexto usa.
+  slug          String
+  // "forca" | "destreza" | "constituicao" | "sabedoria" | "vontade" | "presenca"
+  atributo      String
+  // Texto livre — de onde a perícia veio (ex: "Profissão Capitão"). Só exibição.
+  origem        String     @default("")
+
+  proficiente   Boolean    @default(false)
+  dobrada       Boolean    @default(false)
+  bonusOutros   Int        @default(0) @map("bonus_outros")
+  ordem         Int        @default(0)
+
+  @@unique([personagemId, slug])
+  @@index([personagemId, ordem])
+  @@map("pericias_custom")
+}
+
+// Recurso = pool numérico customizado (ex: Pontos de Carateca, Pontos de Ambição,
+// Pontos de Okama). Modelagem genérica porque o livro tem dezenas de pools
+// específicos por estilo/profissão e novos surgem em homebrews.
+model Recurso {
+  id            String     @id @default(uuid())
+  personagemId  String     @map("personagem_id")
+  personagem    Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
+
+  nome          String
+  valorAtual    Int        @default(0) @map("valor_atual")
+  valorMax      Int        @default(0) @map("valor_max")
+  ordem         Int        @default(0)
+  cor           String?    // hex (#ffaa00) ou nome de variável CSS; opcional
+  // Quando o recurso recupera: "encontro" | "descansoCurto" | "descansoLongo" | "manual"
+  resetEm       String     @default("manual") @map("reset_em")
+
+  @@index([personagemId, ordem])
+  @@map("recursos")
 }
 
 model Item {
@@ -117,6 +235,22 @@ model Item {
   equipado      Boolean    @default(false)
   favorito      Boolean    @default(false)
 
+  // Arma — categoria oficial do OP RPG (livro do jogador, cap. 8).
+  // "cortante" | "fogo" | "especial" | "marcial"
+  categoria        String  @default("cortante")
+  // Alcance: define o cálculo padrão do atributo de ataque (FOR/DES).
+  // "corpo_a_corpo" | "distancia"
+  alcance          String  @default("corpo_a_corpo")
+  // Alcance real em metros — texto livre, descritivo (ex: "1,5 m", "9/15 m",
+  // "cone 3 m"). Complementa a categoria `alcance` com o número exibido no card.
+  alcanceMetros    String? @map("alcance_metros")
+  // Propriedades canônicas (Acuidade, Arremesso, etc) — array de slugs.
+  propriedades     Json    @default("[]")
+  // Override manual do atributo de ataque ("forca", "destreza", "sabedoria", …).
+  // Quando null, é derivado da categoria + propriedades.
+  atributoAtaque   String? @map("atributo_ataque")
+  proficienteArma  Boolean @default(true) @map("proficiente_arma")
+
   @@map("itens")
 }
 
@@ -127,10 +261,78 @@ model Acao {
 
   nome          String
   descricao     String
-  tipo          String
-  tag           String?
+  tipo          String     // "padrao" | "bonus" | "power" | "react" | "livre"
+  tag           String?    // texto livre (dano resumido, ex: "1d8+2")
+
+  // Custos da técnica.
+  custoPp           Int     @default(0)  @map("custo_pp")
+  custoPa           Int     @default(0)  @map("custo_pa")
+  custoRecursoId    String? @map("custo_recurso_id")  // referência opcional a Recurso (PC, PN, PO…)
+  custoRecursoValor Int     @default(0)  @map("custo_recurso_valor")
+
+  // Mecânica de ataque/salvaguarda.
+  atributoAtaque    String? @map("atributo_ataque")     // "forca" | "destreza" | "sabedoria" | …
+  atributoSalv      String? @map("atributo_salv")       // atributo que o alvo testa pra resistir
+  atributoCd        String? @map("atributo_cd")         // atributo primário do usuário pra CD (8+prof+mod)
+  dano              String?                              // "1d8 cortante", "2d6 fogo"
+  alcance           String?                              // "cc 1,5 m", "9 m", "linha 18 m"
+  // Quando setado, acerto/dano vêm da arma equipada (Item.id) em vez do cálculo
+  // manual — ex: Seiken usando a arma marcial equipada. Referência solta (sem FK):
+  // se a arma sumir/desequipar, a UI cai no cálculo manual (atributoAtaque/dano).
+  armaId            String? @map("arma_id")
+
+  // Vínculo opcional a uma Habilidade do personagem — a ação "deriva de" uma
+  // técnica catalogada em Habilidades. Referência solta (sem FK): se a
+  // habilidade sumir, a UI só ignora o vínculo.
+  habilidadeId      String? @map("habilidade_id")
 
   @@map("acoes")
+}
+
+// Habilidade = entrada catalogada pelo jogador pra qualquer feature do livro
+// (Profissão, Estilo de Combate, Haki, Espécie, Akuma no Mi, Treinamento) ou
+// item livre. Diferente de Acao (focada em combate com dano/salv/atributo),
+// Habilidade é genérica: nome + descrição + lista de efeitos estruturados.
+model Habilidade {
+  id                String     @id @default(uuid())
+  personagemId      String     @map("personagem_id")
+  personagem        Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
+
+  nome              String
+  // "profissao" | "estilo" | "haki" | "especie" | "akumaNoMi" | "treinamento" | "livre"
+  origem            String     @default("livre")
+  // "passiva" | "ativa" | "reativa" | "livre"
+  tipo              String     @default("passiva")
+  descricao         String     @default("")
+
+  // Custos (todos opcionais, 0 = sem custo).
+  custoPp           Int        @default(0)  @map("custo_pp")
+  custoPa           Int        @default(0)  @map("custo_pa")
+  custoRecursoId    String?    @map("custo_recurso_id")
+  custoRecursoValor Int        @default(0)  @map("custo_recurso_valor")
+
+  // Usos limitados. null = ilimitado; usosAtual conta o que sobrou.
+  usos              Int?
+  usosAtual         Int?       @map("usos_atual")
+  // "descansoCurto" | "descansoLongo" | "encontro" | "manual"
+  recarga           String?
+
+  tags              String?    // texto livre, separado por vírgula
+  favorita          Boolean    @default(false)
+  ordem             Int        @default(0)
+
+  // Estado "ligada" de habilidade sustentada (ativa/reativa com efeito sustentado).
+  // Enquanto true, os efeitos sustentados entram no agregador como uma passiva.
+  // Habilidade só-instantânea (cura pura) não usa esse campo (continua no "Usar").
+  ligada            Boolean    @default(false)
+
+  // Lista de efeitos estruturados (ver lib/op-rpg.ts EfeitoHabilidade).
+  efeitos           Json       @default("[]")
+
+  criadoEm          DateTime   @default(now()) @map("criado_em")
+
+  @@index([personagemId])
+  @@map("habilidades")
 }
 
 model Mensagem {
