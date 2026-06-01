@@ -116,7 +116,7 @@ const ALLOWED_ACAO = [
 
 type AcaoInput = Partial<Record<(typeof ALLOWED_ACAO)[number], unknown>>;
 
-const TIPOS_ACAO_VALIDOS = new Set(["padrao", "bonus", "power", "react"]);
+const TIPOS_ACAO_VALIDOS = new Set(["padrao", "bonus", "power", "react", "livre"]);
 
 function normalizarAcaoInput(input: AcaoInput) {
   const data: Record<string, unknown> = {};

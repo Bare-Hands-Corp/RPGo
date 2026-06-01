@@ -190,7 +190,7 @@ model Acao {
 
   nome          String
   descricao     String
-  tipo          String     // "padrao" | "bonus" | "power" | "react"
+  tipo          String     // "padrao" | "bonus" | "power" | "react" | "livre"
   tag           String?    // texto livre (dano resumido, ex: "1d8+2")
 
   // Custos da técnica.

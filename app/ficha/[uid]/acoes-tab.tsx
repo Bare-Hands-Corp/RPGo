@@ -91,6 +91,7 @@ const GRUPOS = [
   { tipo: "bonus", titulo: "Ações Bônus", icone: "fa-bolt", cor: "var(--color-bonus)" },
   { tipo: "power", titulo: "Ações Poderosas", icone: "fa-bomb", cor: "var(--color-power)" },
   { tipo: "react", titulo: "Reações", icone: "fa-shield-alt", cor: "var(--color-react)" },
+  { tipo: "livre", titulo: "Ações Livres", icone: "fa-feather", cor: "var(--color-livre)" },
 ] as const;
 
 type Patch =
@@ -587,13 +588,14 @@ export function AcoesTab({
           <div className="modal-box modal-box-lg" onClick={(e) => e.stopPropagation()}>
             <h2>{form.id ? "Editar Ação" : "Nova Ação"}</h2>
 
-            <div className="tipo-cards tipo-cards-4">
+            <div className="tipo-cards tipo-cards-5">
               {(
                 [
                   ["padrao", "fa-gavel", "Padrão", "var(--color-padrao)"],
                   ["bonus", "fa-bolt", "Bônus", "var(--color-bonus)"],
                   ["power", "fa-bomb", "Poderosa", "var(--color-power)"],
                   ["react", "fa-shield-alt", "Reação", "var(--color-react)"],
+                  ["livre", "fa-feather", "Livre", "var(--color-livre)"],
                 ] as const
               ).map(([slug, icone, titulo, cor]) => (
                 <button

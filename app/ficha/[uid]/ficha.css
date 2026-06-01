@@ -901,6 +901,7 @@
 .type-bonus  { border-left: 5px solid var(--color-bonus); }
 .type-power  { border-left: 5px solid var(--color-power); }
 .type-react  { border-left: 5px solid var(--color-react); }
+.type-livre  { border-left: 5px solid var(--color-livre); }
 .type-comum  { border-left: 5px solid var(--border); }
 
 .card-title {
@@ -1080,6 +1081,10 @@
 
 .tipo-cards-4 {
   grid-template-columns: repeat(4, 1fr);
+}
+
+.tipo-cards-5 {
+  grid-template-columns: repeat(5, 1fr);
 }
 
 /* ─── BTN-RECT (toolbar inventário) ───────────────────────── */
