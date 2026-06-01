@@ -113,10 +113,17 @@ export function ModalTemas({ onFechar }: Props) {
         onClick={(e) => e.stopPropagation()}
         style={{ margin: "auto" }}
       >
-        <h2 style={{ marginBottom: 4 }}>🎨 Temas</h2>
-        <p style={{ fontSize: "0.82rem", color: "var(--text-sec)", marginBottom: 18 }}>
-          Escolha um tema ou crie o seu próprio.
-        </p>
+        <div className="tema-modal-header">
+          <div>
+            <h2 style={{ marginBottom: 4 }}>🎨 Temas</h2>
+            <p style={{ fontSize: "0.82rem", color: "var(--text-sec)", marginBottom: 18 }}>
+              Escolha um tema ou crie o seu próprio.
+            </p>
+          </div>
+          <button type="button" className="modal-close-btn tema-modal-close" onClick={onFechar} aria-label="Fechar modal">
+            <i className="fas fa-xmark" />
+          </button>
+        </div>
 
         <div className="tema-chips">
           {TEMAS_PRESET.map((t) => (
@@ -197,11 +204,6 @@ export function ModalTemas({ onFechar }: Props) {
           </button>
         </details>
 
-        <div style={{ marginTop: 20, textAlign: "right" }}>
-          <button type="button" className="modal-btn-cancel" onClick={onFechar}>
-            Fechar
-          </button>
-        </div>
       </div>
     </div>
   );

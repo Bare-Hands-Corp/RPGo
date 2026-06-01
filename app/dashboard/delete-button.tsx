@@ -5,6 +5,11 @@ import Swal from "sweetalert2";
 type Props = {
   onDelete: () => Promise<void>;
   confirmText: string;
+  iconClassName?: string;
+  title?: string;
+  confirmButtonText?: string;
+  successTitle?: string;
+  successText?: string;
   // Otimista: parent esconde o card imediatamente; em caso de erro, restauramos.
   onOptimisticHide?: () => void;
   onOptimisticRestore?: () => void;
@@ -13,6 +18,11 @@ type Props = {
 export function DeleteButton({
   onDelete,
   confirmText,
+  iconClassName = "fa-solid fa-trash",
+  title = "Apagar",
+  confirmButtonText = "Sim, apagar!",
+  successTitle = "Apagado!",
+  successText,
   onOptimisticHide,
   onOptimisticRestore,
 }: Props) {
@@ -27,7 +37,7 @@ export function DeleteButton({
       showCancelButton: true,
       confirmButtonColor: "#d33",
       cancelButtonColor: "#3085d6",
-      confirmButtonText: "Sim, apagar!",
+      confirmButtonText,
       cancelButtonText: "Cancelar",
       background: "var(--bg-card)",
       color: "var(--text-main)",
@@ -40,7 +50,8 @@ export function DeleteButton({
       await onDelete();
       Swal.fire({
         icon: "success",
-        title: "Apagado!",
+        title: successTitle,
+        text: successText,
         timer: 1200,
         showConfirmButton: false,
         background: "var(--bg-card)",
@@ -62,10 +73,10 @@ export function DeleteButton({
     <button
       type="button"
       className="btn-delete"
-      title="Apagar"
+      title={title}
       onClick={handleClick}
     >
-      <i className="fa-solid fa-trash" />
+        <i className={iconClassName} />
     </button>
   );
 }
