@@ -470,9 +470,15 @@ export function PainelRolador({
     const danoMinFloor =
       ligado("dano_min") && maxDano > 0 ? Math.ceil(maxDano / 2) : 0;
 
+    // Vantagem/desvantagem do d20 = chip do contexto OU o toggle manual do
+    // Rolador (vantagem situacional do narrador). As duas juntas se cancelam —
+    // `rolarD20Contextual` rola um só. Mesmo casamento da regra de 5e.
+    const vantManual = modoRolagem === "vantagem";
+    const desvManual = modoRolagem === "desvantagem";
+
     const opc: OpcoesContextuais = {
-      vantagem: ligado("vantagem"),
-      desvantagem: ligado("desvantagem"),
+      vantagem: ligado("vantagem") || vantManual,
+      desvantagem: ligado("desvantagem") || desvManual,
       floorD20: ligado("floor_d20") ? valorChip("floor_d20") ?? 0 : 0,
       critRange: ligado("crit_range") ? valorChip("crit_range") ?? 20 : 20,
       danoMinFloor,
@@ -488,6 +494,16 @@ export function PainelRolador({
           ? `${base} por ${escaparHtml(c.fontes.join(", "))}`
           : base;
       });
+    // Vant./desv. vinda só do toggle manual (sem chip) vira anotação própria.
+    if (vantManual && !ligado("vantagem")) notas.push("Vantagem");
+    if (desvManual && !ligado("desvantagem")) notas.push("Desvantagem");
+
+    // Lote contextual: quantidade > 1 roda N execuções contextuais e persiste
+    // como lote. Reroll não se aplica num lote — só no lance único.
+    if (quantidadeValida > 1) {
+      finalizarLoteContextual(dadosUsar, modUsar, nomePreset, opc, notas, quantidadeValida);
+      return;
+    }
 
     const r = montarDadosContextuais(dadosUsar, modUsar, opc);
     const rerolls = ligado("reroll") ? valorChip("reroll") ?? 0 : 0;
@@ -511,6 +527,74 @@ export function PainelRolador({
     } else {
       finalizar(r.total, r.rolls, modUsar, montarStringFinal(r.stringDados, notas), nomePreset);
     }
+  }
+
+  // Lote contextual: roda N execuções contextuais (vant/desv/floor/crit por d20)
+  // e persiste como lote no chat. Cada execução leva sua string HTML formatada
+  // (`texto`) pra preservar dado descartado/crit/piso por linha. As fontes (notas)
+  // aparecem no resumo do Rolador; o lote no chat mostra a tag do modo efetivo.
+  function finalizarLoteContextual(
+    dadosUsar: Dado[],
+    modUsar: number,
+    nomePreset: string | null,
+    opc: OpcoesContextuais,
+    notas: string[],
+    quantidade: number,
+  ) {
+    const execucoes = Array.from({ length: quantidade }, () =>
+      montarDadosContextuais(dadosUsar, modUsar, opc),
+    );
+    const modoEfetivo: ModoRolagem =
+      opc.vantagem && !opc.desvantagem
+        ? "vantagem"
+        : opc.desvantagem && !opc.vantagem
+          ? "desvantagem"
+          : "normal";
+
+    const resumo = `${quantidade}x ${rotuloModo(modoEfetivo).toLowerCase()}`;
+    const notasHtml = notas.length
+      ? ` <span class="roll-fontes">· ${notas.join(" · ")}</span>`
+      : "";
+    const linhas = execucoes
+      .map(
+        (e, i) =>
+          `<div class="roll-batch-row"><span class="roll-batch-index">#${i + 1}</span><span class="roll-batch-total">[${e.total}]</span><span class="roll-batch-formula">= ${e.stringDados}</span></div>`,
+      )
+      .join("");
+    setResultado({
+      tipo: "rolado",
+      total: `${quantidade}x`,
+      detalhesHtml: `[${resumo}] ${formulaTexto(dadosUsar, modUsar)}${notasHtml}<div class="roll-batch-list">${linhas}</div>`,
+    });
+
+    const prefixo = nomePreset ? `[${nomePreset}] ` : "";
+    const ultimaRolagemTexto = personagemId
+      ? `${prefixo}[${resumo}] ${formulaTexto(dadosUsar, modUsar)}`
+      : null;
+
+    registrarRolagem(
+      sessionId,
+      userName,
+      {
+        tipo: "lote",
+        total: null,
+        quantidade,
+        modificador: modUsar,
+        modo: modoEfetivo,
+        execucoes: execucoes.map((e) => ({
+          total: e.total,
+          modificador: modUsar,
+          modo: modoEfetivo,
+          detalhes: e.rolls,
+          texto: e.stringDados,
+        })),
+        nomePreset: nomePreset || null,
+      },
+      personagemId,
+      ultimaRolagemTexto,
+    )
+      .then((msg) => onMensagemCriada(msg))
+      .catch((err) => console.error(err));
   }
 
   // Rerrola o lance pendente (mesmo contexto), consumindo uma rerrolagem.
