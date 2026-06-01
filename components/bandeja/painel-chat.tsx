@@ -223,6 +223,8 @@ function MensagemView({
             modificador: number;
             modo?: "normal" | "vantagem" | "desvantagem";
             rolls?: Array<{ faces: number; sinal: 1 | -1; resultado: number }>;
+            // Lote contextual: string HTML já formatada da linha (descartado/crit/piso).
+            texto?: string | null;
           }>;
           quantidade?: number;
           modo?: "normal" | "vantagem" | "desvantagem";
@@ -302,10 +304,13 @@ function MensagemView({
                     <span
                       className="roll-batch-formula"
                       dangerouslySetInnerHTML={{
-                        __html: `= ${formatarResultadoRolagemHtml({
-                          detalhes: execucao.rolls || [],
-                          modificador: execucao.modificador,
-                        })}`,
+                        __html: `= ${
+                          execucao.texto ??
+                          formatarResultadoRolagemHtml({
+                            detalhes: execucao.rolls || [],
+                            modificador: execucao.modificador,
+                          })
+                        }`,
                       }}
                     />
                   </div>

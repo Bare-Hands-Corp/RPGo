@@ -51,6 +51,9 @@ type RolagemExecucaoPayload = {
   modificador: number;
   modo: ModoRolagem;
   detalhes: DadoRolado[];
+  // String HTML já formatada da execução (dado descartado, crit, piso) — usada
+  // pelo lote contextual. Ausente no lote manual (o chat reconstrói dos rolls).
+  texto?: string | null;
 };
 
 type BaseRolagemPayload = {
@@ -142,6 +145,7 @@ export async function registrarRolagem(
                 modificador: execucao.modificador,
                 modo: execucao.modo,
                 rolls: execucao.detalhes,
+                texto: execucao.texto ?? null,
               })),
               nomePreset: rolagem.nomePreset || null,
               tipoTeste: rolagem.tipoTeste || null,
