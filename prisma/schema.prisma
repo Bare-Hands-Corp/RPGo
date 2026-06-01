@@ -10,6 +10,7 @@
 //   ALTER TABLE recursos            REPLICA IDENTITY FULL;
 //   ALTER TABLE mensagens           REPLICA IDENTITY FULL;
 //   ALTER TABLE mesas               REPLICA IDENTITY FULL;
+//   ALTER TABLE navios              REPLICA IDENTITY FULL;
 //   ALTER TABLE calendarios         REPLICA IDENTITY FULL;
 //   ALTER TABLE tipos_clima         REPLICA IDENTITY FULL;
 //   ALTER TABLE eventos_calendario  REPLICA IDENTITY FULL;
@@ -34,8 +35,39 @@ model Mesa {
   bannerUrl    String?      @map("banner_url")
   personagens  Personagem[]
   calendario   Calendario?
+  navio        Navio?
 
   @@map("mesas")
+}
+
+// Navio da tripulação — 1:1 com a Mesa (a tripulação humana é a própria Mesa:
+// os personagens que compartilham o mesaId). Ficha enxuta: guardamos só as
+// escolhas (tamanho, madeira) e os valores mutáveis; PV máx/canhões máx/
+// tripulantes/deques derivam do tamanho e CR/BR derivam da madeira via
+// lib/navio.ts (tabelas do cap. 14 do livro). Qualquer membro da mesa edita.
+model Navio {
+  id        String  @id @default(uuid())
+  mesaId    String  @unique @map("mesa_id")
+  mesa      Mesa    @relation(fields: [mesaId], references: [id], onDelete: Cascade)
+
+  nome      String  @default("")
+  // "pequeno" | "medio" | "grande" | "enorme" | "colossal" — deriva PV máx,
+  // canhões máx, tripulantes, deques e desaceleração por peso.
+  tamanho   String  @default("pequeno")
+  // "cedro" | "carvalho" | "cerejeira" | "adam" — deriva CR e Bônus de Resistência.
+  madeira   String  @default("cedro")
+
+  pvAtual       Int    @default(0) @map("pv_atual")
+  // Velocidade em nós (soma das velas − desaceleração ± correnteza). No MVP é
+  // input direto — sem decompor mastros/velas item-a-item.
+  velocidadeNos Int    @default(0) @map("velocidade_nos")
+  // Nº de canhões instalados; o limite máx vem do tamanho.
+  canhoes       Int    @default(0)
+  descricao     String @default("")
+
+  criadoEm  DateTime @default(now()) @map("criado_em")
+
+  @@map("navios")
 }
 
 model Personagem {
@@ -74,6 +106,12 @@ model Personagem {
   // Exaustão reduz na exibição (½ no nível 2, 0 no 5) e bônus de habilidade
   // somam via agregador (efeito `deslocamento` → bonusDeslocamento).
   deslocamento      Int    @default(9)
+
+  // Deslocamento de nado base em metros (stat próprio de espécie, não derivado
+  // do terrestre: Humano 4,5; Sireno 18; usuário de Akuma no Mi 0). Float por
+  // causa dos meios-metros. Efeito `deslocamento` com tipoMov `nadar` prevalece
+  // o maior contra este base (ver agregarEfeitos).
+  nado              Float  @default(4.5)
 
   // Atributos desnormalizados para simplicidade de queries
   forca         Int     @default(0)
@@ -209,6 +247,11 @@ model Acao {
   // manual — ex: Seiken usando a arma marcial equipada. Referência solta (sem FK):
   // se a arma sumir/desequipar, a UI cai no cálculo manual (atributoAtaque/dano).
   armaId            String? @map("arma_id")
+
+  // Vínculo opcional a uma Habilidade do personagem — a ação "deriva de" uma
+  // técnica catalogada em Habilidades. Referência solta (sem FK): se a
+  // habilidade sumir, a UI só ignora o vínculo.
+  habilidadeId      String? @map("habilidade_id")
 
   @@map("acoes")
 }

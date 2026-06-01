@@ -17,6 +17,7 @@ import {
   type PericiaSlug,
   type TipoEfeito,
 } from "@/lib/op-rpg";
+import { TAMANHOS_VALIDOS, MADEIRAS_VALIDAS, statsTamanho } from "@/lib/navio";
 
 // ─── Auth helper interno ───────────────────────────────────
 // Verifica sessão + acesso (dono OU narrador) e retorna o personagem com mesa.
@@ -72,6 +73,7 @@ const ALLOWED_PERSONAGEM = [
   "dadosVidaGastos",
   "crOutros",
   "deslocamento",
+  "nado",
 ] as const;
 
 type PersonagemPatch = Partial<
@@ -112,6 +114,7 @@ const ALLOWED_ACAO = [
   "dano",
   "alcance",
   "armaId",
+  "habilidadeId",
 ] as const;
 
 type AcaoInput = Partial<Record<(typeof ALLOWED_ACAO)[number], unknown>>;
@@ -154,6 +157,11 @@ function normalizarAcaoInput(input: AcaoInput) {
   // Referência solta a um Item (arma). Não validamos ownership aqui: pior caso
   // é um id que a UI não acha na lista de armas e cai no cálculo manual.
   if (input.armaId !== undefined) data.armaId = input.armaId ? String(input.armaId) : null;
+  // Referência solta a uma Habilidade ("deriva de"). Mesma lógica do armaId:
+  // sem validação de ownership — pior caso é um id que a UI não resolve.
+  if (input.habilidadeId !== undefined) {
+    data.habilidadeId = input.habilidadeId ? String(input.habilidadeId) : null;
+  }
   return data;
 }
 
@@ -179,6 +187,7 @@ export async function criarAcao(personagemId: string, input: AcaoInput) {
       dano: (data.dano as string | null) ?? null,
       alcance: (data.alcance as string | null) ?? null,
       armaId: (data.armaId as string | null) ?? null,
+      habilidadeId: (data.habilidadeId as string | null) ?? null,
     },
   });
   revalidatePath(`/ficha/${personagemId}`);
@@ -1023,4 +1032,100 @@ function clamp(n: number, min: number, max: number): number {
   if (n < min) return min;
   if (n > max) return max;
   return n;
+}
+
+// ─── Navio da tripulação ───────────────────────────────────
+// O navio é 1:1 com a Mesa. Como o caller chama da própria ficha, `autorizar`
+// (dono OU narrador) já cobre "qualquer membro edita": cada membro é dono do
+// seu personagem na mesa. Daí derivamos o mesaId — não confiamos no cliente.
+function navioSerializado(n: {
+  id: string;
+  nome: string;
+  tamanho: string;
+  madeira: string;
+  pvAtual: number;
+  velocidadeNos: number;
+  canhoes: number;
+  descricao: string;
+}) {
+  return {
+    id: n.id,
+    nome: n.nome,
+    tamanho: n.tamanho,
+    madeira: n.madeira,
+    pvAtual: n.pvAtual,
+    velocidadeNos: n.velocidadeNos,
+    canhoes: n.canhoes,
+    descricao: n.descricao,
+  };
+}
+
+async function mesaDoPersonagem(personagemId: string) {
+  const { personagem } = await autorizar(personagemId);
+  if (!personagem.mesaId) {
+    throw new Error("Entre em uma mesa para ter um navio.");
+  }
+  return personagem.mesaId;
+}
+
+export async function criarNavio(personagemId: string) {
+  const mesaId = await mesaDoPersonagem(personagemId);
+  // upsert idempotente — tolera double-click / race entre dois membros.
+  // Nasce com o PV cheio do tamanho default (mais útil que começar em 0).
+  const navio = await prisma.navio.upsert({
+    where: { mesaId },
+    update: {},
+    create: { mesaId, nome: "Novo Navio", pvAtual: statsTamanho("pequeno").pvMax },
+  });
+  revalidatePath(`/ficha/${personagemId}`);
+  return navioSerializado(navio);
+}
+
+const ALLOWED_NAVIO = [
+  "nome",
+  "tamanho",
+  "madeira",
+  "pvAtual",
+  "velocidadeNos",
+  "canhoes",
+  "descricao",
+] as const;
+
+type NavioPatch = Partial<Record<(typeof ALLOWED_NAVIO)[number], unknown>>;
+
+export async function patchNavio(personagemId: string, patch: NavioPatch) {
+  const mesaId = await mesaDoPersonagem(personagemId);
+
+  const data: Record<string, unknown> = {};
+  for (const key of ALLOWED_NAVIO) {
+    if (patch[key] !== undefined) data[key] = patch[key];
+  }
+
+  if (typeof data.nome === "string") data.nome = data.nome.trim();
+  if (typeof data.descricao === "string") data.descricao = data.descricao.trim();
+  if (data.tamanho !== undefined && !TAMANHOS_VALIDOS.has(String(data.tamanho))) {
+    throw new Error("Tamanho de navio inválido.");
+  }
+  if (data.madeira !== undefined && !MADEIRAS_VALIDAS.has(String(data.madeira))) {
+    throw new Error("Madeira inválida.");
+  }
+  for (const num of ["pvAtual", "velocidadeNos", "canhoes"] as const) {
+    if (data[num] !== undefined) {
+      const n = Number(data[num]);
+      if (!Number.isFinite(n)) throw new Error("Valor inválido.");
+      data[num] = Math.max(0, Math.trunc(n));
+    }
+  }
+
+  if (Object.keys(data).length === 0) return;
+
+  await prisma.navio.update({ where: { mesaId }, data });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+export async function deletarNavio(personagemId: string) {
+  const mesaId = await mesaDoPersonagem(personagemId);
+  // deleteMany tolera ausência (sem throw se já não existe).
+  await prisma.navio.deleteMany({ where: { mesaId } });
+  revalidatePath(`/ficha/${personagemId}`);
 }

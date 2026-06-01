@@ -40,6 +40,7 @@ type Personagem = {
   ppMax: number;
   exaustao: number;
   deslocamento: number;
+  nado: number;
   forca: number;
   destreza: number;
   constituicao: number;
@@ -84,6 +85,25 @@ const SIGLA_ATRIBUTO: Record<Atributo, string> = {
   presenca: "PRE",
 };
 
+// Ícone/rótulo dos modos de deslocamento especial (alinhado com o select do
+// editor de efeitos em habilidades-tab). Tipo livre cai no fallback.
+const ICONE_MOV: Record<string, string> = {
+  voar: "fa-dove",
+  nadar: "fa-person-swimming",
+  escalar: "fa-person-hiking",
+  cavar: "fa-shovel",
+};
+const ROTULO_MOV: Record<string, string> = {
+  voar: "Voar",
+  nadar: "Nadar",
+  escalar: "Escalar",
+  cavar: "Cavar",
+};
+
+function capitalizar(s: string): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
 type PatchPersonagem = Partial<
   Pick<
     Personagem,
@@ -94,6 +114,7 @@ type PatchPersonagem = Partial<
     | "ppMax"
     | "tipoDadoVida"
     | "deslocamento"
+    | "nado"
     | "exaustao"
     | "forca"
     | "destreza"
@@ -272,20 +293,31 @@ export function PerfilSidebar({
   // testes de atributo, na iniciativa, etc. — todos derivam dela aqui na ficha.
   const penD20 = penalidadeD20Exaustao(p.exaustao);
 
-  // Deslocamento: base + bônus de habilidade, reduzido pela exaustão.
+  // Deslocamento: (base + bônus) × fator, reduzido pela exaustão. O multiplicador
+  // entra antes da exaustão; a redução por exaustão é reaproveitada passando o
+  // bruto já multiplicado como "base" (bonus 0) pra `deslocamentoEfetivo`.
   const deslocBonus = efeitosAgregados.bonusDeslocamento;
-  const deslocBruto = Math.max(0, p.deslocamento + deslocBonus.valor);
-  const deslocEfetivo = deslocamentoEfetivo(p.deslocamento, deslocBonus.valor, p.exaustao);
+  const multDesloc = efeitosAgregados.multiplicadores["deslocamento"];
+  const deslocSemMult = Math.max(0, p.deslocamento + deslocBonus.valor);
+  const deslocBruto = multDesloc ? Math.round(deslocSemMult * multDesloc.fator) : deslocSemMult;
+  const deslocEfetivo = deslocamentoEfetivo(deslocBruto, 0, p.exaustao);
   const deslocReduzido = deslocEfetivo !== deslocBruto;
   const deslocTitulo =
     [
       deslocBonus.fontes.length
         ? `${formatarMod(deslocBonus.valor)} de ${deslocBonus.fontes.join(", ")}`
         : null,
+      multDesloc ? `×${multDesloc.fator} de ${multDesloc.fontes.join(", ")}` : null,
       deslocReduzido ? `Reduzido por exaustão (de ${deslocBruto} m)` : null,
     ]
       .filter(Boolean)
       .join(" · ") || undefined;
+
+  // Nado: stat base de espécie (não reduzido pela exaustão). Um efeito que
+  // concede nado (`deslocamento`/`nadar`) prevalece o maior contra o base.
+  const nadarExtra = efeitosAgregados.deslocamentosExtra["nadar"];
+  const nadoEfetivo = Math.max(p.nado, nadarExtra?.valor ?? 0);
+  const nadoPorEfeito = (nadarExtra?.valor ?? 0) >= p.nado && !!nadarExtra?.fontes.length;
 
   return (
     <aside className="sidebar">
@@ -297,6 +329,7 @@ export function PerfilSidebar({
             ppMax: p.ppMax,
             tipoDadoVida: p.tipoDadoVida,
             deslocamento: p.deslocamento,
+            nado: p.nado,
             forca: p.forca,
             destreza: p.destreza,
             constituicao: p.constituicao,
@@ -439,17 +472,57 @@ export function PerfilSidebar({
         </span>
       </div>
 
-      <div className="recurso-linha" title={deslocTitulo}>
-        <span className="recurso-icone"><i className="fas fa-person-running" /></span>
-        <span className="recurso-nome">Deslocamento</span>
-        <span className={`stat-values ${deslocReduzido ? "valor-exausto" : ""}`}>
-          {deslocEfetivo.toLocaleString("pt-BR")} m
-          {deslocBonus.fontes.length > 0 && <i className="fas fa-link prof-fonte" />}
-          {deslocReduzido && (
-            <MarcaExausto titulo={`Reduzido por exaustão (de ${deslocBruto} m)`} />
-          )}
-        </span>
+      {/* Deslocamento + Nado lado a lado: dois stats base de movimento na altura
+          de uma linha só. */}
+      <div className="recurso-dupla">
+        <div className="recurso-linha" title={deslocTitulo}>
+          <span className="recurso-icone"><i className="fas fa-person-running" /></span>
+          <span className="recurso-nome">Deslocamento</span>
+          <span className={`stat-values ${deslocReduzido ? "valor-exausto" : ""}`}>
+            {deslocEfetivo.toLocaleString("pt-BR")} m
+            {(deslocBonus.fontes.length > 0 || multDesloc) && (
+              <i className="fas fa-link prof-fonte" />
+            )}
+            {deslocReduzido && (
+              <MarcaExausto titulo={`Reduzido por exaustão (de ${deslocBruto} m)`} />
+            )}
+          </span>
+        </div>
+
+        {/* Nado: stat base de espécie, sempre exibido (igual ao deslocamento). */}
+        <div
+          className="recurso-linha"
+          title={nadoPorEfeito ? `de ${nadarExtra!.fontes.join(", ")}` : undefined}
+        >
+          <span className="recurso-icone"><i className="fas fa-person-swimming" /></span>
+          <span className="recurso-nome">Nadar</span>
+          <span className="stat-values">
+            {nadoEfetivo.toLocaleString("pt-BR")} m
+            {nadoPorEfeito && <i className="fas fa-link prof-fonte" />}
+          </span>
+        </div>
       </div>
+
+      {/* Deslocamentos especiais (voar/escalar/cavar) — modos próprios concedidos
+          por habilidade, não reduzidos pela exaustão. Nado tem linha própria acima. */}
+      {Object.entries(efeitosAgregados.deslocamentosExtra).map(([tipo, fv]) =>
+        fv && tipo !== "nadar" ? (
+          <div
+            key={`mov-${tipo}`}
+            className="recurso-linha"
+            title={fv.fontes.length ? `de ${fv.fontes.join(", ")}` : undefined}
+          >
+            <span className="recurso-icone">
+              <i className={`fas ${ICONE_MOV[tipo] ?? "fa-person-running"}`} />
+            </span>
+            <span className="recurso-nome">{ROTULO_MOV[tipo] ?? capitalizar(tipo)}</span>
+            <span className="stat-values">
+              {fv.valor.toLocaleString("pt-BR")} m
+              {fv.fontes.length > 0 && <i className="fas fa-link prof-fonte" />}
+            </span>
+          </div>
+        ) : null,
+      )}
 
       <RecursosSidebar personagemId={p.id} recursos={p.recursos} />
 
@@ -607,6 +680,42 @@ export function PerfilSidebar({
                   )}
                 </div>
               )}
+            </div>
+          </>
+        );
+      })()}
+
+      {(() => {
+        // Sentidos especiais (visão no escuro, sentir presença…). Mesma fonte
+        // do agregador (passiva ou habilidade ligada). Só exibição.
+        const sentidos = Object.entries(efeitosAgregados.sentidos).filter(
+          (e): e is [string, { valor: number; fontes: string[] }] => !!e[1],
+        );
+        if (!sentidos.length) return null;
+        return (
+          <>
+            <div className="bar-label" style={{ marginTop: 15, color: "var(--color-react)" }}>
+              SENTIDOS
+            </div>
+            <div className="defesas-secao">
+              <div className="defesa-grupo">
+                <div className="defesa-valores">
+                  {sentidos.map(([nome, fv]) => (
+                    <div
+                      key={`sen-${nome}`}
+                      className="defesa-entrada"
+                      title={fv.fontes.length ? `de ${fv.fontes.join(", ")}` : undefined}
+                    >
+                      <div className="defesa-pills">
+                        <span className="defesa-chip">
+                          <i className="fas fa-eye" /> {capitalizar(nome)}
+                          {fv.valor > 0 ? ` ${fv.valor} m` : ""}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </>
         );

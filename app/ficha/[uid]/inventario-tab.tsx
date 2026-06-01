@@ -3,7 +3,7 @@
 import { useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { EditableStat } from "./editable-stat";
-import { atualizarItem, criarItem, deletarItem } from "./actions";
+import { atualizarItem, criarItem, deletarItem, patchPersonagem } from "./actions";
 import {
   ALCANCES_ARMA,
   ATRIBUTOS,
@@ -11,6 +11,7 @@ import {
   PROPRIEDADES_ARMA,
   penalidadeD20Exaustao,
   resolverAtaqueArma,
+  formatarBerries,
   formatarMod,
   type AlcanceArma,
   type Atributo,
@@ -62,6 +63,109 @@ function lerPropriedades(raw: unknown): PropriedadeArma[] {
   const validas = new Set(PROPRIEDADES_ARMA.map((p) => p.slug));
   return raw.filter(
     (p): p is PropriedadeArma => typeof p === "string" && validas.has(p as PropriedadeArma),
+  );
+}
+
+// Berries com controle de transação: clicar no número edita o valor absoluto
+// (EditableStat) e o campo com −/+ tira/adiciona a quantia digitada — assim não
+// precisa abrir a edição e digitar "+5000" na mão. A quantia é formatada com
+// separador de milhar enquanto se digita, os botões só ativam quando há valor e
+// o saldo pisca (verde sobe / vermelho desce) ao confirmar. Otimismo em ambos.
+function BerriesControle({
+  personagemId,
+  berries,
+}: {
+  personagemId: string;
+  berries: number;
+}) {
+  const [valor, definirValor] = useOptimistic(berries, (_atual, novo: number) => novo);
+  const [, startTransition] = useTransition();
+  const [qtd, setQtd] = useState("");
+  const [flash, setFlash] = useState<"sobe" | "desce" | null>(null);
+
+  // Só dígitos importam; a quantia é sempre reexibida com separador de milhar.
+  const quantia = Math.trunc(Number(qtd.replace(/\D/g, "")) || 0);
+
+  function aoDigitar(bruto: string) {
+    const limpo = bruto.replace(/\D/g, "");
+    setQtd(limpo ? formatarBerries(Number(limpo)) : "");
+  }
+
+  function transacionar(sinal: 1 | -1) {
+    if (quantia <= 0) return;
+    const novo = Math.max(0, valor + sinal * quantia);
+    setQtd("");
+    if (novo === valor) return;
+    setFlash(novo > valor ? "sobe" : "desce");
+    startTransition(async () => {
+      definirValor(novo);
+      try {
+        await patchPersonagem(personagemId, { berries: novo });
+      } catch (err) {
+        Swal.fire({
+          icon: "error",
+          title: "Erro",
+          text: err instanceof Error ? err.message : "Operação falhou.",
+          background: "var(--bg-card)",
+          color: "var(--text-main)",
+        });
+      }
+    });
+  }
+
+  const semQuantia = quantia <= 0;
+
+  return (
+    <div className="berries-display" title="Berries (moeda do One Piece)">
+      <span className="berries-simbolo">฿</span>
+      <span
+        className={`berries-valor ${flash ? `flash-${flash}` : ""}`}
+        onAnimationEnd={() => setFlash(null)}
+      >
+        <EditableStat
+          personagemId={personagemId}
+          campo="berries"
+          valor={valor}
+          formato="milhar"
+          onOtimista={(n) => definirValor(n)}
+        />
+      </span>
+      <div className="berries-ctrl">
+        <button
+          type="button"
+          className="berries-btn tirar"
+          onClick={() => transacionar(-1)}
+          disabled={semQuantia}
+          title="Tirar a quantia digitada"
+          aria-label="Tirar berries"
+        >
+          <i className="fas fa-minus" />
+        </button>
+        <input
+          type="text"
+          inputMode="numeric"
+          value={qtd}
+          placeholder="0"
+          aria-label="Quantia a adicionar ou tirar"
+          onChange={(e) => aoDigitar(e.target.value)}
+          onKeyDown={(e) => {
+            // Enter adiciona, Shift+Enter tira — Escape limpa.
+            if (e.key === "Enter") transacionar(e.shiftKey ? -1 : 1);
+            else if (e.key === "Escape") setQtd("");
+          }}
+        />
+        <button
+          type="button"
+          className="berries-btn adicionar"
+          onClick={() => transacionar(1)}
+          disabled={semQuantia}
+          title="Adicionar a quantia digitada"
+          aria-label="Adicionar berries"
+        >
+          <i className="fas fa-plus" />
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -418,15 +522,7 @@ export function InventarioTab({
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
         <h1 style={{ marginRight: "auto" }}>Inventário</h1>
-        <div className="berries-display" title="Berries (moeda do One Piece)">
-          <span className="berries-simbolo">฿</span>
-          <EditableStat
-            personagemId={personagemId}
-            campo="berries"
-            valor={berries}
-            formato="milhar"
-          />
-        </div>
+        <BerriesControle personagemId={personagemId} berries={berries} />
         <button
           type="button"
           className={`btn-rect outline ${mostrarEquipados ? "active" : ""}`}

@@ -257,6 +257,30 @@
   font-weight: 600;
 }
 
+/* Deslocamento + Nadar lado a lado, ocupando a altura de uma linha só. */
+.recurso-dupla {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.recurso-dupla .recurso-linha {
+  gap: 6px;
+  padding: 6px 8px;
+  min-width: 0;
+}
+
+.recurso-dupla .recurso-nome {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recurso-dupla .stat-values {
+  white-space: nowrap;
+}
+
 /* Valor reduzido por exaustão (deslocamento, bônus de testes de d20) —
    amarelo pra deixar claro que não é o valor base da ficha. */
 .valor-exausto,
@@ -452,6 +476,90 @@
   font-weight: 800;
   color: #d4af37;
   line-height: 1;
+}
+
+.berries-valor {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Pisca o saldo ao confirmar: verde quando sobe, vermelho quando desce. */
+@keyframes berries-flash-sobe {
+  0% { color: #2ecc71; transform: scale(1.12); }
+  100% { color: inherit; transform: scale(1); }
+}
+@keyframes berries-flash-desce {
+  0% { color: #ff6b6b; transform: scale(0.92); }
+  100% { color: inherit; transform: scale(1); }
+}
+.berries-valor.flash-sobe { animation: berries-flash-sobe 0.55s ease-out; }
+.berries-valor.flash-desce { animation: berries-flash-desce 0.55s ease-out; }
+
+.berries-ctrl {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+}
+
+.berries-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-sec);
+  cursor: pointer;
+  font-size: 0.75rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.berries-btn:not(:disabled).tirar:hover {
+  border-color: #ff6b6b;
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.12);
+}
+
+.berries-btn:not(:disabled).adicionar:hover {
+  border-color: #2ecc71;
+  color: #2ecc71;
+  background: rgba(46, 204, 113, 0.12);
+}
+
+.berries-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.berries-ctrl input {
+  width: 96px;
+  text-align: right;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-family: inherit;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.berries-ctrl input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.18);
+}
+
+.berries-ctrl input::placeholder {
+  color: var(--text-sec);
+  font-weight: 600;
 }
 
 /* ─── RECURSOS CUSTOMIZADOS ──────────────────────────────── */
@@ -923,6 +1031,28 @@
   gap: 5px;
   flex-wrap: wrap;
   margin-top: 10px;
+}
+
+/* "Deriva de [Habilidade]" — nota de origem no canto inferior direito do card,
+   com o nome da habilidade num boxzinho. */
+.acao-deriva {
+  margin-left: auto;
+  align-self: flex-end;
+  font-size: 0.72rem;
+  font-style: italic;
+  color: var(--text-sec);
+}
+
+.acao-deriva-nome {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-style: normal;
+  font-weight: 600;
+  vertical-align: middle;
 }
 
 .tag {
@@ -1972,4 +2102,288 @@
 .efeito-editor-corpo textarea {
   font-size: 0.85rem;
   padding: 6px 8px;
+}
+
+/* ─── TRIPULAÇÃO ──────────────────────────────────────────── */
+.tripulantes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.tripulante-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.tripulante-card.link {
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.tripulante-card.link:hover {
+  border-color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.tripulante-card.voce {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 8%, var(--bg-card));
+}
+
+.tripulante-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--bg-soft, var(--border));
+  flex-shrink: 0;
+}
+
+.tripulante-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.tripulante-nome {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tripulante-voce {
+  color: var(--primary);
+  font-weight: 400;
+  font-size: 0.8rem;
+}
+
+.tripulante-nivel {
+  align-self: flex-start;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-sec);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  margin-top: 1px;
+}
+
+.tripulante-pv-barra {
+  height: 6px;
+  border-radius: 4px;
+  background: var(--border);
+  overflow: hidden;
+  margin-top: 3px;
+}
+
+.tripulante-pv-fill {
+  height: 100%;
+  background: var(--color-power, #e74c3c);
+  transition: width 0.25s;
+}
+
+.tripulante-pv-txt {
+  font-size: 0.72rem;
+  color: var(--text-sec);
+}
+
+/* ─── NAVIO ───────────────────────────────────────────────── */
+.navio-vazio {
+  text-align: center;
+  padding: 24px 16px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+}
+
+.navio-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.navio-cabecalho {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.navio-nome {
+  display: block;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.navio-sub {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--text-sec);
+  margin-top: 2px;
+}
+
+.navio-acoes {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.navio-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-sec);
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.navio-btn:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.navio-btn.rm:hover {
+  color: #e74c3c;
+  border-color: #e74c3c;
+}
+
+.navio-pv {
+  margin-bottom: 16px;
+}
+
+.navio-pv-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.navio-pv-rotulo {
+  font-size: 0.85rem;
+  color: var(--text-sec);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.navio-pv-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.navio-pv-ctrl button {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-main);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.navio-pv-ctrl button:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.navio-pv-ctrl input {
+  width: 70px;
+  text-align: right;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-family: inherit;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.navio-pv-ctrl input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+.navio-pv-max {
+  font-size: 0.85rem;
+  color: var(--text-sec);
+}
+
+.navio-pv-barra {
+  height: 9px;
+  border-radius: 5px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.navio-pv-fill {
+  height: 100%;
+  background: var(--color-power, #e74c3c);
+  transition: width 0.25s;
+}
+
+.navio-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.navio-stat {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg-soft, color-mix(in oklch, var(--bg-card) 70%, var(--border)));
+  border-radius: 8px;
+}
+
+.navio-stat > i {
+  color: var(--text-sec);
+  width: 18px;
+  text-align: center;
+}
+
+.navio-stat-rotulo {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--text-sec);
+}
+
+.navio-stat-valor {
+  display: block;
+  font-weight: 600;
+}
+
+.navio-stat-valor.alerta {
+  color: #e0a000;
+}
+
+.navio-descricao {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 0.9rem;
+  color: var(--text-sec);
+  white-space: pre-wrap;
 }

@@ -5,6 +5,7 @@ import { AcoesTab } from "./acoes-tab";
 import { HabilidadesTab } from "./habilidades-tab";
 import { InventarioTab } from "./inventario-tab";
 import { PericiasTab } from "./pericias-tab";
+import { TripulacaoTab } from "./tripulacao-tab";
 import { CalendarioView } from "@/app/calendario/[mesaId]/calendario-view";
 import { CalendarioRealtime } from "@/app/calendario/[mesaId]/realtime-refresher";
 import type { CalendarioCarregado } from "@/lib/calendario/carregar";
@@ -15,6 +16,8 @@ type Item = React.ComponentProps<typeof InventarioTab>["itens"][number];
 type RecursoRef = React.ComponentProps<typeof AcoesTab>["recursos"][number];
 type Habilidade = React.ComponentProps<typeof HabilidadesTab>["habilidades"][number];
 type PericiaCustom = React.ComponentProps<typeof PericiasTab>["periciasCustom"][number];
+type Tripulante = React.ComponentProps<typeof TripulacaoTab>["tripulantes"][number];
+type Navio = React.ComponentProps<typeof TripulacaoTab>["navio"];
 
 type Props = {
   personagemId: string;
@@ -34,6 +37,8 @@ type Props = {
   efeitosAgregados: EfeitosAgregados;
   calendario: CalendarioCarregado | null;
   isNarradorDaMesa: boolean;
+  tripulantes: Tripulante[];
+  navio: Navio;
 };
 
 type TabId =
@@ -72,6 +77,8 @@ export function FichaTabs({
   efeitosAgregados,
   calendario,
   isNarradorDaMesa,
+  tripulantes,
+  navio,
 }: Props) {
   const [ativa, setAtiva] = useState<TabId>("combate");
 
@@ -114,6 +121,7 @@ export function FichaTabs({
           recursos={recursos}
           efeitosAgregados={efeitosAgregados}
           itens={itens}
+          habilidades={habilidades}
         />
       </div>
 
@@ -159,9 +167,14 @@ export function FichaTabs({
         />
       </div>
 
-      <div hidden={ativa !== "tripulacao"} className="placeholder-tab">
-        <i className="fas fa-users" />
-        <p>Tripulação — em construção.</p>
+      <div hidden={ativa !== "tripulacao"}>
+        <TripulacaoTab
+          personagemId={personagemId}
+          mesaId={mesaId}
+          isNarradorDaMesa={isNarradorDaMesa}
+          tripulantes={tripulantes}
+          navio={navio}
+        />
       </div>
 
       {mesaId && calendario && (

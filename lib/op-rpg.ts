@@ -1412,6 +1412,11 @@ export type EfeitosAgregados = {
   // Sentidos especiais (visão escuro, sentir presença…). Indexado por nome
   // do sentido; o maior alcance vence.
   sentidos: Partial<Record<string, FonteValor>>;
+  // Deslocamentos especiais (voar/nadar/escalar/cavar). Indexado pelo tipo de
+  // movimento; o maior valor por tipo vence (é o modo, não soma — "prevalece o
+  // maior", regra das espécies). "caminhar" NÃO entra aqui: soma no
+  // bonusDeslocamento (deslocamento base) pra casar com `modificador→deslocamento`.
+  deslocamentosExtra: Partial<Record<string, FonteValor>>;
   // Fatores multiplicativos (ex: Espécie Gigante ×2 carga). Indexado pelo
   // slug do alvo. Vários multiplicadores compõem por produto (×2 × ×1.5 = ×3).
   // Default 1 (sem efeito). Ordem com aditivo: (base + bônus) × fator.
@@ -1472,6 +1477,7 @@ function vazio(): EfeitosAgregados {
     floorD20: { valor: 0, fontes: [] },
     rerolls: {},
     sentidos: {},
+    deslocamentosExtra: {},
     multiplicadores: {},
     contextuais: [],
     substituicoesAtributo: {},
@@ -1594,7 +1600,7 @@ export function computarDeltasInstantaneos(
 // persistente (aplicado enquanto a habilidade estiver passiva ou ligada e
 // revertido ao desligar). NÃO são sustentados: os instantâneos (cura,
 // recurso_delta, `modificador` em hp-temp — grants one-shot que persistem) nem
-// os puramente descritivos (livre/trigger/rolagem/condicao_*/sentido/acao_extra).
+// os puramente descritivos (livre/trigger/rolagem/condicao_*/acao_extra).
 // `modificador` em hp-max/pp-max É sustentado (bônus de máximo revertível).
 export function efeitoEhSustentado(e: EfeitoHabilidade): boolean {
   switch (e.tipo) {
@@ -1616,6 +1622,7 @@ export function efeitoEhSustentado(e: EfeitoHabilidade): boolean {
     case "multiplicador":
     case "substituir_atributo":
     case "deslocamento":
+    case "sentido":
     case "dano_min":
     case "alcance":
     case "ignora":
@@ -1745,6 +1752,20 @@ export function agregarEfeitos(
           // Primeira a definir vence; demais só acumulam fonte.
           if (!out.trocaDano) out.trocaDano = { tipoDano: t, fontes: [h.nome] };
           else if (!out.trocaDano.fontes.includes(h.nome)) out.trocaDano.fontes.push(h.nome);
+        }
+      } else if (e.tipo === "deslocamento") {
+        const tipo = e.tipoMov.trim().toLowerCase();
+        if (tipo && e.valor) {
+          if (tipo === "caminhar") {
+            // Deslocamento terrestre é o base — soma como bônus.
+            somarBucketSimples(out.bonusDeslocamento, e.valor, h.nome);
+          } else {
+            // Voar/nadar/escalar/cavar: modo próprio, prevalece o maior.
+            const atual = out.deslocamentosExtra[tipo] ?? { valor: 0, fontes: [] };
+            if (e.valor > atual.valor) atual.valor = e.valor;
+            if (!atual.fontes.includes(h.nome)) atual.fontes.push(h.nome);
+            out.deslocamentosExtra[tipo] = atual;
+          }
         }
       }
     }

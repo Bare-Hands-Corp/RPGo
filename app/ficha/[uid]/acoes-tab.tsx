@@ -47,9 +47,13 @@ type Acao = {
   dano: string | null;
   alcance: string | null;
   armaId: string | null;
+  habilidadeId: string | null;
 };
 
 type RecursoMinimo = { id: string; nome: string; cor: string | null };
+
+// Subconjunto de Habilidade pra exibir/selecionar o vínculo "deriva de".
+type HabilidadeRef = { id: string; nome: string };
 
 // Subconjunto de Item necessário pra resolver o ataque/dano de uma arma.
 type ItemArma = {
@@ -75,6 +79,7 @@ type Props = {
   recursos: RecursoMinimo[];
   efeitosAgregados: EfeitosAgregados;
   itens: ItemArma[];
+  habilidades: HabilidadeRef[];
 };
 
 const SIGLA: Record<Atributo, string> = {
@@ -115,6 +120,7 @@ type FormState = {
   dano: string;
   alcance: string;
   armaId: string;
+  habilidadeId: string;
 };
 
 const FORM_VAZIO: FormState = {
@@ -133,6 +139,7 @@ const FORM_VAZIO: FormState = {
   dano: "",
   alcance: "",
   armaId: "",
+  habilidadeId: "",
 };
 
 // Une listas de fontes preservando ordem e removendo duplicatas.
@@ -162,6 +169,7 @@ export function AcoesTab({
   recursos,
   efeitosAgregados,
   itens,
+  habilidades,
 }: Props) {
   // Penalidade de exaustão (−2 × nível) some no acerto (teste de d20). NÃO entra
   // no dano (não é d20) nem na CD da técnica (quem rola é o alvo). Otimista.
@@ -212,6 +220,7 @@ export function AcoesTab({
       dano: acao.dano || "",
       alcance: acao.alcance || "",
       armaId: acao.armaId || "",
+      habilidadeId: acao.habilidadeId || "",
     });
     setModalAberto(true);
   }
@@ -253,6 +262,7 @@ export function AcoesTab({
       dano: form.dano || null,
       alcance: form.alcance || null,
       armaId: form.armaId || null,
+      habilidadeId: form.habilidadeId || null,
     };
 
     const editandoId = form.id;
@@ -347,6 +357,11 @@ export function AcoesTab({
                     ? armas.find((a) => a.id === acao.armaId)
                     : undefined;
                   const armaLigada = arma?.equipado ? arma : undefined;
+                  // Habilidade da qual a ação deriva (ref solta). Some o chip se
+                  // a habilidade foi apagada.
+                  const habDerivada = acao.habilidadeId
+                    ? habilidades.find((h) => h.id === acao.habilidadeId)
+                    : undefined;
                   const ataqueArma = armaLigada
                     ? resolverAtaqueArma({
                         alcanceRaw: armaLigada.alcance,
@@ -546,7 +561,7 @@ export function AcoesTab({
                         )}
                         <div className="card-desc">{acao.descricao}</div>
                       </div>
-                      {(custos.length > 0 || acao.tag) && (
+                      {(custos.length > 0 || acao.tag || habDerivada) && (
                         <div className="card-tags">
                           {custos.map((c, i) => (
                             <span
@@ -567,6 +582,12 @@ export function AcoesTab({
                           ))}
                           {acao.tag && (
                             <span className="tag tag-damage">{acao.tag}</span>
+                          )}
+                          {habDerivada && (
+                            <span className="acao-deriva" title="Esta ação deriva de uma habilidade">
+                              Deriva de{" "}
+                              <span className="acao-deriva-nome">{habDerivada.nome}</span>
+                            </span>
                           )}
                         </div>
                       )}
@@ -628,9 +649,27 @@ export function AcoesTab({
                 placeholder="Descreva o efeito..."
               />
 
-              <details className="modal-secao-detalhe" open={!!(form.dano || form.alcance || form.atributoAtaque || form.atributoSalv || form.atributoCd || form.tag || form.armaId)}>
+              <details className="modal-secao-detalhe" open={!!(form.dano || form.alcance || form.atributoAtaque || form.atributoSalv || form.atributoCd || form.tag || form.armaId || form.habilidadeId)}>
                 <summary><i className="fas fa-gears" /> Mecânica de combate</summary>
                 <div className="modal-secao-corpo">
+                  <label>Deriva de (habilidade)</label>
+                  <select
+                    value={form.habilidadeId}
+                    onChange={(e) => setF("habilidadeId", e.target.value)}
+                  >
+                    <option value="">— nenhuma —</option>
+                    {habilidades.map((h) => (
+                      <option key={h.id} value={h.id}>
+                        {h.nome}
+                      </option>
+                    ))}
+                  </select>
+                  {habilidades.length === 0 && (
+                    <p className="modal-hint" style={{ marginTop: 8 }}>
+                      <i className="fas fa-lightbulb" /> Cadastre uma habilidade na aba Habilidades pra atrelar esta ação a ela.
+                    </p>
+                  )}
+
                   <label>Acerto vem da arma</label>
                   <select
                     value={form.armaId}

@@ -73,17 +73,28 @@ export default async function FichaPage({ params }: Params) {
     0,
   );
 
-  // Pré-carrega mensagens do chat + calendário (se houver mesa) em paralelo.
-  const [mensagensIniciais, calendario] = await Promise.all([
+  // Pré-carrega mensagens do chat + calendário + tripulação/navio (se houver
+  // mesa) em paralelo. Tripulação = personagens que compartilham o mesaId.
+  const [mensagensIniciais, calendario, tripulantes, navio] = await Promise.all([
     listarMensagensSessao(sessionId),
     personagem.mesaId
       ? carregarCalendario(personagem.mesaId, { isNarrador })
+      : Promise.resolve(null),
+    personagem.mesaId
+      ? prisma.personagem.findMany({
+          where: { mesaId: personagem.mesaId },
+          select: { id: true, nome: true, fotoUrl: true, nivel: true, hpAtual: true, hpMax: true },
+          orderBy: { nome: "asc" },
+        })
+      : Promise.resolve([]),
+    personagem.mesaId
+      ? prisma.navio.findUnique({ where: { mesaId: personagem.mesaId } })
       : Promise.resolve(null),
   ]);
 
   return (
     <div className="ficha-layout">
-      <FichaRealtime personagemId={personagem.id} />
+      <FichaRealtime personagemId={personagem.id} mesaId={personagem.mesaId} />
       <PerfilSidebar
         personagem={personagem}
         habilidades={personagem.habilidades}
@@ -135,6 +146,21 @@ export default async function FichaPage({ params }: Params) {
         habilidades={personagem.habilidades}
         calendario={calendario}
         isNarradorDaMesa={isNarrador}
+        tripulantes={tripulantes}
+        navio={
+          navio
+            ? {
+                id: navio.id,
+                nome: navio.nome,
+                tamanho: navio.tamanho,
+                madeira: navio.madeira,
+                pvAtual: navio.pvAtual,
+                velocidadeNos: navio.velocidadeNos,
+                canhoes: navio.canhoes,
+                descricao: navio.descricao,
+              }
+            : null
+        }
       />
       <div className="ficha-topo-acoes">
         <ThemeButton />
