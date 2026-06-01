@@ -73,6 +73,8 @@ model Ameaca {
 
   @@index([mesaId, nome])
   @@map("ameacas")
+}
+
 // Navio da tripulação — 1:1 com a Mesa (a tripulação humana é a própria Mesa:
 // os personagens que compartilham o mesaId). Ficha enxuta: guardamos só as
 // escolhas (tamanho, madeira) e os valores mutáveis; PV máx/canhões máx/
