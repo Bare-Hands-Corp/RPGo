@@ -1,0 +1,658 @@
+/* ─── Página de fichas de ameaça ─────────────────────────── */
+
+.ameacas-page-wrapper {
+  width: 100%;
+  max-width: none;
+  margin: 20px 0 0;
+  padding: 22px 24px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 8px 24px -16px rgba(0, 0, 0, 0.25);
+}
+
+.ameacas-page-topbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.ameacas-voltar {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-sec);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.ameacas-voltar:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.ameacas-page-titulo {
+  flex: 1;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.ameacas-page-kicker {
+  font-family: monospace;
+  font-size: 0.65rem;
+  color: var(--text-sec);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.ameacas-page-titulo h1 {
+  margin: 2px 0 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ameacas-page-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--text-sec);
+}
+
+.ameacas-page-chip i {
+  color: var(--primary);
+}
+
+.ameacas-shell {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 16px;
+  min-width: 0;
+}
+
+.ameacas-lista {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  min-width: 0;
+}
+
+.ameacas-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.ameacas-lista--catalogo {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ameacas-editor-drawer {
+  overflow: hidden;
+  flex: 0 0 0;
+  width: 0;
+  min-width: 0;
+  opacity: 0;
+  transform: translateX(-18px);
+  transition: width 0.45s ease, flex-basis 0.45s ease, opacity 0.25s ease, transform 0.25s ease;
+  will-change: width, flex-basis, opacity, transform;
+}
+
+.ameacas-editor-drawer.open {
+  flex-basis: clamp(360px, 34vw, 620px);
+  width: clamp(360px, 34vw, 620px);
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.ameacas-lista-topo,
+.ameacas-editor-topo,
+.ameacas-subcabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ameacas-lista-topo h2,
+.ameacas-editor-topo h2 {
+  margin: 2px 0 0;
+  font-size: 1.1rem;
+  color: var(--text-main);
+}
+
+.ameacas-kicker {
+  font-family: monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-sec);
+}
+
+.ameacas-btn-primary,
+.ameacas-btn-sec,
+.ameacas-mini-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font: inherit;
+  font-weight: 700;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ameacas-btn-primary {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+  padding: 10px 14px;
+}
+
+.ameacas-btn-sec {
+  padding: 8px 12px;
+}
+
+.ameacas-mini-btn {
+  padding: 6px 10px;
+  font-size: 0.78rem;
+}
+
+.ameacas-mini-btn.danger {
+  color: #c0392b;
+  border-color: color-mix(in oklch, #c0392b 28%, var(--border));
+}
+
+.ameacas-btn-primary:hover,
+.ameacas-btn-sec:hover,
+.ameacas-mini-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.ameacas-lista-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  padding-right: 2px;
+}
+
+.ameaca-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  border-radius: 14px;
+  padding: 14px;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s, background 0.15s;
+}
+
+.ameaca-card:hover,
+.ameaca-card.active {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 8%, var(--bg-surface));
+  transform: translateY(-1px);
+}
+
+.ameaca-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ameaca-card-head h3 {
+  margin: 0;
+  color: var(--text-main);
+  font-size: 1rem;
+}
+
+.ameaca-card-head p,
+.ameaca-card-sub {
+  margin: 4px 0 0;
+  color: var(--text-sec);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.ameaca-card-chip {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.ameaca-card-acoes {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ameacas-editor {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in oklch, var(--bg-surface) 90%, var(--primary) 10%);
+}
+
+.ameacas-editor-acoes {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.ameaca-card-acao {
+  border: 0;
+  background: transparent;
+  color: #c0392b;
+  font: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+}
+
+.ameacas-empty,
+.ameacas-vazio {
+  color: var(--text-sec);
+  text-align: center;
+}
+
+.ameacas-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+}
+
+.ameacas-empty i {
+  font-size: 1.6rem;
+  color: var(--primary);
+}
+
+.ameacas-editor {
+  box-shadow: 0 12px 28px -24px rgba(0, 0, 0, 0.35);
+}
+
+.ameacas-editor-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+  max-height: min(78vh, 1200px);
+  padding-right: 2px;
+}
+
+.ameacas-bloco {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ameacas-bloco h3,
+.ameacas-subcabecalho h4 {
+  margin: 0;
+  color: var(--text-main);
+}
+
+.ameacas-subtexto {
+  margin: 2px 0 0;
+  color: var(--text-sec);
+  font-size: 0.78rem;
+}
+
+.ameacas-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.ameacas-grid.vitais {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ameacas-grid.atributos {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ameacas-grid.acao-extra {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ameacas-grid label,
+.ameacas-bloco > label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--text-sec);
+}
+
+.ameacas-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  font: inherit;
+  box-sizing: border-box;
+}
+
+.ameacas-input-curto {
+  max-width: 110px;
+}
+
+.ameacas-subbloco {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ameacas-lista-compacta,
+.ameacas-lista-completa {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ameacas-linha-flex {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.ameacas-card-vertical {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+
+.ameacas-visualizacao {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ameacas-ficha-resumo,
+.ameacas-view-section {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-surface);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ameacas-ficha-resumo-topo,
+.ameacas-view-item-topo {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ameacas-ficha-resumo h3,
+.ameacas-view-section h3 {
+  margin: 0;
+  color: var(--text-main);
+}
+
+.ameacas-ficha-metricas {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ameacas-ficha-metricas div {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ameacas-ficha-metricas span,
+.ameacas-view-subbloco strong {
+  font-size: 0.74rem;
+  color: var(--text-sec);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ameacas-ficha-metricas strong {
+  font-size: 1rem;
+  color: var(--text-main);
+}
+
+.ameacas-atributos-view {
+  display: grid;
+  grid-template-columns: repeat(6, 68px);
+  justify-content: center;
+  gap: 6px;
+}
+
+.ameacas-atributo-card {
+  aspect-ratio: 1 / 1;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 3px;
+  text-align: center;
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--primary) 10%, transparent);
+}
+
+.ameacas-atributo-label {
+  font-size: 0.56rem;
+  font-weight: 800;
+  color: var(--text-sec);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.ameacas-atributo-card strong {
+  font-size: clamp(1rem, 2vw, 1.3rem);
+  line-height: 1;
+  font-weight: 800;
+  color: var(--text-main);
+}
+
+.ameacas-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ameacas-tag {
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.ameacas-view-blocos {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ameacas-view-subbloco {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ameacas-view-subbloco p,
+.ameacas-view-item p {
+  margin: 0;
+  color: var(--text-sec);
+  line-height: 1.5;
+}
+
+.ameacas-view-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ameacas-view-item {
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ameacas-view-item-topo {
+  align-items: center;
+}
+
+.ameacas-view-item-topo strong {
+  color: var(--text-main);
+}
+
+.ameacas-view-item-topo .ameacas-tags {
+  justify-content: flex-end;
+}
+
+.ameacas-vazio {
+  padding: 8px 0;
+  margin: 0;
+}
+
+@media (max-width: 1100px) {
+  .ameacas-shell {
+    flex-direction: column;
+  }
+
+  .ameacas-editor-drawer {
+    width: 100%;
+    flex-basis: auto;
+    opacity: 1;
+    transform: none;
+  }
+
+  .ameacas-editor-drawer.open {
+    width: 100%;
+    flex-basis: auto;
+  }
+
+  .ameacas-lista-grid {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  }
+
+  .ameacas-editor-scroll {
+    max-height: none;
+  }
+}
+
+@media (max-width: 800px) {
+  .ameacas-shell {
+    flex-direction: column;
+  }
+
+  .ameacas-editor-drawer,
+  .ameacas-editor-drawer.open {
+    width: 100%;
+    flex-basis: auto;
+  }
+
+  .ameacas-grid.vitais,
+  .ameacas-grid.atributos,
+  .ameacas-grid.acao-extra {
+    grid-template-columns: 1fr;
+  }
+
+  .ameacas-atributos-view {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .ameacas-lista-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ameacas-ficha-metricas {
+    grid-template-columns: 1fr;
+  }
+
+  .ameacas-linha-flex {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ameacas-input-curto {
+    max-width: none;
+  }
+}

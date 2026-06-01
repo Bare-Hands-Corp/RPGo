@@ -43,7 +43,15 @@ type Props = {
 
 type Aba = "jogadores" | "acoes" | "calendario";
 
-const ACOES_PROTOTIPO = [
+type AcaoNarrador = {
+  id: string;
+  titulo: string;
+  icone: string;
+  descricao: string;
+  href?: (mesaId: string) => string;
+};
+
+const ACOES_PROTOTIPO: AcaoNarrador[] = [
   {
     id: "testes",
     titulo: "Pedir Testes",
@@ -63,16 +71,17 @@ const ACOES_PROTOTIPO = [
     descricao: "Preparar cenas, emboscadas e eventos da mesa.",
   },
   {
-    id: "ameacas",
-    titulo: "Fichas de Ameaças",
-    icone: "fa-shield-halved",
-    descricao: "Registro de inimigos, bosses e NPCs relevantes.",
-  },
-  {
     id: "mesa",
     titulo: "Editar Mesa",
     icone: "fa-gear",
     descricao: "Banner, nome, acesso e ajustes gerais da mesa.",
+  },
+  {
+    id: "ameacas",
+    titulo: "Fichas de Ameaças",
+    icone: "fa-skull",
+    descricao: "Registro de inimigos, bosses e NPCs relevantes.",
+    href: (mesaId: string) => `/narrador/${mesaId}/ameacas`,
   },
 ] as const;
 
@@ -203,11 +212,19 @@ export function NarradorShell({ mesa, userId, mensagensIniciais, calendario }: P
                       <p>{acao.descricao}</p>
                     </div>
                     <div className="acao-card-rodape">
-                      <span>Protótipo</span>
+                      <span>{acao.href ? "Disponível agora" : "Protótipo"}</span>
                       <i className="fas fa-arrow-right" />
                     </div>
                   </>
                 );
+
+                if (acao.href) {
+                  return (
+                    <Link key={acao.id} href={acao.href(mesa.id)} className="acao-narrador-card">
+                      {conteudo}
+                    </Link>
+                  );
+                }
 
                 return (
                   <button
