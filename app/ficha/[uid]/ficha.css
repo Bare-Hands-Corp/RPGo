@@ -2759,3 +2759,32 @@
 .tags-editor-fechar:hover {
   color: var(--text-main);
 }
+
+/* ─── TETO DE ATRIBUTO ─────────────────────────────────────
+   O limite de 20 é do Aprimoramento de Atributo (e do ajuste de espécie na
+   criação), não um teto duro — o livro lista pontuações até 30 pra lendários.
+   Por isso a ficha só sinaliza; nada bloqueia a edição. */
+.attr-teto-nota {
+  font-weight: 400;
+  color: var(--text-sec);
+  opacity: 0.75;
+}
+
+.input-acima-teto {
+  border-color: #e0a000 !important;
+}
+
+.attr-teto-aviso {
+  margin-top: 3px;
+  font-size: 0.62rem;
+  line-height: 1.2;
+  font-style: italic;
+  color: #e0a000;
+}
+
+.attr-acima-teto {
+  font-size: 0.62em;
+  margin-left: 4px;
+  color: #e0a000;
+  vertical-align: super;
+}

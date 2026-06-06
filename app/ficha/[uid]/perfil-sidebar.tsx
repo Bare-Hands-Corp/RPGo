@@ -22,6 +22,7 @@ import {
   percepcaoPassiva,
   estadoDefesa,
   progresso,
+  tetoAtributo,
   type Atributo,
   type DefesaAgregada,
 } from "@/lib/op-rpg";
@@ -337,6 +338,7 @@ export function PerfilSidebar({
             vontade: p.vontade,
             presenca: p.presenca,
           }}
+          bonusTetoAtributo={efeitosAgregados.bonusTetoAtributo}
           onOtimista={aplicarOtimista}
         />
       </div>
@@ -738,9 +740,19 @@ export function PerfilSidebar({
           const valor = atributosEfetivos[slug];
           const bonus = efeitosAgregados.bonusAtributo[slug];
           const modEf = modificador(valor) - penD20;
+          // Teto do Aprimoramento de Atributo: compara a pontuação BASE (a que
+          // o EditFichaModal edita), não a efetiva — bônus de habilidade não
+          // passa pelo Aprimoramento. Avisa, não impede.
+          const teto = tetoAtributo(efeitosAgregados.bonusTetoAtributo, slug);
+          const acimaDoTeto = p[slug] > teto.valor;
           const titulo = [
             bonus ? `${formatarMod(bonus.valor)} de ${bonus.fontes.join(", ")}` : null,
             penD20 ? `−${penD20} de exaustão` : null,
+            acimaDoTeto
+              ? `${p[slug]} acima do teto de ${teto.valor}${
+                  teto.fontes.length ? ` (elevado por ${teto.fontes.join(", ")})` : ""
+                }`
+              : null,
           ]
             .filter(Boolean)
             .join(" · ");
@@ -759,6 +771,12 @@ export function PerfilSidebar({
               <div className="attr-label">
                 {label}
                 {bonus && <i className="fas fa-link prof-fonte" />}
+                {acimaDoTeto && (
+                  <i
+                    className="fas fa-triangle-exclamation attr-acima-teto"
+                    title={`Acima do teto de ${teto.valor}`}
+                  />
+                )}
               </div>
               <div className={`attr-value ${penD20 > 0 ? "valor-exausto" : ""}`}>
                 {formatarMod(modEf)}
