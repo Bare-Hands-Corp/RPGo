@@ -142,6 +142,7 @@ export default async function FichaPage({ params }: Params) {
           id: r.id,
           nome: r.nome,
           cor: r.cor,
+          efeito: r.efeito,
         }))}
         habilidades={personagem.habilidades}
         calendario={calendario}

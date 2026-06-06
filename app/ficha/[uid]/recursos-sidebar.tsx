@@ -3,6 +3,13 @@
 import { useEffect, useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { atualizarRecurso, criarRecurso, deletarRecurso } from "./actions";
+import { EstiloPicker } from "./estilo-cor-picker";
+import {
+  EFEITO_COR_PADRAO,
+  estiloAplicado,
+  normalizarEfeitoCor,
+  type EfeitoCor,
+} from "@/lib/estilos-cor";
 
 export type Recurso = {
   id: string;
@@ -11,6 +18,7 @@ export type Recurso = {
   valorMax: number;
   ordem: number;
   cor: string | null;
+  efeito: string;
   resetEm: string;
 };
 
@@ -24,6 +32,7 @@ type FormState = {
   nome: string;
   valorMax: string;
   cor: string;
+  efeito: EfeitoCor;
   resetEm: string;
 };
 
@@ -32,22 +41,9 @@ const FORM_VAZIO: FormState = {
   nome: "",
   valorMax: "5",
   cor: "",
+  efeito: EFEITO_COR_PADRAO,
   resetEm: "manual",
 };
-
-// Paleta inicial pra picker. Resolve as variáveis do tema pra hex pra
-// funcionar com <input type="color"> (que não aceita var()).
-const SWATCHES = [
-  "#d4af37", // berries/ouro
-  "#1f9eff", // azul
-  "#27ae60", // verde
-  "#e74c3c", // vermelho
-  "#9b59b6", // roxo
-  "#f39c12", // laranja
-  "#ec4899", // rosa
-  "#14b8a6", // turquesa
-  "#64748b", // cinza
-];
 
 function mostrarErro(err: unknown) {
   Swal.fire({
@@ -123,6 +119,7 @@ export function RecursosSidebar({
       nome: r.nome,
       valorMax: String(r.valorMax),
       cor: r.cor || "",
+      efeito: normalizarEfeitoCor(r.efeito),
       resetEm: r.resetEm,
     });
     setModalAberto(true);
@@ -150,6 +147,7 @@ export function RecursosSidebar({
     }
     const valorMax = Number(form.valorMax) || 0;
     const cor = form.cor.trim() || null;
+    const efeito = form.efeito;
     const resetEm = form.resetEm;
     const editandoId = form.id;
     setModalAberto(false);
@@ -159,13 +157,14 @@ export function RecursosSidebar({
         aplicarPatch({
           kind: "update",
           id: editandoId,
-          patch: { nome, valorMax, cor, resetEm },
+          patch: { nome, valorMax, cor, efeito, resetEm },
         });
         try {
           await atualizarRecurso(personagemId, editandoId, {
             nome,
             valorMax,
             cor: cor ?? "",
+            efeito,
             resetEm,
           });
         } catch (err) {
@@ -179,6 +178,7 @@ export function RecursosSidebar({
           valorMax,
           ordem: lista.length,
           cor,
+          efeito,
           resetEm,
         };
         aplicarPatch({ kind: "create", recurso: temp });
@@ -189,6 +189,7 @@ export function RecursosSidebar({
             valorMax,
             ordem: lista.length,
             cor: cor ?? "",
+            efeito,
             resetEm,
           });
         } catch (err) {
@@ -248,10 +249,18 @@ export function RecursosSidebar({
 
       {ordenados.map((r) => {
         const cor = r.cor || "var(--color-power)";
+        const estilo = { cor: r.cor, efeito: normalizarEfeitoCor(r.efeito) };
+        // Sem cor configurada não há tons a derivar: nome e barra caem no
+        // padrão do tema (--color-power).
+        const fxNome = estiloAplicado(estilo, "texto");
+        const fxBarra = estiloAplicado(estilo, "barra");
         return (
           <div key={r.id} className="recurso-card">
             <div className="recurso-card-topo">
-              <span className="recurso-card-nome" style={{ color: cor }}>
+              <span
+                className={`recurso-card-nome ${fxNome.className}`.trim()}
+                style={fxNome.style ?? { color: cor }}
+              >
                 {r.nome}
               </span>
               <div className="recurso-card-acoes">
@@ -299,10 +308,10 @@ export function RecursosSidebar({
             </div>
             <div className="progress-track">
               <div
-                className="progress-fill"
+                className={`progress-fill ${fxBarra.className}`.trim()}
                 style={{
                   width: `${r.valorMax > 0 ? (clamp(r.valorAtual, 0, r.valorMax) / r.valorMax) * 100 : 0}%`,
-                  background: cor,
+                  ...(fxBarra.style ?? { background: cor }),
                 }}
               />
             </div>
@@ -351,38 +360,13 @@ export function RecursosSidebar({
                 </div>
               </div>
 
-              <label style={{ marginTop: 10 }}>Cor</label>
-              <div className="cor-picker">
-                <input
-                  type="color"
-                  className="cor-picker-input"
-                  value={form.cor || "#d4af37"}
-                  onChange={(e) => setForm({ ...form, cor: e.target.value })}
-                  aria-label="Escolher cor"
-                />
-                <div className="cor-swatches">
-                  {SWATCHES.map((c) => (
-                    <button
-                      type="button"
-                      key={c}
-                      className={`cor-swatch ${form.cor.toLowerCase() === c.toLowerCase() ? "ativo" : ""}`}
-                      style={{ background: c }}
-                      onClick={() => setForm({ ...form, cor: c })}
-                      title={c}
-                      aria-label={`Cor ${c}`}
-                    />
-                  ))}
-                  <button
-                    type="button"
-                    className={`cor-swatch cor-swatch-limpar ${!form.cor ? "ativo" : ""}`}
-                    onClick={() => setForm({ ...form, cor: "" })}
-                    title="Sem cor (padrão do tema)"
-                    aria-label="Sem cor"
-                  >
-                    <i className="fas fa-ban" />
-                  </button>
-                </div>
-              </div>
+              <label style={{ marginTop: 10 }}>Cor e brilho</label>
+              <EstiloPicker
+                cor={form.cor}
+                efeito={form.efeito}
+                onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
+                amostra={form.nome.trim().slice(0, 6) || "Aa"}
+              />
 
               <div className="modal-actions">
                 <button

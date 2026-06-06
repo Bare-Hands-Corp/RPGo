@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -18,6 +18,11 @@ import {
   type TipoEfeito,
 } from "@/lib/op-rpg";
 import { TAMANHOS_VALIDOS, MADEIRAS_VALIDAS, statsTamanho } from "@/lib/navio";
+import {
+  normalizarEfeitoCor,
+  normalizarEstilosTag,
+  separarTags,
+} from "@/lib/estilos-cor";
 
 // ─── Auth helper interno ───────────────────────────────────
 // Verifica sessão + acesso (dono OU narrador) e retorna o personagem com mesa.
@@ -221,6 +226,7 @@ const ALLOWED_ITEM = [
   "peso",
   "tipo",
   "tags",
+  "tagsEstilo",
   "descricao",
   "dano",
   "modificador",
@@ -269,6 +275,14 @@ function normalizarItemInput(input: ItemInput) {
   if (input.peso !== undefined) data.peso = Number(input.peso) || 0;
   if (input.tipo !== undefined) data.tipo = String(input.tipo) || "comum";
   if (input.tags !== undefined) data.tags = (input.tags as string) || "";
+  if (input.tagsEstilo !== undefined) {
+    // Poda estilos de tags que sumiram do texto livre (quando o texto veio
+    // no mesmo patch) pra não acumular lixo no Json.
+    const tagsDoPatch =
+      input.tags !== undefined ? separarTags(String(input.tags)) : undefined;
+    data.tagsEstilo =
+      normalizarEstilosTag(input.tagsEstilo, tagsDoPatch) ?? Prisma.DbNull;
+  }
   if (input.descricao !== undefined) data.descricao = (input.descricao as string) || "";
   if (input.dano !== undefined) data.dano = (input.dano as string) || "";
   if (input.modificador !== undefined) data.modificador = Number(input.modificador) || 0;
@@ -319,6 +333,9 @@ export async function criarItem(personagemId: string, input: ItemInput) {
       peso: (data.peso as number) ?? 0,
       tipo: (data.tipo as string) ?? "comum",
       tags: (data.tags as string) ?? "",
+      tagsEstilo:
+        (data.tagsEstilo as Prisma.InputJsonValue | typeof Prisma.DbNull) ??
+        Prisma.DbNull,
       descricao: (data.descricao as string) ?? "",
       dano: (data.dano as string) ?? "",
       modificador: (data.modificador as number) ?? 0,
@@ -607,6 +624,7 @@ const ALLOWED_RECURSO = [
   "valorMax",
   "ordem",
   "cor",
+  "efeito",
   "resetEm",
 ] as const;
 type RecursoInput = Partial<Record<(typeof ALLOWED_RECURSO)[number], unknown>>;
@@ -629,6 +647,8 @@ function normalizarRecurso(input: RecursoInput, parcial: boolean) {
       data.resetEm = v;
     } else if (key === "cor") {
       data.cor = input.cor ? String(input.cor) : null;
+    } else if (key === "efeito") {
+      data.efeito = normalizarEfeitoCor(input.efeito);
     }
   }
   if (!parcial && data.nome === undefined) {
@@ -652,6 +672,7 @@ export async function criarRecurso(personagemId: string, input: RecursoInput) {
       valorMax: (data.valorMax as number) ?? 0,
       ordem: (data.ordem as number) ?? 0,
       cor: (data.cor as string | null) ?? null,
+      efeito: (data.efeito as string) ?? "solido",
       resetEm: (data.resetEm as string) ?? "manual",
     },
   });
@@ -695,6 +716,7 @@ const ALLOWED_HABILIDADE = [
   "usosAtual",
   "recarga",
   "tags",
+  "tagsEstilo",
   "favorita",
   "ordem",
   "efeitos",
@@ -811,6 +833,12 @@ function normalizarHabilidadeInput(input: HabilidadeInput) {
     }
   }
   if (input.tags !== undefined) data.tags = input.tags ? String(input.tags) : null;
+  if (input.tagsEstilo !== undefined) {
+    const tagsDoPatch =
+      input.tags !== undefined ? separarTags(String(input.tags ?? "")) : undefined;
+    data.tagsEstilo =
+      normalizarEstilosTag(input.tagsEstilo, tagsDoPatch) ?? Prisma.DbNull;
+  }
   if (input.favorita !== undefined) data.favorita = Boolean(input.favorita);
   if (input.ordem !== undefined) data.ordem = Math.trunc(Number(input.ordem) || 0);
   if (input.efeitos !== undefined) data.efeitos = normalizarEfeitosInput(input.efeitos);
@@ -840,6 +868,9 @@ export async function criarHabilidade(
       usosAtual: (data.usosAtual as number | null) ?? null,
       recarga: (data.recarga as string | null) ?? null,
       tags: (data.tags as string | null) ?? null,
+      tagsEstilo:
+        (data.tagsEstilo as Prisma.InputJsonValue | typeof Prisma.DbNull) ??
+        Prisma.DbNull,
       favorita: (data.favorita as boolean) ?? false,
       ordem: (data.ordem as number) ?? 0,
       efeitos: (data.efeitos as EfeitoHabilidade[]) ?? [],

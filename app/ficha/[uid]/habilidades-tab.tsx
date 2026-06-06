@@ -41,6 +41,13 @@ import {
 } from "@/lib/op-rpg";
 import { type Dado, parseFormulaDados } from "@/lib/dice";
 import { empilharRolagem } from "@/lib/empilhar-rolagem";
+import { TagChip, TagsEditor } from "./estilo-cor-picker";
+import {
+  lerEstilosTag,
+  podarEstilosTag,
+  separarTags,
+  type MapaEstilosTag,
+} from "@/lib/estilos-cor";
 
 type Habilidade = {
   id: string;
@@ -56,6 +63,7 @@ type Habilidade = {
   usosAtual: number | null;
   recarga: string | null;
   tags: string | null;
+  tagsEstilo: unknown;
   favorita: boolean;
   ordem: number;
   efeitos: unknown;
@@ -508,10 +516,8 @@ function CardHabilidade({
       `${habilidade.custoRecursoValor} ${recursoNomePorId.get(habilidade.custoRecursoId) ?? "?"}`,
     );
   }
-  const tags = (habilidade.tags ?? "")
-    .split(",")
-    .map((t) => t.trim())
-    .filter(Boolean);
+  const tags = separarTags(habilidade.tags);
+  const estilosTag = lerEstilosTag(habilidade.tagsEstilo);
 
   // Mapeia tipo de habilidade pra classe de cor de borda (reusa as do .action-card).
   const tipoClass =
@@ -601,9 +607,7 @@ function CardHabilidade({
             </span>
           ))}
           {tags.map((t, i) => (
-            <span key={`t${i}`} className="tag">
-              {t}
-            </span>
+            <TagChip key={`t${i}`} nome={t} estilo={estilosTag[t]} />
           ))}
           {rolagens.map((r, i) => (
             <button
@@ -680,6 +684,7 @@ type HabilidadeFormDados = {
   usosAtual: number | null;
   recarga: string | null;
   tags: string | null;
+  tagsEstilo: MapaEstilosTag;
   efeitos: EfeitoHabilidade[];
 };
 
@@ -718,6 +723,9 @@ function HabilidadeModal({
   const [usos, setUsos] = useState(inicial?.usos != null ? String(inicial.usos) : "");
   const [recarga, setRecarga] = useState(inicial?.recarga ?? "");
   const [tags, setTags] = useState(inicial?.tags ?? "");
+  const [tagsEstilo, setTagsEstilo] = useState<MapaEstilosTag>(
+    lerEstilosTag(inicial?.tagsEstilo),
+  );
   const [efeitos, setEfeitos] = useState<EfeitoHabilidade[]>(
     lerEfeitos(inicial?.efeitos),
   );
@@ -751,6 +759,8 @@ function HabilidadeModal({
       usosAtual: inicial ? inicial.usosAtual : usosNum,
       recarga: recarga || null,
       tags: tags.trim() || null,
+      // Só sobe estilo de tag que ainda existe no texto livre.
+      tagsEstilo: podarEstilosTag(tagsEstilo, tags),
       efeitos,
     });
   }
@@ -974,10 +984,11 @@ function HabilidadeModal({
           </details>
 
           <label style={{ marginTop: 14 }}>Tags (separadas por vírgula)</label>
-          <input
-            type="text"
-            value={tags}
-            onChange={(e) => setTags(e.target.value)}
+          <TagsEditor
+            tags={tags}
+            estilos={tagsEstilo}
+            onTags={setTags}
+            onEstilos={setTagsEstilo}
             placeholder="combate, descanso longo, graduacao:profissional"
           />
 

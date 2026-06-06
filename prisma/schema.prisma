@@ -213,6 +213,9 @@ model Recurso {
   valorMax      Int        @default(0) @map("valor_max")
   ordem         Int        @default(0)
   cor           String?    // hex (#ffaa00) ou nome de variável CSS; opcional
+  // Efeito visual aplicado a cor: "solido" | "gradiente" | "neon" | "metalico"
+  // | "contorno" | "holo" | "pulse" (ver lib/estilos-cor.ts).
+  efeito        String     @default("solido")
   // Quando o recurso recupera: "encontro" | "descansoCurto" | "descansoLongo" | "manual"
   resetEm       String     @default("manual") @map("reset_em")
 
@@ -229,6 +232,8 @@ model Item {
   peso          Float      @default(0)
   tipo          String     @default("comum")
   tags          String?
+  // Estilo visual por tag: { "<nome da tag>": { cor, efeito } } (lib/estilos-cor.ts).
+  tagsEstilo    Json?      @map("tags_estilo")
   descricao     String?
   dano          String?
   modificador   Int        @default(0)
@@ -320,6 +325,8 @@ model Habilidade {
   recarga           String?
 
   tags              String?    // texto livre, separado por vírgula
+  // Estilo visual por tag: { "<nome da tag>": { cor, efeito } } (lib/estilos-cor.ts).
+  tagsEstilo        Json?      @map("tags_estilo")
   favorita          Boolean    @default(false)
   ordem             Int        @default(0)
 

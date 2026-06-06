@@ -17,6 +17,8 @@ import { parseFormulaDados } from "@/lib/dice";
 import { empilharD20, empilharRolagem } from "@/lib/empilhar-rolagem";
 import { useExaustaoOtimista } from "./use-exaustao-otimista";
 import { MarcaExausto } from "./marca-exausto";
+import { TagChip } from "./estilo-cor-picker";
+import { normalizarEfeitoCor, type EstiloCor } from "@/lib/estilos-cor";
 
 // O modelo de Ação só guarda alcance como texto livre, então inferimos CC vs
 // distância por palavra-chave / metragem pra montar o contexto da rolagem.
@@ -50,7 +52,12 @@ type Acao = {
   habilidadeId: string | null;
 };
 
-type RecursoMinimo = { id: string; nome: string; cor: string | null };
+type RecursoMinimo = {
+  id: string;
+  nome: string;
+  cor: string | null;
+  efeito: string;
+};
 
 // Subconjunto de Habilidade pra exibir/selecionar o vínculo "deriva de".
 type HabilidadeRef = { id: string; nome: string };
@@ -441,13 +448,16 @@ export function AcoesTab({
                   const atributoSalv = acao.atributoSalv as Atributo | null;
                   // Cada custo carrega cor opcional pra colorir o chip.
                   // Recurso customizado usa a cor configurada; PP/PA usam padrão.
-                  const custos: { texto: string; cor?: string }[] = [];
+                  const custos: { texto: string; estilo?: EstiloCor }[] = [];
                   if (acao.custoPp > 0) custos.push({ texto: `${acao.custoPp} PP` });
                   if (acao.custoPa > 0) custos.push({ texto: `${acao.custoPa} PA` });
                   if (recursoCusto && acao.custoRecursoValor > 0) {
                     custos.push({
                       texto: `${acao.custoRecursoValor} ${recursoCusto.nome}`,
-                      cor: recursoCusto.cor ?? undefined,
+                      estilo: {
+                        cor: recursoCusto.cor,
+                        efeito: normalizarEfeitoCor(recursoCusto.efeito),
+                      },
                     });
                   }
                   return (
@@ -564,21 +574,12 @@ export function AcoesTab({
                       {(custos.length > 0 || acao.tag || habDerivada) && (
                         <div className="card-tags">
                           {custos.map((c, i) => (
-                            <span
+                            <TagChip
                               key={i}
-                              className="tag tag-custo"
-                              style={
-                                c.cor
-                                  ? {
-                                      background: `color-mix(in oklch, ${c.cor} 15%, transparent)`,
-                                      color: c.cor,
-                                      borderColor: `color-mix(in oklch, ${c.cor} 30%, transparent)`,
-                                    }
-                                  : undefined
-                              }
-                            >
-                              {c.texto}
-                            </span>
+                              nome={c.texto}
+                              estilo={c.estilo}
+                              classePadrao="tag tag-custo"
+                            />
                           ))}
                           {acao.tag && (
                             <span className="tag tag-damage">{acao.tag}</span>

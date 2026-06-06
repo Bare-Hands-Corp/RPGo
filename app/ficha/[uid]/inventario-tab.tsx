@@ -21,6 +21,13 @@ import {
 } from "@/lib/op-rpg";
 import { useExaustaoOtimista } from "./use-exaustao-otimista";
 import { MarcaExausto } from "./marca-exausto";
+import { TagChip, TagsEditor } from "./estilo-cor-picker";
+import {
+  lerEstilosTag,
+  podarEstilosTag,
+  separarTags,
+  type MapaEstilosTag,
+} from "@/lib/estilos-cor";
 
 type Item = {
   id: string;
@@ -28,6 +35,7 @@ type Item = {
   peso: number;
   tipo: string;
   tags: string | null;
+  tagsEstilo: unknown;
   descricao: string | null;
   dano: string | null;
   modificador: number;
@@ -192,6 +200,7 @@ type FormState = {
   peso: string;
   tipo: string;
   tags: string;
+  tagsEstilo: MapaEstilosTag;
   descricao: string;
   dano: string;
   modificador: string;
@@ -211,6 +220,7 @@ const FORM_VAZIO: FormState = {
   peso: "1.0",
   tipo: "comum",
   tags: "",
+  tagsEstilo: {},
   descricao: "",
   dano: "",
   modificador: "",
@@ -283,6 +293,7 @@ export function InventarioTab({
       peso: String(item.peso),
       tipo: item.tipo,
       tags: item.tags || "",
+      tagsEstilo: lerEstilosTag(item.tagsEstilo),
       descricao: item.descricao || "",
       dano: item.dano || "",
       modificador: String(item.modificador || ""),
@@ -306,7 +317,7 @@ export function InventarioTab({
     setModalAberto(false);
   }
 
-  function set<K extends keyof FormState>(key: K, value: string) {
+  function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
@@ -339,6 +350,8 @@ export function InventarioTab({
       peso: Number(form.peso) || 0,
       tipo: form.tipo,
       tags: form.tags,
+      // Só sobe estilo de tag que ainda existe no texto livre.
+      tagsEstilo: podarEstilosTag(form.tagsEstilo, form.tags),
       descricao: form.descricao,
       dano: ehArma ? form.dano : "",
       modificador: ehArma ? Number(form.modificador) || 0 : 0,
@@ -370,6 +383,7 @@ export function InventarioTab({
           peso: payload.peso,
           tipo: payload.tipo,
           tags: payload.tags || null,
+          tagsEstilo: payload.tagsEstilo,
           descricao: payload.descricao || null,
           dano: payload.dano || null,
           modificador: payload.modificador,
@@ -858,11 +872,13 @@ export function InventarioTab({
               )}
 
               <label>Tags (separadas por vírgula)</label>
-              <input
-                type="text"
-                value={form.tags}
-                onChange={(e) => set("tags", e.target.value)}
+              <TagsEditor
+                tags={form.tags}
+                estilos={form.tagsEstilo}
+                onTags={(v) => set("tags", v)}
+                onEstilos={(v) => set("tagsEstilo", v)}
                 placeholder="Ex: Cortante, Duas Mãos, Raro"
+                classePadraoChip="tag-damage"
               />
 
               <label>Descrição / Efeitos</label>
@@ -962,6 +978,7 @@ function CardItem({
   onDelete: () => void;
 }) {
   const equipavel = item.tipo === "arma" || item.tipo === "armadura";
+  const estilosTag = lerEstilosTag(item.tagsEstilo);
   return (
     <div
       className={`action-card type-comum ${item.equipado ? "item-equipado" : ""} ${item.favorito ? "item-favorito" : ""}`}
@@ -1041,15 +1058,14 @@ function CardItem({
 
       {item.tags && (
         <div className="card-tags">
-          {item.tags
-            .split(",")
-            .map((t) => t.trim())
-            .filter(Boolean)
-            .map((t, i) => (
-              <span key={i} className="tag tag-damage">
-                {t}
-              </span>
-            ))}
+          {separarTags(item.tags).map((t, i) => (
+            <TagChip
+              key={i}
+              nome={t}
+              estilo={estilosTag[t]}
+              classePadrao="tag tag-damage"
+            />
+          ))}
         </div>
       )}
 
