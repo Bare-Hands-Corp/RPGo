@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { listarMensagensSessao } from "@/lib/mensagens";
 import { carregarCalendario } from "@/lib/calendario/carregar";
 import { agregarEfeitos } from "@/lib/op-rpg";
+import { habilidadesTravadas } from "@/lib/arvore";
 import { PerfilSidebar } from "./perfil-sidebar";
 import { FichaTabs } from "./ficha-tabs";
 import { FichaRealtime } from "./realtime-refresher";
@@ -36,6 +37,13 @@ export default async function FichaPage({ params }: Params) {
         recursos: { orderBy: [{ ordem: "asc" }, { nome: "asc" }] },
         habilidades: { orderBy: [{ ordem: "asc" }, { criadoEm: "asc" }] },
         periciasCustom: { orderBy: [{ ordem: "asc" }, { nome: "asc" }] },
+        arvores: {
+          orderBy: [{ ordem: "asc" }, { nome: "asc" }],
+          include: {
+            camadas: { orderBy: { ordem: "asc" } },
+            nos: { orderBy: { ordem: "asc" } },
+          },
+        },
       },
     }),
   ]);
@@ -58,12 +66,19 @@ export default async function FichaPage({ params }: Params) {
     personagem.periciasCustom.map((p) => p.slug),
   );
 
+  // Habilidade presa a um nó de árvore ainda não liberado NÃO concede nada.
+  // O gate mora aqui (e não no agregador) pra que `agregarEfeitos` siga sem
+  // saber que árvores existem — o filtro é o único ponto de contato.
+  const travadasPorArvore = habilidadesTravadas(
+    personagem.arvores.flatMap((a) => a.nos),
+  );
+  const habilidadesAtivas = personagem.habilidades.filter(
+    (h) => !travadasPorArvore.has(h.id),
+  );
+
   // Agrega efeitos das habilidades (modificadores + proficiências) pra alvos
   // canônicos + perícias custom. Computado no servidor — frio, sem estado, barato.
-  const efeitosAgregados = agregarEfeitos(
-    personagem.habilidades,
-    slugsPericiaCustom,
-  );
+  const efeitosAgregados = agregarEfeitos(habilidadesAtivas, slugsPericiaCustom);
 
   // Penalidade de DES das armaduras equipadas (geralmente negativa). Reduz o
   // modificador de DES em todos os cálculos derivados (CR, iniciativa, salv/
@@ -97,7 +112,7 @@ export default async function FichaPage({ params }: Params) {
       <FichaRealtime personagemId={personagem.id} mesaId={personagem.mesaId} />
       <PerfilSidebar
         personagem={personagem}
-        habilidades={personagem.habilidades}
+        habilidades={habilidadesAtivas}
         slugsPericiaCustom={[...slugsPericiaCustom]}
         penalidadeDesArmadura={penalidadeDesArmadura}
       />
@@ -143,8 +158,12 @@ export default async function FichaPage({ params }: Params) {
           nome: r.nome,
           cor: r.cor,
           efeito: r.efeito,
+          valorAtual: r.valorAtual,
+          valorMax: r.valorMax,
         }))}
         habilidades={personagem.habilidades}
+        habilidadesTravadas={[...travadasPorArvore]}
+        arvores={personagem.arvores}
         calendario={calendario}
         isNarradorDaMesa={isNarrador}
         tripulantes={tripulantes}

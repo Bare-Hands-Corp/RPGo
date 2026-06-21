@@ -167,6 +167,7 @@ model Personagem {
   recursos       Recurso[]
   habilidades    Habilidade[]
   periciasCustom PericiaCustom[]
+  arvores        Arvore[]
 
   @@map("personagens")
 }
@@ -424,4 +425,91 @@ model EventoCalendario {
 
   @@index([calendarioId, dataDias])
   @@map("eventos_calendario")
+}
+
+// ─── Árvores de talento ────────────────────────────────────
+// Árvore de progressão montada pelo próprio jogador (Haki, níveis de Estilo de
+// Combate, caminhos de Akuma no Mi…). Uma árvore por personagem — o RPGo é
+// player-driven; não há template de mesa (ver HANDOFF).
+
+model Arvore {
+  id            String     @id @default(uuid())
+  personagemId  String     @map("personagem_id")
+  personagem    Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
+
+  nome          String
+  icone         String     @default("fa-sitemap")
+  cor           String?
+  // Efeito de brilho aplicado à cor (ver lib/estilos-cor.ts).
+  efeito        String     @default("solido")
+  ordem         Int        @default(0)
+
+  // Como as camadas destravam:
+  // "manual"  → todas abertas (a árvore é só organização visual);
+  // "nivel"   → limiar da camada é o nível do personagem (níveis de Estilo);
+  // "pontos"  → limiar é o total de pontos gastos NA PRÓPRIA árvore. É o
+  //             Estágio do Haki (1–10 Inexperiente, 11–30 Treinado, 31+ Perito).
+  criterio       String    @default("manual")
+
+  // Recurso que paga os nós (ex: um Recurso custom "PA"). null = o custo é só
+  // informativo e nada é debitado. Ref solta a Recurso.id — sem FK.
+  recursoCustoId String?   @map("recurso_custo_id")
+
+  camadas       ArvoreCamada[]
+  nos           ArvoreNo[]
+
+  @@index([personagemId, ordem])
+  @@map("arvores")
+}
+
+model ArvoreCamada {
+  id        String @id @default(uuid())
+  arvoreId  String @map("arvore_id")
+  arvore    Arvore @relation(fields: [arvoreId], references: [id], onDelete: Cascade)
+
+  nome      String
+  ordem     Int    @default(0)
+  // Valor mínimo pra camada abrir, lido conforme o `criterio` da árvore.
+  // Ignorado quando criterio = "manual".
+  limiar    Int    @default(0)
+
+  nos       ArvoreNo[]
+
+  @@index([arvoreId, ordem])
+  @@map("arvore_camadas")
+}
+
+model ArvoreNo {
+  id          String       @id @default(uuid())
+  arvoreId    String       @map("arvore_id")
+  arvore      Arvore       @relation(fields: [arvoreId], references: [id], onDelete: Cascade)
+  camadaId    String       @map("camada_id")
+  camada      ArvoreCamada @relation(fields: [camadaId], references: [id], onDelete: Cascade)
+
+  nome        String
+  descricao   String       @default("")
+  icone       String       @default("fa-circle-nodes")
+
+  // Custo POR rank (no Haki, comprar de novo custa o mesmo).
+  custo       Int          @default(0)
+  // Quantas vezes o nó pode ser comprado. 3 = base + Dominada (✩) + Avançada (★).
+  maxRanks    Int          @default(1) @map("max_ranks")
+  // Progresso: 0 = não comprado; 1..maxRanks = rank atual.
+  rankAtual   Int          @default(0) @map("rank_atual")
+  // Nível mínimo do personagem pra liberar o nó. 0 = sem trava de nível.
+  nivelMinimo Int          @default(0) @map("nivel_minimo")
+
+  // Habilidade que este nó libera (opcional). Ref solta a Habilidade.id — sem
+  // FK, mesmo padrão de Acao.armaId. Enquanto o nó está travado, a habilidade
+  // não entra no agregador de efeitos.
+  habilidadeId String?     @map("habilidade_id")
+
+  // Requisitos: [{ noId, rank }] — exige aquele nó no rank >= rank.
+  // No livro, "Clarividência (★)" vira { noId: <clarividência>, rank: 3 }.
+  requisitos  Json         @default("[]")
+  ordem       Int          @default(0)
+
+  @@index([arvoreId])
+  @@index([camadaId, ordem])
+  @@map("arvore_nos")
 }

@@ -2788,3 +2788,373 @@
   color: #e0a000;
   vertical-align: super;
 }
+
+/* ═══ ÁRVORES DE TALENTO ═══════════════════════════════════
+   Layout automático: cada camada é uma faixa; os nós refluem num grid dentro
+   dela. Os conectores são um <svg> absoluto medido do DOM (ver ArvoreCanvas),
+   por isso o container precisa de position: relative e os nós de z-index. */
+
+.arvores-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.arvores-topo {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.arvore-seletor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.arvore-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: transform 0.1s, border-color 0.15s;
+}
+
+.arvore-pill:hover {
+  transform: translateY(-1px);
+}
+
+.arvore-pill.ativa {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.arvore-barra {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-surface);
+}
+
+.arvore-barra-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+  font-size: 0.82rem;
+  color: var(--text-sec);
+}
+
+.arvore-criterio {
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.arvore-metrica strong {
+  color: var(--text-main);
+}
+
+.arvore-aviso {
+  color: #e0a000;
+}
+
+.arvore-barra-acoes {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.arvore-canvas {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.arvore-conectores {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: visible;
+}
+
+.arvore-conector {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
+}
+
+.arvore-conector.ativo {
+  stroke: var(--primary);
+  stroke-dasharray: none;
+  stroke-width: 2.5;
+}
+
+.arvore-camada {
+  position: relative;
+  z-index: 1;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px 14px;
+  background: color-mix(in oklch, var(--bg-card) 92%, transparent);
+}
+
+/* Camada ainda trancada: esmaecida, mas legível — o jogador precisa ver o que
+   vem pela frente pra planejar a build. */
+.arvore-camada.fechada {
+  opacity: 0.55;
+}
+
+.arvore-camada-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.arvore-camada-nome {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--text-main);
+}
+
+.arvore-camada-limiar {
+  font-size: 0.74rem;
+  color: var(--text-sec);
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.arvore-camada-acoes {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+
+.arvore-camada-vazia {
+  font-size: 0.8rem;
+  font-style: italic;
+  color: var(--text-sec);
+}
+
+.arvore-nos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.arvore-no {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px 12px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.arvore-no.comprado {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--primary) 40%, transparent);
+}
+
+.arvore-no.disponivel {
+  border-color: color-mix(in oklch, var(--primary) 45%, var(--border));
+}
+
+.arvore-no.travado {
+  opacity: 0.7;
+}
+
+.arvore-no-editar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: none;
+  border: none;
+  color: var(--text-sec);
+  cursor: pointer;
+  font-size: 0.8rem;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.arvore-no:hover .arvore-no-editar,
+.arvore-no-editar:focus-visible {
+  opacity: 1;
+}
+
+.arvore-no-topo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 20px;
+}
+
+.arvore-no-icone {
+  color: var(--primary);
+  font-size: 0.95rem;
+}
+
+.arvore-no-nome {
+  font-weight: 700;
+  font-size: 0.9rem;
+  line-height: 1.2;
+}
+
+.arvore-no-ranks {
+  display: flex;
+  gap: 4px;
+}
+
+.arvore-pip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  font-size: 0.62rem;
+  color: var(--text-sec);
+  background: var(--bg-surface);
+}
+
+.arvore-pip.cheio {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 20%, transparent);
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.arvore-no-desc {
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--text-sec);
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+.arvore-no-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.arvore-no-bloqueios {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.72rem;
+  color: var(--text-sec);
+}
+
+.arvore-no-bloqueios i {
+  font-size: 0.62rem;
+  margin-right: 3px;
+  opacity: 0.8;
+}
+
+.arvore-no-acoes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.arvore-btn-comprar {
+  flex: 1;
+  font-size: 0.78rem;
+  padding: 5px 8px;
+}
+
+.arvore-btn-comprar:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.arvore-no-maximo {
+  font-size: 0.72rem;
+  font-style: italic;
+  color: var(--text-sec);
+}
+
+/* ─── Editor de requisitos (modal do talento) ─────────────── */
+.arvore-req-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--bg-surface);
+}
+
+.arvore-req-linha {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.arvore-req-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  font-size: 0.83rem;
+  cursor: pointer;
+  margin: 0;
+}
+
+.arvore-req-check input {
+  width: auto;
+  margin: 0;
+}
+
+.arvore-req-linha select {
+  width: auto;
+  font-size: 0.78rem;
+  padding: 3px 6px;
+}
+
+/* Habilidade travada por um nó não liberado — mostrada na aba Habilidades. */
+.hab-travada {
+  opacity: 0.6;
+}
+
+.hab-travada-nota {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  font-style: italic;
+  color: #e0a000;
+}

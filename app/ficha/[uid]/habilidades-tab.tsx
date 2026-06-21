@@ -85,6 +85,8 @@ type Props = {
   recursos: RecursoMinimo[];
   atributos: Record<Atributo, number>;
   periciasCustom: { slug: string; nome: string }[];
+  /** IDs de habilidade presas a um nó de árvore ainda não liberado. */
+  travadas?: string[];
 };
 
 type Patch =
@@ -123,7 +125,9 @@ export function HabilidadesTab({
   recursos,
   atributos,
   periciasCustom,
+  travadas = [],
 }: Props) {
+  const travadasSet = useMemo(() => new Set(travadas), [travadas]);
   const [otimistas, aplicar] = useOptimistic(habilidades, aplicarPatch);
   const [, startTransition] = useTransition();
   const alvosCustom = useMemo(() => alvosPericiaCustom(periciasCustom), [periciasCustom]);
@@ -382,6 +386,7 @@ export function HabilidadesTab({
               <CardHabilidade
                 key={`fav-${h.id}`}
                 habilidade={h}
+                travada={travadasSet.has(h.id)}
                 recursoNomePorId={recursoNomePorId}
                 atributos={atributos}
                 onEdit={() => abrirEdit(h)}
@@ -412,6 +417,7 @@ export function HabilidadesTab({
                 <CardHabilidade
                   key={h.id}
                   habilidade={h}
+                  travada={travadasSet.has(h.id)}
                   recursoNomePorId={recursoNomePorId}
                   atributos={atributos}
                   onEdit={() => abrirEdit(h)}
@@ -455,6 +461,7 @@ export function HabilidadesTab({
 // ─── Card de habilidade ────────────────────────────────────────────────
 function CardHabilidade({
   habilidade,
+  travada,
   recursoNomePorId,
   atributos,
   onEdit,
@@ -464,6 +471,7 @@ function CardHabilidade({
   onFavorita,
 }: {
   habilidade: Habilidade;
+  travada: boolean;
   recursoNomePorId: Map<string, string>;
   atributos: Record<Atributo, number>;
   onEdit: () => void;
@@ -532,7 +540,11 @@ function CardHabilidade({
   const ligadaAtiva = mostrarToggle && habilidade.ligada;
 
   return (
-    <div className={`action-card ${tipoClass}${ligadaAtiva ? " hab-card-ligada" : ""}`}>
+    <div
+      className={`action-card ${tipoClass}${ligadaAtiva ? " hab-card-ligada" : ""}${
+        travada ? " hab-travada" : ""
+      }`}
+    >
       <button
         type="button"
         className={`btn-favorito ${habilidade.favorita ? "ativo" : ""}`}
@@ -583,6 +595,12 @@ function CardHabilidade({
             </span>
           )}
         </div>
+        {travada && (
+          <div className="hab-travada-nota">
+            <i className="fas fa-lock" /> travada por um talento não liberado —
+            os efeitos não contam
+          </div>
+        )}
         {efeitos.length > 0 && (
           <div className="efeito-chips">
             {efeitos.map((e, i) => (

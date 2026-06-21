@@ -19,10 +19,21 @@ import {
 } from "@/lib/op-rpg";
 import { TAMANHOS_VALIDOS, MADEIRAS_VALIDAS, statsTamanho } from "@/lib/navio";
 import {
+  corValida,
   normalizarEfeitoCor,
   normalizarEstilosTag,
   separarTags,
 } from "@/lib/estilos-cor";
+import {
+  MAX_RANKS_TETO,
+  dependentesQuebrados,
+  estadoNo,
+  lerRequisitos,
+  normalizarCriterio,
+  type ContextoArvore,
+  type NoArvore,
+  type RequisitoNo,
+} from "@/lib/arvore";
 
 // ─── Auth helper interno ───────────────────────────────────
 // Verifica sessão + acesso (dono OU narrador) e retorna o personagem com mesa.
@@ -1158,5 +1169,442 @@ export async function deletarNavio(personagemId: string) {
   const mesaId = await mesaDoPersonagem(personagemId);
   // deleteMany tolera ausência (sem throw se já não existe).
   await prisma.navio.deleteMany({ where: { mesaId } });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+// ─── Árvores de talento ────────────────────────────────────
+// Toda mutação de nó/camada carrega `arvoreId` no `where` e a árvore é
+// checada contra o personagem — defesa em profundidade, o cliente nunca é
+// fonte de verdade sobre a quem a árvore pertence.
+
+const ALLOWED_ARVORE = [
+  "nome",
+  "icone",
+  "cor",
+  "efeito",
+  "ordem",
+  "criterio",
+  "recursoCustoId",
+] as const;
+type ArvoreInput = Partial<Record<(typeof ALLOWED_ARVORE)[number], unknown>>;
+
+function normalizarArvore(input: ArvoreInput) {
+  const data: Record<string, unknown> = {};
+  if (input.nome !== undefined) {
+    const nome = String(input.nome).trim();
+    if (!nome) throw new Error("Nome da árvore é obrigatório.");
+    data.nome = nome.slice(0, 60);
+  }
+  if (input.icone !== undefined) {
+    data.icone = String(input.icone).trim().slice(0, 40) || "fa-sitemap";
+  }
+  if (input.cor !== undefined) data.cor = corValida(input.cor);
+  if (input.efeito !== undefined) data.efeito = normalizarEfeitoCor(input.efeito);
+  if (input.ordem !== undefined) data.ordem = Math.trunc(Number(input.ordem) || 0);
+  if (input.criterio !== undefined) data.criterio = normalizarCriterio(input.criterio);
+  if (input.recursoCustoId !== undefined) {
+    data.recursoCustoId = input.recursoCustoId ? String(input.recursoCustoId) : null;
+  }
+  return data;
+}
+
+/** Confere que a árvore é do personagem e devolve ela com camadas + nós. */
+async function arvoreDoPersonagem(personagemId: string, arvoreId: string) {
+  const arvore = await prisma.arvore.findFirst({
+    where: { id: arvoreId, personagemId },
+    include: {
+      camadas: { orderBy: { ordem: "asc" } },
+      nos: { orderBy: { ordem: "asc" } },
+    },
+  });
+  if (!arvore) throw new Error("Árvore não encontrada.");
+  return arvore;
+}
+
+export async function criarArvore(personagemId: string, input: ArvoreInput) {
+  await autorizar(personagemId);
+  const data = normalizarArvore(input);
+  if (data.nome === undefined) throw new Error("Nome da árvore é obrigatório.");
+
+  const arvore = await prisma.arvore.create({
+    data: {
+      personagemId,
+      nome: data.nome as string,
+      icone: (data.icone as string) ?? "fa-sitemap",
+      cor: (data.cor as string | null) ?? null,
+      efeito: (data.efeito as string) ?? "solido",
+      ordem: (data.ordem as number) ?? 0,
+      criterio: (data.criterio as string) ?? "manual",
+      recursoCustoId: (data.recursoCustoId as string | null) ?? null,
+      // Árvore nasce com uma camada — sem camada não há onde pôr nó.
+      camadas: { create: [{ nome: "Camada 1", ordem: 0, limiar: 0 }] },
+    },
+    include: { camadas: true },
+  });
+  revalidatePath(`/ficha/${personagemId}`);
+  return { id: arvore.id, camadaId: arvore.camadas[0]?.id ?? null };
+}
+
+export async function atualizarArvore(
+  personagemId: string,
+  arvoreId: string,
+  patch: ArvoreInput,
+) {
+  await autorizar(personagemId);
+  const data = normalizarArvore(patch);
+  await prisma.arvore.update({ where: { id: arvoreId, personagemId }, data });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+export async function deletarArvore(personagemId: string, arvoreId: string) {
+  await autorizar(personagemId);
+  // Camadas e nós caem por onDelete: Cascade.
+  await prisma.arvore.delete({ where: { id: arvoreId, personagemId } });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+// ─── Camadas ───────────────────────────────────────────────
+const ALLOWED_CAMADA = ["nome", "ordem", "limiar"] as const;
+type CamadaInput = Partial<Record<(typeof ALLOWED_CAMADA)[number], unknown>>;
+
+function normalizarCamada(input: CamadaInput) {
+  const data: Record<string, unknown> = {};
+  if (input.nome !== undefined) {
+    const nome = String(input.nome).trim();
+    if (!nome) throw new Error("Nome da camada é obrigatório.");
+    data.nome = nome.slice(0, 40);
+  }
+  if (input.ordem !== undefined) data.ordem = Math.trunc(Number(input.ordem) || 0);
+  if (input.limiar !== undefined) {
+    data.limiar = Math.max(0, Math.trunc(Number(input.limiar) || 0));
+  }
+  return data;
+}
+
+export async function criarCamada(
+  personagemId: string,
+  arvoreId: string,
+  input: CamadaInput,
+) {
+  await autorizar(personagemId);
+  const arvore = await arvoreDoPersonagem(personagemId, arvoreId);
+  const data = normalizarCamada(input);
+
+  const camada = await prisma.arvoreCamada.create({
+    data: {
+      arvoreId,
+      nome: (data.nome as string) ?? `Camada ${arvore.camadas.length + 1}`,
+      ordem: (data.ordem as number) ?? arvore.camadas.length,
+      limiar: (data.limiar as number) ?? 0,
+    },
+  });
+  revalidatePath(`/ficha/${personagemId}`);
+  return { id: camada.id };
+}
+
+export async function atualizarCamada(
+  personagemId: string,
+  arvoreId: string,
+  camadaId: string,
+  patch: CamadaInput,
+) {
+  await autorizar(personagemId);
+  await arvoreDoPersonagem(personagemId, arvoreId);
+  const data = normalizarCamada(patch);
+  await prisma.arvoreCamada.update({ where: { id: camadaId, arvoreId }, data });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+export async function deletarCamada(
+  personagemId: string,
+  arvoreId: string,
+  camadaId: string,
+) {
+  await autorizar(personagemId);
+  const arvore = await arvoreDoPersonagem(personagemId, arvoreId);
+  if (arvore.camadas.length <= 1) {
+    throw new Error("A árvore precisa de pelo menos uma camada.");
+  }
+  // Os nós da camada caem junto (Cascade). Avisar é papel da UI.
+  await prisma.arvoreCamada.delete({ where: { id: camadaId, arvoreId } });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+// ─── Nós ───────────────────────────────────────────────────
+const ALLOWED_NO = [
+  "camadaId",
+  "nome",
+  "descricao",
+  "icone",
+  "custo",
+  "maxRanks",
+  "nivelMinimo",
+  "habilidadeId",
+  "requisitos",
+  "ordem",
+] as const;
+type NoInput = Partial<Record<(typeof ALLOWED_NO)[number], unknown>>;
+
+function normalizarNo(input: NoInput) {
+  const data: Record<string, unknown> = {};
+  if (input.nome !== undefined) {
+    const nome = String(input.nome).trim();
+    if (!nome) throw new Error("Nome do talento é obrigatório.");
+    data.nome = nome.slice(0, 60);
+  }
+  if (input.camadaId !== undefined) data.camadaId = String(input.camadaId);
+  if (input.descricao !== undefined) data.descricao = String(input.descricao);
+  if (input.icone !== undefined) {
+    data.icone = String(input.icone).trim().slice(0, 40) || "fa-circle-nodes";
+  }
+  if (input.custo !== undefined) data.custo = Math.max(0, Math.trunc(Number(input.custo) || 0));
+  if (input.maxRanks !== undefined) {
+    const n = Math.trunc(Number(input.maxRanks) || 1);
+    data.maxRanks = Math.max(1, Math.min(n, MAX_RANKS_TETO));
+  }
+  if (input.nivelMinimo !== undefined) {
+    data.nivelMinimo = Math.max(0, Math.trunc(Number(input.nivelMinimo) || 0));
+  }
+  if (input.habilidadeId !== undefined) {
+    data.habilidadeId = input.habilidadeId ? String(input.habilidadeId) : null;
+  }
+  if (input.ordem !== undefined) data.ordem = Math.trunc(Number(input.ordem) || 0);
+  if (input.requisitos !== undefined) {
+    data.requisitos = lerRequisitos(input.requisitos);
+  }
+  return data;
+}
+
+/** A camada precisa ser DESTA árvore, e o requisito não pode apontar pra fora. */
+function validarVinculosDoNo(
+  data: Record<string, unknown>,
+  arvore: { camadas: { id: string }[]; nos: { id: string }[] },
+  noId: string | null,
+) {
+  if (data.camadaId !== undefined) {
+    const ok = arvore.camadas.some((c) => c.id === data.camadaId);
+    if (!ok) throw new Error("Camada não pertence a esta árvore.");
+  }
+  if (data.requisitos !== undefined) {
+    const idsValidos = new Set(arvore.nos.map((n) => n.id));
+    const reqs = data.requisitos as RequisitoNo[];
+    for (const r of reqs) {
+      if (r.noId === noId) throw new Error("Um talento não pode exigir a si mesmo.");
+      if (!idsValidos.has(r.noId)) {
+        throw new Error("Requisito aponta pra talento de outra árvore.");
+      }
+    }
+    if (noId && criaCiclo(noId, reqs, arvore.nos as NoArvore[])) {
+      throw new Error("Esse requisito criaria um ciclo na árvore.");
+    }
+  }
+}
+
+/** Busca em profundidade: `noId` alcança a si mesmo seguindo os requisitos? */
+function criaCiclo(noId: string, novosReqs: RequisitoNo[], nos: NoArvore[]): boolean {
+  const porId = new Map(nos.map((n) => [n.id, n]));
+  const vistos = new Set<string>();
+  const pilha = novosReqs.map((r) => r.noId);
+  while (pilha.length) {
+    const atual = pilha.pop()!;
+    if (atual === noId) return true;
+    if (vistos.has(atual)) continue;
+    vistos.add(atual);
+    const pai = porId.get(atual);
+    if (!pai) continue;
+    for (const r of lerRequisitos(pai.requisitos)) pilha.push(r.noId);
+  }
+  return false;
+}
+
+export async function criarNo(
+  personagemId: string,
+  arvoreId: string,
+  input: NoInput,
+) {
+  await autorizar(personagemId);
+  const arvore = await arvoreDoPersonagem(personagemId, arvoreId);
+  const data = normalizarNo(input);
+  if (data.nome === undefined) throw new Error("Nome do talento é obrigatório.");
+  if (data.camadaId === undefined) throw new Error("Escolha a camada do talento.");
+  validarVinculosDoNo(data, arvore, null);
+
+  const no = await prisma.arvoreNo.create({
+    data: {
+      arvoreId,
+      camadaId: data.camadaId as string,
+      nome: data.nome as string,
+      descricao: (data.descricao as string) ?? "",
+      icone: (data.icone as string) ?? "fa-circle-nodes",
+      custo: (data.custo as number) ?? 0,
+      maxRanks: (data.maxRanks as number) ?? 1,
+      nivelMinimo: (data.nivelMinimo as number) ?? 0,
+      habilidadeId: (data.habilidadeId as string | null) ?? null,
+      requisitos: (data.requisitos as RequisitoNo[]) ?? [],
+      ordem: (data.ordem as number) ?? arvore.nos.length,
+    },
+  });
+  revalidatePath(`/ficha/${personagemId}`);
+  return { id: no.id };
+}
+
+export async function atualizarNo(
+  personagemId: string,
+  arvoreId: string,
+  noId: string,
+  patch: NoInput,
+) {
+  await autorizar(personagemId);
+  const arvore = await arvoreDoPersonagem(personagemId, arvoreId);
+  const data = normalizarNo(patch);
+  validarVinculosDoNo(data, arvore, noId);
+
+  // Baixar o teto de ranks não pode deixar o progresso acima dele.
+  if (data.maxRanks !== undefined) {
+    const atual = arvore.nos.find((n) => n.id === noId);
+    if (atual && atual.rankAtual > (data.maxRanks as number)) {
+      data.rankAtual = data.maxRanks;
+    }
+  }
+
+  await prisma.arvoreNo.update({ where: { id: noId, arvoreId }, data });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+export async function deletarNo(
+  personagemId: string,
+  arvoreId: string,
+  noId: string,
+) {
+  await autorizar(personagemId);
+  const arvore = await arvoreDoPersonagem(personagemId, arvoreId);
+
+  // Limpa requisitos órfãos nos filhos antes de apagar o pai.
+  const filhos = arvore.nos.filter((n) =>
+    lerRequisitos(n.requisitos).some((r) => r.noId === noId),
+  );
+  await prisma.$transaction([
+    ...filhos.map((f) =>
+      prisma.arvoreNo.update({
+        where: { id: f.id, arvoreId },
+        data: {
+          requisitos: lerRequisitos(f.requisitos).filter((r) => r.noId !== noId),
+        },
+      }),
+    ),
+    prisma.arvoreNo.delete({ where: { id: noId, arvoreId } }),
+  ]);
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+// ─── Comprar / devolver rank ───────────────────────────────
+// O gating é revalidado AQUI com o mesmo `estadoNo` que o cliente usa — o
+// cliente pinta o botão, o server é quem decide.
+
+/** Monta o contexto de avaliação a partir do estado real no banco. */
+async function contextoDaArvore(
+  personagemId: string,
+  arvore: { criterio: string; recursoCustoId: string | null; nos: NoArvore[] },
+  nivelPersonagem: number,
+): Promise<ContextoArvore> {
+  let saldoRecurso: number | null = null;
+  if (arvore.recursoCustoId) {
+    const recurso = await prisma.recurso.findFirst({
+      where: { id: arvore.recursoCustoId, personagemId },
+    });
+    // Recurso apagado depois de configurado → volta a ser custo informativo.
+    saldoRecurso = recurso ? recurso.valorAtual : null;
+  }
+  return {
+    criterio: normalizarCriterio(arvore.criterio),
+    nivelPersonagem,
+    nos: arvore.nos,
+    saldoRecurso,
+  };
+}
+
+export async function comprarNo(
+  personagemId: string,
+  arvoreId: string,
+  noId: string,
+) {
+  const { personagem } = await autorizar(personagemId);
+  const arvore = await arvoreDoPersonagem(personagemId, arvoreId);
+  const no = arvore.nos.find((n) => n.id === noId);
+  if (!no) throw new Error("Talento não encontrado.");
+
+  const ctx = await contextoDaArvore(
+    personagemId,
+    { ...arvore, nos: arvore.nos as NoArvore[] },
+    personagem.nivel,
+  );
+  const estado = estadoNo(no as NoArvore, arvore.camadas, ctx);
+  if (!estado.podeComprar) {
+    throw new Error(estado.bloqueios[0] ?? "Talento indisponível.");
+  }
+
+  const ops: Prisma.PrismaPromise<unknown>[] = [
+    prisma.arvoreNo.update({
+      where: { id: noId, arvoreId },
+      data: { rankAtual: { increment: 1 } },
+    }),
+  ];
+  // Debita o recurso só quando a árvore tem um configurado E ele ainda existe
+  // (saldoRecurso null = custo virou informativo).
+  if (arvore.recursoCustoId && ctx.saldoRecurso !== null && estado.custoProximo > 0) {
+    ops.push(
+      prisma.recurso.update({
+        where: { id: arvore.recursoCustoId, personagemId },
+        data: { valorAtual: { decrement: estado.custoProximo } },
+      }),
+    );
+  }
+  await prisma.$transaction(ops);
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+export async function devolverNo(
+  personagemId: string,
+  arvoreId: string,
+  noId: string,
+) {
+  await autorizar(personagemId);
+  const arvore = await arvoreDoPersonagem(personagemId, arvoreId);
+  const no = arvore.nos.find((n) => n.id === noId);
+  if (!no) throw new Error("Talento não encontrado.");
+  if (no.rankAtual <= 0) throw new Error("Esse talento não está comprado.");
+
+  const rankAlvo = no.rankAtual - 1;
+  const quebrados = dependentesQuebrados(noId, rankAlvo, arvore.nos as NoArvore[]);
+  if (quebrados.length > 0) {
+    throw new Error(
+      `Devolva antes: ${quebrados.map((n) => n.nome).join(", ")} depende deste talento.`,
+    );
+  }
+
+  const ops: Prisma.PrismaPromise<unknown>[] = [
+    prisma.arvoreNo.update({
+      where: { id: noId, arvoreId },
+      data: { rankAtual: rankAlvo },
+    }),
+  ];
+  if (arvore.recursoCustoId && no.custo > 0) {
+    // Reembolso clampado ao máximo do recurso é feito abaixo, fora da
+    // transação declarativa — increment simples pode estourar o valorMax.
+    const recurso = await prisma.recurso.findFirst({
+      where: { id: arvore.recursoCustoId, personagemId },
+    });
+    if (recurso) {
+      ops.push(
+        prisma.recurso.update({
+          where: { id: recurso.id, personagemId },
+          data: {
+            valorAtual: Math.min(recurso.valorAtual + no.custo, recurso.valorMax),
+          },
+        }),
+      );
+    }
+  }
+  await prisma.$transaction(ops);
   revalidatePath(`/ficha/${personagemId}`);
 }

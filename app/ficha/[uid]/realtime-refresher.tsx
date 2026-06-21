@@ -83,6 +83,20 @@ export function FichaRealtime({
           filter: `personagem_id=eq.${personagemId}`,
         },
         () => router.refresh(),
+      )
+      // Árvores de talento. Só a tabela `arvores` é assinada: camadas e nós não
+      // têm `personagem_id` pra filtrar, e quem edita é o dono da ficha —
+      // otimismo + revalidate já cobrem a visão dele (mesma decisão do toggle
+      // `ligada` das habilidades). Criar/apagar/renomear árvore chega ao vivo.
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "arvores",
+          filter: `personagem_id=eq.${personagemId}`,
+        },
+        () => router.refresh(),
       );
 
     // Tripulação: navio da mesa + demais personagens dela (roster ao vivo).

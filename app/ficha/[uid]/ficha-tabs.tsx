@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { AcoesTab } from "./acoes-tab";
+import { ArvoresTab, type Arvore } from "./arvores-tab";
 import { HabilidadesTab } from "./habilidades-tab";
 import { InventarioTab } from "./inventario-tab";
 import { PericiasTab } from "./pericias-tab";
@@ -13,7 +14,10 @@ import type { Atributo, EfeitosAgregados } from "@/lib/op-rpg";
 
 type Acao = React.ComponentProps<typeof AcoesTab>["acoes"][number];
 type Item = React.ComponentProps<typeof InventarioTab>["itens"][number];
-type RecursoRef = React.ComponentProps<typeof AcoesTab>["recursos"][number];
+type RecursoRef = React.ComponentProps<typeof AcoesTab>["recursos"][number] & {
+  valorAtual: number;
+  valorMax: number;
+};
 type Habilidade = React.ComponentProps<typeof HabilidadesTab>["habilidades"][number];
 type PericiaCustom = React.ComponentProps<typeof PericiasTab>["periciasCustom"][number];
 type Tripulante = React.ComponentProps<typeof TripulacaoTab>["tripulantes"][number];
@@ -39,11 +43,14 @@ type Props = {
   isNarradorDaMesa: boolean;
   tripulantes: Tripulante[];
   navio: Navio;
+  arvores: Arvore[];
+  habilidadesTravadas: string[];
 };
 
 type TabId =
   | "combate"
   | "habilidades"
+  | "arvores"
   | "pericias"
   | "missoes"
   | "inventario"
@@ -53,6 +60,7 @@ type TabId =
 const TABS_BASE: { id: TabId; label: string; icone: string }[] = [
   { id: "combate", label: "Combate", icone: "fa-fist-raised" },
   { id: "habilidades", label: "Habilidades", icone: "fa-star" },
+  { id: "arvores", label: "Árvores", icone: "fa-sitemap" },
   { id: "pericias", label: "Perícias", icone: "fa-dice-d20" },
   { id: "missoes", label: "Missões", icone: "fa-scroll" },
   { id: "inventario", label: "Inventário", icone: "fa-sack-dollar" },
@@ -79,6 +87,8 @@ export function FichaTabs({
   isNarradorDaMesa,
   tripulantes,
   navio,
+  arvores,
+  habilidadesTravadas,
 }: Props) {
   const [ativa, setAtiva] = useState<TabId>("combate");
 
@@ -132,6 +142,7 @@ export function FichaTabs({
           recursos={recursos}
           atributos={atributos}
           periciasCustom={periciasCustom}
+          travadas={habilidadesTravadas}
         />
       </div>
 
@@ -145,6 +156,16 @@ export function FichaTabs({
           proficienciasRaw={proficienciasRaw}
           periciasCustom={periciasCustom}
           efeitosAgregados={efeitosAgregados}
+        />
+      </div>
+
+      <div hidden={ativa !== "arvores"}>
+        <ArvoresTab
+          personagemId={personagemId}
+          nivel={nivel}
+          arvores={arvores}
+          recursos={recursos}
+          habilidades={habilidades}
         />
       </div>
 
