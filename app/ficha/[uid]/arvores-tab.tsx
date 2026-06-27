@@ -21,6 +21,9 @@ import {
   deletarCamada,
   deletarNo,
   devolverNo,
+  criarRamo,
+  deletarRamo,
+  moverNo,
 } from "./actions";
 import { EstiloPicker } from "./estilo-cor-picker";
 import {
@@ -35,13 +38,13 @@ import {
   camadasAbertas,
   estadoNo,
   lerRequisitos,
-  marcaRank,
   normalizarCriterio,
   pontosGastos,
   rotuloRank,
   type CamadaArvore,
   type CriterioArvore,
   type NoArvore,
+  type RamoArvore,
   type RequisitoNo,
 } from "@/lib/arvore";
 
@@ -54,7 +57,9 @@ export type Arvore = {
   ordem: number;
   criterio: string;
   recursoCustoId: string | null;
+  fundoUrl: string | null;
   camadas: CamadaArvore[];
+  ramos: RamoArvore[];
   nos: NoArvore[];
 };
 
@@ -112,6 +117,7 @@ export function ArvoresTab({
   const [modalArvore, setModalArvore] = useState<Arvore | "nova" | null>(null);
   const [modalCamada, setModalCamada] = useState<CamadaArvore | "nova" | null>(null);
   const [modalNo, setModalNo] = useState<NoArvore | "novo" | null>(null);
+  const [noSelecionadoId, setNoSelecionado] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   type Patch =
@@ -150,6 +156,10 @@ export function ArvoresTab({
     () => (arvore ? [...arvore.camadas].sort((a, b) => a.ordem - b.ordem) : []),
     [arvore],
   );
+  const ramos = useMemo(
+    () => (arvore ? [...arvore.ramos].sort((a, b) => a.ordem - b.ordem) : []),
+    [arvore],
+  );
 
   const ctx = useMemo(
     () => ({
@@ -182,6 +192,58 @@ export function ArvoresTab({
       aplicar({ kind: "rank", noId: no.id, rank: no.rankAtual - 1 });
       try {
         await devolverNo(personagemId, arvore.id, no.id);
+      } catch (err) {
+        mostrarErro(err);
+      }
+    });
+  }
+
+  function mover(noId: string, destino: { ramoId: string | null; offsetY: number }) {
+    if (!arvore) return;
+    startTransition(async () => {
+      aplicar({ kind: "patchNo", noId, patch: destino });
+      try {
+        await moverNo(personagemId, arvore.id, noId, destino);
+      } catch (err) {
+        mostrarErro(err);
+      }
+    });
+  }
+
+  async function novaRaia() {
+    if (!arvore) return;
+    const r = await Swal.fire({
+      title: "Nova raia",
+      input: "text",
+      inputPlaceholder: "Ex: Ofensivo",
+      showCancelButton: true,
+      confirmButtonText: "Criar",
+      cancelButtonText: "Cancelar",
+      background: "var(--bg-card)",
+      color: "var(--text-main)",
+    });
+    if (!r.isConfirmed || !r.value?.trim()) return;
+    startTransition(async () => {
+      try {
+        await criarRamo(personagemId, arvore.id, r.value.trim());
+      } catch (err) {
+        mostrarErro(err);
+      }
+    });
+  }
+
+  async function apagarRaia(ramo: RamoArvore) {
+    if (!arvore) return;
+    if (
+      !(await confirmar(
+        "Apagar raia",
+        `Apagar "${ramo.nome}"? Os talentos dela voltam pra primeira raia — nada é perdido.`,
+      ))
+    )
+      return;
+    startTransition(async () => {
+      try {
+        await deletarRamo(personagemId, arvore.id, ramo.id);
       } catch (err) {
         mostrarErro(err);
       }
@@ -323,6 +385,9 @@ export function ArvoresTab({
               >
                 + Camada
               </button>
+              <button type="button" className="btn-rect outline" onClick={novaRaia}>
+                + Raia
+              </button>
               <button
                 type="button"
                 className="recurso-icon-btn"
@@ -342,18 +407,58 @@ export function ArvoresTab({
             </div>
           </div>
 
+          {ramos.length > 0 && (
+            <div className="arvore-raias-chips">
+              {ramos.map((r) => (
+                <span key={r.id} className="tag">
+                  {r.nome}
+                  <button
+                    type="button"
+                    className="arvore-raia-x"
+                    title="Apagar raia"
+                    onClick={() => apagarRaia(r)}
+                  >
+                    <i className="fas fa-times" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
           <ArvoreCanvas
             arvore={arvore}
             camadas={camadas}
+            ramos={ramos}
             abertas={abertas}
             ctx={ctx}
             criterio={ctx.criterio}
-            onComprar={comprar}
-            onDevolver={devolver}
-            onEditarNo={(n) => setModalNo(n)}
+            selecionadoId={noSelecionadoId}
+            onSelecionar={setNoSelecionado}
             onEditarCamada={(c) => setModalCamada(c)}
             onApagarCamada={apagarCamada}
+            onMover={mover}
           />
+
+          {(() => {
+            const sel = arvore.nos.find((n) => n.id === noSelecionadoId);
+            if (!sel) return null;
+            return (
+              <PainelNo
+                no={sel}
+                estado={estadoNo(sel, camadas, ctx)}
+                camadaNome={
+                  camadas.find((c) => c.id === sel.camadaId)?.nome ?? "—"
+                }
+                habilidadeNome={
+                  habilidades.find((h) => h.id === sel.habilidadeId)?.nome ?? null
+                }
+                onFechar={() => setNoSelecionado(null)}
+                onComprar={() => comprar(sel)}
+                onDevolver={() => devolver(sel)}
+                onEditar={() => setModalNo(sel)}
+              />
+            );
+          })()}
         </>
       )}
 
@@ -463,43 +568,54 @@ export function ArvoresTab({
   );
 }
 
-// ─── Canvas: camadas empilhadas + conectores SVG ────────────
+// ─── Canvas: faixas contínuas, raias e conectores ───────────
+//
+// Layout: coluna-trilho à esquerda com o nome da camada em pé, e à direita as
+// faixas (uma por camada) divididas em raias nomeadas. Dentro da faixa o nó fica
+// em `offsetY` (0–100 % da altura) — é esse escalonamento que dá o desenho de
+// árvore em vez de grade. Arrastar o nó grava raia + offsetY; clicar sem
+// arrastar abre o painel de detalhe (o card no canvas é compacto de propósito).
+
+const ALTURA_FAIXA = 250;
 
 function ArvoreCanvas({
   arvore,
   camadas,
+  ramos,
   abertas,
   ctx,
   criterio,
-  onComprar,
-  onDevolver,
-  onEditarNo,
+  selecionadoId,
+  onSelecionar,
   onEditarCamada,
   onApagarCamada,
+  onMover,
 }: {
   arvore: Arvore;
   camadas: CamadaArvore[];
+  ramos: RamoArvore[];
   abertas: Set<string>;
   ctx: Parameters<typeof estadoNo>[2];
   criterio: CriterioArvore;
-  onComprar: (n: NoArvore) => void;
-  onDevolver: (n: NoArvore) => void;
-  onEditarNo: (n: NoArvore) => void;
+  selecionadoId: string | null;
+  onSelecionar: (id: string | null) => void;
   onEditarCamada: (c: CamadaArvore) => void;
   onApagarCamada: (c: CamadaArvore) => void;
+  onMover: (noId: string, destino: { ramoId: string | null; offsetY: number }) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const nosRef = useRef(new Map<string, HTMLElement>());
-  const [linhas, setLinhas] = useState<
-    { x1: number; y1: number; x2: number; y2: number; ativa: boolean }[]
-  >([]);
+  const [linhas, setLinhas] = useState<{ d: string; ativa: boolean }[]>([]);
   const [tamanho, setTamanho] = useState({ w: 0, h: 0 });
+  const [arrastando, setArrastando] = useState<string | null>(null);
 
   const criterioLimiar = CRITERIOS_ARVORE.find((c) => c.slug === criterio);
+  // Raia única implícita quando a árvore não tem nenhuma.
+  const colunas: (RamoArvore | null)[] = ramos.length > 0 ? ramos : [null];
 
-  // Conectores são medidos do DOM (o layout é fluido: grid que reflui com a
-  // largura). Um ResizeObserver no container cobre resize da janela, troca de
-  // aba (display:none → visível) e mudança na quantidade de nós.
+  // Conectores são medidos do DOM: as raias refluem com a viewport e a posição
+  // vertical vem de %, então não dá pra derivar. O ResizeObserver cobre resize,
+  // troca de aba (display:none → visível) e mudança na quantidade de nós.
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -508,9 +624,9 @@ function ArvoreCanvas({
       const cont = containerRef.current;
       if (!cont) return;
       const base = cont.getBoundingClientRect();
-      if (base.width === 0) return; // aba escondida — mede quando aparecer
+      if (base.width === 0) return; // aba escondida — remede quando aparecer
 
-      const novas: typeof linhas = [];
+      const novas: { d: string; ativa: boolean }[] = [];
       for (const no of arvore.nos) {
         const filho = nosRef.current.get(no.id);
         if (!filho) continue;
@@ -520,11 +636,15 @@ function ArvoreCanvas({
           if (!pai) continue;
           const rp = pai.getBoundingClientRect();
           const paiNo = arvore.nos.find((n) => n.id === req.noId);
+
+          const x1 = rp.left - base.left + rp.width / 2;
+          const y1 = rp.top - base.top + rp.height / 2;
+          const x2 = rf.left - base.left + rf.width / 2;
+          const y2 = rf.top - base.top + rf.height / 2;
+          // Curva em S: sai e entra na vertical, como a árvore do livro.
+          const dy = Math.max(40, Math.abs(y2 - y1) * 0.55);
           novas.push({
-            x1: rp.left - base.left + rp.width / 2,
-            y1: rp.top - base.top + rp.height,
-            x2: rf.left - base.left + rf.width / 2,
-            y2: rf.top - base.top,
+            d: `M ${x1} ${y1} C ${x1} ${y1 + dy}, ${x2} ${y2 - dy}, ${x2} ${y2}`,
             ativa: (paiNo?.rankAtual ?? 0) >= req.rank,
           });
         }
@@ -537,110 +657,270 @@ function ArvoreCanvas({
     const ro = new ResizeObserver(medir);
     ro.observe(container);
     return () => ro.disconnect();
-  }, [arvore.nos, camadas]);
+  }, [arvore.nos, camadas, ramos]);
+
+  /**
+   * Arrasto: converte a posição do ponteiro na faixa em `offsetY` (%) e acha a
+   * raia pela coluna sob o cursor. Pointer capture mantém o movimento vivo mesmo
+   * quando o cursor sai do card. Movimento curto (< 4 px) conta como clique e
+   * abre o painel em vez de reposicionar.
+   */
+  function iniciarArrasto(
+    e: React.PointerEvent,
+    no: NoArvore,
+    faixaEl: HTMLElement | null,
+  ) {
+    if (e.button !== 0 || !faixaEl) return;
+    const card = e.currentTarget as HTMLElement;
+    e.preventDefault();
+    card.setPointerCapture(e.pointerId);
+
+    const inicioX = e.clientX;
+    const inicioY = e.clientY;
+    let moveu = false;
+    let pendenteY = no.offsetY;
+    let pendenteRamo = no.ramoId;
+
+    function mover(ev: PointerEvent) {
+      if (
+        !moveu &&
+        Math.hypot(ev.clientX - inicioX, ev.clientY - inicioY) < 4
+      ) {
+        return;
+      }
+      if (!moveu) {
+        moveu = true;
+        setArrastando(no.id);
+      }
+      const r = faixaEl!.getBoundingClientRect();
+      pendenteY = Math.round(
+        Math.max(0, Math.min(100, ((ev.clientY - r.top) / r.height) * 100)),
+      );
+      const sob = Array.from(
+        faixaEl!.querySelectorAll<HTMLElement>("[data-raia]"),
+      ).find((c) => {
+        const rc = c.getBoundingClientRect();
+        return ev.clientX >= rc.left && ev.clientX <= rc.right;
+      });
+      pendenteRamo = sob?.dataset.raia || null;
+      card.style.top = `${pendenteY}%`;
+    }
+
+    function soltar(ev: PointerEvent) {
+      card.releasePointerCapture(ev.pointerId);
+      card.removeEventListener("pointermove", mover);
+      card.removeEventListener("pointerup", soltar);
+      card.removeEventListener("pointercancel", soltar);
+      card.style.top = "";
+      if (!moveu) {
+        onSelecionar(no.id);
+        return;
+      }
+      setArrastando(null);
+      if (pendenteY !== no.offsetY || pendenteRamo !== no.ramoId) {
+        onMover(no.id, { ramoId: pendenteRamo, offsetY: pendenteY });
+      }
+    }
+
+    card.addEventListener("pointermove", mover);
+    card.addEventListener("pointerup", soltar);
+    card.addEventListener("pointercancel", soltar);
+  }
 
   return (
-    <div className="arvore-canvas" ref={containerRef}>
+    <div
+      className="arvore-canvas"
+      ref={containerRef}
+      style={
+        arvore.fundoUrl
+          ? { backgroundImage: `url("${arvore.fundoUrl.replace(/"/g, "%22")}")` }
+          : undefined
+      }
+    >
+      <div className="arvore-canvas-veu" />
+
       <svg
         className="arvore-conectores"
         width={tamanho.w}
         height={tamanho.h}
         aria-hidden="true"
       >
-        {linhas.map((l, i) => {
-          // Curva em S vertical: sai por baixo do pai, entra por cima do filho.
-          const meio = (l.y1 + l.y2) / 2;
-          return (
-            <path
-              key={i}
-              d={`M ${l.x1} ${l.y1} C ${l.x1} ${meio}, ${l.x2} ${meio}, ${l.x2} ${l.y2}`}
-              className={`arvore-conector ${l.ativa ? "ativo" : ""}`}
-            />
-          );
-        })}
+        {linhas.map((l, i) => (
+          <path key={i} d={l.d} className={`arvore-conector ${l.ativa ? "ativo" : ""}`} />
+        ))}
       </svg>
 
-      {camadas.map((camada) => {
-        const aberta = abertas.has(camada.id);
-        const nos = arvore.nos
-          .filter((n) => n.camadaId === camada.id)
-          .sort((a, b) => a.ordem - b.ordem || a.nome.localeCompare(b.nome));
-        return (
-          <section
-            key={camada.id}
-            className={`arvore-camada ${aberta ? "" : "fechada"}`}
+      {ramos.length > 0 && (
+        <div className="arvore-raias-head">
+          <span className="arvore-trilho-vazio" />
+          <div
+            className="arvore-raias-cols"
+            style={{ gridTemplateColumns: `repeat(${colunas.length}, 1fr)` }}
           >
-            <header className="arvore-camada-head">
-              <span className="arvore-camada-nome">
-                <i className={`fas ${aberta ? "fa-lock-open" : "fa-lock"}`} />{" "}
-                {camada.nome}
+            {ramos.map((r) => (
+              <span key={r.id} className="arvore-raia-nome">
+                {r.nome}
               </span>
-              {criterio !== "manual" && (
-                <span className="arvore-camada-limiar">
-                  {criterioLimiar?.rotuloLimiar}: {camada.limiar}
-                </span>
-              )}
-              <span className="arvore-camada-acoes">
-                <button
-                  type="button"
-                  className="recurso-icon-btn"
-                  title="Editar camada"
-                  onClick={() => onEditarCamada(camada)}
-                >
-                  <i className="fas fa-edit" />
-                </button>
-                <button
-                  type="button"
-                  className="recurso-icon-btn"
-                  title="Apagar camada"
-                  onClick={() => onApagarCamada(camada)}
-                >
-                  <i className="fas fa-trash" />
-                </button>
-              </span>
-            </header>
+            ))}
+          </div>
+        </div>
+      )}
 
-            {nos.length === 0 ? (
-              <div className="arvore-camada-vazia">Sem talentos nesta camada.</div>
-            ) : (
-              <div className="arvore-nos">
-                {nos.map((no) => (
-                  <NoCard
-                    key={no.id}
-                    no={no}
-                    estado={estadoNo(no, camadas, ctx)}
-                    registrar={(el) => {
-                      if (el) nosRef.current.set(no.id, el);
-                      else nosRef.current.delete(no.id);
-                    }}
-                    onComprar={() => onComprar(no)}
-                    onDevolver={() => onDevolver(no)}
-                    onEditar={() => onEditarNo(no)}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-        );
-      })}
+      {camadas.map((camada) => (
+        <FaixaCamada
+          key={camada.id}
+          camada={camada}
+          aberta={abertas.has(camada.id)}
+          colunas={colunas}
+          nos={arvore.nos.filter((n) => n.camadaId === camada.id)}
+          camadas={camadas}
+          ctx={ctx}
+          criterio={criterio}
+          rotuloLimiar={criterioLimiar?.rotuloLimiar}
+          arrastando={arrastando}
+          selecionadoId={selecionadoId}
+          registrar={(id, el) => {
+            if (el) nosRef.current.set(id, el);
+            else nosRef.current.delete(id);
+          }}
+          onEditarCamada={onEditarCamada}
+          onApagarCamada={onApagarCamada}
+          onArrastar={iniciarArrasto}
+        />
+      ))}
     </div>
   );
 }
 
+function FaixaCamada({
+  camada,
+  aberta,
+  colunas,
+  nos,
+  camadas,
+  ctx,
+  criterio,
+  rotuloLimiar,
+  arrastando,
+  selecionadoId,
+  registrar,
+  onEditarCamada,
+  onApagarCamada,
+  onArrastar,
+}: {
+  camada: CamadaArvore;
+  aberta: boolean;
+  colunas: (RamoArvore | null)[];
+  nos: NoArvore[];
+  camadas: CamadaArvore[];
+  ctx: Parameters<typeof estadoNo>[2];
+  criterio: CriterioArvore;
+  rotuloLimiar?: string;
+  arrastando: string | null;
+  selecionadoId: string | null;
+  registrar: (id: string, el: HTMLElement | null) => void;
+  onEditarCamada: (c: CamadaArvore) => void;
+  onApagarCamada: (c: CamadaArvore) => void;
+  onArrastar: (e: React.PointerEvent, no: NoArvore, faixa: HTMLElement | null) => void;
+}) {
+  const faixaRef = useRef<HTMLDivElement>(null);
+  const raiaPadrao = colunas[0]?.id ?? null;
+
+  return (
+    <div className={`arvore-faixa-linha ${aberta ? "" : "fechada"}`}>
+      <div className="arvore-trilho">
+        <span className="arvore-trilho-nome">{camada.nome}</span>
+        <span className="arvore-trilho-meta">
+          <i className={`fas ${aberta ? "fa-lock-open" : "fa-lock"}`} />
+          {criterio !== "manual" && <em title={rotuloLimiar}>{camada.limiar}</em>}
+        </span>
+        <span className="arvore-trilho-acoes">
+          <button
+            type="button"
+            className="recurso-icon-btn"
+            title="Editar camada"
+            onClick={() => onEditarCamada(camada)}
+          >
+            <i className="fas fa-edit" />
+          </button>
+          <button
+            type="button"
+            className="recurso-icon-btn"
+            title="Apagar camada"
+            onClick={() => onApagarCamada(camada)}
+          >
+            <i className="fas fa-trash" />
+          </button>
+        </span>
+      </div>
+
+      <div
+        className="arvore-faixa"
+        ref={faixaRef}
+        style={{
+          gridTemplateColumns: `repeat(${colunas.length}, 1fr)`,
+          minHeight: ALTURA_FAIXA,
+        }}
+      >
+        {colunas.map((col, i) => {
+          // Sem raias, uma coluna só recebe tudo. Com raias, nó sem `ramoId`
+          // (ou apontando pra raia apagada) cai na primeira.
+          const daColuna =
+            colunas.length === 1 && !col
+              ? nos
+              : nos.filter((n) => {
+                  const alvo = colunas.some((c) => c?.id === n.ramoId)
+                    ? n.ramoId
+                    : raiaPadrao;
+                  return alvo === col?.id;
+                });
+          return (
+            <div
+              key={col?.id ?? `raia-${i}`}
+              className="arvore-raia"
+              data-raia={col?.id ?? ""}
+            >
+              {daColuna.map((no) => (
+                <NoCard
+                  key={no.id}
+                  no={no}
+                  estado={estadoNo(no, camadas, ctx)}
+                  arrastando={arrastando === no.id}
+                  selecionado={selecionadoId === no.id}
+                  registrar={(el) => registrar(no.id, el)}
+                  onPointerDown={(e) => onArrastar(e, no, faixaRef.current)}
+                />
+              ))}
+            </div>
+          );
+        })}
+        {nos.length === 0 && (
+          <span className="arvore-faixa-vazia">Sem talentos nesta camada.</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Card compacto do canvas: selo de custo, nome e as estrelas de rank. Detalhe,
+ * bloqueios e ações vivem no painel — no canvas o nó precisa ser pequeno pra
+ * caber muita coisa e não brigar com os conectores.
+ */
 function NoCard({
   no,
   estado,
+  arrastando,
+  selecionado,
   registrar,
-  onComprar,
-  onDevolver,
-  onEditar,
+  onPointerDown,
 }: {
   no: NoArvore;
   estado: ReturnType<typeof estadoNo>;
+  arrastando: boolean;
+  selecionado: boolean;
   registrar: (el: HTMLElement | null) => void;
-  onComprar: () => void;
-  onDevolver: () => void;
-  onEditar: () => void;
+  onPointerDown: (e: React.PointerEvent) => void;
 }) {
   const maxRanks = Math.max(1, no.maxRanks);
   const classe = estado.comprado
@@ -650,50 +930,95 @@ function NoCard({
     : "travado";
 
   return (
-    <article ref={registrar} className={`arvore-no ${classe}`}>
-      <button
-        type="button"
-        className="arvore-no-editar"
-        title="Editar talento"
-        onClick={onEditar}
-      >
-        <i className="fas fa-edit" />
-      </button>
+    <article
+      ref={registrar}
+      className={`arvore-no ${classe}${arrastando ? " arrastando" : ""}${
+        selecionado ? " selecionado" : ""
+      }`}
+      style={{ top: `${Math.max(0, Math.min(100, no.offsetY))}%` }}
+      onPointerDown={onPointerDown}
+      title={
+        estado.bloqueios.length > 0 ? estado.bloqueios.join(" · ") : no.descricao
+      }
+    >
+      {no.custo > 0 && <span className="arvore-no-selo">{no.custo}</span>}
 
-      <div className="arvore-no-topo">
+      <div className="arvore-no-linha">
         <i className={`fas ${no.icone} arvore-no-icone`} />
         <span className="arvore-no-nome">{no.nome}</span>
       </div>
 
-      {maxRanks > 1 && (
-        <div className="arvore-no-ranks" title={`${estado.rank} de ${maxRanks}`}>
-          {Array.from({ length: maxRanks }, (_, i) => (
-            <span
-              key={i}
-              className={`arvore-pip ${i < estado.rank ? "cheio" : ""}`}
-              title={rotuloRank(i + 1)}
-            >
-              {marcaRank(i + 1) || "●"}
-            </span>
-          ))}
-        </div>
-      )}
+      <div className="arvore-no-estrelas">
+        {Array.from({ length: maxRanks }, (_, i) => (
+          <span
+            key={i}
+            className={`arvore-estrela ${i < estado.rank ? "cheia" : ""}`}
+            title={rotuloRank(i + 1)}
+          >
+            ★
+          </span>
+        ))}
+        {!estado.comprado && estado.bloqueios.length > 0 && (
+          <i className="fas fa-lock arvore-no-cadeado" />
+        )}
+      </div>
+    </article>
+  );
+}
 
-      {no.descricao && <p className="arvore-no-desc">{no.descricao}</p>}
+/** Detalhe + ações do talento selecionado, abaixo do canvas. */
+function PainelNo({
+  no,
+  estado,
+  camadaNome,
+  habilidadeNome,
+  onFechar,
+  onComprar,
+  onDevolver,
+  onEditar,
+}: {
+  no: NoArvore;
+  estado: ReturnType<typeof estadoNo>;
+  camadaNome: string;
+  habilidadeNome: string | null;
+  onFechar: () => void;
+  onComprar: () => void;
+  onDevolver: () => void;
+  onEditar: () => void;
+}) {
+  return (
+    <div className="arvore-painel">
+      <div className="arvore-painel-topo">
+        <span className="arvore-painel-titulo">
+          <i className={`fas ${no.icone}`} /> {no.nome}
+        </span>
+        <span className="arvore-painel-camada">{camadaNome}</span>
+        <button
+          type="button"
+          className="tags-editor-fechar"
+          onClick={onFechar}
+          aria-label="Fechar"
+        >
+          <i className="fas fa-times" />
+        </button>
+      </div>
+
+      {no.descricao && <p className="arvore-painel-desc">{no.descricao}</p>}
 
       <div className="arvore-no-meta">
-        {no.custo > 0 && (
-          <span className="tag tag-custo">{no.custo} por rank</span>
-        )}
+        <span className="tag">
+          {rotuloRank(Math.max(1, estado.rank))} · {estado.rank}/{Math.max(1, no.maxRanks)}
+        </span>
+        {no.custo > 0 && <span className="tag tag-custo">{no.custo} por rank</span>}
         {no.nivelMinimo > 0 && <span className="tag">Nv. {no.nivelMinimo}</span>}
-        {no.habilidadeId && (
-          <span className="tag" title="Libera uma habilidade da ficha">
-            <i className="fas fa-link" /> habilidade
+        {habilidadeNome && (
+          <span className="tag" title="Talento travado bloqueia os efeitos dela">
+            <i className="fas fa-link" /> {habilidadeNome}
           </span>
         )}
       </div>
 
-      {estado.bloqueios.length > 0 && !estado.comprado && (
+      {estado.bloqueios.length > 0 && (
         <ul className="arvore-no-bloqueios">
           {estado.bloqueios.map((b, i) => (
             <li key={i}>
@@ -703,37 +1028,35 @@ function NoCard({
         </ul>
       )}
 
-      <div className="arvore-no-acoes">
+      <div className="arvore-painel-acoes">
         {estado.proximoRank !== null && (
           <button
             type="button"
-            className="btn-rect outline arvore-btn-comprar"
+            className="btn-rect primary"
             disabled={!estado.podeComprar}
             onClick={onComprar}
-            title={
-              estado.podeComprar
-                ? `Liberar ${rotuloRank(estado.proximoRank)}`
-                : estado.bloqueios.join(" · ")
-            }
           >
-            {estado.rank === 0 ? "Liberar" : `→ ${rotuloRank(estado.proximoRank)}`}
+            {estado.rank === 0 ? "Liberar" : `Evoluir → ${rotuloRank(estado.proximoRank)}`}
           </button>
+        )}
+        {estado.proximoRank === null && (
+          <span className="arvore-no-maximo">No máximo</span>
         )}
         {estado.rank > 0 && (
-          <button
-            type="button"
-            className="recurso-icon-btn"
-            onClick={onDevolver}
-            title="Devolver um rank"
-          >
-            <i className="fas fa-rotate-left" />
+          <button type="button" className="btn-rect outline" onClick={onDevolver}>
+            <i className="fas fa-rotate-left" /> Devolver
           </button>
         )}
-        {estado.proximoRank === null && estado.comprado && (
-          <span className="arvore-no-maximo">no máximo</span>
-        )}
+        <button
+          type="button"
+          className="btn-rect outline"
+          style={{ marginLeft: "auto" }}
+          onClick={onEditar}
+        >
+          <i className="fas fa-edit" /> Editar
+        </button>
       </div>
-    </article>
+    </div>
   );
 }
 
@@ -746,6 +1069,7 @@ type ArvoreFormDados = {
   efeito: EfeitoCor;
   criterio: CriterioArvore;
   recursoCustoId: string | null;
+  fundoUrl: string | null;
 };
 
 function ArvoreModal({
@@ -769,6 +1093,7 @@ function ArvoreModal({
     normalizarCriterio(inicial?.criterio),
   );
   const [recursoCustoId, setRecursoCustoId] = useState(inicial?.recursoCustoId ?? "");
+  const [fundoUrl, setFundoUrl] = useState(inicial?.fundoUrl ?? "");
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -783,6 +1108,7 @@ function ArvoreModal({
       efeito,
       criterio,
       recursoCustoId: recursoCustoId || null,
+      fundoUrl: fundoUrl.trim() || null,
     });
   }
 
@@ -842,6 +1168,18 @@ function ArvoreModal({
           <p style={{ fontSize: "0.76rem", color: "var(--text-sec)", marginTop: 4 }}>
             Pontos de Ambição não têm campo próprio na ficha — crie um Recurso
             &quot;PA&quot; na sidebar e aponte aqui pra debitar de verdade.
+          </p>
+
+          <label style={{ marginTop: 10 }}>Arte de fundo (URL)</label>
+          <input
+            type="url"
+            value={fundoUrl}
+            onChange={(e) => setFundoUrl(e.target.value)}
+            placeholder="https://... (opcional)"
+          />
+          <p style={{ fontSize: "0.76rem", color: "var(--text-sec)", marginTop: 4 }}>
+            Só http(s). Um véu escuro é aplicado por cima pra manter os cards
+            legíveis.
           </p>
 
           <label style={{ marginTop: 10 }}>Cor e brilho</label>

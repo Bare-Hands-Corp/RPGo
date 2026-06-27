@@ -1185,6 +1185,7 @@ const ALLOWED_ARVORE = [
   "ordem",
   "criterio",
   "recursoCustoId",
+  "fundoUrl",
 ] as const;
 type ArvoreInput = Partial<Record<(typeof ALLOWED_ARVORE)[number], unknown>>;
 
@@ -1205,6 +1206,11 @@ function normalizarArvore(input: ArvoreInput) {
   if (input.recursoCustoId !== undefined) {
     data.recursoCustoId = input.recursoCustoId ? String(input.recursoCustoId) : null;
   }
+  if (input.fundoUrl !== undefined) {
+    const v = input.fundoUrl ? String(input.fundoUrl).trim().slice(0, 500) : "";
+    // Só http(s) — evita javascript:/data: virando background do canvas.
+    data.fundoUrl = /^https?:\/\//i.test(v) ? v : null;
+  }
   return data;
 }
 
@@ -1214,6 +1220,7 @@ async function arvoreDoPersonagem(personagemId: string, arvoreId: string) {
     where: { id: arvoreId, personagemId },
     include: {
       camadas: { orderBy: { ordem: "asc" } },
+      ramos: { orderBy: { ordem: "asc" } },
       nos: { orderBy: { ordem: "asc" } },
     },
   });
@@ -1236,6 +1243,7 @@ export async function criarArvore(personagemId: string, input: ArvoreInput) {
       ordem: (data.ordem as number) ?? 0,
       criterio: (data.criterio as string) ?? "manual",
       recursoCustoId: (data.recursoCustoId as string | null) ?? null,
+      fundoUrl: (data.fundoUrl as string | null) ?? null,
       // Árvore nasce com uma camada — sem camada não há onde pôr nó.
       camadas: { create: [{ nome: "Camada 1", ordem: 0, limiar: 0 }] },
     },
@@ -1333,6 +1341,8 @@ export async function deletarCamada(
 // ─── Nós ───────────────────────────────────────────────────
 const ALLOWED_NO = [
   "camadaId",
+  "ramoId",
+  "offsetY",
   "nome",
   "descricao",
   "icone",
@@ -1353,6 +1363,10 @@ function normalizarNo(input: NoInput) {
     data.nome = nome.slice(0, 60);
   }
   if (input.camadaId !== undefined) data.camadaId = String(input.camadaId);
+  if (input.ramoId !== undefined) data.ramoId = input.ramoId ? String(input.ramoId) : null;
+  if (input.offsetY !== undefined) {
+    data.offsetY = Math.max(0, Math.min(100, Math.round(Number(input.offsetY) || 0)));
+  }
   if (input.descricao !== undefined) data.descricao = String(input.descricao);
   if (input.icone !== undefined) {
     data.icone = String(input.icone).trim().slice(0, 40) || "fa-circle-nodes";
@@ -1378,12 +1392,16 @@ function normalizarNo(input: NoInput) {
 /** A camada precisa ser DESTA árvore, e o requisito não pode apontar pra fora. */
 function validarVinculosDoNo(
   data: Record<string, unknown>,
-  arvore: { camadas: { id: string }[]; nos: { id: string }[] },
+  arvore: { camadas: { id: string }[]; ramos: { id: string }[]; nos: { id: string }[] },
   noId: string | null,
 ) {
   if (data.camadaId !== undefined) {
     const ok = arvore.camadas.some((c) => c.id === data.camadaId);
     if (!ok) throw new Error("Camada não pertence a esta árvore.");
+  }
+  if (data.ramoId) {
+    const ok = arvore.ramos.some((r) => r.id === data.ramoId);
+    if (!ok) throw new Error("Raia não pertence a esta árvore.");
   }
   if (data.requisitos !== undefined) {
     const idsValidos = new Set(arvore.nos.map((n) => n.id));
@@ -1433,6 +1451,8 @@ export async function criarNo(
     data: {
       arvoreId,
       camadaId: data.camadaId as string,
+      ramoId: (data.ramoId as string | null) ?? arvore.ramos[0]?.id ?? null,
+      offsetY: (data.offsetY as number) ?? 50,
       nome: data.nome as string,
       descricao: (data.descricao as string) ?? "",
       icone: (data.icone as string) ?? "fa-circle-nodes",
@@ -1606,5 +1626,85 @@ export async function devolverNo(
     }
   }
   await prisma.$transaction(ops);
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+// ─── Raias (ramos) ─────────────────────────────────────────
+// Colunas nomeadas do canvas (ex: "Ofensivo" / "Defensivo"). Puramente visual —
+// não entram no gating.
+
+export async function criarRamo(
+  personagemId: string,
+  arvoreId: string,
+  nome: string,
+) {
+  await autorizar(personagemId);
+  const arvore = await arvoreDoPersonagem(personagemId, arvoreId);
+  const limpo = String(nome).trim().slice(0, 40);
+  if (!limpo) throw new Error("Nome da raia é obrigatório.");
+
+  const ramo = await prisma.arvoreRamo.create({
+    data: { arvoreId, nome: limpo, ordem: arvore.ramos.length },
+  });
+  revalidatePath(`/ficha/${personagemId}`);
+  return { id: ramo.id };
+}
+
+export async function atualizarRamo(
+  personagemId: string,
+  arvoreId: string,
+  ramoId: string,
+  patch: { nome?: unknown; ordem?: unknown },
+) {
+  await autorizar(personagemId);
+  await arvoreDoPersonagem(personagemId, arvoreId);
+  const data: Record<string, unknown> = {};
+  if (patch.nome !== undefined) {
+    const limpo = String(patch.nome).trim().slice(0, 40);
+    if (!limpo) throw new Error("Nome da raia é obrigatório.");
+    data.nome = limpo;
+  }
+  if (patch.ordem !== undefined) data.ordem = Math.trunc(Number(patch.ordem) || 0);
+
+  await prisma.arvoreRamo.update({ where: { id: ramoId, arvoreId }, data });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+export async function deletarRamo(
+  personagemId: string,
+  arvoreId: string,
+  ramoId: string,
+) {
+  await autorizar(personagemId);
+  await arvoreDoPersonagem(personagemId, arvoreId);
+  // Os nós NÃO caem junto — `ramoId` é onDelete: SetNull e eles voltam pra
+  // primeira raia. Raia é enfeite; talento comprado não pode sumir por isso.
+  await prisma.arvoreRamo.delete({ where: { id: ramoId, arvoreId } });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+/**
+ * Reposiciona um nó no canvas (arrastar). Só mexe em raia + altura — nada de
+ * gating —, então é barato e não revalida a página inteira: o cliente já
+ * aplicou o movimento de forma otimista.
+ */
+export async function moverNo(
+  personagemId: string,
+  arvoreId: string,
+  noId: string,
+  destino: { ramoId: string | null; offsetY: number },
+) {
+  await autorizar(personagemId);
+  const arvore = await arvoreDoPersonagem(personagemId, arvoreId);
+  if (destino.ramoId && !arvore.ramos.some((r) => r.id === destino.ramoId)) {
+    throw new Error("Raia não pertence a esta árvore.");
+  }
+  await prisma.arvoreNo.update({
+    where: { id: noId, arvoreId },
+    data: {
+      ramoId: destino.ramoId,
+      offsetY: Math.max(0, Math.min(100, Math.round(Number(destino.offsetY) || 0))),
+    },
+  });
   revalidatePath(`/ficha/${personagemId}`);
 }

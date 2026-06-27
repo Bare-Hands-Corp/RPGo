@@ -455,7 +455,11 @@ model Arvore {
   // informativo e nada é debitado. Ref solta a Recurso.id — sem FK.
   recursoCustoId String?   @map("recurso_custo_id")
 
+  // Arte de fundo do canvas (URL). Opcional.
+  fundoUrl      String?    @map("fundo_url")
+
   camadas       ArvoreCamada[]
+  ramos         ArvoreRamo[]
   nos           ArvoreNo[]
 
   @@index([personagemId, ordem])
@@ -479,12 +483,34 @@ model ArvoreCamada {
   @@map("arvore_camadas")
 }
 
+// Raia vertical do canvas (ex: "Ofensivo" / "Defensivo"). Puramente visual —
+// não participa do gating. Árvore sem ramo nenhum renderiza uma raia única.
+model ArvoreRamo {
+  id        String @id @default(uuid())
+  arvoreId  String @map("arvore_id")
+  arvore    Arvore @relation(fields: [arvoreId], references: [id], onDelete: Cascade)
+
+  nome      String
+  ordem     Int    @default(0)
+
+  nos       ArvoreNo[]
+
+  @@index([arvoreId, ordem])
+  @@map("arvore_ramos")
+}
+
 model ArvoreNo {
   id          String       @id @default(uuid())
   arvoreId    String       @map("arvore_id")
   arvore      Arvore       @relation(fields: [arvoreId], references: [id], onDelete: Cascade)
   camadaId    String       @map("camada_id")
   camada      ArvoreCamada @relation(fields: [camadaId], references: [id], onDelete: Cascade)
+  // Raia onde o nó aparece. null = primeira raia (ou a raia única).
+  ramoId      String?      @map("ramo_id")
+  ramo        ArvoreRamo?  @relation(fields: [ramoId], references: [id], onDelete: SetNull)
+  // Altura dentro da faixa da camada, 0–100 (%). É o escalonamento vertical que
+  // dá o desenho de árvore; ajustado arrastando o nó no canvas.
+  offsetY     Int          @default(50) @map("offset_y")
 
   nome        String
   descricao   String       @default("")

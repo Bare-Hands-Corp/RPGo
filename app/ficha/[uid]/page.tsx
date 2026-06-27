@@ -41,6 +41,7 @@ export default async function FichaPage({ params }: Params) {
           orderBy: [{ ordem: "asc" }, { nome: "asc" }],
           include: {
             camadas: { orderBy: { ordem: "asc" } },
+            ramos: { orderBy: { ordem: "asc" } },
             nos: { orderBy: { ordem: "asc" } },
           },
         },

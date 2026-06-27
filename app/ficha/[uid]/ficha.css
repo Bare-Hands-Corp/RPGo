@@ -2790,9 +2790,10 @@
 }
 
 /* ═══ ÁRVORES DE TALENTO ═══════════════════════════════════
-   Layout automático: cada camada é uma faixa; os nós refluem num grid dentro
-   dela. Os conectores são um <svg> absoluto medido do DOM (ver ArvoreCanvas),
-   por isso o container precisa de position: relative e os nós de z-index. */
+   Canvas contínuo: trilho de camadas à esquerda (nome em pé) e faixas à direita
+   divididas em raias. O nó é posicionado em % dentro da faixa (offsetY), o que
+   dá o escalonamento de árvore; os conectores são um <svg> absoluto medido do
+   DOM (ver ArvoreCanvas). */
 
 .arvores-wrap {
   display: flex;
@@ -2808,6 +2809,7 @@
   gap: 10px;
 }
 
+/* ─── Seletor de árvores (abas tipo ARMAMENTO / OBSERVAÇÃO) ── */
 .arvore-seletor {
   display: flex;
   flex-wrap: wrap;
@@ -2817,16 +2819,20 @@
 .arvore-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
-  border-radius: 999px;
+  gap: 7px;
+  flex: 1 1 160px;
+  justify-content: center;
+  padding: 9px 18px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--bg-surface);
   color: var(--text-main);
-  font-weight: 600;
-  font-size: 0.85rem;
+  font-weight: 700;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   cursor: pointer;
-  transition: transform 0.1s, border-color 0.15s;
+  transition: transform 0.1s, border-color 0.15s, box-shadow 0.15s;
 }
 
 .arvore-pill:hover {
@@ -2835,7 +2841,9 @@
 
 .arvore-pill.ativa {
   border-color: var(--primary);
-  box-shadow: inset 0 0 0 1px var(--primary);
+  box-shadow:
+    inset 0 0 0 1px var(--primary),
+    0 0 14px color-mix(in oklch, var(--primary) 28%, transparent);
 }
 
 .arvore-barra {
@@ -2878,183 +2886,344 @@
   align-items: center;
 }
 
+.arvore-raias-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.arvore-raia-x {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 0 0 6px;
+  font-size: 0.7em;
+  opacity: 0.7;
+}
+
+.arvore-raia-x:hover {
+  opacity: 1;
+}
+
+/* ─── Canvas ──────────────────────────────────────────────── */
 .arvore-canvas {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  background-color: var(--bg-card);
+  background-size: cover;
+  background-position: center;
+  padding: 0;
+}
+
+/* Véu escuro sobre a arte de fundo pra manter os cards legíveis. */
+.arvore-canvas-veu {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--bg-card) 88%, transparent),
+    color-mix(in oklch, var(--bg-card) 94%, transparent)
+  );
+  pointer-events: none;
+  z-index: 0;
 }
 
 .arvore-conectores {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  z-index: 0;
+  z-index: 1;
   overflow: visible;
 }
 
 .arvore-conector {
   fill: none;
-  stroke: var(--border);
+  stroke: color-mix(in oklch, var(--text-sec) 45%, transparent);
   stroke-width: 2;
-  stroke-dasharray: 5 4;
+  stroke-dasharray: 6 5;
 }
 
 .arvore-conector.ativo {
-  stroke: var(--primary);
+  stroke: color-mix(in oklch, var(--primary) 85%, white);
   stroke-dasharray: none;
   stroke-width: 2.5;
 }
 
-.arvore-camada {
+/* ─── Cabeçalho das raias ─────────────────────────────────── */
+.arvore-raias-head {
   position: relative;
-  z-index: 1;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px 14px 14px;
-  background: color-mix(in oklch, var(--bg-card) 92%, transparent);
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 58px 1fr;
+  padding: 12px 14px 6px;
 }
 
-/* Camada ainda trancada: esmaecida, mas legível — o jogador precisa ver o que
-   vem pela frente pra planejar a build. */
-.arvore-camada.fechada {
-  opacity: 0.55;
+.arvore-raias-cols {
+  display: grid;
 }
 
-.arvore-camada-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 10px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border);
-}
-
-.arvore-camada-nome {
+.arvore-raia-nome {
+  text-align: center;
   font-weight: 700;
   font-size: 0.9rem;
   color: var(--text-main);
+  letter-spacing: 0.02em;
 }
 
-.arvore-camada-limiar {
-  font-size: 0.74rem;
-  color: var(--text-sec);
-  padding: 2px 8px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
+.arvore-trilho-vazio {
+  display: block;
 }
 
-.arvore-camada-acoes {
-  margin-left: auto;
-  display: flex;
-  gap: 4px;
-}
-
-.arvore-camada-vazia {
-  font-size: 0.8rem;
-  font-style: italic;
-  color: var(--text-sec);
-}
-
-.arvore-nos {
+/* ─── Faixa (uma por camada) ──────────────────────────────── */
+.arvore-faixa-linha {
+  position: relative;
+  z-index: 2;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 12px;
+  grid-template-columns: 58px 1fr;
+  border-top: 1px solid color-mix(in oklch, var(--border) 80%, transparent);
 }
 
-.arvore-no {
+.arvore-faixa-linha:first-of-type {
+  border-top: none;
+}
+
+/* Camada trancada: esmaecida, não escondida — o jogador precisa ver o que vem
+   pela frente pra planejar a build. */
+.arvore-faixa-linha.fechada {
+  opacity: 0.5;
+}
+
+.arvore-trilho {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  padding: 12px 12px 10px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg-card);
-  transition: border-color 0.15s, box-shadow 0.15s;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-right: 1px solid color-mix(in oklch, var(--border) 80%, transparent);
+  background: color-mix(in oklch, var(--bg-surface) 55%, transparent);
 }
 
-.arvore-no.comprado {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 1px color-mix(in oklch, var(--primary) 40%, transparent);
-}
-
-.arvore-no.disponivel {
-  border-color: color-mix(in oklch, var(--primary) 45%, var(--border));
-}
-
-.arvore-no.travado {
-  opacity: 0.7;
-}
-
-.arvore-no-editar {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  background: none;
-  border: none;
+/* Nome da camada em pé, como o INEXPERIENTE / TREINADO / PERITO da referência. */
+.arvore-trilho-nome {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-weight: 800;
+  font-size: 0.72rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
   color: var(--text-sec);
-  cursor: pointer;
-  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.arvore-trilho-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.66rem;
+  color: var(--text-sec);
+}
+
+.arvore-trilho-meta em {
+  font-style: normal;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.arvore-trilho-acoes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   opacity: 0;
   transition: opacity 0.15s;
 }
 
-.arvore-no:hover .arvore-no-editar,
-.arvore-no-editar:focus-visible {
+.arvore-faixa-linha:hover .arvore-trilho-acoes {
   opacity: 1;
 }
 
-.arvore-no-topo {
+.arvore-faixa {
+  position: relative;
+  display: grid;
+  padding: 8px 0;
+}
+
+.arvore-raia {
+  position: relative;
+  border-left: 1px dashed color-mix(in oklch, var(--border) 55%, transparent);
+}
+
+.arvore-raia:first-child {
+  border-left: none;
+}
+
+.arvore-faixa-vazia {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding-right: 20px;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-style: italic;
+  color: var(--text-sec);
+  pointer-events: none;
+}
+
+/* ─── Nó (card compacto do canvas) ────────────────────────── */
+.arvore-no {
+  position: absolute;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(180px, 86%);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 11px 8px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-card);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.28);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  z-index: 3;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.arvore-no:hover {
+  border-color: color-mix(in oklch, var(--primary) 55%, var(--border));
+}
+
+.arvore-no.arrastando {
+  cursor: grabbing;
+  z-index: 5;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+}
+
+.arvore-no.selecionado {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--primary) 45%, transparent);
+}
+
+.arvore-no.comprado {
+  border-color: color-mix(in oklch, var(--primary) 70%, transparent);
+  background: color-mix(in oklch, var(--primary) 10%, var(--bg-card));
+}
+
+.arvore-no.disponivel {
+  border-color: color-mix(in oklch, var(--primary) 38%, var(--border));
+}
+
+.arvore-no.travado {
+  opacity: 0.72;
+}
+
+/* Selo de custo — círculo no canto, como o número da referência. */
+.arvore-no-selo {
+  position: absolute;
+  top: -9px;
+  right: -8px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--bg-surface);
+  border: 1px solid var(--primary);
+  color: var(--primary);
+  font-size: 0.68rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.arvore-no-linha {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .arvore-no-icone {
+  font-size: 0.75rem;
   color: var(--primary);
-  font-size: 0.95rem;
+  flex-shrink: 0;
 }
 
 .arvore-no-nome {
   font-weight: 700;
-  font-size: 0.9rem;
-  line-height: 1.2;
+  font-size: 0.76rem;
+  line-height: 1.15;
 }
 
-.arvore-no-ranks {
+.arvore-no-estrelas {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 3px;
 }
 
-.arvore-pip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
+.arvore-estrela {
+  font-size: 0.72rem;
+  color: color-mix(in oklch, var(--text-sec) 55%, transparent);
+  line-height: 1;
+}
+
+.arvore-estrela.cheia {
+  color: var(--primary);
+  text-shadow: 0 0 6px color-mix(in oklch, var(--primary) 55%, transparent);
+}
+
+.arvore-no-cadeado {
+  margin-left: auto;
   font-size: 0.62rem;
   color: var(--text-sec);
+  opacity: 0.8;
+}
+
+/* ─── Painel do talento selecionado ───────────────────────── */
+.arvore-painel {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 14px;
+  border: 1px solid var(--primary);
+  border-radius: 12px;
   background: var(--bg-surface);
 }
 
-.arvore-pip.cheio {
-  border-color: var(--primary);
-  background: color-mix(in oklch, var(--primary) 20%, transparent);
-  color: var(--primary);
-  font-weight: 700;
+.arvore-painel-topo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-.arvore-no-desc {
-  font-size: 0.78rem;
-  line-height: 1.35;
+.arvore-painel-titulo {
+  font-weight: 800;
+  font-size: 1rem;
+}
+
+.arvore-painel-camada {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-sec);
+}
+
+.arvore-painel-topo .tags-editor-fechar {
+  margin-left: auto;
+}
+
+.arvore-painel-desc {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.45;
   color: var(--text-sec);
   white-space: pre-wrap;
-  margin: 0;
 }
 
 .arvore-no-meta {
@@ -3070,37 +3239,31 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
-  font-size: 0.72rem;
+  font-size: 0.76rem;
   color: var(--text-sec);
 }
 
 .arvore-no-bloqueios i {
-  font-size: 0.62rem;
-  margin-right: 3px;
+  font-size: 0.64rem;
+  margin-right: 4px;
   opacity: 0.8;
 }
 
-.arvore-no-acoes {
+.arvore-painel-acoes {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: auto;
+  gap: 8px;
+  flex-wrap: wrap;
   padding-top: 4px;
 }
 
-.arvore-btn-comprar {
-  flex: 1;
-  font-size: 0.78rem;
-  padding: 5px 8px;
-}
-
-.arvore-btn-comprar:disabled {
+.arvore-painel-acoes button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
 
 .arvore-no-maximo {
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-style: italic;
   color: var(--text-sec);
 }
@@ -3143,6 +3306,23 @@
   width: auto;
   font-size: 0.78rem;
   padding: 3px 6px;
+}
+
+/* Telas estreitas: o trilho encolhe e as raias viram uma coluna só. */
+@media (max-width: 640px) {
+  .arvore-raias-head,
+  .arvore-faixa-linha {
+    grid-template-columns: 34px 1fr;
+  }
+
+  .arvore-trilho-nome {
+    font-size: 0.62rem;
+    letter-spacing: 0.14em;
+  }
+
+  .arvore-no {
+    width: min(150px, 92%);
+  }
 }
 
 /* Habilidade travada por um nó não liberado — mostrada na aba Habilidades. */

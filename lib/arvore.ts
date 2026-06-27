@@ -44,6 +44,12 @@ export function normalizarCriterio(raw: unknown): CriterioArvore {
 /** Exige `noId` no rank >= `rank`. Rank 2 = Forma Dominada (✩), 3 = Avançada (★). */
 export type RequisitoNo = { noId: string; rank: number };
 
+export type RamoArvore = {
+  id: string;
+  nome: string;
+  ordem: number;
+};
+
 export type CamadaArvore = {
   id: string;
   nome: string;
@@ -54,6 +60,10 @@ export type CamadaArvore = {
 export type NoArvore = {
   id: string;
   camadaId: string;
+  /** Raia do canvas. null = primeira raia. Puramente visual. */
+  ramoId: string | null;
+  /** Altura dentro da faixa da camada, 0–100 (%). */
+  offsetY: number;
   nome: string;
   descricao: string;
   icone: string;
