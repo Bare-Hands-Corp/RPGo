@@ -3338,3 +3338,156 @@
   font-style: italic;
   color: #e0a000;
 }
+
+/* ─── Picker de ícone (grade visual, nunca slug digitado) ─── */
+.icone-picker {
+  position: relative;
+}
+
+.icone-picker-atual {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.icone-picker-atual > i:first-child {
+  color: var(--primary);
+  width: 18px;
+  text-align: center;
+}
+
+.icone-picker-seta {
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: var(--text-sec);
+}
+
+.icone-picker-painel {
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-surface);
+  padding: 10px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.icone-picker-busca {
+  margin-bottom: 8px;
+}
+
+.icone-picker-grupo + .icone-picker-grupo {
+  margin-top: 10px;
+}
+
+.icone-picker-grupo-nome {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: var(--text-sec);
+  margin-bottom: 5px;
+}
+
+.icone-picker-grade {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
+  gap: 5px;
+}
+
+.icone-picker-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: transform 0.1s, border-color 0.15s;
+}
+
+.icone-picker-item:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklch, var(--primary) 55%, var(--border));
+}
+
+.icone-picker-item.ativo {
+  border-color: var(--primary);
+  color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.icone-picker-vazio {
+  font-size: 0.8rem;
+  font-style: italic;
+  color: var(--text-sec);
+  margin: 6px 0 0;
+}
+
+/* ─── Moldes de árvore (modal de criação) ─────────────────── */
+.arvore-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.arvore-preset {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, transform 0.1s;
+}
+
+.arvore-preset:hover {
+  transform: translateY(-1px);
+}
+
+.arvore-preset.ativo {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.arvore-preset i {
+  color: var(--primary);
+  font-size: 1rem;
+}
+
+.arvore-preset strong {
+  font-size: 0.85rem;
+}
+
+.arvore-preset span {
+  font-size: 0.72rem;
+  line-height: 1.3;
+  color: var(--text-sec);
+}
+
+/* Raia sob o cursor durante o arrasto. */
+.arvore-raia.alvo {
+  background: color-mix(in oklch, var(--primary) 9%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--primary) 35%, transparent);
+}
+
+/* Convite a clicar no vazio pra criar talento — discreto até o hover. */
+.arvore-raia:hover {
+  background: color-mix(in oklch, var(--primary) 4%, transparent);
+}

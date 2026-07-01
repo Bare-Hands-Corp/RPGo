@@ -273,3 +273,93 @@ export function habilidadesTravadas(nos: NoArvore[]): Set<string> {
   for (const id of liberadas) travadas.delete(id);
   return travadas;
 }
+
+// ─── Presets de árvore ─────────────────────────────────────
+// Árvore nova nascia com uma camada "Camada 1" e mais nada — tela em branco é
+// o pior começo. Estes moldes montam camadas/raias/critério já no formato do
+// livro; o jogador só preenche os talentos.
+
+export type PresetArvore = {
+  slug: string;
+  nome: string;
+  dica: string;
+  icone: string;
+  criterio: CriterioArvore;
+  camadas: { nome: string; limiar: number }[];
+  ramos: string[];
+};
+
+export const PRESETS_ARVORE: PresetArvore[] = [
+  {
+    slug: "haki",
+    nome: "Haki",
+    dica: "Estágios por PA gasto (1–10 / 11–30 / 31+) e raias Ofensivo/Defensivo, como a Árvore de Talentos do livro.",
+    icone: "fa-eye",
+    criterio: "pontos",
+    camadas: [
+      { nome: "Inexperiente", limiar: 1 },
+      { nome: "Treinado", limiar: 11 },
+      { nome: "Perito", limiar: 31 },
+    ],
+    ramos: ["Ofensivo", "Defensivo"],
+  },
+  {
+    slug: "estilo",
+    nome: "Estilo de Combate",
+    dica: "Uma camada por nível-chave (1, 4, 8, 12, 16, 19) destravada pelo nível do personagem.",
+    icone: "fa-fist-raised",
+    criterio: "nivel",
+    camadas: [
+      { nome: "Nível 1", limiar: 1 },
+      { nome: "Nível 4", limiar: 4 },
+      { nome: "Nível 8", limiar: 8 },
+      { nome: "Nível 12", limiar: 12 },
+      { nome: "Nível 16", limiar: 16 },
+      { nome: "Nível 19", limiar: 19 },
+    ],
+    ramos: [],
+  },
+  {
+    slug: "vazia",
+    nome: "Em branco",
+    dica: "Uma camada só, sem raia e sem trava. Monte do zero.",
+    icone: "fa-sitemap",
+    criterio: "manual",
+    camadas: [{ nome: "Camada 1", limiar: 0 }],
+    ramos: [],
+  },
+];
+
+export function acharPreset(slug: unknown): PresetArvore {
+  const achado = PRESETS_ARVORE.find((p) => p.slug === slug);
+  return achado ?? PRESETS_ARVORE[PRESETS_ARVORE.length - 1];
+}
+
+/**
+ * Empurra o nó pra baixo quando cai em cima de outro na mesma raia/camada.
+ * Só cosmético: dois cards sobrepostos escondem um ao outro e não há como
+ * clicar no de baixo.
+ */
+export function evitarSobreposicao(
+  noId: string,
+  camadaId: string,
+  ramoId: string | null,
+  offsetY: number,
+  nos: NoArvore[],
+  ramoPadrao: string | null,
+): number {
+  const vizinhos = nos.filter(
+    (n) =>
+      n.id !== noId &&
+      n.camadaId === camadaId &&
+      (n.ramoId ?? ramoPadrao) === (ramoId ?? ramoPadrao),
+  );
+  let y = Math.max(0, Math.min(100, offsetY));
+  // No máximo 8 tentativas — evita laço se a raia estiver lotada.
+  for (let i = 0; i < 8; i++) {
+    const colide = vizinhos.some((n) => Math.abs(n.offsetY - y) < 9);
+    if (!colide) break;
+    y = y + 10 > 100 ? Math.max(0, y - 10) : y + 10;
+  }
+  return Math.round(y);
+}

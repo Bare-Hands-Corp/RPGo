@@ -26,6 +26,7 @@ import {
   moverNo,
 } from "./actions";
 import { EstiloPicker } from "./estilo-cor-picker";
+import { IconePicker } from "@/components/icone-picker";
 import {
   EFEITO_COR_PADRAO,
   estiloAplicado,
@@ -35,7 +36,9 @@ import {
 import {
   CRITERIOS_ARVORE,
   MAX_RANKS_TETO,
+  PRESETS_ARVORE,
   camadasAbertas,
+  evitarSobreposicao,
   estadoNo,
   lerRequisitos,
   normalizarCriterio,
@@ -116,7 +119,8 @@ export function ArvoresTab({
   const [selecionadaId, setSelecionadaId] = useState<string | null>(null);
   const [modalArvore, setModalArvore] = useState<Arvore | "nova" | null>(null);
   const [modalCamada, setModalCamada] = useState<CamadaArvore | "nova" | null>(null);
-  const [modalNo, setModalNo] = useState<NoArvore | "novo" | null>(null);
+  type NovoNo = { novo: true; camadaId: string; ramoId: string | null; offsetY: number };
+  const [modalNo, setModalNo] = useState<NoArvore | NovoNo | null>(null);
   const [noSelecionadoId, setNoSelecionado] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
@@ -198,8 +202,22 @@ export function ArvoresTab({
     });
   }
 
-  function mover(noId: string, destino: { ramoId: string | null; offsetY: number }) {
+  function mover(noId: string, bruto: { ramoId: string | null; offsetY: number }) {
     if (!arvore) return;
+    const no = arvore.nos.find((n) => n.id === noId);
+    const destino = {
+      ramoId: bruto.ramoId,
+      offsetY: no
+        ? evitarSobreposicao(
+            noId,
+            no.camadaId,
+            bruto.ramoId,
+            bruto.offsetY,
+            arvore.nos,
+            ramos[0]?.id ?? null,
+          )
+        : bruto.offsetY,
+    };
     startTransition(async () => {
       aplicar({ kind: "patchNo", noId, patch: destino });
       try {
@@ -291,6 +309,25 @@ export function ArvoresTab({
   }
 
   const criterioMeta = CRITERIOS_ARVORE.find((c) => c.slug === ctx.criterio);
+  const noEmEdicao = modalNo && !("novo" in modalNo) ? modalNo : null;
+
+  /** Clique em área vazia da faixa: já nasce na camada, raia e altura do clique. */
+  function criarNoAqui(camadaId: string, ramoId: string | null, offsetY: number) {
+    if (!arvore) return;
+    setModalNo({
+      novo: true,
+      camadaId,
+      ramoId,
+      offsetY: evitarSobreposicao(
+        "",
+        camadaId,
+        ramoId,
+        offsetY,
+        arvore.nos,
+        ramos[0]?.id ?? null,
+      ),
+    });
+  }
 
   return (
     <div className="arvores-wrap">
@@ -374,7 +411,9 @@ export function ArvoresTab({
               <button
                 type="button"
                 className="btn-rect outline"
-                onClick={() => setModalNo("novo")}
+                onClick={() =>
+                  criarNoAqui(camadas[0]?.id ?? "", ramos[0]?.id ?? null, 50)
+                }
               >
                 + Talento
               </button>
@@ -437,6 +476,7 @@ export function ArvoresTab({
             onEditarCamada={(c) => setModalCamada(c)}
             onApagarCamada={apagarCamada}
             onMover={mover}
+            onCriarNoAqui={criarNoAqui}
           />
 
           {(() => {
@@ -519,20 +559,30 @@ export function ArvoresTab({
 
       {modalNo && arvore && (
         <NoModal
-          inicial={modalNo === "novo" ? null : modalNo}
+          inicial={noEmEdicao}
+          posicaoInicial={
+            noEmEdicao
+              ? null
+              : {
+                  camadaId: (modalNo as NovoNo).camadaId,
+                  ramoId: (modalNo as NovoNo).ramoId,
+                  offsetY: (modalNo as NovoNo).offsetY,
+                }
+          }
           camadas={camadas}
           nos={arvore.nos}
           habilidades={habilidades}
           temRecurso={!!recursoCusto}
           onCancelar={() => setModalNo(null)}
           onApagar={
-            modalNo === "novo"
+            !noEmEdicao
               ? undefined
               : async () => {
-                  const alvo = modalNo;
+                  const alvo = noEmEdicao;
                   if (!(await confirmar("Apagar talento", `Apagar "${alvo.nome}"?`)))
                     return;
                   setModalNo(null);
+                  setNoSelecionado(null);
                   startTransition(async () => {
                     try {
                       await deletarNo(personagemId, arvore.id, alvo.id);
@@ -543,7 +593,7 @@ export function ArvoresTab({
                 }
           }
           onSalvar={(dados) => {
-            const editandoId = modalNo === "novo" ? null : modalNo.id;
+            const editandoId = noEmEdicao?.id ?? null;
             setModalNo(null);
             startTransition(async () => {
               try {
@@ -590,6 +640,7 @@ function ArvoreCanvas({
   onEditarCamada,
   onApagarCamada,
   onMover,
+  onCriarNoAqui,
 }: {
   arvore: Arvore;
   camadas: CamadaArvore[];
@@ -602,12 +653,15 @@ function ArvoreCanvas({
   onEditarCamada: (c: CamadaArvore) => void;
   onApagarCamada: (c: CamadaArvore) => void;
   onMover: (noId: string, destino: { ramoId: string | null; offsetY: number }) => void;
+  onCriarNoAqui: (camadaId: string, ramoId: string | null, offsetY: number) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const nosRef = useRef(new Map<string, HTMLElement>());
   const [linhas, setLinhas] = useState<{ d: string; ativa: boolean }[]>([]);
   const [tamanho, setTamanho] = useState({ w: 0, h: 0 });
   const [arrastando, setArrastando] = useState<string | null>(null);
+  // Raia sob o cursor durante o arrasto — realimenta o destaque visual.
+  const [raiaAlvo, setRaiaAlvo] = useState<string | null>(null);
 
   const criterioLimiar = CRITERIOS_ARVORE.find((c) => c.slug === criterio);
   // Raia única implícita quando a árvore não tem nenhuma.
@@ -703,6 +757,7 @@ function ArvoreCanvas({
         return ev.clientX >= rc.left && ev.clientX <= rc.right;
       });
       pendenteRamo = sob?.dataset.raia || null;
+      setRaiaAlvo(pendenteRamo);
       card.style.top = `${pendenteY}%`;
     }
 
@@ -712,6 +767,7 @@ function ArvoreCanvas({
       card.removeEventListener("pointerup", soltar);
       card.removeEventListener("pointercancel", soltar);
       card.style.top = "";
+      setRaiaAlvo(null);
       if (!moveu) {
         onSelecionar(no.id);
         return;
@@ -778,6 +834,7 @@ function ArvoreCanvas({
           criterio={criterio}
           rotuloLimiar={criterioLimiar?.rotuloLimiar}
           arrastando={arrastando}
+          raiaAlvo={raiaAlvo}
           selecionadoId={selecionadoId}
           registrar={(id, el) => {
             if (el) nosRef.current.set(id, el);
@@ -786,6 +843,7 @@ function ArvoreCanvas({
           onEditarCamada={onEditarCamada}
           onApagarCamada={onApagarCamada}
           onArrastar={iniciarArrasto}
+          onCriarNoAqui={onCriarNoAqui}
         />
       ))}
     </div>
@@ -802,11 +860,13 @@ function FaixaCamada({
   criterio,
   rotuloLimiar,
   arrastando,
+  raiaAlvo,
   selecionadoId,
   registrar,
   onEditarCamada,
   onApagarCamada,
   onArrastar,
+  onCriarNoAqui,
 }: {
   camada: CamadaArvore;
   aberta: boolean;
@@ -817,11 +877,13 @@ function FaixaCamada({
   criterio: CriterioArvore;
   rotuloLimiar?: string;
   arrastando: string | null;
+  raiaAlvo: string | null;
   selecionadoId: string | null;
   registrar: (id: string, el: HTMLElement | null) => void;
   onEditarCamada: (c: CamadaArvore) => void;
   onApagarCamada: (c: CamadaArvore) => void;
   onArrastar: (e: React.PointerEvent, no: NoArvore, faixa: HTMLElement | null) => void;
+  onCriarNoAqui: (camadaId: string, ramoId: string | null, offsetY: number) => void;
 }) {
   const faixaRef = useRef<HTMLDivElement>(null);
   const raiaPadrao = colunas[0]?.id ?? null;
@@ -877,8 +939,19 @@ function FaixaCamada({
           return (
             <div
               key={col?.id ?? `raia-${i}`}
-              className="arvore-raia"
+              className={`arvore-raia${
+                arrastando && raiaAlvo === (col?.id ?? null) ? " alvo" : ""
+              }`}
               data-raia={col?.id ?? ""}
+              // Clique em área vazia cria o talento ali mesmo — evita "cria e
+              // depois procura onde caiu". Só clique direto na raia conta.
+              onClick={(e) => {
+                if (e.target !== e.currentTarget) return;
+                const r = e.currentTarget.getBoundingClientRect();
+                const pct = Math.round(((e.clientY - r.top) / r.height) * 100);
+                onCriarNoAqui(camada.id, col?.id ?? null, Math.max(0, Math.min(100, pct)));
+              }}
+              title="Clique pra criar um talento aqui"
             >
               {daColuna.map((no) => (
                 <NoCard
@@ -1070,6 +1143,7 @@ type ArvoreFormDados = {
   criterio: CriterioArvore;
   recursoCustoId: string | null;
   fundoUrl: string | null;
+  preset: string;
 };
 
 function ArvoreModal({
@@ -1094,6 +1168,8 @@ function ArvoreModal({
   );
   const [recursoCustoId, setRecursoCustoId] = useState(inicial?.recursoCustoId ?? "");
   const [fundoUrl, setFundoUrl] = useState(inicial?.fundoUrl ?? "");
+  // Molde só vale na criação — editar não remonta camadas já existentes.
+  const [preset, setPreset] = useState(PRESETS_ARVORE[0].slug);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -1109,6 +1185,7 @@ function ArvoreModal({
       criterio,
       recursoCustoId: recursoCustoId || null,
       fundoUrl: fundoUrl.trim() || null,
+      preset,
     });
   }
 
@@ -1128,13 +1205,32 @@ function ArvoreModal({
             autoFocus
           />
 
-          <label style={{ marginTop: 10 }}>Ícone (Font Awesome)</label>
-          <input
-            type="text"
-            value={icone}
-            onChange={(e) => setIcone(e.target.value)}
-            placeholder="fa-eye"
-          />
+          <label style={{ marginTop: 10 }}>Ícone</label>
+          <IconePicker valor={icone} onChange={setIcone} />
+
+          {!inicial && (
+            <>
+              <label style={{ marginTop: 12 }}>Começar de um molde</label>
+              <div className="arvore-presets">
+                {PRESETS_ARVORE.map((pr) => (
+                  <button
+                    type="button"
+                    key={pr.slug}
+                    className={`arvore-preset ${preset === pr.slug ? "ativo" : ""}`}
+                    onClick={() => {
+                      setPreset(pr.slug);
+                      setCriterio(pr.criterio);
+                      setIcone(pr.icone);
+                    }}
+                  >
+                    <i className={`fas ${pr.icone}`} />
+                    <strong>{pr.nome}</strong>
+                    <span>{pr.dica}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
 
           <label style={{ marginTop: 10 }}>Como as camadas destravam</label>
           <select
@@ -1289,10 +1385,13 @@ type NoFormDados = {
   nivelMinimo: number;
   habilidadeId: string | null;
   requisitos: RequisitoNo[];
+  ramoId: string | null;
+  offsetY: number;
 };
 
 function NoModal({
   inicial,
+  posicaoInicial,
   camadas,
   nos,
   habilidades,
@@ -1302,6 +1401,8 @@ function NoModal({
   onApagar,
 }: {
   inicial: NoArvore | null;
+  /** Posição vinda do clique no canvas, quando o talento é novo. */
+  posicaoInicial: { camadaId: string; ramoId: string | null; offsetY: number } | null;
   camadas: CamadaArvore[];
   nos: NoArvore[];
   habilidades: HabilidadeRef[];
@@ -1310,7 +1411,9 @@ function NoModal({
   onSalvar: (d: NoFormDados) => void;
   onApagar?: () => void;
 }) {
-  const [camadaId, setCamadaId] = useState(inicial?.camadaId ?? camadas[0]?.id ?? "");
+  const [camadaId, setCamadaId] = useState(
+    inicial?.camadaId ?? posicaoInicial?.camadaId ?? camadas[0]?.id ?? "",
+  );
   const [nome, setNome] = useState(inicial?.nome ?? "");
   const [descricao, setDescricao] = useState(inicial?.descricao ?? "");
   const [icone, setIcone] = useState(inicial?.icone ?? "fa-circle-nodes");
@@ -1364,6 +1467,8 @@ function NoModal({
               nivelMinimo: Math.max(0, Number(nivelMinimo) || 0),
               habilidadeId: habilidadeId || null,
               requisitos,
+              ramoId: inicial?.ramoId ?? posicaoInicial?.ramoId ?? null,
+              offsetY: inicial?.offsetY ?? posicaoInicial?.offsetY ?? 50,
             });
           }}
         >
@@ -1396,12 +1501,7 @@ function NoModal({
             </div>
             <div>
               <label>Ícone</label>
-              <input
-                type="text"
-                value={icone}
-                onChange={(e) => setIcone(e.target.value)}
-                placeholder="fa-eye"
-              />
+              <IconePicker valor={icone} onChange={setIcone} />
             </div>
           </div>
 

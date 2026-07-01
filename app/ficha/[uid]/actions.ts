@@ -29,6 +29,7 @@ import {
   dependentesQuebrados,
   estadoNo,
   lerRequisitos,
+  acharPreset,
   normalizarCriterio,
   type ContextoArvore,
   type NoArvore,
@@ -1228,26 +1229,42 @@ async function arvoreDoPersonagem(personagemId: string, arvoreId: string) {
   return arvore;
 }
 
-export async function criarArvore(personagemId: string, input: ArvoreInput) {
+export async function criarArvore(
+  personagemId: string,
+  input: ArvoreInput & { preset?: unknown },
+) {
   await autorizar(personagemId);
   const data = normalizarArvore(input);
   if (data.nome === undefined) throw new Error("Nome da árvore é obrigatório.");
+
+  // O molde define camadas, raias e critério. Sem preset explícito cai no
+  // último ("Em branco"), que é 1 camada sem trava.
+  const preset = acharPreset(input.preset);
 
   const arvore = await prisma.arvore.create({
     data: {
       personagemId,
       nome: data.nome as string,
-      icone: (data.icone as string) ?? "fa-sitemap",
+      icone: (data.icone as string) ?? preset.icone,
       cor: (data.cor as string | null) ?? null,
       efeito: (data.efeito as string) ?? "solido",
       ordem: (data.ordem as number) ?? 0,
-      criterio: (data.criterio as string) ?? "manual",
+      // Critério explícito do formulário vence o do molde.
+      criterio: (data.criterio as string) ?? preset.criterio,
       recursoCustoId: (data.recursoCustoId as string | null) ?? null,
       fundoUrl: (data.fundoUrl as string | null) ?? null,
-      // Árvore nasce com uma camada — sem camada não há onde pôr nó.
-      camadas: { create: [{ nome: "Camada 1", ordem: 0, limiar: 0 }] },
+      camadas: {
+        create: preset.camadas.map((c, i) => ({
+          nome: c.nome,
+          ordem: i,
+          limiar: c.limiar,
+        })),
+      },
+      ramos: {
+        create: preset.ramos.map((nome, i) => ({ nome, ordem: i })),
+      },
     },
-    include: { camadas: true },
+    include: { camadas: { orderBy: { ordem: "asc" } } },
   });
   revalidatePath(`/ficha/${personagemId}`);
   return { id: arvore.id, camadaId: arvore.camadas[0]?.id ?? null };
