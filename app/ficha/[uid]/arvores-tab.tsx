@@ -122,6 +122,13 @@ export function ArvoresTab({
   type NovoNo = { novo: true; camadaId: string; ramoId: string | null; offsetY: number };
   const [modalNo, setModalNo] = useState<NoArvore | NovoNo | null>(null);
   const [noSelecionadoId, setNoSelecionado] = useState<string | null>(null);
+  // Colapso é estado de visualização, por camada. `arvoreColapsada` esconde o
+  // canvas inteiro — útil quando o jogador tem várias árvores e quer só o
+  // resumo de cada uma.
+  const [camadasColapsadas, setCamadasColapsadas] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [arvoreColapsada, setArvoreColapsada] = useState(false);
   const [, startTransition] = useTransition();
 
   type Patch =
@@ -309,6 +316,24 @@ export function ArvoresTab({
   }
 
   const criterioMeta = CRITERIOS_ARVORE.find((c) => c.slug === ctx.criterio);
+
+  function alternarCamada(id: string) {
+    setCamadasColapsadas((curr) => {
+      const proximo = new Set(curr);
+      if (proximo.has(id)) proximo.delete(id);
+      else proximo.add(id);
+      return proximo;
+    });
+  }
+
+  const todasColapsadas =
+    camadas.length > 0 && camadas.every((c) => camadasColapsadas.has(c.id));
+
+  function alternarTodas() {
+    setCamadasColapsadas(
+      todasColapsadas ? new Set() : new Set(camadas.map((c) => c.id)),
+    );
+  }
   const noEmEdicao = modalNo && !("novo" in modalNo) ? modalNo : null;
 
   /** Clique em área vazia da faixa: já nasce na camada, raia e altura do clique. */
@@ -381,6 +406,17 @@ export function ArvoresTab({
         <>
           <div className="arvore-barra">
             <div className="arvore-barra-info">
+              <button
+                type="button"
+                className="arvore-colapsar-arvore"
+                onClick={() => setArvoreColapsada((v) => !v)}
+                title={arvoreColapsada ? "Expandir árvore" : "Recolher árvore"}
+                aria-expanded={!arvoreColapsada}
+              >
+                <i
+                  className={`fas fa-chevron-${arvoreColapsada ? "right" : "down"}`}
+                />
+              </button>
               <span className="arvore-criterio" title={criterioMeta?.dica}>
                 <i className="fas fa-unlock-keyhole" /> {criterioMeta?.nome}
               </span>
@@ -429,6 +465,21 @@ export function ArvoresTab({
               </button>
               <button
                 type="button"
+                className="btn-rect outline"
+                onClick={alternarTodas}
+                title={
+                  todasColapsadas
+                    ? "Expandir todas as camadas"
+                    : "Recolher todas as camadas"
+                }
+              >
+                <i
+                  className={`fas fa-${todasColapsadas ? "expand" : "compress"}`}
+                />{" "}
+                {todasColapsadas ? "Expandir" : "Recolher"}
+              </button>
+              <button
+                type="button"
                 className="recurso-icon-btn"
                 title="Editar árvore"
                 onClick={() => setModalArvore(arvore)}
@@ -464,6 +515,7 @@ export function ArvoresTab({
             </div>
           )}
 
+          {!arvoreColapsada && (
           <ArvoreCanvas
             arvore={arvore}
             camadas={camadas}
@@ -477,9 +529,29 @@ export function ArvoresTab({
             onApagarCamada={apagarCamada}
             onMover={mover}
             onCriarNoAqui={criarNoAqui}
+            colapsadas={camadasColapsadas}
+            onAlternarCamada={alternarCamada}
           />
+          )}
+
+          {arvoreColapsada && (
+            <button
+              type="button"
+              className="arvore-resumo"
+              onClick={() => setArvoreColapsada(false)}
+            >
+              <i className={`fas ${arvore.icone}`} />
+              <span>
+                <strong>{arvore.nos.filter((n) => n.rankAtual > 0).length}</strong>{" "}
+                de {arvore.nos.length} talento(s) liberado(s) ·{" "}
+                {camadas.length} camada(s)
+              </span>
+              <i className="fas fa-chevron-down" />
+            </button>
+          )}
 
           {(() => {
+            if (arvoreColapsada) return null;
             const sel = arvore.nos.find((n) => n.id === noSelecionadoId);
             if (!sel) return null;
             return (
@@ -641,6 +713,8 @@ function ArvoreCanvas({
   onApagarCamada,
   onMover,
   onCriarNoAqui,
+  colapsadas,
+  onAlternarCamada,
 }: {
   arvore: Arvore;
   camadas: CamadaArvore[];
@@ -654,6 +728,8 @@ function ArvoreCanvas({
   onApagarCamada: (c: CamadaArvore) => void;
   onMover: (noId: string, destino: { ramoId: string | null; offsetY: number }) => void;
   onCriarNoAqui: (camadaId: string, ramoId: string | null, offsetY: number) => void;
+  colapsadas: Set<string>;
+  onAlternarCamada: (id: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const nosRef = useRef(new Map<string, HTMLElement>());
@@ -683,11 +759,12 @@ function ArvoreCanvas({
       const novas: { d: string; ativa: boolean }[] = [];
       for (const no of arvore.nos) {
         const filho = nosRef.current.get(no.id);
-        if (!filho) continue;
+        // Nó de camada recolhida não está no DOM — pula a curva inteira.
+        if (!filho || !filho.isConnected) continue;
         const rf = filho.getBoundingClientRect();
         for (const req of lerRequisitos(no.requisitos)) {
           const pai = nosRef.current.get(req.noId);
-          if (!pai) continue;
+          if (!pai || !pai.isConnected) continue;
           const rp = pai.getBoundingClientRect();
           const paiNo = arvore.nos.find((n) => n.id === req.noId);
 
@@ -711,7 +788,7 @@ function ArvoreCanvas({
     const ro = new ResizeObserver(medir);
     ro.observe(container);
     return () => ro.disconnect();
-  }, [arvore.nos, camadas, ramos]);
+  }, [arvore.nos, camadas, ramos, colapsadas]);
 
   /**
    * Arrasto: converte a posição do ponteiro na faixa em `offsetY` (%) e acha a
@@ -829,6 +906,8 @@ function ArvoreCanvas({
           aberta={abertas.has(camada.id)}
           colunas={colunas}
           nos={arvore.nos.filter((n) => n.camadaId === camada.id)}
+          colapsada={colapsadas.has(camada.id)}
+          onAlternar={() => onAlternarCamada(camada.id)}
           camadas={camadas}
           ctx={ctx}
           criterio={criterio}
@@ -853,6 +932,8 @@ function ArvoreCanvas({
 function FaixaCamada({
   camada,
   aberta,
+  colapsada,
+  onAlternar,
   colunas,
   nos,
   camadas,
@@ -870,6 +951,8 @@ function FaixaCamada({
 }: {
   camada: CamadaArvore;
   aberta: boolean;
+  colapsada: boolean;
+  onAlternar: () => void;
   colunas: (RamoArvore | null)[];
   nos: NoArvore[];
   camadas: CamadaArvore[];
@@ -891,6 +974,15 @@ function FaixaCamada({
   return (
     <div className={`arvore-faixa-linha ${aberta ? "" : "fechada"}`}>
       <div className="arvore-trilho">
+        <button
+          type="button"
+          className="arvore-trilho-toggle"
+          onClick={onAlternar}
+          title={colapsada ? "Expandir camada" : "Recolher camada"}
+          aria-expanded={!colapsada}
+        >
+          <i className={`fas fa-chevron-${colapsada ? "right" : "down"}`} />
+        </button>
         <span className="arvore-trilho-nome">{camada.nome}</span>
         <span className="arvore-trilho-meta">
           <i className={`fas ${aberta ? "fa-lock-open" : "fa-lock"}`} />
@@ -916,6 +1008,19 @@ function FaixaCamada({
         </span>
       </div>
 
+      {colapsada ? (
+        <button
+          type="button"
+          className="arvore-faixa-tira"
+          onClick={onAlternar}
+          title="Expandir camada"
+        >
+          {nos.length === 0
+            ? "sem talentos"
+            : `${nos.filter((n) => n.rankAtual > 0).length} de ${nos.length} liberado(s)`}
+          <i className="fas fa-chevron-down" />
+        </button>
+      ) : (
       <div
         className="arvore-faixa"
         ref={faixaRef}
@@ -953,6 +1058,12 @@ function FaixaCamada({
               }}
               title="Clique pra criar um talento aqui"
             >
+              {daColuna.length === 0 && (
+                <span className="arvore-slot-vazio">
+                  <i className="fas fa-plus" />
+                  <em>clique pra criar</em>
+                </span>
+              )}
               {daColuna.map((no) => (
                 <NoCard
                   key={no.id}
@@ -967,10 +1078,8 @@ function FaixaCamada({
             </div>
           );
         })}
-        {nos.length === 0 && (
-          <span className="arvore-faixa-vazia">Sem talentos nesta camada.</span>
-        )}
       </div>
+      )}
     </div>
   );
 }
@@ -1196,6 +1305,9 @@ function ArvoreModal({
       <div className="modal-box" onClick={(e) => e.stopPropagation()}>
         <h2>{inicial ? "Editar Árvore" : "Nova Árvore"}</h2>
         <form onSubmit={submit}>
+          <h3 className="modal-secao" style={{ marginTop: 0 }}>
+            <i className="fas fa-id-card" /> Identidade
+          </h3>
           <label>Nome</label>
           <input
             type="text"
@@ -1232,7 +1344,10 @@ function ArvoreModal({
             </>
           )}
 
-          <label style={{ marginTop: 10 }}>Como as camadas destravam</label>
+          <h3 className="modal-secao">
+            <i className="fas fa-unlock-keyhole" /> Liberação
+          </h3>
+          <label>Como as camadas destravam</label>
           <select
             value={criterio}
             onChange={(e) => setCriterio(e.target.value as CriterioArvore)}
@@ -1243,11 +1358,7 @@ function ArvoreModal({
               </option>
             ))}
           </select>
-          {meta && (
-            <p style={{ fontSize: "0.76rem", color: "var(--text-sec)", marginTop: 4 }}>
-              {meta.dica}
-            </p>
-          )}
+          {meta && <p className="campo-dica">{meta.dica}</p>}
 
           <label style={{ marginTop: 10 }}>Recurso que paga os talentos</label>
           <select
@@ -1261,19 +1372,22 @@ function ArvoreModal({
               </option>
             ))}
           </select>
-          <p style={{ fontSize: "0.76rem", color: "var(--text-sec)", marginTop: 4 }}>
+          <p className="campo-dica">
             Pontos de Ambição não têm campo próprio na ficha — crie um Recurso
             &quot;PA&quot; na sidebar e aponte aqui pra debitar de verdade.
           </p>
 
-          <label style={{ marginTop: 10 }}>Arte de fundo (URL)</label>
+          <h3 className="modal-secao">
+            <i className="fas fa-palette" /> Aparência
+          </h3>
+          <label>Arte de fundo (URL)</label>
           <input
             type="url"
             value={fundoUrl}
             onChange={(e) => setFundoUrl(e.target.value)}
             placeholder="https://... (opcional)"
           />
-          <p style={{ fontSize: "0.76rem", color: "var(--text-sec)", marginTop: 4 }}>
+          <p className="campo-dica">
             Só http(s). Um véu escuro é aplicado por cima pra manter os cards
             legíveis.
           </p>
@@ -1355,9 +1469,7 @@ function CamadaModal({
                 value={limiar}
                 onChange={(e) => setLimiar(e.target.value)}
               />
-              <p style={{ fontSize: "0.76rem", color: "var(--text-sec)", marginTop: 4 }}>
-                {meta?.dica}
-              </p>
+              <p className="campo-dica">{meta?.dica}</p>
             </>
           )}
 
@@ -1461,7 +1573,7 @@ function NoModal({
               camadaId,
               nome: nome.trim(),
               descricao,
-              icone: icone.trim() || "fa-circle-nodes",
+              icone: icone || "fa-circle-nodes",
               custo: Math.max(0, Number(custo) || 0),
               maxRanks: Math.max(1, Math.min(Number(maxRanks) || 1, MAX_RANKS_TETO)),
               nivelMinimo: Math.max(0, Number(nivelMinimo) || 0),
@@ -1472,6 +1584,43 @@ function NoModal({
             });
           }}
         >
+          {/* Prévia: o card exatamente como vai aparecer no canvas. */}
+          <div className="no-previa">
+            <span className="no-previa-rotulo">Prévia</span>
+            <div className="no-previa-palco">
+              <article className="arvore-no disponivel no-previa-card">
+                {Number(custo) > 0 && (
+                  <span className="arvore-no-selo">{Number(custo)}</span>
+                )}
+                <div className="arvore-no-linha">
+                  <i className={`fas ${icone} arvore-no-icone`} />
+                  <span className="arvore-no-nome">
+                    {nome.trim() || "Nome do talento"}
+                  </span>
+                </div>
+                <div className="arvore-no-estrelas">
+                  {Array.from(
+                    {
+                      length: Math.max(
+                        1,
+                        Math.min(Number(maxRanks) || 1, MAX_RANKS_TETO),
+                      ),
+                    },
+                    (_, i) => (
+                      <span key={i} className="arvore-estrela">
+                        ★
+                      </span>
+                    ),
+                  )}
+                </div>
+              </article>
+            </div>
+          </div>
+
+          <h3 className="modal-secao">
+            <i className="fas fa-id-card" /> Identidade
+          </h3>
+
           <label>Nome</label>
           <input
             type="text"
@@ -1481,6 +1630,9 @@ function NoModal({
             autoFocus
           />
 
+          <label style={{ marginTop: 10 }}>Ícone</label>
+          <IconePicker valor={icone} onChange={setIcone} />
+
           <label style={{ marginTop: 10 }}>Descrição</label>
           <textarea
             value={descricao}
@@ -1488,24 +1640,26 @@ function NoModal({
             placeholder="+1 nas jogadas de ataque."
           />
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
-            <div>
-              <label>Camada</label>
-              <select value={camadaId} onChange={(e) => setCamadaId(e.target.value)}>
-                {camadas.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nome}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label>Ícone</label>
-              <IconePicker valor={icone} onChange={setIcone} />
-            </div>
-          </div>
+          <h3 className="modal-secao">
+            <i className="fas fa-layer-group" /> Posição
+          </h3>
+          <label>Camada</label>
+          <select value={camadaId} onChange={(e) => setCamadaId(e.target.value)}>
+            {camadas.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.nome}
+              </option>
+            ))}
+          </select>
+          <p className="campo-dica">
+            A raia e a altura vêm de onde tu clicou no canvas — dá pra
+            reposicionar arrastando o nó depois.
+          </p>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 10 }}>
+          <h3 className="modal-secao">
+            <i className="fas fa-arrow-up-right-dots" /> Progressão
+          </h3>
+          <div className="campo-trio">
             <div>
               <label>Custo por rank</label>
               <input
@@ -1516,14 +1670,22 @@ function NoModal({
               />
             </div>
             <div>
-              <label>Ranks (máx {MAX_RANKS_TETO})</label>
-              <input
-                type="number"
-                min={1}
-                max={MAX_RANKS_TETO}
-                value={maxRanks}
-                onChange={(e) => setMaxRanks(e.target.value)}
-              />
+              <label>Ranks</label>
+              <div className="rank-escolha">
+                {Array.from({ length: MAX_RANKS_TETO }, (_, i) => i + 1).map((n) => (
+                  <button
+                    type="button"
+                    key={n}
+                    className={`rank-escolha-btn ${
+                      Number(maxRanks) === n ? "ativo" : ""
+                    }`}
+                    onClick={() => setMaxRanks(String(n))}
+                    title={rotuloRank(n)}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
             </div>
             <div>
               <label>Nível mínimo</label>
@@ -1535,9 +1697,9 @@ function NoModal({
               />
             </div>
           </div>
-          <p style={{ fontSize: "0.76rem", color: "var(--text-sec)", marginTop: 4 }}>
+          <p className="campo-dica">
             {Number(maxRanks) > 1
-              ? "Cada rank extra exige a camada seguinte — é a regra do livro: Forma Dominada (✩) pede o 2º estágio, Avançada (★) pede o 3º."
+              ? "Cada rank extra exige a camada seguinte — regra do livro: Forma Dominada (✩) pede o 2º estágio, Avançada (★) pede o 3º."
               : "Ranks = quantas vezes o talento pode ser comprado. Use 3 pra talento de Haki com Forma Dominada e Avançada."}
             {!temRecurso && Number(custo) > 0 && (
               <>
@@ -1548,7 +1710,10 @@ function NoModal({
             )}
           </p>
 
-          <label style={{ marginTop: 10 }}>Habilidade liberada (opcional)</label>
+          <h3 className="modal-secao">
+            <i className="fas fa-link" /> Ligações
+          </h3>
+          <label>Habilidade liberada (opcional)</label>
           <select
             value={habilidadeId}
             onChange={(e) => setHabilidadeId(e.target.value)}
@@ -1560,12 +1725,12 @@ function NoModal({
               </option>
             ))}
           </select>
-          <p style={{ fontSize: "0.76rem", color: "var(--text-sec)", marginTop: 4 }}>
+          <p className="campo-dica">
             Enquanto o talento estiver travado, os efeitos dessa habilidade não
             entram nos cálculos da ficha.
           </p>
 
-          <label style={{ marginTop: 14 }}>Requisitos</label>
+          <label style={{ marginTop: 12 }}>Requisitos</label>
           {candidatos.length === 0 ? (
             <p style={{ fontSize: "0.8rem", color: "var(--text-sec)" }}>
               Nenhum outro talento nesta árvore ainda.

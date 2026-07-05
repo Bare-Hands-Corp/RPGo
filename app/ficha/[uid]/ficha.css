@@ -3491,3 +3491,205 @@
 .arvore-raia:hover {
   background: color-mix(in oklch, var(--primary) 4%, transparent);
 }
+
+/* ─── Colapso de camada / árvore ──────────────────────────── */
+.arvore-colapsar-arvore {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  width: 26px;
+  height: 26px;
+  color: var(--text-sec);
+  cursor: pointer;
+  font-size: 0.72rem;
+  flex-shrink: 0;
+}
+
+.arvore-colapsar-arvore:hover {
+  color: var(--text-main);
+  border-color: var(--primary);
+}
+
+.arvore-trilho-toggle {
+  background: none;
+  border: none;
+  color: var(--text-sec);
+  cursor: pointer;
+  font-size: 0.72rem;
+  padding: 2px 4px;
+}
+
+.arvore-trilho-toggle:hover {
+  color: var(--primary);
+}
+
+/* Camada recolhida vira uma tira fina com o placar de liberados. */
+.arvore-faixa-tira {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px;
+  border: none;
+  background: none;
+  color: var(--text-sec);
+  font-size: 0.76rem;
+  font-style: italic;
+  cursor: pointer;
+}
+
+.arvore-faixa-tira:hover {
+  color: var(--text-main);
+  background: color-mix(in oklch, var(--primary) 6%, transparent);
+}
+
+.arvore-resumo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: var(--bg-surface);
+  color: var(--text-sec);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.arvore-resumo:hover {
+  border-color: var(--primary);
+  color: var(--text-main);
+}
+
+.arvore-resumo strong {
+  color: var(--primary);
+}
+
+.arvore-resumo > i:last-child {
+  margin-left: auto;
+}
+
+/* Raia vazia: convite explícito em vez de um retângulo morto. */
+.arvore-slot-vazio {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 16px 22px;
+  border: 1px dashed color-mix(in oklch, var(--border) 90%, transparent);
+  border-radius: 10px;
+  color: var(--text-sec);
+  opacity: 0.5;
+  pointer-events: none;
+  transition: opacity 0.15s, border-color 0.15s;
+}
+
+.arvore-raia:hover .arvore-slot-vazio {
+  opacity: 1;
+  border-color: color-mix(in oklch, var(--primary) 55%, transparent);
+  color: var(--primary);
+}
+
+.arvore-slot-vazio i {
+  font-size: 1.1rem;
+}
+
+.arvore-slot-vazio em {
+  font-style: normal;
+  font-size: 0.72rem;
+  letter-spacing: 0.03em;
+}
+
+/* ─── Modal de talento: prévia e campos ───────────────────── */
+.no-previa {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.no-previa-rotulo {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-weight: 700;
+  color: var(--text-sec);
+}
+
+.no-previa-palco {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 86px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background:
+    repeating-linear-gradient(
+      45deg,
+      color-mix(in oklch, var(--bg-surface) 92%, transparent) 0 10px,
+      var(--bg-surface) 10px 20px
+    );
+}
+
+/* A prévia reusa .arvore-no, que é absoluto no canvas — aqui vira estático. */
+.no-previa-card {
+  position: static;
+  transform: none;
+  cursor: default;
+  width: 190px;
+}
+
+.campo-dica {
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--text-sec);
+  margin: 4px 0 0;
+}
+
+.campo-trio {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 560px) {
+  .campo-trio {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Ranks viram botões — 1..5 clicável em vez de campo numérico. */
+.rank-escolha {
+  display: flex;
+  gap: 4px;
+}
+
+.rank-escolha-btn {
+  flex: 1;
+  padding: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.rank-escolha-btn:hover {
+  border-color: color-mix(in oklch, var(--primary) 55%, var(--border));
+}
+
+.rank-escolha-btn.ativo {
+  border-color: var(--primary);
+  color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
