@@ -3268,45 +3268,6 @@
   color: var(--text-sec);
 }
 
-/* ─── Editor de requisitos (modal do talento) ─────────────── */
-.arvore-req-lista {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 220px;
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px;
-  background: var(--bg-surface);
-}
-
-.arvore-req-linha {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.arvore-req-check {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  flex: 1;
-  font-size: 0.83rem;
-  cursor: pointer;
-  margin: 0;
-}
-
-.arvore-req-check input {
-  width: auto;
-  margin: 0;
-}
-
-.arvore-req-linha select {
-  width: auto;
-  font-size: 0.78rem;
-  padding: 3px 6px;
-}
 
 /* Telas estreitas: o trilho encolhe e as raias viram uma coluna só. */
 @media (max-width: 640px) {
@@ -3692,4 +3653,141 @@
   border-color: var(--primary);
   color: var(--primary);
   box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+/* ─── Editor de requisitos (modal do talento) ─────────────── */
+.req-busca {
+  margin-bottom: 8px;
+}
+
+.req-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.req-item {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-surface);
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+
+.req-item.ativo {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 8%, var(--bg-surface));
+}
+
+.req-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 11px;
+  border: none;
+  background: none;
+  color: var(--text-main);
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.req-toggle:hover {
+  background: color-mix(in oklch, var(--primary) 6%, transparent);
+}
+
+/* Caixa de marcação desenhada — a nativa não aceita estilo consistente. */
+.req-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-card);
+  font-size: 0.62rem;
+  color: var(--bg-card);
+}
+
+.req-item.ativo .req-check {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--bg-card);
+}
+
+.req-icone {
+  font-size: 0.8rem;
+  color: var(--text-sec);
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.req-item.ativo .req-icone {
+  color: var(--primary);
+}
+
+.req-nome {
+  font-weight: 600;
+  flex: 1;
+  line-height: 1.2;
+}
+
+.req-camada {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-sec);
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Rank exigido: botões visuais (Base / ✩ / ★) no lugar do <select>. */
+.req-ranks {
+  display: flex;
+  gap: 4px;
+  padding: 0 11px 9px 39px;
+}
+
+.req-rank {
+  padding: 4px 11px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-sec);
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.req-rank:hover {
+  border-color: color-mix(in oklch, var(--primary) 55%, var(--border));
+}
+
+.req-rank.ativo {
+  border-color: var(--primary);
+  color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.req-vazio {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.8rem;
+  font-style: italic;
+  color: var(--text-sec);
+  margin: 6px 0 0;
 }

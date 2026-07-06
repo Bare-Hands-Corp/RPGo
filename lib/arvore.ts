@@ -335,6 +335,17 @@ export function acharPreset(slug: unknown): PresetArvore {
   return achado ?? PRESETS_ARVORE[PRESETS_ARVORE.length - 1];
 }
 
+// Faixa útil do `offsetY`. O card é ancorado pelo centro (translate -50%), então
+// 0 e 100 deixariam metade dele pra fora da faixa — invadindo o cabeçalho das
+// raias e a camada de baixo.
+export const OFFSET_MIN = 12;
+export const OFFSET_MAX = 88;
+
+export function clampOffsetY(y: number): number {
+  if (!Number.isFinite(y)) return 50;
+  return Math.round(Math.max(OFFSET_MIN, Math.min(OFFSET_MAX, y)));
+}
+
 /**
  * Empurra o nó pra baixo quando cai em cima de outro na mesma raia/camada.
  * Só cosmético: dois cards sobrepostos escondem um ao outro e não há como
@@ -354,12 +365,12 @@ export function evitarSobreposicao(
       n.camadaId === camadaId &&
       (n.ramoId ?? ramoPadrao) === (ramoId ?? ramoPadrao),
   );
-  let y = Math.max(0, Math.min(100, offsetY));
+  let y = clampOffsetY(offsetY);
   // No máximo 8 tentativas — evita laço se a raia estiver lotada.
   for (let i = 0; i < 8; i++) {
     const colide = vizinhos.some((n) => Math.abs(n.offsetY - y) < 9);
     if (!colide) break;
-    y = y + 10 > 100 ? Math.max(0, y - 10) : y + 10;
+    y = y + 10 > OFFSET_MAX ? Math.max(OFFSET_MIN, y - 10) : y + 10;
   }
-  return Math.round(y);
+  return clampOffsetY(y);
 }

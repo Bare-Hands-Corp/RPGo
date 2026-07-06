@@ -38,7 +38,9 @@ import {
   MAX_RANKS_TETO,
   PRESETS_ARVORE,
   camadasAbertas,
+  clampOffsetY,
   evitarSobreposicao,
+  marcaRank,
   estadoNo,
   lerRequisitos,
   normalizarCriterio,
@@ -824,9 +826,7 @@ function ArvoreCanvas({
         setArrastando(no.id);
       }
       const r = faixaEl!.getBoundingClientRect();
-      pendenteY = Math.round(
-        Math.max(0, Math.min(100, ((ev.clientY - r.top) / r.height) * 100)),
-      );
+      pendenteY = clampOffsetY(((ev.clientY - r.top) / r.height) * 100);
       const sob = Array.from(
         faixaEl!.querySelectorAll<HTMLElement>("[data-raia]"),
       ).find((c) => {
@@ -843,7 +843,10 @@ function ArvoreCanvas({
       card.removeEventListener("pointermove", mover);
       card.removeEventListener("pointerup", soltar);
       card.removeEventListener("pointercancel", soltar);
-      card.style.top = "";
+      // Repõe o valor do modelo em vez de limpar: apagar o inline style
+      // deixaria o nó sem `top` até um re-render que pode não vir (no clique
+      // simples nada muda, então o React não mexe nesse atributo).
+      card.style.top = `${moveu ? pendenteY : no.offsetY}%`;
       setRaiaAlvo(null);
       if (!moveu) {
         onSelecionar(no.id);
@@ -1053,8 +1056,11 @@ function FaixaCamada({
               onClick={(e) => {
                 if (e.target !== e.currentTarget) return;
                 const r = e.currentTarget.getBoundingClientRect();
-                const pct = Math.round(((e.clientY - r.top) / r.height) * 100);
-                onCriarNoAqui(camada.id, col?.id ?? null, Math.max(0, Math.min(100, pct)));
+                onCriarNoAqui(
+                  camada.id,
+                  col?.id ?? null,
+                  clampOffsetY(((e.clientY - r.top) / r.height) * 100),
+                );
               }}
               title="Clique pra criar um talento aqui"
             >
@@ -1117,7 +1123,7 @@ function NoCard({
       className={`arvore-no ${classe}${arrastando ? " arrastando" : ""}${
         selecionado ? " selecionado" : ""
       }`}
-      style={{ top: `${Math.max(0, Math.min(100, no.offsetY))}%` }}
+      style={{ top: `${clampOffsetY(no.offsetY)}%` }}
       onPointerDown={onPointerDown}
       title={
         estado.bloqueios.length > 0 ? estado.bloqueios.join(" · ") : no.descricao
@@ -1537,8 +1543,15 @@ function NoModal({
     lerRequisitos(inicial?.requisitos),
   );
 
+  const [buscaReq, setBuscaReq] = useState("");
+
   // Candidatos a requisito: qualquer outro nó da árvore.
   const candidatos = nos.filter((n) => n.id !== inicial?.id);
+  const candidatosFiltrados = buscaReq.trim()
+    ? candidatos.filter((c) =>
+        c.nome.toLowerCase().includes(buscaReq.trim().toLowerCase()),
+      )
+    : candidatos;
 
   function toggleReq(noId: string, ligado: boolean) {
     setRequisitos((curr) =>
@@ -1731,40 +1744,73 @@ function NoModal({
           </p>
 
           <label style={{ marginTop: 12 }}>Requisitos</label>
+          <p className="campo-dica">
+            O talento só libera depois que os marcados estiverem no rank pedido.
+            É o que desenha as linhas da árvore.
+          </p>
           {candidatos.length === 0 ? (
-            <p style={{ fontSize: "0.8rem", color: "var(--text-sec)" }}>
-              Nenhum outro talento nesta árvore ainda.
+            <p className="req-vazio">
+              <i className="fas fa-circle-info" /> Nenhum outro talento nesta
+              árvore ainda — crie os pré-requisitos primeiro.
             </p>
           ) : (
-            <div className="arvore-req-lista">
-              {candidatos.map((c) => {
-                const req = requisitos.find((r) => r.noId === c.id);
-                return (
-                  <div key={c.id} className="arvore-req-linha">
-                    <label className="arvore-req-check">
-                      <input
-                        type="checkbox"
-                        checked={!!req}
-                        onChange={(e) => toggleReq(c.id, e.target.checked)}
-                      />
-                      <span>{c.nome}</span>
-                    </label>
-                    {req && c.maxRanks > 1 && (
-                      <select
-                        value={req.rank}
-                        onChange={(e) => setRankReq(c.id, Number(e.target.value))}
+            <>
+              {candidatos.length > 6 && (
+                <input
+                  type="text"
+                  className="req-busca"
+                  value={buscaReq}
+                  onChange={(e) => setBuscaReq(e.target.value)}
+                  placeholder="Filtrar talentos…"
+                />
+              )}
+              <div className="req-lista">
+                {candidatosFiltrados.map((c) => {
+                  const req = requisitos.find((r) => r.noId === c.id);
+                  const camadaDele = camadas.find((k) => k.id === c.camadaId);
+                  return (
+                    <div key={c.id} className={`req-item ${req ? "ativo" : ""}`}>
+                      <button
+                        type="button"
+                        className="req-toggle"
+                        onClick={() => toggleReq(c.id, !req)}
+                        aria-pressed={!!req}
                       >
-                        {Array.from({ length: c.maxRanks }, (_, i) => (
-                          <option key={i} value={i + 1}>
-                            {rotuloRank(i + 1)}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                        <span className="req-check">
+                          {req && <i className="fas fa-check" />}
+                        </span>
+                        <i className={`fas ${c.icone} req-icone`} />
+                        <span className="req-nome">{c.nome}</span>
+                        {camadaDele && (
+                          <span className="req-camada">{camadaDele.nome}</span>
+                        )}
+                      </button>
+
+                      {req && c.maxRanks > 1 && (
+                        <div className="req-ranks">
+                          {Array.from({ length: c.maxRanks }, (_, i) => i + 1).map(
+                            (n) => (
+                              <button
+                                type="button"
+                                key={n}
+                                className={`req-rank ${req.rank === n ? "ativo" : ""}`}
+                                onClick={() => setRankReq(c.id, n)}
+                                title={`Exige no mínimo: ${rotuloRank(n)}`}
+                              >
+                                {marcaRank(n) || "Base"}
+                              </button>
+                            ),
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {candidatosFiltrados.length === 0 && (
+                  <p className="req-vazio">Nada com esse nome.</p>
+                )}
+              </div>
+            </>
           )}
 
           <div className="modal-actions">
