@@ -23,7 +23,7 @@ export const EFEITOS_COR: {
   dica: string;
 }[] = [
   { slug: "solido", nome: "Sólido", dica: "Cor chapada, sem brilho" },
-  { slug: "gradiente", nome: "Gradiente", dica: "Duas matizes da mesma cor" },
+  { slug: "gradiente", nome: "Gradiente", dica: "Duas matizes da mesma cor, deslizando" },
   { slug: "neon", nome: "Neon", dica: "Texto aceso com halo ao redor" },
   { slug: "metalico", nome: "Metálico", dica: "Faixas tipo cromo/ouro polido" },
   { slug: "contorno", nome: "Contorno", dica: "Só borda e texto, fundo vazado" },

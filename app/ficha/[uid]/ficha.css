@@ -2434,8 +2434,18 @@
   -webkit-text-fill-color: transparent;
 }
 
+/* Gradiente é animado: a rampa cor→companheira→cor desliza em loop. O
+   background-size de 200% dá o comprimento extra que a translação consome. */
 .fx-gradiente .fx-texto {
-  background-image: linear-gradient(95deg, var(--fx-txt) 0%, var(--fx-txt-2) 100%);
+  background-image: linear-gradient(
+    95deg,
+    var(--fx-txt) 0%,
+    var(--fx-txt-2) 35%,
+    var(--fx-txt) 70%,
+    var(--fx-txt-2) 100%
+  );
+  background-size: 200% 100%;
+  animation: fx-gradiente-desliza 3.5s linear infinite;
 }
 
 .fx-metalico .fx-texto {
@@ -2497,7 +2507,15 @@
 }
 
 .fx-barra.fx-gradiente {
-  background: linear-gradient(90deg, var(--fx-cor) 0%, var(--fx-cor-2) 100%);
+  background: linear-gradient(
+    90deg,
+    var(--fx-cor) 0%,
+    var(--fx-cor-2) 35%,
+    var(--fx-cor) 70%,
+    var(--fx-cor-2) 100%
+  );
+  background-size: 200% 100%;
+  animation: fx-gradiente-desliza 3.5s linear infinite;
 }
 
 .fx-barra.fx-metalico {
@@ -2556,7 +2574,15 @@
 }
 
 .fx-texto-solto.fx-gradiente {
-  background-image: linear-gradient(95deg, var(--fx-txt) 0%, var(--fx-txt-2) 100%);
+  background-image: linear-gradient(
+    95deg,
+    var(--fx-txt) 0%,
+    var(--fx-txt-2) 35%,
+    var(--fx-txt) 70%,
+    var(--fx-txt-2) 100%
+  );
+  background-size: 200% 100%;
+  animation: fx-gradiente-desliza 3.5s linear infinite;
 }
 
 .fx-texto-solto.fx-metalico {
@@ -2601,6 +2627,12 @@
   animation: fx-pulse-texto 1.8s ease-in-out infinite;
 }
 
+@keyframes fx-gradiente-desliza {
+  to {
+    background-position: 200% 50%;
+  }
+}
+
 @keyframes fx-holo-desliza {
   to {
     background-position: 300% 50%;
@@ -2638,6 +2670,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .fx-gradiente .fx-texto,
+  .fx-barra.fx-gradiente,
+  .fx-texto-solto.fx-gradiente,
   .fx-holo .fx-texto,
   .fx-barra.fx-holo,
   .fx-texto-solto.fx-holo,
