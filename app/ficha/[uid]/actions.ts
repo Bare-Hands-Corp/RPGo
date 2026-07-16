@@ -1725,3 +1725,172 @@ export async function moverNo(
   });
   revalidatePath(`/ficha/${personagemId}`);
 }
+
+/**
+ * Copia uma árvore inteira (camadas, raias, talentos, requisitos) pra outro
+ * personagem — ou pro mesmo, como duplicata.
+ *
+ * A Árvore de Talentos do Haki é igual pra todo mundo: sem isso, cada
+ * personagem da mesa remonta os 17 talentos na mão. O progresso NÃO vem junto
+ * (`rankAtual` zera) — copia-se a estrutura, não a build.
+ *
+ * Referências soltas (`habilidadeId`, `recursoCustoId`) apontam pra linhas do
+ * personagem de ORIGEM e não valem no destino. São religadas **por nome**
+ * quando existe equivalente lá, e viram null quando não existe.
+ */
+export async function duplicarArvore(
+  personagemId: string,
+  arvoreOrigemId: string,
+) {
+  const { user } = await autorizar(personagemId);
+
+  const origem = await prisma.arvore.findUnique({
+    where: { id: arvoreOrigemId },
+    include: {
+      personagem: { include: { mesa: true } },
+      camadas: { orderBy: { ordem: "asc" } },
+      ramos: { orderBy: { ordem: "asc" } },
+      nos: { orderBy: { ordem: "asc" } },
+    },
+  });
+  if (!origem) throw new Error("Árvore de origem não encontrada.");
+
+  // Acesso à origem é checado à parte: `autorizar` cobriu só o destino.
+  const podeLerOrigem =
+    origem.personagem.userId === user.id ||
+    origem.personagem.mesa?.userId === user.id;
+  if (!podeLerOrigem) throw new Error("Sem acesso à árvore de origem.");
+
+  // Religação por nome (case-insensitive) com o que o destino já tem.
+  const [habilidadesDestino, recursosDestino] = await Promise.all([
+    prisma.habilidade.findMany({
+      where: { personagemId },
+      select: { id: true, nome: true },
+    }),
+    prisma.recurso.findMany({
+      where: { personagemId },
+      select: { id: true, nome: true },
+    }),
+  ]);
+  const habPorNome = new Map(
+    habilidadesDestino.map((h) => [h.nome.trim().toLowerCase(), h.id]),
+  );
+  const recPorNome = new Map(
+    recursosDestino.map((r) => [r.nome.trim().toLowerCase(), r.id]),
+  );
+
+  let recursoCustoId: string | null = null;
+  if (origem.recursoCustoId) {
+    const original = await prisma.recurso.findUnique({
+      where: { id: origem.recursoCustoId },
+      select: { nome: true },
+    });
+    if (original) {
+      recursoCustoId = recPorNome.get(original.nome.trim().toLowerCase()) ?? null;
+    }
+  }
+
+  // Nome único-ish: só marca cópia quando fica no mesmo personagem.
+  const mesmoDono = origem.personagemId === personagemId;
+  const nome = mesmoDono ? `${origem.nome} (cópia)`.slice(0, 60) : origem.nome;
+
+  const ordemFinal = await prisma.arvore.count({ where: { personagemId } });
+
+  // Fase 1: árvore + camadas + raias, pra ter os ids novos.
+  const nova = await prisma.arvore.create({
+    data: {
+      personagemId,
+      nome,
+      icone: origem.icone,
+      cor: origem.cor,
+      efeito: origem.efeito,
+      ordem: ordemFinal,
+      criterio: origem.criterio,
+      recursoCustoId,
+      fundoUrl: origem.fundoUrl,
+      camadas: {
+        create: origem.camadas.map((c) => ({
+          nome: c.nome,
+          ordem: c.ordem,
+          limiar: c.limiar,
+        })),
+      },
+      ramos: {
+        create: origem.ramos.map((r) => ({ nome: r.nome, ordem: r.ordem })),
+      },
+    },
+    include: {
+      camadas: { orderBy: { ordem: "asc" } },
+      ramos: { orderBy: { ordem: "asc" } },
+    },
+  });
+
+  // Camadas e raias saem na mesma ordem que entraram, então o pareamento por
+  // índice é seguro (nomes podem repetir; ordem não).
+  const mapaCamada = new Map<string, string>();
+  origem.camadas.forEach((c, i) => {
+    const destino = nova.camadas[i];
+    if (destino) mapaCamada.set(c.id, destino.id);
+  });
+  const mapaRamo = new Map<string, string>();
+  origem.ramos.forEach((r, i) => {
+    const destino = nova.ramos[i];
+    if (destino) mapaRamo.set(r.id, destino.id);
+  });
+
+  // Fase 2: talentos sem requisito (os ids novos ainda não existem todos).
+  const mapaNo = new Map<string, string>();
+  for (const no of origem.nos) {
+    const camadaId = mapaCamada.get(no.camadaId);
+    if (!camadaId) continue; // camada órfã — não deveria acontecer
+    const criado = await prisma.arvoreNo.create({
+      data: {
+        arvoreId: nova.id,
+        camadaId,
+        ramoId: no.ramoId ? mapaRamo.get(no.ramoId) ?? null : null,
+        offsetY: no.offsetY,
+        nome: no.nome,
+        descricao: no.descricao,
+        icone: no.icone,
+        custo: no.custo,
+        maxRanks: no.maxRanks,
+        // Estrutura copia; progresso não.
+        rankAtual: 0,
+        nivelMinimo: no.nivelMinimo,
+        habilidadeId: habPorNome.get(no.nome.trim().toLowerCase()) ?? null,
+        requisitos: [],
+        ordem: no.ordem,
+      },
+      select: { id: true },
+    });
+    mapaNo.set(no.id, criado.id);
+  }
+
+  // Fase 3: requisitos remapeados pros ids novos.
+  const comRequisitos = origem.nos
+    .map((no) => {
+      const reqs = lerRequisitos(no.requisitos)
+        .map((r) => {
+          const alvo = mapaNo.get(r.noId);
+          return alvo ? { noId: alvo, rank: r.rank } : null;
+        })
+        .filter((r): r is RequisitoNo => r !== null);
+      const id = mapaNo.get(no.id);
+      return id && reqs.length > 0 ? { id, reqs } : null;
+    })
+    .filter((x): x is { id: string; reqs: RequisitoNo[] } => x !== null);
+
+  if (comRequisitos.length > 0) {
+    await prisma.$transaction(
+      comRequisitos.map((x) =>
+        prisma.arvoreNo.update({
+          where: { id: x.id, arvoreId: nova.id },
+          data: { requisitos: x.reqs },
+        }),
+      ),
+    );
+  }
+
+  revalidatePath(`/ficha/${personagemId}`);
+  return { id: nova.id, talentos: mapaNo.size };
+}

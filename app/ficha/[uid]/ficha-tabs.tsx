@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { AcoesTab } from "./acoes-tab";
-import { ArvoresTab, type Arvore } from "./arvores-tab";
+import { ArvoresTab, type Arvore, type ArvoreCopiavel } from "./arvores-tab";
 import { HabilidadesTab } from "./habilidades-tab";
 import { InventarioTab } from "./inventario-tab";
 import { PericiasTab } from "./pericias-tab";
@@ -44,6 +44,7 @@ type Props = {
   tripulantes: Tripulante[];
   navio: Navio;
   arvores: Arvore[];
+  arvoresCopiaveis: ArvoreCopiavel[];
   habilidadesTravadas: string[];
 };
 
@@ -88,6 +89,7 @@ export function FichaTabs({
   tripulantes,
   navio,
   arvores,
+  arvoresCopiaveis,
   habilidadesTravadas,
 }: Props) {
   const [ativa, setAtiva] = useState<TabId>("combate");
@@ -164,6 +166,7 @@ export function FichaTabs({
           personagemId={personagemId}
           nivel={nivel}
           arvores={arvores}
+          arvoresCopiaveis={arvoresCopiaveis}
           recursos={recursos}
           habilidades={habilidades}
         />

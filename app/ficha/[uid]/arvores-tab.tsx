@@ -24,6 +24,7 @@ import {
   criarRamo,
   deletarRamo,
   moverNo,
+  duplicarArvore,
 } from "./actions";
 import { EstiloPicker } from "./estilo-cor-picker";
 import { IconePicker } from "@/components/icone-picker";
@@ -68,6 +69,17 @@ export type Arvore = {
   nos: NoArvore[];
 };
 
+/** Árvore de qualquer personagem do mesmo dono, oferecida pra cópia. */
+export type ArvoreCopiavel = {
+  id: string;
+  nome: string;
+  icone: string;
+  personagemNome: string;
+  doProprio: boolean;
+  talentos: number;
+  camadas: number;
+};
+
 type RecursoRef = {
   id: string;
   nome: string;
@@ -81,6 +93,7 @@ type Props = {
   personagemId: string;
   nivel: number;
   arvores: Arvore[];
+  arvoresCopiaveis: ArvoreCopiavel[];
   recursos: RecursoRef[];
   habilidades: HabilidadeRef[];
 };
@@ -115,6 +128,7 @@ export function ArvoresTab({
   personagemId,
   nivel,
   arvores,
+  arvoresCopiaveis,
   recursos,
   habilidades,
 }: Props) {
@@ -131,6 +145,7 @@ export function ArvoresTab({
     () => new Set(),
   );
   const [arvoreColapsada, setArvoreColapsada] = useState(false);
+  const [modalCopiar, setModalCopiar] = useState(false);
   const [, startTransition] = useTransition();
 
   type Patch =
@@ -277,6 +292,18 @@ export function ArvoresTab({
     });
   }
 
+  function copiar(origem: ArvoreCopiavel) {
+    setModalCopiar(false);
+    startTransition(async () => {
+      try {
+        const r = await duplicarArvore(personagemId, origem.id);
+        setSelecionadaId(r.id);
+      } catch (err) {
+        mostrarErro(err);
+      }
+    });
+  }
+
   async function apagarArvore() {
     if (!arvore) return;
     if (
@@ -360,14 +387,26 @@ export function ArvoresTab({
     <div className="arvores-wrap">
       <div className="arvores-topo">
         <h1>Árvores</h1>
-        <button
-          type="button"
-          className="btn-rect primary"
-          style={{ background: "var(--color-react)" }}
-          onClick={() => setModalArvore("nova")}
-        >
-          + Nova Árvore
-        </button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {arvoresCopiaveis.length > 0 && (
+            <button
+              type="button"
+              className="btn-rect outline"
+              onClick={() => setModalCopiar(true)}
+              title="Copiar a estrutura de uma árvore já montada"
+            >
+              <i className="fas fa-copy" /> Copiar
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn-rect primary"
+            style={{ background: "var(--color-react)" }}
+            onClick={() => setModalArvore("nova")}
+          >
+            + Nova Árvore
+          </button>
+        </div>
       </div>
 
       {ordenadas.length === 0 && (
@@ -377,6 +416,15 @@ export function ArvoresTab({
             Nenhuma árvore ainda. Monte a Árvore de Talentos do Haki, os níveis do
             teu Estilo de Combate, ou qualquer trilha própria.
           </p>
+          {arvoresCopiaveis.length > 0 && (
+            <button
+              type="button"
+              className="btn-rect outline"
+              onClick={() => setModalCopiar(true)}
+            >
+              <i className="fas fa-copy" /> Copiar de outro personagem
+            </button>
+          )}
         </div>
       )}
 
@@ -576,6 +624,14 @@ export function ArvoresTab({
         </>
       )}
 
+      {modalCopiar && (
+        <CopiarModal
+          opcoes={arvoresCopiaveis}
+          onCancelar={() => setModalCopiar(false)}
+          onCopiar={copiar}
+        />
+      )}
+
       {modalArvore && (
         <ArvoreModal
           inicial={modalArvore === "nova" ? null : modalArvore}
@@ -688,6 +744,82 @@ export function ArvoresTab({
           }}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * Escolha da árvore a copiar. Copia a ESTRUTURA (camadas, raias, talentos,
+ * requisitos); o progresso não vem junto.
+ */
+function CopiarModal({
+  opcoes,
+  onCancelar,
+  onCopiar,
+}: {
+  opcoes: ArvoreCopiavel[];
+  onCancelar: () => void;
+  onCopiar: (a: ArvoreCopiavel) => void;
+}) {
+  const [busca, setBusca] = useState("");
+  const q = busca.trim().toLowerCase();
+  const filtradas = q
+    ? opcoes.filter(
+        (o) =>
+          o.nome.toLowerCase().includes(q) ||
+          o.personagemNome.toLowerCase().includes(q),
+      )
+    : opcoes;
+
+  return (
+    <div className="modal-overlay" onClick={onCancelar}>
+      <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+        <h2>Copiar Árvore</h2>
+        <p className="campo-dica" style={{ marginBottom: 12 }}>
+          Vem a estrutura inteira — camadas, raias, talentos e requisitos. O{" "}
+          <strong>progresso não vem junto</strong>: todos os talentos chegam
+          travados.
+        </p>
+
+        {opcoes.length > 6 && (
+          <input
+            type="text"
+            className="req-busca"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Filtrar por árvore ou personagem…"
+          />
+        )}
+
+        <div className="req-lista">
+          {filtradas.map((o) => (
+            <div key={o.id} className="req-item">
+              <button
+                type="button"
+                className="req-toggle"
+                onClick={() => onCopiar(o)}
+              >
+                <i className={`fas ${o.icone} req-icone`} />
+                <span className="req-nome">
+                  {o.nome}
+                  <small className="copiar-origem">
+                    {o.doProprio ? "desta ficha" : o.personagemNome} ·{" "}
+                    {o.talentos} talento(s), {o.camadas} camada(s)
+                  </small>
+                </span>
+                <i className="fas fa-arrow-right req-icone" />
+              </button>
+            </div>
+          ))}
+          {filtradas.length === 0 && <p className="req-vazio">Nada encontrado.</p>}
+        </div>
+
+        <div className="modal-actions">
+          <button type="button" className="modal-btn-cancel" onClick={onCancelar}>
+            Fechar
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

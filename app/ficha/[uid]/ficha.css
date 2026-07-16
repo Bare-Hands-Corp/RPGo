@@ -3826,3 +3826,12 @@
   color: var(--text-sec);
   margin: 6px 0 0;
 }
+
+/* Linha secundária do item na lista de cópia (origem + tamanho da árvore). */
+.copiar-origem {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--text-sec);
+}

@@ -91,7 +91,8 @@ export default async function FichaPage({ params }: Params) {
 
   // Pré-carrega mensagens do chat + calendário + tripulação/navio (se houver
   // mesa) em paralelo. Tripulação = personagens que compartilham o mesaId.
-  const [mensagensIniciais, calendario, tripulantes, navio] = await Promise.all([
+  const [mensagensIniciais, calendario, tripulantes, navio, arvoresCopiaveis] =
+    await Promise.all([
     listarMensagensSessao(sessionId),
     personagem.mesaId
       ? carregarCalendario(personagem.mesaId, { isNarrador })
@@ -106,6 +107,20 @@ export default async function FichaPage({ params }: Params) {
     personagem.mesaId
       ? prisma.navio.findUnique({ where: { mesaId: personagem.mesaId } })
       : Promise.resolve(null),
+    // Árvores de QUALQUER personagem do mesmo dono — a do Haki é igual pra
+    // todo mundo, então copiar evita remontar os talentos na mão.
+    prisma.arvore.findMany({
+      where: { personagem: { userId: user.id } },
+      orderBy: [{ personagemId: "asc" }, { ordem: "asc" }],
+      select: {
+        id: true,
+        nome: true,
+        icone: true,
+        personagemId: true,
+        personagem: { select: { nome: true } },
+        _count: { select: { nos: true, camadas: true } },
+      },
+    }),
   ]);
 
   return (
@@ -165,6 +180,15 @@ export default async function FichaPage({ params }: Params) {
         habilidades={personagem.habilidades}
         habilidadesTravadas={[...travadasPorArvore]}
         arvores={personagem.arvores}
+        arvoresCopiaveis={arvoresCopiaveis.map((a) => ({
+          id: a.id,
+          nome: a.nome,
+          icone: a.icone,
+          personagemNome: a.personagem.nome,
+          doProprio: a.personagemId === personagem.id,
+          talentos: a._count.nos,
+          camadas: a._count.camadas,
+        }))}
         calendario={calendario}
         isNarradorDaMesa={isNarrador}
         tripulantes={tripulantes}
