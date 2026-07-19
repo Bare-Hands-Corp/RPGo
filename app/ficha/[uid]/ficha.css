@@ -2444,16 +2444,17 @@
     var(--fx-txt) 100%
   );
   background-size: 200% 100%;
+  background-position: 0% 50%;
   animation: fx-gradiente-desliza 4s linear infinite;
 }
 
 .fx-metalico .fx-texto {
   background-image:
     linear-gradient(
-      105deg,
-      transparent 35%,
+      180deg,
+      transparent 28%,
       color-mix(in oklch, var(--fx-brilho) 92%, white) 50%,
-      transparent 65%
+      transparent 72%
     ),
     linear-gradient(
       180deg,
@@ -2464,8 +2465,8 @@
       var(--fx-clara) 82%,
       var(--fx-brilho) 100%
     );
-  background-size: 250% 100%, 100% 100%;
-  background-position: -125% 0, 0 0;
+  background-size: 100% 200%, 100% 100%;
+  background-position: 0 0%, 0 0;
   animation: fx-metalico-brilho 3.2s linear infinite;
 }
 
@@ -2479,6 +2480,7 @@
     var(--fx-txt) 100%
   );
   background-size: 300% 100%;
+  background-position: 0% 50%;
   animation: fx-holo-desliza 4s linear infinite;
 }
 
@@ -2523,6 +2525,7 @@
     var(--fx-cor) 100%
   );
   background-size: 200% 100%;
+  background-position: 0% 50%;
   animation: fx-gradiente-desliza 4s linear infinite;
 }
 
@@ -2542,9 +2545,9 @@
       var(--fx-escura) 70%,
       var(--fx-clara) 100%
     );
-  background-size: 250% 100%, 100% 100%;
-  background-position: -125% 0, 0 0;
-  animation: fx-metalico-brilho 3.2s linear infinite;
+  background-size: 200% 100%, 100% 100%;
+  background-position: 0% 0, 0 0;
+  animation: fx-metalico-barra 3.2s linear infinite;
 }
 
 .fx-barra.fx-neon {
@@ -2569,6 +2572,7 @@
     var(--fx-cor) 100%
   );
   background-size: 300% 100%;
+  background-position: 0% 50%;
   animation: fx-holo-desliza 4s linear infinite;
 }
 
@@ -2599,16 +2603,17 @@
     var(--fx-txt) 100%
   );
   background-size: 200% 100%;
+  background-position: 0% 50%;
   animation: fx-gradiente-desliza 4s linear infinite;
 }
 
 .fx-texto-solto.fx-metalico {
   background-image:
     linear-gradient(
-      105deg,
-      transparent 35%,
+      180deg,
+      transparent 28%,
       color-mix(in oklch, var(--fx-brilho) 92%, white) 50%,
-      transparent 65%
+      transparent 72%
     ),
     linear-gradient(
       180deg,
@@ -2619,8 +2624,8 @@
       var(--fx-clara) 82%,
       var(--fx-brilho) 100%
     );
-  background-size: 250% 100%, 100% 100%;
-  background-position: -125% 0, 0 0;
+  background-size: 100% 200%, 100% 100%;
+  background-position: 0 0%, 0 0;
   animation: fx-metalico-brilho 3.2s linear infinite;
 }
 
@@ -2634,6 +2639,7 @@
     var(--fx-txt) 100%
   );
   background-size: 300% 100%;
+  background-position: 0% 50%;
   animation: fx-holo-desliza 4s linear infinite;
 }
 
@@ -2654,9 +2660,25 @@
   animation: fx-pulse-texto 1.8s ease-in-out infinite;
 }
 
+/* IMPORTANTE — por que 200%: `background-position` em porcentagem NÃO é
+   translação direta. O deslocamento real é (container − imagem) × p, e o fundo
+   se repete a cada largura de imagem. Pra o loop fechar sem salto, o percurso
+   precisa ser múltiplo INTEIRO do ladrilho:
+
+     size 200% → imagem 2×, deslocamento = −1× × p → p = 200% dá exatamente 1 ladrilho
+     size 300% → imagem 3×, deslocamento = −2× × p → p = 300% dá exatamente 2
+
+   O metálico usava size 250% com percurso de 350%, o que dava 2,1 ladrilhos —
+   a fração de sobra era o "snap" no fim de cada volta. */
 @keyframes fx-metalico-brilho {
   to {
-    background-position: 225% 0, 0 0;
+    background-position: 0 200%, 0 0;
+  }
+}
+
+@keyframes fx-metalico-barra {
+  to {
+    background-position: 200% 0, 0 0;
   }
 }
 
