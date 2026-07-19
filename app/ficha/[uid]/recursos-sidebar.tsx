@@ -18,6 +18,7 @@ export type Recurso = {
   valorMax: number;
   ordem: number;
   cor: string | null;
+  cor2: string | null;
   efeito: string;
   resetEm: string;
 };
@@ -32,6 +33,7 @@ type FormState = {
   nome: string;
   valorMax: string;
   cor: string;
+  cor2: string;
   efeito: EfeitoCor;
   resetEm: string;
 };
@@ -41,6 +43,7 @@ const FORM_VAZIO: FormState = {
   nome: "",
   valorMax: "5",
   cor: "",
+  cor2: "",
   efeito: EFEITO_COR_PADRAO,
   resetEm: "manual",
 };
@@ -119,6 +122,7 @@ export function RecursosSidebar({
       nome: r.nome,
       valorMax: String(r.valorMax),
       cor: r.cor || "",
+      cor2: r.cor2 || "",
       efeito: normalizarEfeitoCor(r.efeito),
       resetEm: r.resetEm,
     });
@@ -147,6 +151,7 @@ export function RecursosSidebar({
     }
     const valorMax = Number(form.valorMax) || 0;
     const cor = form.cor.trim() || null;
+    const cor2 = form.cor2.trim() || null;
     const efeito = form.efeito;
     const resetEm = form.resetEm;
     const editandoId = form.id;
@@ -157,13 +162,14 @@ export function RecursosSidebar({
         aplicarPatch({
           kind: "update",
           id: editandoId,
-          patch: { nome, valorMax, cor, efeito, resetEm },
+          patch: { nome, valorMax, cor, cor2, efeito, resetEm },
         });
         try {
           await atualizarRecurso(personagemId, editandoId, {
             nome,
             valorMax,
             cor: cor ?? "",
+            cor2: cor2 ?? "",
             efeito,
             resetEm,
           });
@@ -178,6 +184,7 @@ export function RecursosSidebar({
           valorMax,
           ordem: lista.length,
           cor,
+          cor2,
           efeito,
           resetEm,
         };
@@ -189,6 +196,7 @@ export function RecursosSidebar({
             valorMax,
             ordem: lista.length,
             cor: cor ?? "",
+            cor2: cor2 ?? "",
             efeito,
             resetEm,
           });
@@ -249,7 +257,7 @@ export function RecursosSidebar({
 
       {ordenados.map((r) => {
         const cor = r.cor || "var(--color-power)";
-        const estilo = { cor: r.cor, efeito: normalizarEfeitoCor(r.efeito) };
+        const estilo = { cor: r.cor, cor2: r.cor2, efeito: normalizarEfeitoCor(r.efeito) };
         // Sem cor configurada não há tons a derivar: nome e barra caem no
         // padrão do tema (--color-power).
         const fxNome = estiloAplicado(estilo, "texto");
@@ -363,6 +371,7 @@ export function RecursosSidebar({
               <label style={{ marginTop: 10 }}>Cor e brilho</label>
               <EstiloPicker
                 cor={form.cor}
+                cor2={form.cor2}
                 efeito={form.efeito}
                 onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
                 amostra={form.nome.trim().slice(0, 6) || "Aa"}

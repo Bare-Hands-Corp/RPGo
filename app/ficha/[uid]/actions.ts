@@ -636,6 +636,7 @@ const ALLOWED_RECURSO = [
   "valorMax",
   "ordem",
   "cor",
+  "cor2",
   "efeito",
   "resetEm",
 ] as const;
@@ -658,7 +659,9 @@ function normalizarRecurso(input: RecursoInput, parcial: boolean) {
       if (!RESET_VALIDOS.has(v)) throw new Error("resetEm inválido.");
       data.resetEm = v;
     } else if (key === "cor") {
-      data.cor = input.cor ? String(input.cor) : null;
+      data.cor = corValida(input.cor);
+    } else if (key === "cor2") {
+      data.cor2 = corValida(input.cor2);
     } else if (key === "efeito") {
       data.efeito = normalizarEfeitoCor(input.efeito);
     }
@@ -684,6 +687,7 @@ export async function criarRecurso(personagemId: string, input: RecursoInput) {
       valorMax: (data.valorMax as number) ?? 0,
       ordem: (data.ordem as number) ?? 0,
       cor: (data.cor as string | null) ?? null,
+      cor2: (data.cor2 as string | null) ?? null,
       efeito: (data.efeito as string) ?? "solido",
       resetEm: (data.resetEm as string) ?? "manual",
     },
@@ -1182,6 +1186,7 @@ const ALLOWED_ARVORE = [
   "nome",
   "icone",
   "cor",
+  "cor2",
   "efeito",
   "ordem",
   "criterio",
@@ -1201,6 +1206,7 @@ function normalizarArvore(input: ArvoreInput) {
     data.icone = String(input.icone).trim().slice(0, 40) || "fa-sitemap";
   }
   if (input.cor !== undefined) data.cor = corValida(input.cor);
+  if (input.cor2 !== undefined) data.cor2 = corValida(input.cor2);
   if (input.efeito !== undefined) data.efeito = normalizarEfeitoCor(input.efeito);
   if (input.ordem !== undefined) data.ordem = Math.trunc(Number(input.ordem) || 0);
   if (input.criterio !== undefined) data.criterio = normalizarCriterio(input.criterio);
@@ -1247,6 +1253,7 @@ export async function criarArvore(
       nome: data.nome as string,
       icone: (data.icone as string) ?? preset.icone,
       cor: (data.cor as string | null) ?? null,
+      cor2: (data.cor2 as string | null) ?? null,
       efeito: (data.efeito as string) ?? "solido",
       ordem: (data.ordem as number) ?? 0,
       // Critério explícito do formulário vence o do molde.
@@ -1803,6 +1810,7 @@ export async function duplicarArvore(
       nome,
       icone: origem.icone,
       cor: origem.cor,
+      cor2: origem.cor2,
       efeito: origem.efeito,
       ordem: ordemFinal,
       criterio: origem.criterio,

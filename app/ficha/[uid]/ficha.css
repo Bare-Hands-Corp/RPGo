@@ -2440,24 +2440,33 @@
   background-image: linear-gradient(
     95deg,
     var(--fx-txt) 0%,
-    var(--fx-txt-2) 35%,
-    var(--fx-txt) 70%,
-    var(--fx-txt-2) 100%
+    var(--fx-txt-2) 50%,
+    var(--fx-txt) 100%
   );
   background-size: 200% 100%;
-  animation: fx-gradiente-desliza 3.5s linear infinite;
+  animation: fx-gradiente-desliza 4s linear infinite;
 }
 
 .fx-metalico .fx-texto {
-  background-image: linear-gradient(
-    180deg,
-    var(--fx-brilho) 0%,
-    var(--fx-clara) 20%,
-    var(--fx-cor) 46%,
-    var(--fx-escura) 62%,
-    var(--fx-clara) 82%,
-    var(--fx-brilho) 100%
-  );
+  background-image:
+    linear-gradient(
+      105deg,
+      transparent 35%,
+      color-mix(in oklch, var(--fx-brilho) 92%, white) 50%,
+      transparent 65%
+    ),
+    linear-gradient(
+      180deg,
+      var(--fx-brilho) 0%,
+      var(--fx-clara) 20%,
+      var(--fx-cor) 46%,
+      var(--fx-escura) 62%,
+      var(--fx-clara) 82%,
+      var(--fx-brilho) 100%
+    );
+  background-size: 250% 100%, 100% 100%;
+  background-position: -125% 0, 0 0;
+  animation: fx-metalico-brilho 3.2s linear infinite;
 }
 
 .fx-holo .fx-texto {
@@ -2510,23 +2519,32 @@
   background: linear-gradient(
     90deg,
     var(--fx-cor) 0%,
-    var(--fx-cor-2) 35%,
-    var(--fx-cor) 70%,
-    var(--fx-cor-2) 100%
+    var(--fx-cor-2) 50%,
+    var(--fx-cor) 100%
   );
   background-size: 200% 100%;
-  animation: fx-gradiente-desliza 3.5s linear infinite;
+  animation: fx-gradiente-desliza 4s linear infinite;
 }
 
 .fx-barra.fx-metalico {
-  background: linear-gradient(
-    180deg,
-    var(--fx-brilho) 0%,
-    var(--fx-clara) 22%,
-    var(--fx-cor) 50%,
-    var(--fx-escura) 70%,
-    var(--fx-clara) 100%
-  );
+  background-image:
+    linear-gradient(
+      105deg,
+      transparent 35%,
+      rgba(255, 255, 255, 0.55) 50%,
+      transparent 65%
+    ),
+    linear-gradient(
+      180deg,
+      var(--fx-brilho) 0%,
+      var(--fx-clara) 22%,
+      var(--fx-cor) 50%,
+      var(--fx-escura) 70%,
+      var(--fx-clara) 100%
+    );
+  background-size: 250% 100%, 100% 100%;
+  background-position: -125% 0, 0 0;
+  animation: fx-metalico-brilho 3.2s linear infinite;
 }
 
 .fx-barra.fx-neon {
@@ -2577,24 +2595,33 @@
   background-image: linear-gradient(
     95deg,
     var(--fx-txt) 0%,
-    var(--fx-txt-2) 35%,
-    var(--fx-txt) 70%,
-    var(--fx-txt-2) 100%
+    var(--fx-txt-2) 50%,
+    var(--fx-txt) 100%
   );
   background-size: 200% 100%;
-  animation: fx-gradiente-desliza 3.5s linear infinite;
+  animation: fx-gradiente-desliza 4s linear infinite;
 }
 
 .fx-texto-solto.fx-metalico {
-  background-image: linear-gradient(
-    180deg,
-    var(--fx-brilho) 0%,
-    var(--fx-clara) 20%,
-    var(--fx-cor) 46%,
-    var(--fx-escura) 62%,
-    var(--fx-clara) 82%,
-    var(--fx-brilho) 100%
-  );
+  background-image:
+    linear-gradient(
+      105deg,
+      transparent 35%,
+      color-mix(in oklch, var(--fx-brilho) 92%, white) 50%,
+      transparent 65%
+    ),
+    linear-gradient(
+      180deg,
+      var(--fx-brilho) 0%,
+      var(--fx-clara) 20%,
+      var(--fx-cor) 46%,
+      var(--fx-escura) 62%,
+      var(--fx-clara) 82%,
+      var(--fx-brilho) 100%
+    );
+  background-size: 250% 100%, 100% 100%;
+  background-position: -125% 0, 0 0;
+  animation: fx-metalico-brilho 3.2s linear infinite;
 }
 
 .fx-texto-solto.fx-holo {
@@ -2625,6 +2652,12 @@
 
 .fx-texto-solto.fx-pulse {
   animation: fx-pulse-texto 1.8s ease-in-out infinite;
+}
+
+@keyframes fx-metalico-brilho {
+  to {
+    background-position: 225% 0, 0 0;
+  }
 }
 
 @keyframes fx-gradiente-desliza {
@@ -2670,6 +2703,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .fx-metalico .fx-texto,
+  .fx-barra.fx-metalico,
+  .fx-texto-solto.fx-metalico,
   .fx-gradiente .fx-texto,
   .fx-barra.fx-gradiente,
   .fx-texto-solto.fx-gradiente,

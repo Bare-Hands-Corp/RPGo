@@ -214,6 +214,8 @@ model Recurso {
   valorMax      Int        @default(0) @map("valor_max")
   ordem         Int        @default(0)
   cor           String?    // hex (#ffaa00) ou nome de variável CSS; opcional
+  // 2ª cor do gradiente. null = derivada da `cor` (matiz +38°).
+  cor2          String?    @map("cor_2")
   // Efeito visual aplicado a cor: "solido" | "gradiente" | "neon" | "metalico"
   // | "contorno" | "holo" | "pulse" (ver lib/estilos-cor.ts).
   efeito        String     @default("solido")
@@ -440,6 +442,8 @@ model Arvore {
   nome          String
   icone         String     @default("fa-sitemap")
   cor           String?
+  // 2ª cor do gradiente. null = derivada da `cor`.
+  cor2          String?    @map("cor_2")
   // Efeito de brilho aplicado à cor (ver lib/estilos-cor.ts).
   efeito        String     @default("solido")
   ordem         Int        @default(0)

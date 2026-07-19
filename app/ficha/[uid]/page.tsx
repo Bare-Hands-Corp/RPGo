@@ -173,6 +173,7 @@ export default async function FichaPage({ params }: Params) {
           id: r.id,
           nome: r.nome,
           cor: r.cor,
+          cor2: r.cor2,
           efeito: r.efeito,
           valorAtual: r.valorAtual,
           valorMax: r.valorMax,

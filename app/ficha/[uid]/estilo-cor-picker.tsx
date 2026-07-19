@@ -92,21 +92,24 @@ export function TagChip({
  */
 export function EstiloPicker({
   cor,
+  cor2 = "",
   efeito,
   onChange,
   amostra = "Aa",
   permitirSemCor = true,
 }: {
   cor: string;
+  /** 2ª cor do gradiente. "" = derivada da primeira. */
+  cor2?: string;
   efeito: EfeitoCor;
-  onChange: (patch: { cor?: string; efeito?: EfeitoCor }) => void;
+  onChange: (patch: { cor?: string; cor2?: string; efeito?: EfeitoCor }) => void;
   amostra?: string;
   permitirSemCor?: boolean;
 }) {
   // Prévia dos efeitos precisa de alguma cor pra mostrar diferença — quando
   // o usuário ainda não escolheu, mostra na primeira da paleta.
   const corPrevia = cor || SWATCHES_COR[0];
-  const varsPrevia = varsEstiloCor(corPrevia) ?? undefined;
+  const varsPrevia = varsEstiloCor(corPrevia, cor2 || null) ?? undefined;
 
   return (
     <div className="estilo-picker">
@@ -135,7 +138,9 @@ export function EstiloPicker({
       </div>
 
       <div>
-        <div className="estilo-picker-titulo">Cor</div>
+        <div className="estilo-picker-titulo">
+          {efeito === "gradiente" ? "Cor 1" : "Cor"}
+        </div>
         <div className="cor-picker">
           <input
             type="color"
@@ -170,6 +175,52 @@ export function EstiloPicker({
           </div>
         </div>
       </div>
+
+      {/* A 2ª cor só existe no gradiente — os outros efeitos derivam tudo da
+          cor base, então mostrar aqui seria um controle que não faz nada. */}
+      {efeito === "gradiente" && (
+        <div>
+          <div className="estilo-picker-titulo">Cor 2</div>
+          <div className="cor-picker">
+            <input
+              type="color"
+              className="cor-picker-input"
+              value={cor2 || SWATCHES_COR[1]}
+              onChange={(ev) => onChange({ cor2: ev.target.value })}
+              aria-label="Escolher a segunda cor"
+            />
+            <div className="cor-swatches">
+              {SWATCHES_COR.map((c) => (
+                <button
+                  type="button"
+                  key={c}
+                  className={`cor-swatch ${
+                    cor2.toLowerCase() === c.toLowerCase() ? "ativo" : ""
+                  }`}
+                  style={{ background: c }}
+                  onClick={() => onChange({ cor2: c })}
+                  title={c}
+                  aria-label={`Segunda cor ${c}`}
+                />
+              ))}
+              <button
+                type="button"
+                className={`cor-swatch cor-swatch-limpar ${!cor2 ? "ativo" : ""}`}
+                onClick={() => onChange({ cor2: "" })}
+                title="Automática (derivada da Cor 1)"
+                aria-label="Segunda cor automática"
+              >
+                <i className="fas fa-wand-magic-sparkles" />
+              </button>
+            </div>
+          </div>
+          {!cor2 && (
+            <p className="campo-dica">
+              Automática: matiz vizinha da Cor 1. Escolha uma pra fechar o par.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -202,11 +253,12 @@ export function TagsEditor({
     ? estilos[alvo] ?? { cor: null, efeito: EFEITO_COR_PADRAO }
     : { cor: null, efeito: EFEITO_COR_PADRAO };
 
-  function patchEstilo(patch: { cor?: string; efeito?: EfeitoCor }) {
+  function patchEstilo(patch: { cor?: string; cor2?: string; efeito?: EfeitoCor }) {
     if (!alvo) return;
     const atual = estilos[alvo] ?? { cor: null, efeito: EFEITO_COR_PADRAO };
     const proximo: EstiloCor = {
       cor: patch.cor !== undefined ? patch.cor || null : atual.cor,
+      cor2: patch.cor2 !== undefined ? patch.cor2 || null : atual.cor2 ?? null,
       efeito: patch.efeito ?? atual.efeito,
     };
     const mapa = { ...estilos };
@@ -284,6 +336,7 @@ export function TagsEditor({
           </div>
           <EstiloPicker
             cor={estiloAlvo.cor ?? ""}
+            cor2={estiloAlvo.cor2 ?? ""}
             efeito={estiloAlvo.efeito}
             onChange={patchEstilo}
             amostra={alvo.slice(0, 6)}

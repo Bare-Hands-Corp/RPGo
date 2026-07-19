@@ -23,9 +23,9 @@ export const EFEITOS_COR: {
   dica: string;
 }[] = [
   { slug: "solido", nome: "Sólido", dica: "Cor chapada, sem brilho" },
-  { slug: "gradiente", nome: "Gradiente", dica: "Duas matizes da mesma cor, deslizando" },
+  { slug: "gradiente", nome: "Gradiente", dica: "Duas cores deslizando (a 2ª é escolhível)" },
   { slug: "neon", nome: "Neon", dica: "Texto aceso com halo ao redor" },
-  { slug: "metalico", nome: "Metálico", dica: "Faixas tipo cromo/ouro polido" },
+  { slug: "metalico", nome: "Metálico", dica: "Cromo polido com brilho passando" },
   { slug: "contorno", nome: "Contorno", dica: "Só borda e texto, fundo vazado" },
   { slug: "holo", nome: "Holo", dica: "Arco-íris deslizando (animado)" },
   { slug: "pulse", nome: "Pulse", dica: "Brilho que respira (animado)" },
@@ -40,8 +40,17 @@ export function normalizarEfeitoCor(raw: unknown): EfeitoCor {
   return EFEITOS_VALIDOS.has(v) ? (v as EfeitoCor) : EFEITO_COR_PADRAO;
 }
 
-/** Estilo de um alvo pintável (uma tag, um recurso). `cor` null = padrão do tema. */
-export type EstiloCor = { cor: string | null; efeito: EfeitoCor };
+/**
+ * Estilo de um alvo pintável (uma tag, um recurso, uma árvore).
+ * `cor` null = padrão do tema (nenhum efeito é aplicado).
+ * `cor2` só é lida pelo efeito `gradiente`; null = derivada da `cor`
+ * (matiz +38°), que é o comportamento antigo e segue sendo o default.
+ */
+export type EstiloCor = {
+  cor: string | null;
+  cor2?: string | null;
+  efeito: EfeitoCor;
+};
 
 /** Mapa nome-da-tag → estilo. É o formato guardado em `Item.tagsEstilo`. */
 export type MapaEstilosTag = Record<string, EstiloCor>;
@@ -70,10 +79,11 @@ export function lerEstilosTag(raw: unknown): MapaEstilosTag {
     if (!valor || typeof valor !== "object") continue;
     const v = valor as Record<string, unknown>;
     const cor = corValida(v.cor);
+    const cor2 = corValida(v.cor2);
     const efeito = normalizarEfeitoCor(v.efeito);
     // Sem cor e sem efeito não vale entrada — cai no visual padrão.
     if (!cor && efeito === EFEITO_COR_PADRAO) continue;
-    out[nome] = { cor, efeito };
+    out[nome] = { cor, cor2, efeito };
     if (Object.keys(out).length >= MAX_TAGS_ESTILIZADAS) break;
   }
   return out;
@@ -163,21 +173,31 @@ function css({ h, s, l }: Hsl): string {
  * as classes `fx-*` do CSS consomem. Cor inválida/ausente → `null` (o chamador
  * então não aplica classe de efeito e o alvo fica no visual padrão do tema).
  */
-export function varsEstiloCor(cor: string | null | undefined): CSSProperties | null {
+export function varsEstiloCor(
+  cor: string | null | undefined,
+  cor2?: string | null,
+): CSSProperties | null {
   if (!cor) return null;
   const base = hexParaHsl(cor);
   if (!base) return null;
 
-  // Matiz companheira do gradiente: +38° mantém a família da cor sem virar
-  // outra cor. Saturação mínima garante que cinza/preto ainda gradiem.
+  // Segunda cor do gradiente: explícita quando o usuário escolheu, senão
+  // derivada — matiz +38° mantém a família da cor sem virar outra cor.
+  // Saturação mínima garante que cinza/preto ainda gradiem.
   const s = Math.max(base.s, 12);
-  const companheira = { h: base.h + 38, s, l: base.l };
+  const escolhida = corValida(cor2);
+  const par = escolhida ? hexParaHsl(escolhida) : null;
+  const companheira = par ?? { h: base.h + 38, s, l: base.l };
 
   const vars: Record<string, string> = {
     "--fx-cor": cor,
-    "--fx-cor-2": css(companheira),
+    "--fx-cor-2": escolhida ?? css(companheira),
     "--fx-clara": css({ h: base.h, s, l: Math.min(base.l + 24, 88) }),
-    "--fx-clara-2": css({ h: base.h + 38, s, l: Math.min(base.l + 24, 88) }),
+    "--fx-clara-2": css({
+      h: companheira.h,
+      s: Math.max(companheira.s, 12),
+      l: Math.min(companheira.l + 24, 88),
+    }),
     "--fx-escura": css({ h: base.h, s, l: Math.max(base.l - 22, 10) }),
     "--fx-brilho": css({ h: base.h, s: Math.min(s, 30), l: 96 }),
     // Paleta do holo: a base rodando o círculo de matizes.
@@ -197,7 +217,7 @@ export function estiloAplicado(
   estilo: EstiloCor | null | undefined,
   familia: "chip" | "barra" | "texto",
 ): { className: string; style: CSSProperties | undefined } {
-  const vars = varsEstiloCor(estilo?.cor);
+  const vars = varsEstiloCor(estilo?.cor, estilo?.cor2);
   if (!vars) return { className: "", style: undefined };
   const efeito = normalizarEfeitoCor(estilo?.efeito);
   return { className: `fx-${familia} fx-${efeito}`, style: vars };

@@ -59,6 +59,7 @@ export type Arvore = {
   nome: string;
   icone: string;
   cor: string | null;
+  cor2: string | null;
   efeito: string;
   ordem: number;
   criterio: string;
@@ -432,7 +433,7 @@ export function ArvoresTab({
         <div className="arvore-seletor">
           {ordenadas.map((a) => {
             const fx = estiloAplicado(
-              { cor: a.cor, efeito: normalizarEfeitoCor(a.efeito) },
+              { cor: a.cor, cor2: a.cor2, efeito: normalizarEfeitoCor(a.efeito) },
               "chip",
             );
             const ativa = arvore?.id === a.id;
@@ -1391,6 +1392,7 @@ type ArvoreFormDados = {
   recursoCustoId: string | null;
   fundoUrl: string | null;
   preset: string;
+  cor2: string | null;
 };
 
 function ArvoreModal({
@@ -1407,6 +1409,7 @@ function ArvoreModal({
   const [nome, setNome] = useState(inicial?.nome ?? "");
   const [icone, setIcone] = useState(inicial?.icone ?? "fa-sitemap");
   const [cor, setCor] = useState(inicial?.cor ?? "");
+  const [cor2, setCor2] = useState(inicial?.cor2 ?? "");
   const [efeito, setEfeito] = useState<EfeitoCor>(
     normalizarEfeitoCor(inicial?.efeito) ?? EFEITO_COR_PADRAO,
   );
@@ -1428,6 +1431,7 @@ function ArvoreModal({
       nome: nome.trim(),
       icone: icone.trim() || "fa-sitemap",
       cor: cor.trim() || null,
+      cor2: cor2.trim() || null,
       efeito,
       criterio,
       recursoCustoId: recursoCustoId || null,
@@ -1533,9 +1537,11 @@ function ArvoreModal({
           <label style={{ marginTop: 10 }}>Cor e brilho</label>
           <EstiloPicker
             cor={cor}
+            cor2={cor2}
             efeito={efeito}
             onChange={(patch) => {
               if (patch.cor !== undefined) setCor(patch.cor);
+              if (patch.cor2 !== undefined) setCor2(patch.cor2);
               if (patch.efeito !== undefined) setEfeito(patch.efeito);
             }}
             amostra={nome.trim().slice(0, 6) || "Aa"}

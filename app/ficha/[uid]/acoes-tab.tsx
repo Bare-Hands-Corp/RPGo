@@ -56,6 +56,7 @@ type RecursoMinimo = {
   id: string;
   nome: string;
   cor: string | null;
+  cor2: string | null;
   efeito: string;
 };
 
@@ -456,6 +457,7 @@ export function AcoesTab({
                       texto: `${acao.custoRecursoValor} ${recursoCusto.nome}`,
                       estilo: {
                         cor: recursoCusto.cor,
+                        cor2: recursoCusto.cor2,
                         efeito: normalizarEfeitoCor(recursoCusto.efeito),
                       },
                     });
