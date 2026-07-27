@@ -345,13 +345,12 @@ export function HabilidadesTab({
         <button
           type="button"
           className="btn-rect primary"
-          style={{ background: "var(--color-power)" }}
           onClick={abrirNova}
         >
           + Nova Habilidade
         </button>
       </div>
-      <p style={{ color: "var(--text-sec)", fontSize: "0.9rem", marginBottom: 20 }}>
+      <p className="modal-intro">
         Catalogue passivas, ativas e reativas vindas de Profissão, Estilo, Haki,
         Espécie, Akuma no Mi ou Treinamento.
       </p>

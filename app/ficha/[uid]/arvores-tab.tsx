@@ -402,7 +402,6 @@ export function ArvoresTab({
           <button
             type="button"
             className="btn-rect primary"
-            style={{ background: "var(--color-react)" }}
             onClick={() => setModalArvore("nova")}
           >
             + Nova Árvore

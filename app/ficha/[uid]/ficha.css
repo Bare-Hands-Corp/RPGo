@@ -1319,15 +1319,19 @@
 /* ─── PERÍCIAS & SALVAGUARDAS ─────────────────────────────── */
 .prof-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(256px, 1fr));
   gap: 8px;
 }
 
 .prof-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
+  gap: 9px;
+  /* Sem isto o conteúdo vaza da célula do grid: os controles têm largura fixa
+     e .prof-nome (flex:1) não encolhe abaixo do próprio texto. */
+  min-width: 0;
+  overflow: hidden;
+  padding: 8px 11px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg-card);
@@ -1344,16 +1348,70 @@
   background: color-mix(in oklch, var(--color-power) 6%, var(--bg-card));
 }
 
-.prof-row input[type="checkbox"] {
+/* ─── Checkbox padrão da ficha ────────────────────────────
+   A nativa não aceita estilo consistente entre navegadores e destoava do
+   resto (ver .req-check). Desenhada aqui, sem depender de fonte de ícone. */
+.ficha-main input[type="checkbox"],
+.modal-box input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
   margin: 0;
+  display: inline-grid;
+  place-content: center;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-surface);
   cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.ficha-main input[type="checkbox"]:hover:not(:disabled),
+.modal-box input[type="checkbox"]:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+
+.ficha-main input[type="checkbox"]::after,
+.modal-box input[type="checkbox"]::after {
+  content: "";
+  width: 4px;
+  height: 8px;
+  border: solid transparent;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+
+.ficha-main input[type="checkbox"]:checked,
+.modal-box input[type="checkbox"]:checked {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.ficha-main input[type="checkbox"]:checked::after,
+.modal-box input[type="checkbox"]:checked::after {
+  border-color: var(--bg-card);
+}
+
+.ficha-main input[type="checkbox"]:disabled,
+.modal-box input[type="checkbox"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Proficiência marcada por habilidade (checkbox travada) segue a cor da linha. */
+.prof-row.prof-on input[type="checkbox"]:checked {
+  background: var(--color-power);
+  border-color: var(--color-power);
 }
 
 .prof-bonus {
   font-family: monospace;
   font-weight: 700;
   color: var(--primary);
-  min-width: 36px;
+  min-width: 34px;
+  flex-shrink: 0;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -1378,10 +1436,26 @@
 
 .prof-nome {
   flex: 1;
+  min-width: 0;
   font-size: 0.9rem;
   display: inline-flex;
   align-items: center;
   gap: 5px;
+}
+
+/* Nome comprido corta com reticência em vez de empurrar os controles. */
+.prof-nome > :first-child,
+.prof-nome {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prof-fonte,
+.prof-dobro,
+.prof-outros,
+.prof-outros-input {
+  flex-shrink: 0;
 }
 
 .prof-fonte {
@@ -3892,4 +3966,12 @@
   font-size: 0.7rem;
   font-weight: 400;
   color: var(--text-sec);
+}
+
+/* Texto de abertura de modal — era style inline repetido em 6 lugares. */
+.modal-intro {
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: var(--text-sec);
+  margin: 0 0 15px;
 }

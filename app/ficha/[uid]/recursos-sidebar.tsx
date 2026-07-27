@@ -331,7 +331,7 @@ export function RecursosSidebar({
         <div className="modal-overlay" onClick={() => setModalAberto(false)}>
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
             <h2>{form.id ? "Editar Recurso" : "Novo Recurso"}</h2>
-            <p style={{ fontSize: "0.8rem", color: "var(--text-sec)", marginBottom: 15 }}>
+            <p className="modal-intro">
               Pool numérico (ex: Pontos de Carateca, PA, Pontos de Okama).
             </p>
             <form onSubmit={salvar}>

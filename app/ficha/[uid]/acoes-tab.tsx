@@ -332,13 +332,12 @@ export function AcoesTab({
         <button
           type="button"
           className="btn-rect primary"
-          style={{ background: "var(--color-power)" }}
           onClick={abrirNova}
         >
           + Nova Ação
         </button>
       </div>
-      <p style={{ color: "var(--text-sec)", fontSize: "0.9rem", marginBottom: 20 }}>
+      <p className="modal-intro">
         Gerencie suas técnicas e ataques aqui.
       </p>
 

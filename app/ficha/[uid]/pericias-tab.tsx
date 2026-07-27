@@ -308,7 +308,7 @@ export function PericiasTab({
   return (
     <div>
       <h1>Perícias & Salvaguardas</h1>
-      <p style={{ color: "var(--text-sec)", fontSize: "0.9rem", marginBottom: 20 }}>
+      <p className="modal-intro">
         Marque as proficiências. O modificador final já inclui o bônus de proficiência.
       </p>
 
@@ -320,8 +320,8 @@ export function PericiasTab({
         <div className="prof-grid">
           {ATRIBUTOS.map((a) => {
             const profPorHab = efeitosAgregados.proficienciasSalvaguarda[a.slug];
-            const proficienteManual = prof.salvaguardas.includes(a.slug);
-            const proficiente = proficienteManual || !!profPorHab;
+            const proficiente =
+              prof.salvaguardas.includes(a.slug) || !!profPorHab;
             const outros = prof.outrosSalvaguardas[a.slug] ?? 0;
             const bonusHab = efeitosAgregados.bonusSalvaguarda[a.slug];
             const outrosTotal = outros + (bonusHab?.valor ?? 0);
@@ -352,7 +352,7 @@ export function PericiasTab({
               >
                 <input
                   type="checkbox"
-                  checked={proficienteManual}
+                  checked={proficiente}
                   disabled={!!profPorHab}
                   onChange={(e) => setSalvaguarda(a.slug, e.target.checked)}
                 />
@@ -405,8 +405,8 @@ export function PericiasTab({
               <div className="prof-grid">
                 {lista.map((p) => {
                   const profPorHab = efeitosAgregados.proficienciasPericia[p.slug];
-                  const proficienteManual = prof.pericias.includes(p.slug);
-                  const proficiente = proficienteManual || !!profPorHab;
+                  const proficiente =
+                    prof.pericias.includes(p.slug) || !!profPorHab;
                   const dobrado = prof.periciasDobradas.includes(p.slug);
                   const outros = prof.outrosPericias[p.slug] ?? 0;
                   const bonusHab = efeitosAgregados.bonusPericia[p.slug];
@@ -441,7 +441,7 @@ export function PericiasTab({
                     >
                       <input
                         type="checkbox"
-                        checked={proficienteManual}
+                        checked={proficiente}
                         disabled={!!profPorHab}
                         onChange={(e) => setPericia(p.slug, e.target.checked)}
                       />
@@ -548,7 +548,7 @@ export function PericiasTab({
                 >
                   <input
                     type="checkbox"
-                    checked={c.proficiente}
+                    checked={c.proficiente || !!profPorHab}
                     disabled={!!profPorHab}
                     onChange={(e) => setProfCustom(c, e.target.checked)}
                   />
@@ -714,7 +714,7 @@ function ModalPericiaCustom({
     <div className="modal-overlay" onClick={onCancelar}>
       <div className="modal-box" onClick={(e) => e.stopPropagation()}>
         <h2>{inicial ? "Editar perícia" : "Nova perícia"}</h2>
-        <p style={{ fontSize: "0.8rem", color: "var(--text-sec)", marginBottom: 15 }}>
+        <p className="modal-intro">
           Perícias fora do set padrão (Profissão, treinamento, homebrew).
         </p>
         <form onSubmit={submeter}>

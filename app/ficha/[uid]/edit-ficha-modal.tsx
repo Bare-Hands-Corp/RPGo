@@ -86,7 +86,7 @@ export function EditFichaModal({
         <div className="modal-overlay" onClick={() => !pending && setAberto(false)}>
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
             <h2>Editar Atributos</h2>
-            <p style={{ fontSize: "0.8rem", color: "var(--text-sec)", marginBottom: 15 }}>
+            <p className="modal-intro">
               Ajuste seus limites e atributos base.
             </p>
 
