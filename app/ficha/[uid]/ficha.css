@@ -3975,3 +3975,74 @@
   color: var(--text-sec);
   margin: 0 0 15px;
 }
+
+/* ─── DESCANSO (sidebar) ───────────────────────────────────
+   Curto/longo + gasto de Dado de Vida. Fica logo abaixo da exaustão porque os
+   três mexem no mesmo ciclo: gastar, cansar, recuperar. */
+.descanso-bloco {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.descanso-dv-btn {
+  margin-left: 8px;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--sidebar-text-sec, var(--text-sec));
+  font-size: 0.62rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.descanso-dv-btn:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.descanso-dv-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.descanso-botoes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.descanso-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 6px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-surface);
+  color: var(--sidebar-text, var(--text-main));
+  font-size: 0.74rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.descanso-btn:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 10%, transparent);
+}
+
+.descanso-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.descanso-btn i {
+  font-size: 0.8rem;
+  color: var(--primary);
+}

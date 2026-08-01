@@ -25,6 +25,13 @@ import {
   separarTags,
 } from "@/lib/estilos-cor";
 import {
+  dadosVidaRecuperados,
+  facesDadoVida,
+  recuperaNoDescanso,
+  type ResumoDescanso,
+  type TipoDescanso,
+} from "@/lib/descanso";
+import {
   MAX_RANKS_TETO,
   dependentesQuebrados,
   estadoNo,
@@ -1901,4 +1908,125 @@ export async function duplicarArvore(
 
   revalidatePath(`/ficha/${personagemId}`);
   return { id: nova.id, talentos: mapaNo.size };
+}
+
+// ─── Descanso ──────────────────────────────────────────────
+
+/**
+ * Aplica um descanso curto ou longo numa transação só.
+ *
+ * Curto: recupera recursos/habilidades marcados como "descansoCurto".
+ * Longo: tudo do curto + os marcados como "descansoLongo", PV e PP cheios,
+ * PV temporário zerado, exaustão −1 e metade dos Dados de Vida de volta.
+ *
+ * Recursos "manual" e "encontro" NÃO são tocados — têm gatilho próprio.
+ * Habilidade sustentada (`ligada`) também não é desligada: quando ela cai é
+ * decisão de jogo, e desligar por baixo tiraria bônus sem o jogador ver.
+ */
+export async function descansar(personagemId: string, tipo: TipoDescanso) {
+  if (tipo !== "curto" && tipo !== "longo") {
+    throw new Error("Tipo de descanso inválido.");
+  }
+  const { personagem } = await autorizar(personagemId);
+
+  const [recursos, habilidades] = await Promise.all([
+    prisma.recurso.findMany({ where: { personagemId } }),
+    prisma.habilidade.findMany({ where: { personagemId } }),
+  ]);
+
+  const ops: Prisma.PrismaPromise<unknown>[] = [];
+  const resumo: ResumoDescanso = {
+    tipo,
+    recursos: [],
+    habilidades: [],
+    pvRestaurado: 0,
+    ppRestaurado: 0,
+    pvTempPerdido: 0,
+    exaustaoReduzida: false,
+    dadosVidaDevolvidos: 0,
+  };
+
+  for (const r of recursos) {
+    if (!recuperaNoDescanso(r.resetEm, tipo)) continue;
+    if (r.valorAtual >= r.valorMax) continue;
+    ops.push(
+      prisma.recurso.update({
+        where: { id: r.id, personagemId },
+        data: { valorAtual: r.valorMax },
+      }),
+    );
+    resumo.recursos.push(r.nome);
+  }
+
+  for (const h of habilidades) {
+    if (!recuperaNoDescanso(h.recarga, tipo)) continue;
+    // Usos ilimitados (usos null) não têm o que recarregar.
+    if (h.usos == null || (h.usosAtual ?? 0) >= h.usos) continue;
+    ops.push(
+      prisma.habilidade.update({
+        where: { id: h.id, personagemId },
+        data: { usosAtual: h.usos },
+      }),
+    );
+    resumo.habilidades.push(h.nome);
+  }
+
+  if (tipo === "longo") {
+    resumo.pvRestaurado = Math.max(0, personagem.hpMax - personagem.hpAtual);
+    resumo.ppRestaurado = Math.max(0, personagem.ppMax - personagem.ppAtual);
+    resumo.pvTempPerdido = Math.max(0, personagem.hpTemp);
+    resumo.exaustaoReduzida = personagem.exaustao > 0;
+    resumo.dadosVidaDevolvidos = dadosVidaRecuperados(
+      personagem.nivel,
+      personagem.dadosVidaGastos,
+    );
+
+    ops.push(
+      prisma.personagem.update({
+        where: { id: personagemId },
+        data: {
+          hpAtual: personagem.hpMax,
+          ppAtual: personagem.ppMax,
+          hpTemp: 0,
+          exaustao: Math.max(0, personagem.exaustao - 1),
+          dadosVidaGastos: Math.max(
+            0,
+            personagem.dadosVidaGastos - resumo.dadosVidaDevolvidos,
+          ),
+        },
+      }),
+    );
+  }
+
+  if (ops.length > 0) await prisma.$transaction(ops);
+  revalidatePath(`/ficha/${personagemId}`);
+  return resumo;
+}
+
+/**
+ * Gasta um Dado de Vida e cura o valor rolado no cliente.
+ *
+ * A rolagem acontece no cliente de propósito: é assim que todo o resto da ficha
+ * funciona (o resultado vai pro Rolador da Bandeja e a mesa vê). Aqui o server
+ * só debita o dado e aplica a cura, clampando nos limites — `curado` vindo do
+ * cliente é tratado como não confiável.
+ */
+export async function gastarDadoDeVida(personagemId: string, curado: number) {
+  const { personagem } = await autorizar(personagemId);
+
+  const disponiveis = personagem.nivel - personagem.dadosVidaGastos;
+  if (disponiveis <= 0) throw new Error("Sem Dados de Vida disponíveis.");
+
+  // Teto: um dado + mod CON não passa de faces + 10 em qualquer cenário são.
+  const teto = facesDadoVida(personagem.tipoDadoVida) + 10;
+  const cura = Math.max(0, Math.min(Math.trunc(Number(curado) || 0), teto));
+
+  await prisma.personagem.update({
+    where: { id: personagemId },
+    data: {
+      dadosVidaGastos: { increment: 1 },
+      hpAtual: Math.min(personagem.hpAtual + cura, personagem.hpMax),
+    },
+  });
+  revalidatePath(`/ficha/${personagemId}`);
 }

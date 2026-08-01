@@ -8,6 +8,7 @@ import { AvatarUploadModal } from "./avatar-upload-modal";
 import { RecursosSidebar, type Recurso } from "./recursos-sidebar";
 import { CrEditavel } from "./cr-editavel";
 import { ExaustaoControle } from "./exaustao-controle";
+import { DescansoControle } from "./descanso-controle";
 import { MarcaExausto } from "./marca-exausto";
 import {
   agregarEfeitos,
@@ -465,14 +466,18 @@ export function PerfilSidebar({
 
       <ExaustaoControle personagemId={p.id} exaustao={p.exaustao} />
 
-      <div className="recurso-linha">
-        <span className="recurso-icone"><i className="fas fa-dice" /></span>
-        <span className="recurso-nome">Dado de Vida {p.tipoDadoVida}</span>
-        <span className="stat-values">
-          <span>{Math.max(0, p.nivel - p.dadosVidaGastos)}</span> /{" "}
-          <span>{p.nivel}</span>
-        </span>
-      </div>
+      <DescansoControle
+        personagemId={p.id}
+        nivel={p.nivel}
+        dadosVidaGastos={p.dadosVidaGastos}
+        tipoDadoVida={p.tipoDadoVida}
+        modConstituicao={modificador(atributosEfetivos.constituicao)}
+        onOtimista={(patch) =>
+          aplicarOtimista({
+            hpAtual: Math.min(p.hpAtual + patch.deltaHpAtual, hpMaxEfetivo),
+          })
+        }
+      />
 
       {/* Deslocamento + Nado lado a lado: dois stats base de movimento na altura
           de uma linha só. */}
