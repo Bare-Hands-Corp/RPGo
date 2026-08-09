@@ -9,6 +9,7 @@ import {
   PERICIAS,
   computarDeltasInstantaneos,
   lerEfeitos,
+  modificador,
   lerProficiencias,
   normalizarEfeito,
   slugPericiaCustom,
@@ -24,6 +25,14 @@ import {
   normalizarEstilosTag,
   separarTags,
 } from "@/lib/estilos-cor";
+import {
+  NIVEL_MAXIMO,
+  clampGanhoPv,
+  pvRetroativoPorCon,
+  tetoGanhoPv,
+  validarAprimoramento,
+  type Aprimoramento,
+} from "@/lib/nivel";
 import {
   dadosVidaRecuperados,
   facesDadoVida,
@@ -2029,4 +2038,76 @@ export async function gastarDadoDeVida(personagemId: string, curado: number) {
     },
   });
   revalidatePath(`/ficha/${personagemId}`);
+}
+
+// ─── Subir de nível ────────────────────────────────────────
+
+/**
+ * Sobe um nível aplicando o que o assistente propôs e o jogador confirmou.
+ *
+ * Decisão do user: o sistema **propõe e o jogador confirma** — nada aqui é
+ * decidido sozinho. E **PE só sugere**: chegar ao limiar não sobe o nível, mas
+ * também não é exigido (mesa por marco narrativo distribui nível sem PE), por
+ * isso não há trava de `peAlcancado`.
+ *
+ * Tudo que vem do cliente é revalidado: o ganho de PV é clampado ao teto do
+ * dado + CON, e o aprimoramento passa pelo mesmo `validarAprimoramento` que o
+ * modal usou.
+ */
+export async function subirDeNivel(
+  personagemId: string,
+  entrada: { pvGanho: unknown; aprimoramento?: unknown },
+) {
+  const { personagem } = await autorizar(personagemId);
+
+  if (personagem.nivel >= NIVEL_MAXIMO) {
+    throw new Error(`Nível máximo (${NIVEL_MAXIMO}) já atingido.`);
+  }
+  const nivelNovo = personagem.nivel + 1;
+
+  const modCon = modificador(personagem.constituicao);
+  const teto = tetoGanhoPv(personagem.tipoDadoVida, modCon);
+  const pvGanho = Math.min(clampGanhoPv(Number(entrada.pvGanho) || 0), teto);
+
+  // Aprimoramento: filtra pros 6 atributos e inteiros positivos.
+  const bruto = (entrada.aprimoramento ?? {}) as Record<string, unknown>;
+  const apr: Aprimoramento = {};
+  for (const a of ATRIBUTOS) {
+    const v = Math.trunc(Number(bruto[a.slug]) || 0);
+    if (v > 0) apr[a.slug] = v;
+  }
+
+  const atuais = {
+    forca: personagem.forca,
+    destreza: personagem.destreza,
+    constituicao: personagem.constituicao,
+    sabedoria: personagem.sabedoria,
+    vontade: personagem.vontade,
+    presenca: personagem.presenca,
+  };
+  const recusa = validarAprimoramento(apr, atuais);
+  if (recusa) throw new Error(recusa);
+
+  // CON que sobe de modificador dá PV retroativo por nível já atingido.
+  const conDepois = personagem.constituicao + (apr.constituicao ?? 0);
+  const retroativo = pvRetroativoPorCon(
+    personagem.constituicao,
+    conDepois,
+    nivelNovo,
+  );
+
+  const data: Record<string, unknown> = {
+    nivel: nivelNovo,
+    hpMax: personagem.hpMax + pvGanho + retroativo,
+    // O PV atual acompanha o ganho — subir de nível não deixa o personagem
+    // ferido de graça.
+    hpAtual: personagem.hpAtual + pvGanho + retroativo,
+  };
+  for (const [slug, ganho] of Object.entries(apr)) {
+    data[slug] = atuais[slug as Atributo] + ganho;
+  }
+
+  await prisma.personagem.update({ where: { id: personagemId }, data });
+  revalidatePath(`/ficha/${personagemId}`);
+  return { nivelNovo, pvGanho, retroativo };
 }

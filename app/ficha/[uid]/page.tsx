@@ -84,6 +84,18 @@ export default async function FichaPage({ params }: Params) {
   // Penalidade de DES das armaduras equipadas (geralmente negativa). Reduz o
   // modificador de DES em todos os cálculos derivados (CR, iniciativa, salv/
   // perícia de DES, ataque à distância) — não só na CR.
+  // Camadas de árvore que destravam ao subir 1 nível — o assistente de nível
+  // mostra isso antes de confirmar. Só árvores com critério "nivel" mudam por
+  // aqui; as de "pontos" dependem do gasto, não do nível.
+  const camadasQueAbrem = personagem.arvores.flatMap((a) => {
+    if (a.criterio !== "nivel") return [];
+    return a.camadas
+      .filter(
+        (c) => c.limiar > personagem.nivel && c.limiar <= personagem.nivel + 1,
+      )
+      .map((c) => ({ arvore: a.nome, camada: c.nome }));
+  });
+
   const penalidadeDesArmadura = personagem.itens.reduce(
     (acc, i) => (i.tipo === "armadura" && i.equipado ? acc + i.penalidadeDes : acc),
     0,
@@ -131,6 +143,7 @@ export default async function FichaPage({ params }: Params) {
         habilidades={habilidadesAtivas}
         slugsPericiaCustom={[...slugsPericiaCustom]}
         penalidadeDesArmadura={penalidadeDesArmadura}
+        camadasQueAbrem={camadasQueAbrem}
       />
       <FichaTabs
         personagemId={personagem.id}

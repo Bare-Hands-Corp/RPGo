@@ -4046,3 +4046,144 @@
   font-size: 0.8rem;
   color: var(--primary);
 }
+
+/* ─── SUBIR DE NÍVEL ───────────────────────────────────────
+   PE só sugere: a barra acende e o botão ganha destaque ao cruzar o limiar,
+   mas subir segue sendo ato manual. */
+.pe-bar.pe-pronto .pe-fill {
+  box-shadow: 0 0 8px color-mix(in oklch, var(--primary) 65%, transparent);
+}
+
+.nivel-subir {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 7px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--sidebar-text-sec, var(--text-sec));
+  font-size: 0.76rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.nivel-subir:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.nivel-subir.pronto {
+  border-style: solid;
+  border-color: var(--primary);
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+}
+
+.nivel-aviso {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #e0a000;
+  margin: 0;
+}
+
+.nivel-pv {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 8px;
+  align-items: center;
+}
+
+.nivel-mudancas {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.84rem;
+}
+
+.nivel-mudancas li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.nivel-mudancas i {
+  color: var(--primary);
+  font-size: 0.76rem;
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.nivel-nota {
+  color: var(--text-sec);
+  font-size: 0.78rem;
+}
+
+.nivel-apr {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.nivel-apr-linha {
+  display: grid;
+  grid-template-columns: 46px 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-surface);
+}
+
+.nivel-apr-linha.ativo {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 8%, var(--bg-surface));
+}
+
+.nivel-apr-sigla {
+  font-weight: 800;
+  font-size: 0.76rem;
+  letter-spacing: 0.05em;
+  color: var(--text-sec);
+}
+
+.nivel-apr-valor {
+  font-family: monospace;
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.nivel-apr-linha button {
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-size: 0.9rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.nivel-apr-linha button:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.nivel-apr-linha button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}

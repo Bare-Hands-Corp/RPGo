@@ -9,6 +9,7 @@ import { RecursosSidebar, type Recurso } from "./recursos-sidebar";
 import { CrEditavel } from "./cr-editavel";
 import { ExaustaoControle } from "./exaustao-controle";
 import { DescansoControle } from "./descanso-controle";
+import { NivelModal, type CamadaQueAbre } from "./nivel-modal";
 import { MarcaExausto } from "./marca-exausto";
 import {
   agregarEfeitos,
@@ -164,6 +165,7 @@ export function PerfilSidebar({
   habilidades,
   slugsPericiaCustom,
   penalidadeDesArmadura,
+  camadasQueAbrem,
 }: {
   personagem: Personagem;
   // Habilidades cruas — a sidebar recomputa o agregado client-side pra refletir
@@ -171,6 +173,7 @@ export function PerfilSidebar({
   habilidades: HabSidebar[];
   slugsPericiaCustom: string[];
   penalidadeDesArmadura: number;
+  camadasQueAbrem: CamadaQueAbre[];
 }) {
   // useOptimistic do personagem inteiro: o EditFichaModal e qualquer outro
   // editor podem aplicar patches via `aplicarOtimista` pra refletir mudanças
@@ -181,6 +184,7 @@ export function PerfilSidebar({
   // `rpgo:patch-personagem` com deltas, e a sidebar reflete sem precisar de
   // prop drilling. Reseta quando inicial muda (Server Component re-renderizou
   // com a verdade).
+  const [modalNivel, setModalNivel] = useState(false);
   const [shadow, setShadow] = useState<PatchPersonagem>({});
   useEffect(() => {
     setShadow({});
@@ -241,6 +245,7 @@ export function PerfilSidebar({
     p.fotoUrl || `https://api.dicebear.com/7.x/adventurer/svg?seed=${p.id}`;
 
   const { peBase, peProximo } = progresso(p.pe);
+  const podeSubir = peProximo != null && p.pe >= peProximo;
   const pePct = peProximo
     ? Math.max(0, Math.min(100, ((p.pe - peBase) / (peProximo - peBase)) * 100))
     : 100;
@@ -355,7 +360,7 @@ export function PerfilSidebar({
             {formatarMod(bonusProficiencia(p.nivel))}
           </span>
         </span>
-        <div className="pe-bar">
+        <div className={`pe-bar ${podeSubir ? "pe-pronto" : ""}`}>
           <div className="pe-track">
             <div className="pe-fill" style={{ width: `${pePct}%` }} />
           </div>
@@ -366,6 +371,21 @@ export function PerfilSidebar({
             )}
           </div>
         </div>
+
+        {/* PE só SUGERE: o botão aparece destacado ao cruzar o limiar, mas
+            subir continua sendo ato manual (decisão do user). */}
+        <button
+          type="button"
+          className={`nivel-subir ${podeSubir ? "pronto" : ""}`}
+          onClick={() => setModalNivel(true)}
+          title={
+            podeSubir
+              ? "PE suficiente — abrir o assistente de nível"
+              : "Abrir o assistente de nível mesmo sem o PE do limiar"
+          }
+        >
+          <i className="fas fa-arrow-up" /> Subir de nível
+        </button>
       </div>
 
       <hr />
@@ -796,6 +816,18 @@ export function PerfilSidebar({
       <Link href="/dashboard" className="btn-voltar-ficha">
         ← Voltar
       </Link>
+
+      {modalNivel && (
+        <NivelModal
+          personagemId={p.id}
+          nivel={p.nivel}
+          pe={p.pe}
+          tipoDadoVida={p.tipoDadoVida}
+          atributos={atributosEfetivos}
+          camadasQueAbrem={camadasQueAbrem}
+          onFechar={() => setModalNivel(false)}
+        />
+      )}
     </aside>
   );
 }
