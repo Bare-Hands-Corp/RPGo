@@ -157,3 +157,32 @@ export function montarProposta(
     peFaltando: Math.max(0, limiar - pe),
   };
 }
+
+/**
+ * Faixa de PE do nível **declarado** do personagem.
+ *
+ * NÃO usar `progresso(pe)` pra isso: aquela função deriva o nível a partir do
+ * PE, então o "próximo" que ela devolve está sempre acima do PE atual — a barra
+ * ignorava o nível real da ficha e a checagem `pe >= peProximo` nunca podia ser
+ * verdadeira. Aqui a âncora é o `nivel` gravado, que é o que a ficha exibe e o
+ * que o assistente sobe.
+ */
+export function faixaPeDoNivel(nivel: number): {
+  peBase: number;
+  peProximo: number | null;
+} {
+  const n = Math.max(1, Math.min(Math.trunc(nivel) || 1, NIVEL_MAXIMO));
+  return {
+    peBase: PE_POR_NIVEL[n - 1] ?? 0,
+    peProximo: n >= NIVEL_MAXIMO ? null : PE_POR_NIVEL[n] ?? null,
+  };
+}
+
+/** Progresso 0–100 dentro da faixa do nível declarado. */
+export function pctPeDoNivel(nivel: number, pe: number): number {
+  const { peBase, peProximo } = faixaPeDoNivel(nivel);
+  if (peProximo == null) return 100;
+  const vao = peProximo - peBase;
+  if (vao <= 0) return 100;
+  return Math.max(0, Math.min(100, ((pe - peBase) / vao) * 100));
+}

@@ -102,9 +102,11 @@ export function DescansoControle({
       nomePreset: `Dado de Vida (d${faces})`,
     });
 
-    onOtimista?.({ deltaHpAtual: curado });
     setOcupado(true);
     startTransition(async () => {
+      // useOptimistic exige que o update aconteça DENTRO da transition —
+      // fora dela o React lança "optimistic state update outside a transition".
+      onOtimista?.({ deltaHpAtual: curado });
       try {
         await gastarDadoDeVida(personagemId, curado);
       } catch (err) {

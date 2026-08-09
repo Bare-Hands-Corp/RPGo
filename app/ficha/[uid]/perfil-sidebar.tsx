@@ -10,6 +10,7 @@ import { CrEditavel } from "./cr-editavel";
 import { ExaustaoControle } from "./exaustao-controle";
 import { DescansoControle } from "./descanso-controle";
 import { NivelModal, type CamadaQueAbre } from "./nivel-modal";
+import { faixaPeDoNivel, pctPeDoNivel } from "@/lib/nivel";
 import { MarcaExausto } from "./marca-exausto";
 import {
   agregarEfeitos,
@@ -23,7 +24,6 @@ import {
   penalidadeD20Exaustao,
   percepcaoPassiva,
   estadoDefesa,
-  progresso,
   tetoAtributo,
   type Atributo,
   type DefesaAgregada,
@@ -244,11 +244,10 @@ export function PerfilSidebar({
   const avatarSrc =
     p.fotoUrl || `https://api.dicebear.com/7.x/adventurer/svg?seed=${p.id}`;
 
-  const { peBase, peProximo } = progresso(p.pe);
+  // Âncora no nível DECLARADO, não no derivado do PE — ver faixaPeDoNivel.
+  const { peProximo } = faixaPeDoNivel(p.nivel);
   const podeSubir = peProximo != null && p.pe >= peProximo;
-  const pePct = peProximo
-    ? Math.max(0, Math.min(100, ((p.pe - peBase) / (peProximo - peBase)) * 100))
-    : 100;
+  const pePct = pctPeDoNivel(p.nivel, p.pe);
 
   // CR ganha automaticamente o `ca` de cada armadura equipada. A penalidade de
   // DES NÃO entra aqui — é aplicada via `atributosParaTeste` (reduz o mod de DES),
