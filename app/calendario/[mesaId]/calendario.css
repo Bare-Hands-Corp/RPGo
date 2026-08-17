@@ -541,26 +541,6 @@
   border-color: color-mix(in srgb, var(--primary) 35%, transparent);
 }
 
-.cal-btn-primary-sm {
-  padding: 5px 11px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  background: color-mix(in srgb, var(--primary) 12%, var(--bg-surface));
-  color: var(--primary);
-  border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border));
-  border-radius: 6px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  transition: background 0.15s;
-  font-family: inherit;
-}
-
-.cal-btn-primary-sm:hover {
-  background: color-mix(in srgb, var(--primary) 20%, var(--bg-surface));
-}
-
 .cal-eventos-lista {
   display: flex;
   flex-direction: column;
@@ -752,31 +732,6 @@
   text-align: center;
 }
 
-.cal-eventos-expandir-btn {
-  margin-top: 4px;
-  padding: 8px 12px;
-  background: transparent;
-  border: 1px dashed var(--border);
-  border-radius: 8px;
-  color: var(--text-sec);
-  cursor: pointer;
-  font-family: monospace;
-  font-size: 0.72rem;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
-}
-
-.cal-eventos-expandir-btn:hover {
-  border-color: var(--primary);
-  color: var(--primary);
-  background: color-mix(in srgb, var(--primary) 6%, transparent);
-}
-
 /* ─── Gerador climático ──────────────────────────────────── */
 
 .cal-gerador-card {
@@ -832,52 +787,14 @@
   gap: 6px;
 }
 
-.cal-btn-sm {
-  padding: 7px 10px;
-  font-size: 0.78rem;
-  font-weight: 500;
-  background: var(--bg-card);
-  color: var(--text-sec);
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  transition: border-color 0.15s, color 0.15s;
-  font-family: inherit;
-}
-
-.cal-btn-sm:hover {
-  border-color: var(--primary);
-  color: var(--primary);
-}
-
 /* ─── Modais (variantes calendário) ──────────────────────── */
-
-.cal-modal {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  width: min(560px, 92vw);
-  max-width: none;
-  max-height: 90vh;
-  overflow-y: auto;
-}
-
-.cal-modal.modal-box-grande {
-  width: min(720px, 92vw);
-}
 
 .cal-modal-header {
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding-bottom: 10px;
+  margin-bottom: 12px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -895,26 +812,10 @@
   gap: 10px;
 }
 
-.cal-modal-hint {
-  font-size: 0.8rem;
-  color: var(--text-sec);
-  line-height: 1.4;
-  margin: 0;
-}
-
 .cal-modal-divider {
   margin-top: 10px;
   padding-top: 8px;
   border-top: 1px solid var(--border);
-}
-
-.cal-modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-  margin-top: 8px;
 }
 
 .cal-field {
@@ -988,9 +889,6 @@ textarea.cal-input {
 
 .cal-checkbox-row input[type="checkbox"] {
   margin: 2px 0 0;
-  cursor: pointer;
-  flex-shrink: 0;
-  width: auto;
 }
 
 .cal-checkbox-label {
@@ -1313,29 +1211,6 @@ textarea.cal-input {
 
 .cal-peso-pilula-custom:focus {
   border-color: var(--primary);
-}
-
-.cal-tipo-add-btn {
-  padding: 12px;
-  background: transparent;
-  border: 1px dashed var(--border);
-  border-radius: 10px;
-  color: var(--text-sec);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  font-size: 0.85rem;
-  font-weight: 500;
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
-  font-family: inherit;
-}
-
-.cal-tipo-add-btn:hover {
-  border-color: var(--primary);
-  color: var(--primary);
-  background: color-mix(in srgb, var(--primary) 6%, transparent);
 }
 
 .cal-tipo-novo-form {

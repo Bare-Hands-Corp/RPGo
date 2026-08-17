@@ -216,6 +216,7 @@ a {
 }
 
 .modal-box {
+  position: relative;
   background: var(--bg-card);
   padding: 25px;
   border-radius: 12px;
@@ -261,11 +262,36 @@ a {
   resize: vertical;
 }
 
+/* Botão × no canto do modal — promovido de .narrador-modal-close. */
+.modal-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-sec);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.modal-close:hover {
+  color: var(--text-main);
+}
+
 .modal-actions {
   margin-top: 20px;
   display: flex;
   gap: 10px;
   justify-content: flex-end;
+}
+
+/* Rodapé separado por linha — promovido de .cal-modal-footer. Opt-in porque o
+   modal curto da ficha fica melhor sem a régua. */
+.modal-actions.separada {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
 }
 
 .modal-actions button {
@@ -290,6 +316,249 @@ a {
 
 .modal-btn-save:hover {
   filter: brightness(1.1);
+}
+
+/* ─── ANATOMIA DO MODAL (compartilhado) ───────────────
+   Promovido de ficha.css: enquanto morava lá, nenhuma outra rota podia usar
+   essas primitivas nem querendo. Modal novo (calendário, narrador, bandeja)
+   monta o miolo com estas classes em vez de inventar as próprias. */
+.modal-box-lg {
+  max-width: 560px;
+}
+
+.modal-secao {
+  margin-top: 18px;
+  margin-bottom: 6px;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-sec);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+
+.modal-secao-detalhe {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+}
+
+.modal-secao-detalhe summary {
+  padding: 10px 14px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-main);
+}
+
+.modal-secao-detalhe summary::-webkit-details-marker {
+  display: none;
+}
+
+.modal-secao-detalhe summary::after {
+  content: "▾";
+  margin-left: auto;
+  color: var(--text-sec);
+  transition: transform 0.15s;
+}
+
+.modal-secao-detalhe[open] summary::after {
+  transform: rotate(180deg);
+}
+
+.modal-secao-corpo {
+  padding: 0 14px 14px;
+}
+
+/* Texto de abertura de modal — era style inline repetido em 6 lugares. */
+.modal-intro {
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: var(--text-sec);
+  margin: 0 0 15px;
+}
+
+/* ─── BOTÃO PADRÃO ─────────────────────────────────
+   Vocabulário único de botão do RPGo. Rota nova usa .btn-rect (+ .primary /
+   .outline) em vez de criar `<area>-btn-*`. */
+.btn-rect {
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: inherit;
+}
+
+/* Estado desabilitado — faltava no primitivo; bandeja e dashboard tinham cada um
+   o seu. Vale pra todas as variantes. */
+.btn-rect:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-rect:disabled:hover {
+  filter: none;
+  transform: none;
+}
+
+.btn-rect.primary {
+  background: var(--primary);
+  color: white;
+}
+
+.btn-rect.primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+  transform: translateY(-2px);
+}
+
+.btn-rect.outline {
+  background: var(--bg-card);
+  color: var(--primary);
+  border: 1px solid var(--primary);
+}
+
+.btn-rect.outline:hover:not(:disabled) {
+  background: var(--bg-page);
+}
+
+.btn-rect.outline.active {
+  background: var(--primary);
+  color: white;
+}
+
+/* Botão neutro (superfície + borda) — o que ameaças e calendário chamavam de
+   "secundário". Não é o mesmo que .outline, que puxa a cor primária. */
+.btn-rect.neutro {
+  background: var(--bg-surface);
+  color: var(--text-main);
+  border: 1px solid var(--border);
+}
+
+.btn-rect.neutro:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* Afordância "criar/expandir aqui" — borda tracejada, fundo transparente.
+   Mesma linguagem do .arvore-slot-vazio da ficha: tracejado = clique pra criar. */
+.btn-rect.tracejado {
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--text-sec);
+  font-weight: 500;
+}
+
+.btn-rect.tracejado:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 6%, transparent);
+}
+
+/* Tamanho compacto — botão de linha de lista, "+ adicionar", remover item. */
+.btn-rect.sm {
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  gap: 6px;
+}
+
+.btn-rect.danger {
+  color: #c0392b;
+}
+
+.btn-rect.neutro.danger {
+  border-color: color-mix(in oklch, #c0392b 28%, var(--border));
+}
+
+.btn-rect.neutro.danger:hover:not(:disabled) {
+  border-color: #c0392b;
+  color: #c0392b;
+}
+
+/* ─── CAMPOS DE FORMULÁRIO ────────────────────────── */
+.campo-dica {
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--text-sec);
+  margin: 4px 0 0;
+}
+
+/* Checkbox padrão — a nativa não aceita estilo consistente entre navegadores.
+   Desenhada aqui, sem depender de fonte de ícone. Era escopada em .ficha-main
+   e .modal-box; global agora pra alcançar também modal de rota própria
+   (ex: .narrador-modal-overlay). */
+input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin: 0;
+  display: inline-grid;
+  place-content: center;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-surface);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+input[type="checkbox"]:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+
+input[type="checkbox"]::after {
+  content: "";
+  width: 4px;
+  height: 8px;
+  border: solid transparent;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+
+input[type="checkbox"]:checked {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+input[type="checkbox"]:checked::after {
+  border-color: var(--bg-card);
+}
+
+input[type="checkbox"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* O seletor duplo é proposital: `.modal-box label` tem especificidade (0,1,1) e
+   engolia o display:flex daqui — a linha de checkbox dentro de modal vinha
+   quebrando em bloco sem ninguém notar. */
+.checkbox-linha,
+.modal-box label.checkbox-linha {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--text-sec);
+  cursor: pointer;
+}
+
+.checkbox-linha input {
+  margin: 0;
+  cursor: pointer;
 }
 
 /* ─── Input de edição inline (compartilhado) ─────────────── */

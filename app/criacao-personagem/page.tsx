@@ -14,7 +14,7 @@ export default async function CriacaoPersonagemPage() {
   return (
     <div className="char-creation-container">
       <div className="char-creation-topbar">
-        <Link href="/dashboard" className="btn-voltar-criacao">
+        <Link href="/dashboard" className="btn-rect neutro">
           <i className="fas fa-arrow-left" /> Voltar
         </Link>
       </div>

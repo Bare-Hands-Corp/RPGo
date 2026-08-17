@@ -83,7 +83,7 @@ export function ListaEventos({
         </div>
         {isNarrador && (
           <div>
-            <button type="button" className="cal-btn-primary-sm" onClick={onNovo}>
+            <button type="button" className="btn-rect outline sm" onClick={onNovo}>
               <i className="fas fa-plus" /> Adicionar evento
             </button>
           </div>
@@ -175,7 +175,7 @@ export function ListaEventos({
       {(expandido || foraDaJanela) && (
         <button
           type="button"
-          className="cal-eventos-expandir-btn"
+          className="btn-rect tracejado sm"
           onClick={onToggleExpandir}
         >
           {expandido ? (

@@ -1155,107 +1155,12 @@
   border: 1px solid color-mix(in oklch, var(--color-bonus) 30%, transparent);
 }
 
-.modal-secao {
-  margin-top: 18px;
-  margin-bottom: 6px;
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--text-sec);
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 4px;
-}
-
-.modal-box-lg {
-  max-width: 560px;
-}
-
-.modal-secao-detalhe {
-  margin-top: 14px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-surface);
-}
-
-.modal-secao-detalhe summary {
-  padding: 10px 14px;
-  font-weight: 700;
-  font-size: 0.9rem;
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-main);
-}
-
-.modal-secao-detalhe summary::-webkit-details-marker {
-  display: none;
-}
-
-.modal-secao-detalhe summary::after {
-  content: "▾";
-  margin-left: auto;
-  color: var(--text-sec);
-  transition: transform 0.15s;
-}
-
-.modal-secao-detalhe[open] summary::after {
-  transform: rotate(180deg);
-}
-
-.modal-secao-corpo {
-  padding: 0 14px 14px;
-}
-
 .tipo-cards-4 {
   grid-template-columns: repeat(4, 1fr);
 }
 
 .tipo-cards-5 {
   grid-template-columns: repeat(5, 1fr);
-}
-
-/* ─── BTN-RECT (toolbar inventário) ───────────────────────── */
-.btn-rect {
-  padding: 10px 20px;
-  border-radius: 8px;
-  font-weight: bold;
-  cursor: pointer;
-  font-size: 0.9rem;
-  transition: all 0.2s;
-  border: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  font-family: inherit;
-}
-
-.btn-rect.primary {
-  background: var(--primary);
-  color: white;
-}
-
-.btn-rect.primary:hover {
-  filter: brightness(1.1);
-  transform: translateY(-2px);
-}
-
-.btn-rect.outline {
-  background: var(--bg-card);
-  color: var(--primary);
-  border: 1px solid var(--primary);
-}
-
-.btn-rect.outline:hover {
-  background: var(--bg-page);
-}
-
-.btn-rect.outline.active {
-  background: var(--primary);
-  color: white;
 }
 
 /* ─── PESO/CARGA ───────────────────────────────────────────── */
@@ -1346,58 +1251,6 @@
 .prof-row.prof-on {
   border-color: var(--color-power);
   background: color-mix(in oklch, var(--color-power) 6%, var(--bg-card));
-}
-
-/* ─── Checkbox padrão da ficha ────────────────────────────
-   A nativa não aceita estilo consistente entre navegadores e destoava do
-   resto (ver .req-check). Desenhada aqui, sem depender de fonte de ícone. */
-.ficha-main input[type="checkbox"],
-.modal-box input[type="checkbox"] {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
-  margin: 0;
-  display: inline-grid;
-  place-content: center;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--bg-surface);
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-}
-
-.ficha-main input[type="checkbox"]:hover:not(:disabled),
-.modal-box input[type="checkbox"]:hover:not(:disabled) {
-  border-color: var(--primary);
-}
-
-.ficha-main input[type="checkbox"]::after,
-.modal-box input[type="checkbox"]::after {
-  content: "";
-  width: 4px;
-  height: 8px;
-  border: solid transparent;
-  border-width: 0 2px 2px 0;
-  transform: rotate(45deg) translate(-1px, -1px);
-}
-
-.ficha-main input[type="checkbox"]:checked,
-.modal-box input[type="checkbox"]:checked {
-  background: var(--primary);
-  border-color: var(--primary);
-}
-
-.ficha-main input[type="checkbox"]:checked::after,
-.modal-box input[type="checkbox"]:checked::after {
-  border-color: var(--bg-card);
-}
-
-.ficha-main input[type="checkbox"]:disabled,
-.modal-box input[type="checkbox"]:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 /* Proficiência marcada por habilidade (checkbox travada) segue a cor da linha. */
@@ -1718,20 +1571,6 @@
 
 .propriedade-pill.ativo i {
   opacity: 1;
-}
-
-.checkbox-linha {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.85rem;
-  color: var(--text-sec);
-  cursor: pointer;
-}
-
-.checkbox-linha input {
-  margin: 0;
-  cursor: pointer;
 }
 
 /* ─── HABILIDADES ─────────────────────────────────────────── */
@@ -3774,13 +3613,6 @@
   width: 190px;
 }
 
-.campo-dica {
-  font-size: 0.75rem;
-  line-height: 1.35;
-  color: var(--text-sec);
-  margin: 4px 0 0;
-}
-
 .campo-trio {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
@@ -3966,14 +3798,6 @@
   font-size: 0.7rem;
   font-weight: 400;
   color: var(--text-sec);
-}
-
-/* Texto de abertura de modal — era style inline repetido em 6 lugares. */
-.modal-intro {
-  font-size: 0.84rem;
-  line-height: 1.45;
-  color: var(--text-sec);
-  margin: 0 0 15px;
 }
 
 /* ─── DESCANSO (sidebar) ───────────────────────────────────

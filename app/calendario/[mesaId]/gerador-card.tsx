@@ -22,10 +22,10 @@ export function GeradorClimaCard({ estacao, totalTipos, onGerar, onEditarPerfil 
         </div>
       </div>
       <div className="cal-gerador-acoes">
-        <button type="button" className="cal-btn-sm" onClick={onGerar}>
+        <button type="button" className="btn-rect neutro sm" onClick={onGerar}>
           <i className="fas fa-dice" /> Gerar
         </button>
-        <button type="button" className="cal-btn-sm" onClick={onEditarPerfil}>
+        <button type="button" className="btn-rect neutro sm" onClick={onEditarPerfil}>
           <i className="fas fa-sliders" /> Editar perfil
         </button>
       </div>

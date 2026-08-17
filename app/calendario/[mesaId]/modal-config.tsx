@@ -120,7 +120,7 @@ export function ModalConfig({ mesaId, config, dataAtualDias, onFechar }: Props) 
 
   return (
     <div className="modal-overlay" onClick={onFechar}>
-      <div className="modal-box modal-box-grande cal-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-box modal-box-grande" onClick={(e) => e.stopPropagation()}>
         <div className="cal-modal-header">
           <span className="cal-kicker">CONFIGURAR</span>
           <h2>Calendário da mesa</h2>
@@ -152,7 +152,7 @@ export function ModalConfig({ mesaId, config, dataAtualDias, onFechar }: Props) 
 
         {tab === "data" && (
           <div className="cal-modal-painel">
-            <p className="cal-modal-hint">
+            <p className="campo-dica">
               Define onde a campanha está no calendário. Mudar isso afeta o que os jogadores
               enxergam — eventos passados ficam visíveis, futuros somem da visão deles.
             </p>
@@ -196,7 +196,7 @@ export function ModalConfig({ mesaId, config, dataAtualDias, onFechar }: Props) 
 
         {tab === "template" && (
           <div className="cal-modal-painel">
-            <p className="cal-modal-hint">
+            <p className="campo-dica">
               Escolha um template base. Eventos existentes são mantidos, mas suas datas podem
               aparecer em meses diferentes se a estrutura mudar.
             </p>
@@ -353,7 +353,7 @@ export function ModalConfig({ mesaId, config, dataAtualDias, onFechar }: Props) 
                 />
                 <button
                   type="button"
-                  className="cal-btn-sm"
+                  className="btn-rect neutro sm"
                   onClick={() => {
                     const nv = novoDia.trim();
                     if (nv) {
@@ -480,11 +480,11 @@ export function ModalConfig({ mesaId, config, dataAtualDias, onFechar }: Props) 
           </div>
         )}
 
-        <div className="cal-modal-footer">
-          <button type="button" className="cal-btn-sm" onClick={onFechar} disabled={pending}>
+        <div className="modal-actions separada">
+          <button type="button" className="btn-rect neutro sm" onClick={onFechar} disabled={pending}>
             Cancelar
           </button>
-          <button type="button" className="cal-btn-primary-sm" onClick={salvar} disabled={pending}>
+          <button type="button" className="btn-rect outline sm" onClick={salvar} disabled={pending}>
             <i className="fas fa-check" /> {pending ? "Salvando..." : "Salvar"}
           </button>
         </div>
