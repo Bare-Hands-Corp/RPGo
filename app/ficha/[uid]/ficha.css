@@ -20,6 +20,111 @@
   z-index: 5;
 }
 
+/* ─── FAIXA CONDENSADA DE VITAIS ──────────────────────────────
+   PV/PE/CR grudados no topo, visíveis só depois que o bloco de
+   vitais da sidebar sai por cima. Sidebar e faixa nunca são
+   lidas ao mesmo tempo — daí não haver duplicação na tela.
+   Fica abaixo da Bandeja (z 9999) e dos modais (z 1000). */
+.faixa-vitais {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  animation: faixa-vitais-desce 0.18s ease-out;
+}
+
+@keyframes faixa-vitais-desce {
+  from { transform: translateY(-100%); }
+  to   { transform: translateY(0); }
+}
+
+.faixa-vitais-conteudo {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 30px;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+.faixa-vital {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: monospace;
+  font-size: 0.95rem;
+  font-weight: 700;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.faixa-vital i {
+  font-size: 0.85rem;
+}
+
+.faixa-vital-hp i { color: var(--bar-hp); }
+.faixa-vital-pp i { color: var(--bar-pp); }
+.faixa-vital-cr i { color: var(--color-react); }
+
+.faixa-vital-max {
+  color: var(--text-sec);
+  font-weight: 400;
+}
+
+.faixa-vital-temp {
+  color: var(--color-bonus);
+}
+
+.faixa-vital-exausto {
+  color: #e74c3c;
+}
+
+/* Empurra o botão de topo pro fim da faixa. */
+.faixa-vitais-topo {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-sec);
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 6px 8px;
+  border-radius: 6px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.faixa-vitais-topo:hover {
+  color: var(--primary);
+  background: var(--bg-surface);
+}
+
+/* Fio de PV colado na borda de baixo: leitura de "quão ferido" sem gastar
+   uma segunda linha de altura na faixa. Com trilho, senão vira borda
+   decorativa numa tela larga em vez de medidor. */
+.faixa-vitais-trilho {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 3px;
+  background: var(--border);
+}
+
+.faixa-vitais-fio {
+  height: 100%;
+  background: var(--bar-hp);
+  transition: width 0.25s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .faixa-vitais { animation: none; }
+  .faixa-vitais-fio { transition: none; }
+}
+
 /* ─── SIDEBAR ─────────────────────────────────────────────── */
 .sidebar {
   background: var(--bg-sidebar);
@@ -977,7 +1082,7 @@
 /* ─── CARDS DE AÇÃO / ITEM ─────────────────────────────────── */
 .action-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
   gap: 15px;
   align-items: start;
 }
@@ -1224,7 +1329,7 @@
 /* ─── PERÍCIAS & SALVAGUARDAS ─────────────────────────────── */
 .prof-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(256px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(256px, 100%), 1fr));
   gap: 8px;
 }
 
@@ -1384,7 +1489,7 @@
    célula precisa de mais largura — senão lápis/lixeira estouram pra fora da
    borda. min-width:0 deixa o nome encolher pra os botões caberem dentro. */
 .prof-grid-custom {
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
 }
 
 .prof-grid-custom .prof-nome {
@@ -2020,7 +2125,7 @@
 /* ─── TRIPULAÇÃO ──────────────────────────────────────────── */
 .tripulantes-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
   gap: 10px;
 }
 
@@ -4010,4 +4115,67 @@
 .nivel-apr-linha button:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+
+
+/* ─── RESPONSIVO ──────────────────────────────────────────────
+   Único breakpoint do grid raiz: abaixo de 900px a sidebar deixa
+   de ser coluna e empilha acima do conteúdo. Quem cobre os vitais
+   a partir daí é a faixa condensada. Fica no fim do arquivo de
+   propósito — media query não soma especificidade, então a ordem
+   é o que garante que estas regras vençam. */
+@media (max-width: 900px) {
+  .ficha-layout {
+    grid-template-columns: 1fr;
+    gap: 20px;
+    /* O topo reserva uma faixa pras ações absolutas (botão de tema), que
+       de outro modo cairiam em cima do ícone de editar da sidebar. */
+    padding: 62px 16px 20px;
+  }
+
+  .ficha-topo-acoes {
+    top: 16px;
+    right: 16px;
+  }
+
+  .sidebar {
+    padding: 20px 18px;
+  }
+
+  /* Sidebar ocupando a largura toda comporta os 6 atributos em 3 colunas,
+     em vez de 2 colunas esticadas. */
+  .attr-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  /* As abas viram trilho horizontal — 8 abas quebrariam em 3 linhas. */
+  .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 8px;
+    margin-bottom: 20px;
+    scrollbar-width: none;
+  }
+
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab {
+    flex: 0 0 auto;
+    padding: 8px 12px;
+    font-size: 0.9rem;
+  }
+
+  .faixa-vitais-conteudo {
+    padding: 0 16px;
+    gap: 14px;
+  }
+
+  /* Item de grid tem min-width auto: sem isto o conteúdo largo (canvas das
+     árvores, trilho das abas) estica a coluna em vez de rolar por dentro. */
+  .ficha-main {
+    min-width: 0;
+    padding-bottom: 60px;
+  }
 }

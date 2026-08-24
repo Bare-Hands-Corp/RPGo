@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useOptimistic, useState } from "react";
+import { useEffect, useMemo, useOptimistic, useRef, useState } from "react";
 import Link from "next/link";
 import { EditableStat } from "./editable-stat";
 import { EditFichaModal } from "./edit-ficha-modal";
@@ -10,12 +10,14 @@ import { CrEditavel } from "./cr-editavel";
 import { ExaustaoControle } from "./exaustao-controle";
 import { DescansoControle } from "./descanso-controle";
 import { NivelModal, type CamadaQueAbre } from "./nivel-modal";
+import { FaixaVitais } from "./faixa-vitais";
 import { faixaPeDoNivel, pctPeDoNivel } from "@/lib/nivel";
 import { MarcaExausto } from "./marca-exausto";
 import {
   agregarEfeitos,
   atributoDeCalculo,
   bonusProficiencia,
+  crBase,
   deslocamentoEfetivo,
   formatarMod,
   iniciativa,
@@ -185,6 +187,9 @@ export function PerfilSidebar({
   // prop drilling. Reseta quando inicial muda (Server Component re-renderizou
   // com a verdade).
   const [modalNivel, setModalNivel] = useState(false);
+  // Âncora da faixa condensada: o bloco de Pontos de Poder, último dos dois
+  // vitais. Sair dele por cima significa que PV e PE saíram juntos de vista.
+  const vitaisRef = useRef<HTMLDivElement>(null);
   const [shadow, setShadow] = useState<PatchPersonagem>({});
   useEffect(() => {
     setShadow({});
@@ -325,8 +330,29 @@ export function PerfilSidebar({
   const nadoEfetivo = Math.max(p.nado, nadarExtra?.valor ?? 0);
   const nadoPorEfeito = (nadarExtra?.valor ?? 0) >= p.nado && !!nadarExtra?.fontes.length;
 
+  // CR resolvida aqui em cima porque a faixa condensada também precisa do
+  // total — o `CrEditavel` continua dono da edição de `crOutros`. O atributo
+  // pode ser trocado por habilidade; a DES já chega com a penalidade da
+  // armadura embutida via `atributosParaTeste`.
+  const crAtrib = atributoDeCalculo("cr", "destreza", subs);
+  const crBonusFixo = caArmadura + efeitosAgregados.bonusCR.valor;
+  const crTotal = crBase(atributosParaTeste[crAtrib.atributo], p.crOutros) + crBonusFixo;
+
   return (
     <aside className="sidebar">
+      {/* Portal — só entra na tela quando `vitaisRef` sai por cima. */}
+      <FaixaVitais
+        personagemId={p.id}
+        hpAtual={p.hpAtual}
+        hpTemp={p.hpTemp}
+        hpMax={hpMaxEfetivo}
+        ppAtual={p.ppAtual}
+        ppMax={ppMaxEfetivo}
+        cr={crTotal}
+        exaustao={p.exaustao}
+        ancora={vitaisRef}
+        onOtimista={aplicarOtimista}
+      />
       <div className="sidebar-icons right">
         <EditFichaModal
           personagemId={p.id}
@@ -446,7 +472,7 @@ export function PerfilSidebar({
         })()}
       </div>
 
-      <div className="bar-group bar-en">
+      <div className="bar-group bar-en" ref={vitaisRef}>
         <div className="bar-label">
           <span><i className="fas fa-bolt" /> Pontos de Poder</span>
           <div className="stat-values">
@@ -554,7 +580,6 @@ export function PerfilSidebar({
 
       <div className="derivados-grid">
         {(() => {
-          const crAtrib = atributoDeCalculo("cr", "destreza", subs);
           const crDesReduz = crAtrib.atributo === "destreza" && desReduz;
           const titulo =
             [
@@ -570,7 +595,7 @@ export function PerfilSidebar({
               personagemId={p.id}
               atributoScore={atributosParaTeste[crAtrib.atributo]}
               crOutros={p.crOutros}
-              bonusFixo={caArmadura + efeitosAgregados.bonusCR.valor}
+              bonusFixo={crBonusFixo}
               siglaSubstituida={
                 crAtrib.substituido ? SIGLA_ATRIBUTO[crAtrib.atributo] : undefined
               }
