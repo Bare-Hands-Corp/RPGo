@@ -203,6 +203,18 @@ export function ArvoresTab({
   const abertas = useMemo(() => camadasAbertas(camadas, ctx), [camadas, ctx]);
   const gastos = useMemo(() => pontosGastos(ctx.nos), [ctx.nos]);
 
+  // Quantos talentos dá pra comprar agora. Mesma `estadoNo` que pinta o card e
+  // que o server revalida — o contador nunca discorda do botão.
+  const disponiveis = useMemo(
+    () => ctx.nos.filter((n) => estadoNo(n, camadas, ctx).podeComprar).length,
+    [camadas, ctx],
+  );
+  // Modo de foco: esmaece o que não dá pra comprar. Em árvore grande o jogador
+  // caçava visualmente. Cai sozinho quando não sobra nada disponível, senão a
+  // tela ficaria inteira apagada sem nada em destaque.
+  const [foco, setFoco] = useState(false);
+  const focoAtivo = foco && disponiveis > 0;
+
   function comprar(no: NoArvore) {
     if (!arvore) return;
     startTransition(async () => {
@@ -492,6 +504,27 @@ export function ArvoresTab({
                   apagado — custos viraram informativos
                 </span>
               )}
+              {arvore.nos.length > 0 &&
+                (disponiveis > 0 ? (
+                  <button
+                    type="button"
+                    className={`arvore-metrica arvore-disponiveis ${focoAtivo ? "ativo" : ""}`}
+                    onClick={() => setFoco((v) => !v)}
+                    aria-pressed={focoAtivo}
+                    title={
+                      focoAtivo
+                        ? "Mostrar a árvore inteira"
+                        : "Destacar só o que dá pra comprar agora"
+                    }
+                  >
+                    <i className="fas fa-circle-check" /> <strong>{disponiveis}</strong>{" "}
+                    pra comprar
+                  </button>
+                ) : (
+                  <span className="arvore-metrica arvore-disponiveis vazio">
+                    <i className="fas fa-circle-check" /> nada pra comprar agora
+                  </span>
+                ))}
             </div>
             <div className="arvore-barra-acoes">
               <button
@@ -581,6 +614,7 @@ export function ArvoresTab({
             onCriarNoAqui={criarNoAqui}
             colapsadas={camadasColapsadas}
             onAlternarCamada={alternarCamada}
+            foco={focoAtivo}
           />
           )}
 
@@ -595,6 +629,12 @@ export function ArvoresTab({
                 <strong>{arvore.nos.filter((n) => n.rankAtual > 0).length}</strong>{" "}
                 de {arvore.nos.length} talento(s) liberado(s) ·{" "}
                 {camadas.length} camada(s)
+                {disponiveis > 0 && (
+                  <em className="arvore-resumo-disp">
+                    {" · "}
+                    {disponiveis} pra comprar
+                  </em>
+                )}
               </span>
               <i className="fas fa-chevron-down" />
             </button>
@@ -849,6 +889,7 @@ function ArvoreCanvas({
   onCriarNoAqui,
   colapsadas,
   onAlternarCamada,
+  foco,
 }: {
   arvore: Arvore;
   camadas: CamadaArvore[];
@@ -864,6 +905,8 @@ function ArvoreCanvas({
   onCriarNoAqui: (camadaId: string, ramoId: string | null, offsetY: number) => void;
   colapsadas: Set<string>;
   onAlternarCamada: (id: string) => void;
+  /** Esmaece o que não dá pra comprar agora. */
+  foco: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const nosRef = useRef(new Map<string, HTMLElement>());
@@ -997,7 +1040,7 @@ function ArvoreCanvas({
 
   return (
     <div
-      className="arvore-canvas"
+      className={`arvore-canvas${foco ? " foco" : ""}`}
       ref={containerRef}
       style={
         arvore.fundoUrl
@@ -1153,6 +1196,16 @@ function FaixaCamada({
           {nos.length === 0
             ? "sem talentos"
             : `${nos.filter((n) => n.rankAtual > 0).length} de ${nos.length} liberado(s)`}
+          {/* Camada recolhida esconde o card: sem esta marca o jogador não tem
+              como saber que o que dá pra comprar está justamente aqui dentro. */}
+          {(() => {
+            const disp = nos.filter((n) => estadoNo(n, camadas, ctx).podeComprar).length;
+            return disp > 0 ? (
+              <em className="arvore-tira-disp">
+                <i className="fas fa-circle-check" /> {disp} pra comprar
+              </em>
+            ) : null;
+          })()}
           <i className="fas fa-chevron-down" />
         </button>
       ) : (

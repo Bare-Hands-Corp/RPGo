@@ -3227,8 +3227,96 @@
   background: color-mix(in oklch, var(--primary) 10%, var(--bg-card));
 }
 
+/* "Dá pra comprar agora" precisa saltar sem o modo de foco ligado — a borda
+   levemente tingida de antes se perdia em árvore grande. */
 .arvore-no.disponivel {
-  border-color: color-mix(in oklch, var(--primary) 38%, var(--border));
+  border-color: color-mix(in oklch, var(--color-react) 65%, var(--border));
+  box-shadow:
+    0 3px 10px rgba(0, 0, 0, 0.28),
+    0 0 0 2px color-mix(in oklch, var(--color-react) 35%, transparent);
+}
+
+/* Modo de foco: apaga o resto pra sobrar só o comprável. */
+.arvore-canvas.foco .arvore-no:not(.disponivel) {
+  opacity: 0.28;
+  filter: grayscale(0.5);
+}
+
+.arvore-canvas.foco .arvore-no.disponivel {
+  animation: arvore-no-pulsa 1.6s ease-in-out infinite;
+}
+
+@keyframes arvore-no-pulsa {
+  0%, 100% {
+    box-shadow:
+      0 3px 10px rgba(0, 0, 0, 0.28),
+      0 0 0 2px color-mix(in oklch, var(--color-react) 35%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 3px 10px rgba(0, 0, 0, 0.28),
+      0 0 0 6px color-mix(in oklch, var(--color-react) 20%, transparent);
+  }
+}
+
+/* Contador de compráveis na barra — botão quando há o que destacar, texto
+   morto quando não há. */
+.arvore-disponiveis {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.5;
+  border: 1px solid color-mix(in oklch, var(--color-react) 40%, var(--border));
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.arvore-disponiveis i {
+  color: var(--color-react);
+}
+
+.arvore-disponiveis:hover {
+  border-color: var(--color-react);
+}
+
+.arvore-disponiveis.ativo {
+  background: color-mix(in oklch, var(--color-react) 18%, var(--bg-surface));
+  border-color: var(--color-react);
+}
+
+.arvore-disponiveis.vazio {
+  cursor: default;
+  border-color: var(--border);
+  color: var(--text-sec);
+  opacity: 0.75;
+}
+
+.arvore-disponiveis.vazio i {
+  color: var(--text-sec);
+}
+
+/* Marca na tira da camada recolhida e no resumo da árvore recolhida. */
+.arvore-tira-disp,
+.arvore-resumo-disp {
+  font-style: normal;
+  color: var(--color-react);
+  font-weight: 700;
+}
+
+.arvore-tira-disp {
+  margin-left: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arvore-canvas.foco .arvore-no.disponivel {
+    animation: none;
+  }
 }
 
 .arvore-no.travado {
