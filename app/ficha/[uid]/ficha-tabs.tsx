@@ -5,6 +5,7 @@ import { AcoesTab } from "./acoes-tab";
 import { ArvoresTab, type Arvore, type ArvoreCopiavel } from "./arvores-tab";
 import { HabilidadesTab } from "./habilidades-tab";
 import { InventarioTab } from "./inventario-tab";
+import { ObjetivosTab, type Objetivo } from "./objetivos-tab";
 import { PericiasTab } from "./pericias-tab";
 import { TripulacaoTab } from "./tripulacao-tab";
 import { CalendarioView } from "@/app/calendario/[mesaId]/calendario-view";
@@ -40,6 +41,7 @@ type Props = {
   habilidades: Habilidade[];
   efeitosAgregados: EfeitosAgregados;
   calendario: CalendarioCarregado | null;
+  objetivos: Objetivo[];
   isNarradorDaMesa: boolean;
   tripulantes: Tripulante[];
   navio: Navio;
@@ -53,7 +55,7 @@ type TabId =
   | "habilidades"
   | "arvores"
   | "pericias"
-  | "missoes"
+  | "objetivos"
   | "inventario"
   | "tripulacao"
   | "calendario";
@@ -63,7 +65,7 @@ const TABS_BASE: { id: TabId; label: string; icone: string }[] = [
   { id: "habilidades", label: "Habilidades", icone: "fa-star" },
   { id: "arvores", label: "Árvores", icone: "fa-sitemap" },
   { id: "pericias", label: "Perícias", icone: "fa-dice-d20" },
-  { id: "missoes", label: "Missões", icone: "fa-scroll" },
+  { id: "objetivos", label: "Objetivos", icone: "fa-scroll" },
   { id: "inventario", label: "Inventário", icone: "fa-sack-dollar" },
   { id: "tripulacao", label: "Tripulação", icone: "fa-users" },
 ];
@@ -85,6 +87,7 @@ export function FichaTabs({
   habilidades,
   efeitosAgregados,
   calendario,
+  objetivos,
   isNarradorDaMesa,
   tripulantes,
   navio,
@@ -172,9 +175,16 @@ export function FichaTabs({
         />
       </div>
 
-      <div hidden={ativa !== "missoes"} className="placeholder-tab">
-        <i className="fas fa-scroll" />
-        <p>Missões — em construção.</p>
+      <div hidden={ativa !== "objetivos"}>
+        <ObjetivosTab
+          personagemId={personagemId}
+          objetivos={objetivos}
+          calendario={
+            calendario
+              ? { config: calendario.config, dataAtualDias: calendario.dataAtualDias }
+              : null
+          }
+        />
       </div>
 
       <div hidden={ativa !== "inventario"}>

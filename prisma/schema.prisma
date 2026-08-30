@@ -15,6 +15,7 @@
 //   ALTER TABLE tipos_clima         REPLICA IDENTITY FULL;
 //   ALTER TABLE eventos_calendario  REPLICA IDENTITY FULL;
 //   ALTER TABLE ameacas             REPLICA IDENTITY FULL;
+//   ALTER TABLE objetivos           REPLICA IDENTITY FULL;
 // E adicione cada tabela na lista de publicações do Realtime no Supabase Dashboard.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -168,8 +169,39 @@ model Personagem {
   habilidades    Habilidade[]
   periciasCustom PericiaCustom[]
   arvores        Arvore[]
+  objetivos      Objetivo[]
 
   @@map("personagens")
+}
+
+// Objetivo do personagem — a lista do que ele quer fazer (metas de arco,
+// treinamentos em curso, promessas). Substitui a antiga aba "Missões".
+//
+// O prazo é uma data do calendário DA MESA (`prazoDias`, mesmo eixo absoluto
+// que EventoCalendario.dataDias). Guardado aqui e não como evento porque o
+// objetivo é do personagem, não da mesa: a ficha só LÊ `Calendario.dataAtualDias`
+// pra dizer quantos dias faltam. Personagem sem mesa simplesmente não mostra
+// contagem — o objetivo continua válido.
+model Objetivo {
+  id            String     @id @default(uuid())
+  personagemId  String     @map("personagem_id")
+  personagem    Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
+
+  titulo        String
+  descricao     String     @default("")
+  // "aberto" | "feito" | "abandonado" — texto e não enum porque o resto do
+  // schema segue o mesmo padrão (tipo de ação, resetEm, critério de árvore).
+  estado        String     @default("aberto")
+  icone         String     @default("fa-scroll")
+
+  // Data-alvo no calendário da mesa (dias absolutos). null = sem prazo.
+  prazoDias     Int?       @map("prazo_dias")
+  ordem         Int        @default(0)
+
+  criadoEm      DateTime   @default(now()) @map("criado_em")
+
+  @@index([personagemId, ordem])
+  @@map("objetivos")
 }
 
 // Perícia customizada do personagem — perícias que não existem no set fixo do

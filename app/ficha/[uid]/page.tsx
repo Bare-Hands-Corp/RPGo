@@ -37,6 +37,7 @@ export default async function FichaPage({ params }: Params) {
         recursos: { orderBy: [{ ordem: "asc" }, { nome: "asc" }] },
         habilidades: { orderBy: [{ ordem: "asc" }, { criadoEm: "asc" }] },
         periciasCustom: { orderBy: [{ ordem: "asc" }, { nome: "asc" }] },
+        objetivos: { orderBy: [{ ordem: "asc" }, { criadoEm: "asc" }] },
         arvores: {
           orderBy: [{ ordem: "asc" }, { nome: "asc" }],
           include: {
@@ -204,6 +205,15 @@ export default async function FichaPage({ params }: Params) {
           camadas: a._count.camadas,
         }))}
         calendario={calendario}
+        objetivos={personagem.objetivos.map((o) => ({
+          id: o.id,
+          titulo: o.titulo,
+          descricao: o.descricao,
+          estado: o.estado,
+          icone: o.icone,
+          prazoDias: o.prazoDias,
+          ordem: o.ordem,
+        }))}
         isNarradorDaMesa={isNarrador}
         tripulantes={tripulantes}
         navio={

@@ -97,6 +97,19 @@ export function FichaRealtime({
           filter: `personagem_id=eq.${personagemId}`,
         },
         () => router.refresh(),
+      )
+      // Objetivos: têm `personagem_id`, então dá pra filtrar. Vale assinar
+      // porque o narrador também pode mexer (autorizar() libera dono OU
+      // narrador) e a aba aberta do jogador precisa refletir.
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "objetivos",
+          filter: `personagem_id=eq.${personagemId}`,
+        },
+        () => router.refresh(),
       );
 
     // Tripulação: navio da mesa + demais personagens dela (roster ao vivo).

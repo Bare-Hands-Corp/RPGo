@@ -2111,3 +2111,102 @@ export async function subirDeNivel(
   revalidatePath(`/ficha/${personagemId}`);
   return { nivelNovo, pvGanho, retroativo };
 }
+
+// ─── Objetivos ─────────────────────────────────────────────
+// Metas do personagem (arcos, treinamentos, promessas). O prazo é uma data do
+// calendário DA MESA em dias absolutos — a ficha só lê `dataAtualDias` pra
+// contar quantos faltam; nada é escrito no calendário.
+
+const ALLOWED_OBJETIVO = ["titulo", "descricao", "estado", "icone", "prazoDias", "ordem"] as const;
+type ObjetivoInput = Partial<Record<(typeof ALLOWED_OBJETIVO)[number], unknown>>;
+
+export const ESTADOS_OBJETIVO = ["aberto", "feito", "abandonado"] as const;
+const ESTADOS_VALIDOS = new Set<string>(ESTADOS_OBJETIVO);
+
+function normalizarObjetivo(input: ObjetivoInput, parcial: boolean) {
+  const data: Record<string, unknown> = {};
+  for (const key of ALLOWED_OBJETIVO) {
+    if (input[key] === undefined) continue;
+    if (key === "titulo") {
+      const titulo = String(input.titulo).trim();
+      if (!titulo) throw new Error("Título do objetivo é obrigatório.");
+      data.titulo = titulo.slice(0, 160);
+    } else if (key === "descricao") {
+      data.descricao = String(input.descricao).trim();
+    } else if (key === "estado") {
+      const v = String(input.estado);
+      if (!ESTADOS_VALIDOS.has(v)) throw new Error("Estado de objetivo inválido.");
+      data.estado = v;
+    } else if (key === "icone") {
+      data.icone = String(input.icone).trim() || "fa-scroll";
+    } else if (key === "prazoDias") {
+      // null limpa o prazo; qualquer outra coisa vira inteiro.
+      data.prazoDias =
+        input.prazoDias === null ? null : Math.trunc(Number(input.prazoDias) || 0);
+    } else if (key === "ordem") {
+      data.ordem = Number(input.ordem) || 0;
+    }
+  }
+  if (!parcial && data.titulo === undefined) {
+    throw new Error("Título do objetivo é obrigatório.");
+  }
+  return data;
+}
+
+export async function criarObjetivo(personagemId: string, input: ObjetivoInput) {
+  await autorizar(personagemId);
+  const data = normalizarObjetivo(input, false);
+
+  // Entra no fim da lista quando o cliente não manda ordem.
+  const ultimo = await prisma.objetivo.findFirst({
+    where: { personagemId },
+    orderBy: { ordem: "desc" },
+    select: { ordem: true },
+  });
+
+  const criado = await prisma.objetivo.create({
+    data: {
+      personagemId,
+      titulo: data.titulo as string,
+      descricao: (data.descricao as string) ?? "",
+      estado: (data.estado as string) ?? "aberto",
+      icone: (data.icone as string) ?? "fa-scroll",
+      prazoDias: (data.prazoDias as number | null) ?? null,
+      ordem: (data.ordem as number) ?? (ultimo ? ultimo.ordem + 1 : 0),
+    },
+  });
+  revalidatePath(`/ficha/${personagemId}`);
+  // Devolve a entidade pro cliente trocar o registro otimista sem refetch.
+  return {
+    id: criado.id,
+    titulo: criado.titulo,
+    descricao: criado.descricao,
+    estado: criado.estado,
+    icone: criado.icone,
+    prazoDias: criado.prazoDias,
+    ordem: criado.ordem,
+  };
+}
+
+export async function atualizarObjetivo(
+  personagemId: string,
+  objetivoId: string,
+  patch: ObjetivoInput,
+) {
+  await autorizar(personagemId);
+  const data = normalizarObjetivo(patch, true);
+
+  await prisma.objetivo.update({
+    where: { id: objetivoId, personagemId },
+    data,
+  });
+  revalidatePath(`/ficha/${personagemId}`);
+}
+
+export async function deletarObjetivo(personagemId: string, objetivoId: string) {
+  await autorizar(personagemId);
+  await prisma.objetivo.delete({
+    where: { id: objetivoId, personagemId },
+  });
+  revalidatePath(`/ficha/${personagemId}`);
+}

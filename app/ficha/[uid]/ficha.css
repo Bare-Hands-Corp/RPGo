@@ -4206,6 +4206,218 @@
 }
 
 
+/* ─── OBJETIVOS ────────────────────────────────────────────────
+   Metas do personagem. O prazo é uma data do calendário da mesa;
+   a aba só LÊ `dataAtualDias` pra contar quanto falta. */
+.obj-barra {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-surface);
+}
+
+.obj-barra-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+  font-size: 0.82rem;
+  color: var(--text-sec);
+}
+
+.obj-metrica strong {
+  color: var(--text-main);
+}
+
+.obj-alerta,
+.obj-alerta strong {
+  color: #e0a000;
+}
+
+.obj-sem-mesa {
+  opacity: 0.8;
+}
+
+/* Estado vazio: mesma afordância tracejada de "clique pra criar" usada na
+   árvore e no calendário. */
+.obj-vazio {
+  width: 100%;
+  flex-direction: column;
+  gap: 8px;
+  padding: 28px 20px;
+  text-align: center;
+}
+
+.obj-lista {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.obj-linha {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--color-power);
+  border-radius: 10px;
+  background: var(--bg-card);
+  transition: border-color 0.2s, opacity 0.2s;
+}
+
+.dark-mode .obj-linha {
+  background: var(--bg-surface);
+}
+
+.obj-linha.feito {
+  border-left-color: var(--color-react);
+  opacity: 0.62;
+}
+
+.obj-linha.abandonado {
+  border-left-color: var(--border);
+  opacity: 0.5;
+}
+
+.obj-linha.feito .obj-titulo,
+.obj-linha.abandonado .obj-titulo {
+  text-decoration: line-through;
+}
+
+.obj-marcar {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-top: 2px;
+  font-size: 1.15rem;
+  color: var(--text-sec);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.obj-marcar:hover {
+  color: var(--color-react);
+}
+
+.obj-linha.feito .obj-marcar {
+  color: var(--color-react);
+}
+
+.obj-corpo {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.obj-titulo-linha {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.obj-icone {
+  color: var(--color-power);
+}
+
+.obj-titulo {
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.obj-selo {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-sec);
+}
+
+.dark-mode .obj-selo {
+  background: var(--bg-card);
+}
+
+/* Pílula de prazo: contagem relativa em destaque, data absoluta ao lado. */
+.obj-prazo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-sec);
+}
+
+.dark-mode .obj-prazo {
+  background: var(--bg-card);
+}
+
+.obj-prazo.vencendo {
+  border-color: color-mix(in oklch, #e0a000 55%, var(--border));
+  color: #e0a000;
+}
+
+.obj-prazo.atrasado {
+  border-color: color-mix(in oklch, #e74c3c 55%, var(--border));
+  color: #e74c3c;
+}
+
+.obj-prazo-data {
+  font-style: normal;
+  font-weight: 400;
+  opacity: 0.75;
+}
+
+.obj-descricao {
+  font-size: 0.86rem;
+  color: var(--text-sec);
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.obj-acoes {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.obj-fechados-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 0 10px;
+  padding: 0;
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-sec);
+  cursor: pointer;
+}
+
+.obj-fechados-toggle:hover {
+  color: var(--primary);
+}
+
+
 /* ─── RESPONSIVO ──────────────────────────────────────────────
    Único breakpoint do grid raiz: abaixo de 900px a sidebar deixa
    de ser coluna e empilha acima do conteúdo. Quem cobre os vitais
@@ -4265,5 +4477,15 @@
   .ficha-main {
     min-width: 0;
     padding-bottom: 60px;
+  }
+
+  /* Ações do objetivo descem pra baixo do texto em vez de espremer o título. */
+  .obj-linha {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .obj-acoes {
+    grid-column: 2;
+    justify-content: flex-end;
   }
 }
