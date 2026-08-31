@@ -102,6 +102,26 @@ export function FichaTabs({
     tabs.push({ id: "calendario", label: "Calendário", icone: "fa-calendar-days" });
   }
 
+  // Setas/Home/End andam pela tablist e já movem o foco — sem isso a lista
+  // inteira fica inalcançável por teclado depois do roving tabindex.
+  function navegarPorSeta(e: React.KeyboardEvent, indice: number) {
+    const passo =
+      e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+    let destino: number;
+    if (passo !== 0) {
+      destino = (indice + passo + tabs.length) % tabs.length;
+    } else if (e.key === "Home") {
+      destino = 0;
+    } else if (e.key === "End") {
+      destino = tabs.length - 1;
+    } else {
+      return;
+    }
+    e.preventDefault();
+    setAtiva(tabs[destino].id);
+    document.getElementById(`tab-${tabs[destino].id}`)?.focus();
+  }
+
   return (
     <main className="ficha-main">
       {/* Realtime do calendário fica sempre ativo enquanto a ficha está aberta,
@@ -110,13 +130,21 @@ export function FichaTabs({
         <CalendarioRealtime mesaId={mesaId} calendarioId={calendario.id} />
       )}
 
-      <nav className="tabs">
-        {tabs.map((tab) => (
+      <nav className="tabs" role="tablist" aria-label="Seções da ficha">
+        {tabs.map((tab, i) => (
           <button
             key={tab.id}
             type="button"
+            role="tab"
+            id={`tab-${tab.id}`}
+            aria-selected={ativa === tab.id}
+            aria-controls={`painel-${tab.id}`}
+            // Roving tabindex: só a aba ativa entra na ordem de Tab; as setas
+            // fazem a navegação interna, como manda o padrão de tablist.
+            tabIndex={ativa === tab.id ? 0 : -1}
             className={`tab ${ativa === tab.id ? "active" : ""}`}
             onClick={() => setAtiva(tab.id)}
+            onKeyDown={(e) => navegarPorSeta(e, i)}
           >
             <i className={`fas ${tab.icone}`} /> {tab.label}
           </button>
@@ -125,7 +153,12 @@ export function FichaTabs({
 
       {/* Mantém todas as abas montadas (display:none nas inativas) pra preservar
           estado otimista durante mutações em background. */}
-      <div hidden={ativa !== "combate"}>
+      <div
+        hidden={ativa !== "combate"}
+        role="tabpanel"
+        id="painel-combate"
+        aria-labelledby="tab-combate"
+      >
         <AcoesTab
           personagemId={personagemId}
           acoes={acoes}
@@ -140,7 +173,12 @@ export function FichaTabs({
         />
       </div>
 
-      <div hidden={ativa !== "habilidades"}>
+      <div
+        hidden={ativa !== "habilidades"}
+        role="tabpanel"
+        id="painel-habilidades"
+        aria-labelledby="tab-habilidades"
+      >
         <HabilidadesTab
           personagemId={personagemId}
           habilidades={habilidades}
@@ -151,7 +189,12 @@ export function FichaTabs({
         />
       </div>
 
-      <div hidden={ativa !== "pericias"}>
+      <div
+        hidden={ativa !== "pericias"}
+        role="tabpanel"
+        id="painel-pericias"
+        aria-labelledby="tab-pericias"
+      >
         <PericiasTab
           personagemId={personagemId}
           nivel={nivel}
@@ -164,7 +207,12 @@ export function FichaTabs({
         />
       </div>
 
-      <div hidden={ativa !== "arvores"}>
+      <div
+        hidden={ativa !== "arvores"}
+        role="tabpanel"
+        id="painel-arvores"
+        aria-labelledby="tab-arvores"
+      >
         <ArvoresTab
           personagemId={personagemId}
           nivel={nivel}
@@ -175,7 +223,12 @@ export function FichaTabs({
         />
       </div>
 
-      <div hidden={ativa !== "objetivos"}>
+      <div
+        hidden={ativa !== "objetivos"}
+        role="tabpanel"
+        id="painel-objetivos"
+        aria-labelledby="tab-objetivos"
+      >
         <ObjetivosTab
           personagemId={personagemId}
           objetivos={objetivos}
@@ -187,7 +240,12 @@ export function FichaTabs({
         />
       </div>
 
-      <div hidden={ativa !== "inventario"}>
+      <div
+        hidden={ativa !== "inventario"}
+        role="tabpanel"
+        id="painel-inventario"
+        aria-labelledby="tab-inventario"
+      >
         <InventarioTab
           personagemId={personagemId}
           cargaMaxima={cargaMaxima}
@@ -201,7 +259,12 @@ export function FichaTabs({
         />
       </div>
 
-      <div hidden={ativa !== "tripulacao"}>
+      <div
+        hidden={ativa !== "tripulacao"}
+        role="tabpanel"
+        id="painel-tripulacao"
+        aria-labelledby="tab-tripulacao"
+      >
         <TripulacaoTab
           personagemId={personagemId}
           mesaId={mesaId}
@@ -212,7 +275,12 @@ export function FichaTabs({
       </div>
 
       {mesaId && calendario && (
-        <div hidden={ativa !== "calendario"}>
+        <div
+          hidden={ativa !== "calendario"}
+          role="tabpanel"
+          id="painel-calendario"
+          aria-labelledby="tab-calendario"
+        >
           <CalendarioView
             mesaId={mesaId}
             isNarrador={isNarradorDaMesa}
