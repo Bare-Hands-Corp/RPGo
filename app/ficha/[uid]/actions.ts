@@ -2120,7 +2120,8 @@ export async function subirDeNivel(
 const ALLOWED_OBJETIVO = ["titulo", "descricao", "estado", "icone", "prazoDias", "ordem"] as const;
 type ObjetivoInput = Partial<Record<(typeof ALLOWED_OBJETIVO)[number], unknown>>;
 
-export const ESTADOS_OBJETIVO = ["aberto", "feito", "abandonado"] as const;
+// Sem export: arquivo "use server" so pode exportar funcao async.
+const ESTADOS_OBJETIVO = ["aberto", "feito", "abandonado"] as const;
 const ESTADOS_VALIDOS = new Set<string>(ESTADOS_OBJETIVO);
 
 function normalizarObjetivo(input: ObjetivoInput, parcial: boolean) {
