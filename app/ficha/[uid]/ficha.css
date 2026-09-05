@@ -1,5 +1,9 @@
 /* ─── LAYOUT GERAL ───────────────────────────────────────── */
 .ficha-layout {
+  /* Largura que o .ficha-topo-acoes (absoluto, no canto) ocupa por cima do
+     conteudo. As abas reservam isso a direita pra nao passarem por baixo do
+     botao de tema — a ultima aba da 1a fileira ficava cortada. */
+  --topo-acoes-reserva: 60px;
   display: grid;
   grid-template-columns: 320px 1fr;
   gap: 30px;
@@ -1031,13 +1035,27 @@
   padding-bottom: 80px;
 }
 
+/* Bloco com abas inline em vez de flex: assim o ::before flutuante reserva o
+   canto do .ficha-topo-acoes SO na primeira fileira. Em container flex o float
+   e ignorado, e reservar por padding-right roubava largura de TODAS as
+   fileiras — custava uma fileira a mais em telas medias. */
 .tabs {
-  display: flex;
-  gap: 15px;
+  display: block;
   margin-bottom: 30px;
   border-bottom: 1px solid var(--border);
-  padding-bottom: 10px;
-  flex-wrap: wrap;
+  padding-bottom: 0;
+  /* Mata a folga de espaco em branco entre inline-blocks; .tab repoe o tamanho.
+     Sem isso o layout depende de o JSX nao emitir texto entre os botoes. */
+  font-size: 0;
+}
+
+.tabs::before {
+  content: "";
+  float: right;
+  width: var(--topo-acoes-reserva);
+  /* 1px de propósito: o float so encurta a linha que ele cruza, entao a
+     reserva morre depois da primeira fileira. */
+  height: 1px;
 }
 
 .tab {
@@ -1050,10 +1068,14 @@
   border: none;
   font-family: inherit;
   font-size: 1rem;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
   text-decoration: none;
+  /* Substitui o gap do flex; vertical-align mata a folga de baseline do
+     inline-block. */
+  margin: 0 15px 10px 0;
+  vertical-align: top;
 }
 
 .tab.active {
@@ -4426,6 +4448,9 @@
    é o que garante que estas regras vençam. */
 @media (max-width: 900px) {
   .ficha-layout {
+    /* O botao de tema ganha uma faixa so dele no topo (padding abaixo), entao
+       o trilho de abas volta a ter a largura inteira. */
+    --topo-acoes-reserva: 0px;
     grid-template-columns: 1fr;
     gap: 20px;
     /* O topo reserva uma faixa pras ações absolutas (botão de tema), que
@@ -4450,11 +4475,18 @@
 
   /* As abas viram trilho horizontal — 8 abas quebrariam em 3 linhas. */
   .tabs {
+    display: flex;
     flex-wrap: nowrap;
     overflow-x: auto;
     gap: 8px;
     margin-bottom: 20px;
+    padding-bottom: 8px;
     scrollbar-width: none;
+  }
+
+  /* Sem fileira que quebra, nao ha canto pra reservar. */
+  .tabs::before {
+    display: none;
   }
 
   .tabs::-webkit-scrollbar {
@@ -4465,6 +4497,7 @@
     flex: 0 0 auto;
     padding: 8px 12px;
     font-size: 0.9rem;
+    margin: 0;
   }
 
   .faixa-vitais-conteudo {
