@@ -1031,8 +1031,23 @@
 }
 
 /* ─── MAIN CONTENT + TABS ─────────────────────────────────── */
+/* min-width: 0 e obrigatorio: a coluna e `1fr`, que e `minmax(auto, 1fr)`, e o
+   `auto` deixa o min-content do painel ATIVO empurrar a coluna. Como so o
+   painel visivel conta (os outros sao display:none), trocar de aba mudava a
+   largura da coluna e, com ela, quantas abas cabiam na primeira fileira. */
 .ficha-main {
+  min-width: 0;
   padding-bottom: 80px;
+}
+
+/* Cabecalho de aba: titulo a esquerda, acoes a direita, quebrando quando a
+   coluna aperta. Sem o wrap essa linha vira o piso de largura do painel. */
+.tab-topo {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 /* Bloco com abas inline em vez de flex: assim o ::before flutuante reserva o
@@ -4505,10 +4520,7 @@
     gap: 14px;
   }
 
-  /* Item de grid tem min-width auto: sem isto o conteúdo largo (canvas das
-     árvores, trilho das abas) estica a coluna em vez de rolar por dentro. */
   .ficha-main {
-    min-width: 0;
     padding-bottom: 60px;
   }
 

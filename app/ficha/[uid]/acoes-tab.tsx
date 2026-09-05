@@ -327,7 +327,7 @@ export function AcoesTab({
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div className="tab-topo">
         <h1>Ações de Combate</h1>
         <button
           type="button"

@@ -534,7 +534,7 @@ export function InventarioTab({
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+      <div className="tab-topo">
         <h1 style={{ marginRight: "auto" }}>Inventário</h1>
         <BerriesControle personagemId={personagemId} berries={berries} />
         <button
