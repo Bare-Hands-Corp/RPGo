@@ -4488,31 +4488,29 @@
     grid-template-columns: repeat(3, 1fr);
   }
 
-  /* As abas viram trilho horizontal — 8 abas quebrariam em 3 linhas. */
+  /* As abas continuam quebrando em fileiras, so que compactas. Ja foram um
+     trilho com overflow-x: rolava, mas sem barra nem sombra ninguem descobria
+     — metade das abas simplesmente parecia cortada. Mostrar todas custa uma
+     fileira a mais e vale a pena. */
   .tabs {
-    display: flex;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    gap: 8px;
     margin-bottom: 20px;
-    padding-bottom: 8px;
-    scrollbar-width: none;
   }
 
-  /* Sem fileira que quebra, nao ha canto pra reservar. */
+  /* O botao de tema tem faixa propria no topo aqui, entao nao ha canto a
+     reservar na primeira fileira. */
   .tabs::before {
     display: none;
   }
 
-  .tabs::-webkit-scrollbar {
-    display: none;
+  .tab {
+    padding: 6px 10px;
+    font-size: 0.82rem;
+    gap: 5px;
+    margin: 0 6px 6px 0;
   }
 
-  .tab {
-    flex: 0 0 auto;
-    padding: 8px 12px;
-    font-size: 0.9rem;
-    margin: 0;
+  .tab i {
+    font-size: 0.78rem;
   }
 
   .faixa-vitais-conteudo {
