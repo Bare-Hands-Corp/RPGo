@@ -69,6 +69,7 @@ export function FaixaVitais({
   // máximo efetivo, mantendo a proporção visual coerente.
   const totalVisivel = Math.max(hpMax, hpAtual + hpTemp, 1);
   const hpPct = (Math.max(0, hpAtual) / totalVisivel) * 100;
+  const tempPct = (Math.max(0, hpTemp) / totalVisivel) * 100;
 
   function voltarAoTopo() {
     const suave = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -137,6 +138,7 @@ export function FaixaVitais({
       </div>
       <div className="faixa-vitais-trilho">
         <div className="faixa-vitais-fio" style={{ width: `${hpPct}%` }} />
+        <div className="faixa-vitais-fio-temp" style={{ width: `${tempPct}%` }} />
       </div>
     </div>,
     document.body,

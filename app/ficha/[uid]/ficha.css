@@ -115,12 +115,21 @@
   right: 0;
   bottom: -1px;
   height: 3px;
+  /* Flex pra empilhar PV atual + PV temporario lado a lado, mesma anatomia da
+     .hp-track da sidebar. */
+  display: flex;
   background: var(--border);
 }
 
 .faixa-vitais-fio {
   height: 100%;
   background: var(--bar-hp);
+  transition: width 0.25s ease;
+}
+
+.faixa-vitais-fio-temp {
+  height: 100%;
+  background: var(--color-bonus);
   transition: width 0.25s ease;
 }
 
