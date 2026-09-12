@@ -13,10 +13,13 @@ import { ThemeButton } from "@/components/temas/theme-button";
 import "../../calendario/[mesaId]/calendario.css";
 import "./ficha.css";
 
-type Params = { params: Promise<{ uid: string }> };
+type Params = {
+  params: Promise<{ uid: string }>;
+  searchParams: Promise<{ aba?: string | string[] }>;
+};
 
-export default async function FichaPage({ params }: Params) {
-  const { uid } = await params;
+export default async function FichaPage({ params, searchParams }: Params) {
+  const [{ uid }, { aba }] = await Promise.all([params, searchParams]);
 
   const supabase = await createClient();
 
@@ -68,9 +71,7 @@ export default async function FichaPage({ params }: Params) {
     personagem.periciasCustom.map((p) => p.slug),
   );
 
-  // Habilidade presa a um nó de árvore ainda não liberado NÃO concede nada.
-  // O gate mora aqui (e não no agregador) pra que `agregarEfeitos` siga sem
-  // saber que árvores existem — o filtro é o único ponto de contato.
+  // Habilidade presa a nó não liberado não entra no agregador.
   const travadasPorArvore = habilidadesTravadas(
     personagem.arvores.flatMap((a) => a.nos),
   );
@@ -85,9 +86,7 @@ export default async function FichaPage({ params }: Params) {
   // Penalidade de DES das armaduras equipadas (geralmente negativa). Reduz o
   // modificador de DES em todos os cálculos derivados (CR, iniciativa, salv/
   // perícia de DES, ataque à distância) — não só na CR.
-  // Camadas de árvore que destravam ao subir 1 nível — o assistente de nível
-  // mostra isso antes de confirmar. Só árvores com critério "nivel" mudam por
-  // aqui; as de "pontos" dependem do gasto, não do nível.
+  // Camadas por "nivel" que abrem no próximo nível, pro assistente mostrar.
   const camadasQueAbrem = personagem.arvores.flatMap((a) => {
     if (a.criterio !== "nivel") return [];
     return a.camadas
@@ -120,8 +119,7 @@ export default async function FichaPage({ params }: Params) {
     personagem.mesaId
       ? prisma.navio.findUnique({ where: { mesaId: personagem.mesaId } })
       : Promise.resolve(null),
-    // Árvores de QUALQUER personagem do mesmo dono — a do Haki é igual pra
-    // todo mundo, então copiar evita remontar os talentos na mão.
+    // Árvores de qualquer personagem do mesmo dono, pra copiar.
     prisma.arvore.findMany({
       where: { personagem: { userId: user.id } },
       orderBy: [{ personagemId: "asc" }, { ordem: "asc" }],
@@ -148,6 +146,8 @@ export default async function FichaPage({ params }: Params) {
       />
       <FichaTabs
         personagemId={personagem.id}
+        personagemNome={personagem.nome}
+        abaInicial={typeof aba === "string" ? aba : null}
         mesaId={personagem.mesaId}
         nivel={personagem.nivel}
         exaustao={personagem.exaustao}

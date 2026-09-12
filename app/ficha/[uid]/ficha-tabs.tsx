@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { AcoesTab } from "./acoes-tab";
 import { ArvoresTab, type Arvore, type ArvoreCopiavel } from "./arvores-tab";
 import { HabilidadesTab } from "./habilidades-tab";
@@ -26,6 +26,9 @@ type Navio = React.ComponentProps<typeof TripulacaoTab>["navio"];
 
 type Props = {
   personagemId: string;
+  personagemNome: string;
+  /** `?aba=` da URL. */
+  abaInicial: string | null;
   mesaId: string | null;
   nivel: number;
   exaustao: number;
@@ -72,6 +75,8 @@ const TABS_BASE: { id: TabId; label: string; icone: string }[] = [
 
 export function FichaTabs({
   personagemId,
+  personagemNome,
+  abaInicial,
   mesaId,
   nivel,
   exaustao,
@@ -95,15 +100,43 @@ export function FichaTabs({
   arvoresCopiaveis,
   habilidadesTravadas,
 }: Props) {
-  const [ativa, setAtiva] = useState<TabId>("combate");
+  const temCalendario = !!(mesaId && calendario);
+  const [ativa, setAtivaEstado] = useState<TabId>(() => {
+    const valida =
+      TABS_BASE.some((t) => t.id === abaInicial) ||
+      (abaInicial === "calendario" && temCalendario);
+    return valida ? (abaInicial as TabId) : "combate";
+  });
+
+  function setAtiva(id: TabId) {
+    setAtivaEstado(id);
+    // replaceState: não refaz o RSC nem enche o histórico.
+    const url = new URL(window.location.href);
+    if (id === "combate") url.searchParams.delete("aba");
+    else url.searchParams.set("aba", id);
+    window.history.replaceState(null, "", url);
+  }
+
+  const objetivosComPrazo = useMemo(
+    () =>
+      objetivos
+        .filter((o) => o.estado === "aberto" && o.prazoDias !== null)
+        .map((o) => ({
+          id: o.id,
+          titulo: o.titulo,
+          icone: o.icone,
+          prazoDias: o.prazoDias as number,
+          personagemId,
+          personagemNome,
+        })),
+    [objetivos, personagemId, personagemNome],
+  );
 
   const tabs = [...TABS_BASE];
-  if (mesaId && calendario) {
+  if (temCalendario) {
     tabs.push({ id: "calendario", label: "Calendário", icone: "fa-calendar-days" });
   }
 
-  // Setas/Home/End andam pela tablist e já movem o foco — sem isso a lista
-  // inteira fica inalcançável por teclado depois do roving tabindex.
   function navegarPorSeta(e: React.KeyboardEvent, indice: number) {
     const passo =
       e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
@@ -139,8 +172,6 @@ export function FichaTabs({
             id={`tab-${tab.id}`}
             aria-selected={ativa === tab.id}
             aria-controls={`painel-${tab.id}`}
-            // Roving tabindex: só a aba ativa entra na ordem de Tab; as setas
-            // fazem a navegação interna, como manda o padrão de tablist.
             tabIndex={ativa === tab.id ? 0 : -1}
             className={`tab ${ativa === tab.id ? "active" : ""}`}
             onClick={() => setAtiva(tab.id)}
@@ -288,6 +319,7 @@ export function FichaTabs({
             dataAtualDias={calendario.dataAtualDias}
             eventos={calendario.eventos}
             tiposClima={calendario.tiposClima}
+            objetivos={objetivosComPrazo}
           />
         </div>
       )}

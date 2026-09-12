@@ -91,7 +91,7 @@ export function ModalTiposClima({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="cal-modal-header">
-          <span className="cal-kicker">PERFIL CLIMÁTICO</span>
+          <span className="cal-kicker">Perfil climático</span>
           <h2>Tipos de Clima</h2>
         </div>
         <p className="campo-dica">

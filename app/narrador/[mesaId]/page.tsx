@@ -2,7 +2,10 @@ import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { listarMensagensSessao } from "@/lib/mensagens";
-import { carregarCalendario } from "@/lib/calendario/carregar";
+import {
+  carregarCalendario,
+  carregarObjetivosComPrazo,
+} from "@/lib/calendario/carregar";
 import { NarradorShell } from "./painel-narrador";
 import "@/app/dashboard/dashboard.css";
 import "@/app/calendario/[mesaId]/calendario.css";
@@ -20,7 +23,7 @@ export default async function NarradorPage({ params }: Params) {
   if (!user) redirect("/login");
 
   // Mesa + mensagens + calendário pré-carregados em paralelo.
-  const [mesa, mensagensIniciais, calendario] = await Promise.all([
+  const [mesa, mensagensIniciais, calendario, objetivosComPrazo] = await Promise.all([
     prisma.mesa.findUnique({
       where: { id: mesaId },
       include: {
@@ -31,6 +34,7 @@ export default async function NarradorPage({ params }: Params) {
     }),
     listarMensagensSessao(mesaId),
     carregarCalendario(mesaId, { isNarrador: true }),
+    carregarObjetivosComPrazo(mesaId, { userId: user.id, isNarrador: true }),
   ]);
   if (!mesa) notFound();
   if (!calendario) notFound();
@@ -45,6 +49,7 @@ export default async function NarradorPage({ params }: Params) {
       userId={user.id}
       mensagensIniciais={mensagensIniciais}
       calendario={calendario}
+      objetivosComPrazo={objetivosComPrazo}
     />
   );
 }

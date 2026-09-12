@@ -60,7 +60,6 @@ function mostrarErro(err: unknown) {
   });
 }
 
-/** Situação do prazo — decide o rótulo e a cor da pílula. */
 type Prazo = {
   texto: string;
   data: string;
@@ -89,8 +88,7 @@ export function ObjetivosTab({ personagemId, objetivos, calendario }: Props) {
   const [modal, setModal] = useState<Objetivo | "novo" | null>(null);
   const [verFechados, setVerFechados] = useState(false);
 
-  // Abertos ordenados pelo prazo mais próximo; sem prazo vai pro fim. É o que
-  // responde "o que vence primeiro" sem obrigar a ler a lista inteira.
+  // Abertos por prazo mais próximo; sem prazo vai pro fim.
   const { abertos, fechados } = useMemo(() => {
     const abertos = lista
       .filter((o) => o.estado === "aberto")
@@ -129,7 +127,6 @@ export function ObjetivosTab({ personagemId, objetivos, calendario }: Props) {
         }
         return;
       }
-      // Id temporário só pro registro otimista existir até o server responder.
       const temporario = `tmp-${Date.now()}`;
       const ordem = lista.length;
       aplicar({
@@ -386,13 +383,25 @@ function ObjetivoModal({
   const [icone, setIcone] = useState(inicial?.icone ?? "fa-scroll");
   const [temPrazo, setTemPrazo] = useState(inicial?.prazoDias != null);
 
-  // A data do formulário nasce no prazo existente, senão no dia corrente da mesa.
+  // Prazo por data ou "daqui a N dias"; o banco guarda sempre o dia absoluto.
+  const [modoPrazo, setModoPrazo] = useState<"data" | "relativo">("data");
+
   const base = calendario
     ? dataParaDias(inicial?.prazoDias ?? calendario.dataAtualDias, calendario.config)
     : null;
   const [ano, setAno] = useState(base?.ano ?? 1);
   const [mes, setMes] = useState(base?.mes ?? 1);
   const [dia, setDia] = useState(base?.dia ?? 1);
+  const [emDias, setEmDias] = useState(() => {
+    if (!calendario || inicial?.prazoDias == null) return 7;
+    return Math.max(0, inicial.prazoDias - calendario.dataAtualDias);
+  });
+
+  const prazoCalculado = !calendario
+    ? null
+    : modoPrazo === "relativo"
+      ? calendario.dataAtualDias + Math.max(0, emDias || 0)
+      : diasParaData({ ano, mes, dia }, calendario.config);
 
   function salvar() {
     const t = titulo.trim();
@@ -410,10 +419,7 @@ function ObjetivoModal({
       titulo: t,
       descricao: descricao.trim(),
       icone,
-      prazoDias:
-        temPrazo && calendario
-          ? diasParaData({ ano, mes, dia }, calendario.config)
-          : null,
+      prazoDias: temPrazo && prazoCalculado !== null ? prazoCalculado : null,
     });
   }
 
@@ -430,7 +436,7 @@ function ObjetivoModal({
         </button>
         <h2>{inicial ? "Editar objetivo" : "Novo objetivo"}</h2>
 
-        <div className="modal-secao">
+        <div className="modal-bloco">
           <label>
             Título
             <input
@@ -456,7 +462,8 @@ function ObjetivoModal({
           <IconePicker valor={icone} onChange={setIcone} />
         </div>
 
-        <div className="modal-secao">
+        <h3 className="modal-secao">Prazo</h3>
+        <div className="modal-bloco">
           {calendario && hoje ? (
             <>
               <label className="checkbox-linha">
@@ -470,40 +477,81 @@ function ObjetivoModal({
 
               {temPrazo && (
                 <>
-                  <div className="campo-trio">
-                    <label>
-                      Ano
-                      <input
-                        type="number"
-                        value={ano}
-                        onChange={(e) => setAno(Number(e.target.value))}
-                      />
-                    </label>
-                    <label>
-                      Mês
-                      <input
-                        type="number"
-                        min={1}
-                        max={calendario.config.meses.length}
-                        value={mes}
-                        onChange={(e) => setMes(Number(e.target.value))}
-                      />
-                    </label>
-                    <label>
-                      Dia
-                      <input
-                        type="number"
-                        min={1}
-                        max={maxDia}
-                        value={dia}
-                        onChange={(e) => setDia(Number(e.target.value))}
-                      />
-                    </label>
+                  <div className="origem-pills obj-prazo-modo">
+                    <button
+                      type="button"
+                      className={`origem-pill ${modoPrazo === "data" ? "ativo" : ""}`}
+                      onClick={() => setModoPrazo("data")}
+                      aria-pressed={modoPrazo === "data"}
+                    >
+                      <i className="fas fa-calendar-day" /> Data exata
+                    </button>
+                    <button
+                      type="button"
+                      className={`origem-pill ${modoPrazo === "relativo" ? "ativo" : ""}`}
+                      onClick={() => setModoPrazo("relativo")}
+                      aria-pressed={modoPrazo === "relativo"}
+                    >
+                      <i className="fas fa-hourglass-half" /> Daqui a X dias
+                    </button>
                   </div>
-                  <p className="campo-dica">
-                    Hoje na mesa é {hoje.dia} de {hoje.nomeMes}, {hoje.ano}. A ficha
-                    só lê essa data — o objetivo não vira evento no calendário.
-                  </p>
+
+                  {modoPrazo === "data" ? (
+                    <div className="campo-trio">
+                      <label>
+                        Ano
+                        <input
+                          type="number"
+                          value={ano}
+                          onChange={(e) => setAno(Number(e.target.value))}
+                        />
+                      </label>
+                      <label>
+                        Mês
+                        <input
+                          type="number"
+                          min={1}
+                          max={calendario.config.meses.length}
+                          value={mes}
+                          onChange={(e) => setMes(Number(e.target.value))}
+                        />
+                      </label>
+                      <label>
+                        Dia
+                        <input
+                          type="number"
+                          min={1}
+                          max={maxDia}
+                          value={dia}
+                          onChange={(e) => setDia(Number(e.target.value))}
+                        />
+                      </label>
+                    </div>
+                  ) : (
+                    <label className="obj-prazo-dias">
+                      Daqui a quantos dias
+                      <input
+                        type="number"
+                        min={0}
+                        value={emDias}
+                        onChange={(e) => setEmDias(Number(e.target.value))}
+                      />
+                    </label>
+                  )}
+
+                  {prazoCalculado !== null && (
+                    <p className="campo-dica">
+                      Hoje na mesa é {hoje.dia} de {hoje.nomeMes}, {hoje.ano}. Prazo{" "}
+                      <strong>{dataRelativa(prazoCalculado, calendario.dataAtualDias)}</strong>
+                      {" — "}
+                      {(() => {
+                        const d = dataParaDias(prazoCalculado, calendario.config);
+                        return `${d.dia} de ${d.nomeMes}, ano ${d.ano}`;
+                      })()}
+                      . Aparece no calendário da mesa como prazo de objetivo (só
+                      você e o narrador veem) — não vira evento.
+                    </p>
+                  )}
                 </>
               )}
             </>

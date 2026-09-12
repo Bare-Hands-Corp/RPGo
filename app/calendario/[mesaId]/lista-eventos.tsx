@@ -52,7 +52,7 @@ export function ListaEventos({
     exibidos = passados.filter((e) => e.dataDias > limite).sort((a, b) => b.dataDias - a.dataDias);
   }
 
-  const direcao = isNarrador ? "PRÓXIMOS" : "ÚLTIMOS";
+  const direcao = isNarrador ? "próximos" : "últimos";
   const foraDaJanela = totalNaDirecao > exibidos.length;
   const restante = totalNaDirecao - exibidos.length;
 
@@ -72,31 +72,39 @@ export function ListaEventos({
   }
 
   return (
-    <div className="cal-eventos-card">
+    <div className="cal-card cal-eventos-card">
       <div className="cal-eventos-header">
         <div className="cal-eventos-header-esq">
-          <span className="cal-kicker">{isNarrador ? "PRÓXIMOS EVENTOS" : "DIÁRIO DE BORDO"}</span>
-          <span className="cal-eventos-count">{exibidos.length}</span>
-          <span className={"cal-visao-badge" + (isNarrador ? " narrador" : "")}>
-            {isNarrador ? "VISÃO DO MESTRE" : "VISÃO DO JOGADOR"}
+          <span className="cal-kicker">
+            {isNarrador ? "Próximos eventos" : "Diário de bordo"}
           </span>
+          <span className="cal-eventos-count">{exibidos.length}</span>
+          {isNarrador && <span className="cal-selo narrador">Visão do narrador</span>}
         </div>
         {isNarrador && (
-          <div>
-            <button type="button" className="btn-rect outline sm" onClick={onNovo}>
-              <i className="fas fa-plus" /> Adicionar evento
-            </button>
-          </div>
+          <button type="button" className="btn-rect outline sm" onClick={onNovo}>
+            <i className="fas fa-plus" /> Novo evento
+          </button>
         )}
       </div>
 
-      {!eventos.length ? (
-        <div className="cal-empty">Nenhum evento por aqui ainda.</div>
-      ) : exibidos.length === 0 ? (
+      {!exibidos.length ? (
         <div className="cal-empty">
-          {isNarrador
-            ? `Nenhum evento nos próximos ${janela} dias.`
-            : `Nenhum evento nos últimos ${janela} dias.`}
+          <span className="cal-empty-titulo">
+            {!eventos.length
+              ? "Nenhum evento registrado ainda"
+              : `Nada nos ${direcao} ${janela} dias`}
+          </span>
+          <span>
+            {isNarrador
+              ? "Eventos climáticos e narrativos aparecem aqui e na grade do mês."
+              : "O que o narrador registrar até a data de hoje aparece aqui."}
+          </span>
+          {isNarrador && (
+            <button type="button" className="btn-rect tracejado sm" onClick={onNovo}>
+              <i className="fas fa-plus" /> Criar o primeiro evento
+            </button>
+          )}
         </div>
       ) : (
         <div className="cal-eventos-lista">
@@ -111,10 +119,10 @@ export function ListaEventos({
                 : "fa-scroll";
             const data = dataParaDias(ev.dataDias, config);
             const rel = dataRelativa(ev.dataDias, dataAtualDias);
-            const tipoLabel = ev.tipo === "climatico" ? "CLIMA" : "NARRATIVO";
+            const tipoLabel = ev.tipo === "climatico" ? "Clima" : "Narrativo";
             const tipoClass = ev.tipo === "climatico" ? "tipo-climatico" : "tipo-narrativo";
 
-            const rowClasses = ["cal-evento-row"];
+            const rowClasses = ["cal-evento-row", tipoClass];
             if (futuro) rowClasses.push("cal-evento-futuro");
             if (ev.oculto) rowClasses.push("cal-evento-oculto-row");
 
@@ -128,42 +136,61 @@ export function ListaEventos({
                   <div className="cal-evento-titulo-linha">
                     <IconeCal icone={icone} className="cal-evento-icone-inline" />
                     <span className="cal-evento-titulo">{ev.titulo}</span>
+                    <span className={"cal-selo " + tipoClass}>{tipoLabel}</span>
                   </div>
                   <div className="cal-evento-meta">
-                    <span className={"cal-evento-tipo-tag " + tipoClass}>{tipoLabel}</span>
                     <span>
                       {data.nomeMes}, ano {data.ano}
                     </span>
+                    {tipoClima && ev.tipo === "climatico" && <span>· {tipoClima.nome}</span>}
                   </div>
                   {ev.descricao && <div className="cal-evento-descricao">{ev.descricao}</div>}
                 </div>
-                {ev.oculto ? (
-                  <span className="cal-evento-oculto-tag">
-                    <i className="fas fa-eye-slash" /> OCULTO
-                  </span>
-                ) : futuro ? (
-                  <span className="cal-evento-status status-futuro">AGENDADO</span>
-                ) : (
-                  <span className="cal-evento-status status-visivel">VISÍVEL</span>
-                )}
+
                 {isNarrador && (
-                  <div className="cal-evento-acoes">
-                    <button
-                      type="button"
-                      className="cal-acao-btn"
-                      onClick={() => onEditar(ev)}
-                      title="Editar"
-                    >
-                      <i className="fas fa-edit" />
-                    </button>
-                    <button
-                      type="button"
-                      className="cal-acao-btn cal-acao-delete"
-                      onClick={() => apagar(ev.id)}
-                      title="Excluir"
-                    >
-                      <i className="fas fa-trash" />
-                    </button>
+                  <div className="cal-evento-lado">
+                    {ev.oculto ? (
+                      <span
+                        className="cal-selo status-oculto"
+                        title="Só o narrador vê este evento, mesmo depois da data"
+                      >
+                        <i className="fas fa-eye-slash" /> Oculto
+                      </span>
+                    ) : futuro ? (
+                      <span
+                        className="cal-selo status-futuro"
+                        title="Ainda não chegou a data — os jogadores não veem"
+                      >
+                        Agendado
+                      </span>
+                    ) : (
+                      <span
+                        className="cal-selo status-visivel"
+                        title="Já visível pros jogadores"
+                      >
+                        Visível
+                      </span>
+                    )}
+                    <div className="cal-evento-acoes">
+                      <button
+                        type="button"
+                        className="cal-acao-btn"
+                        onClick={() => onEditar(ev)}
+                        title="Editar evento"
+                        aria-label={`Editar evento ${ev.titulo}`}
+                      >
+                        <i className="fas fa-pen" />
+                      </button>
+                      <button
+                        type="button"
+                        className="cal-acao-btn cal-acao-delete"
+                        onClick={() => apagar(ev.id)}
+                        title="Excluir evento"
+                        aria-label={`Excluir evento ${ev.titulo}`}
+                      >
+                        <i className="fas fa-trash" />
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -180,11 +207,12 @@ export function ListaEventos({
         >
           {expandido ? (
             <>
-              <i className="fas fa-chevron-up" /> RECOLHER ({direcao} {JANELA_PADRAO} DIAS)
+              <i className="fas fa-chevron-up" /> Recolher pros {direcao} {JANELA_PADRAO} dias
             </>
           ) : (
             <>
-              <i className="fas fa-chevron-down" /> VER {direcao} {JANELA_EXPANDIDA} DIAS (+{restante})
+              <i className="fas fa-chevron-down" /> Ver os {direcao} {JANELA_EXPANDIDA} dias (+
+              {restante})
             </>
           )}
         </button>

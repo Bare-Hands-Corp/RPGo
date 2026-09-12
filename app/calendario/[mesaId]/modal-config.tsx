@@ -122,7 +122,7 @@ export function ModalConfig({ mesaId, config, dataAtualDias, onFechar }: Props) 
     <div className="modal-overlay" onClick={onFechar}>
       <div className="modal-box modal-box-grande" onClick={(e) => e.stopPropagation()}>
         <div className="cal-modal-header">
-          <span className="cal-kicker">CONFIGURAR</span>
+          <span className="cal-kicker">Configurar</span>
           <h2>Calendário da mesa</h2>
         </div>
 

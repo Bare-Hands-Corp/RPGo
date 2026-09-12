@@ -76,7 +76,7 @@ export function ModalEvento({
     <div className="modal-overlay" onClick={onFechar}>
       <div className="modal-box modal-box-lg" onClick={(e) => e.stopPropagation()}>
         <div className="cal-modal-header">
-          <span className="cal-kicker">EVENTO</span>
+          <span className="cal-kicker">Evento</span>
           <h2>{eventoInicial ? "Editar Evento" : "Novo Evento"}</h2>
         </div>
 
