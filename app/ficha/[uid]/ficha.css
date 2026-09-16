@@ -1,8 +1,6 @@
 /* ─── LAYOUT GERAL ───────────────────────────────────────── */
 .ficha-layout {
-  /* Largura que o .ficha-topo-acoes (absoluto, no canto) ocupa por cima do
-     conteudo. As abas reservam isso a direita pra nao passarem por baixo do
-     botao de tema — a ultima aba da 1a fileira ficava cortada. */
+  /* Espaço do .ficha-topo-acoes que as abas reservam à direita. */
   --topo-acoes-reserva: 60px;
   display: grid;
   grid-template-columns: 320px 1fr;
@@ -24,11 +22,7 @@
   z-index: 5;
 }
 
-/* ─── FAIXA CONDENSADA DE VITAIS ──────────────────────────────
-   PV/PE/CR grudados no topo, visíveis só depois que o bloco de
-   vitais da sidebar sai por cima. Sidebar e faixa nunca são
-   lidas ao mesmo tempo — daí não haver duplicação na tela.
-   Fica abaixo da Bandeja (z 9999) e dos modais (z 1000). */
+/* ─── FAIXA CONDENSADA DE VITAIS ────────────────────────────── */
 .faixa-vitais {
   position: fixed;
   top: 0;
@@ -106,17 +100,12 @@
   background: var(--bg-surface);
 }
 
-/* Fio de PV colado na borda de baixo: leitura de "quão ferido" sem gastar
-   uma segunda linha de altura na faixa. Com trilho, senão vira borda
-   decorativa numa tela larga em vez de medidor. */
 .faixa-vitais-trilho {
   position: absolute;
   left: 0;
   right: 0;
   bottom: -1px;
   height: 3px;
-  /* Flex pra empilhar PV atual + PV temporario lado a lado, mesma anatomia da
-     .hp-track da sidebar. */
   display: flex;
   background: var(--border);
 }
@@ -856,9 +845,18 @@
   transition: border-color 0.15s, background 0.15s;
 }
 .attr-rolar:hover,
-.derivado-rolar:hover {
+.derivado-rolar:hover,
+.attr-rolar:focus-visible,
+.derivado-rolar:focus-visible {
   border-color: var(--primary);
   background: color-mix(in srgb, var(--primary) 8%, var(--bg-surface));
+}
+
+.attr-rolar:focus-visible,
+.derivado-rolar:focus-visible,
+.editable-num:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 .cr-editavel {
@@ -1040,17 +1038,12 @@
 }
 
 /* ─── MAIN CONTENT + TABS ─────────────────────────────────── */
-/* min-width: 0 e obrigatorio: a coluna e `1fr`, que e `minmax(auto, 1fr)`, e o
-   `auto` deixa o min-content do painel ATIVO empurrar a coluna. Como so o
-   painel visivel conta (os outros sao display:none), trocar de aba mudava a
-   largura da coluna e, com ela, quantas abas cabiam na primeira fileira. */
+/* min-width: 0 impede o painel ativo de esticar a coluna 1fr. */
 .ficha-main {
   min-width: 0;
   padding-bottom: 80px;
 }
 
-/* Cabecalho de aba: titulo a esquerda, acoes a direita, quebrando quando a
-   coluna aperta. Sem o wrap essa linha vira o piso de largura do painel. */
 .tab-topo {
   display: flex;
   justify-content: space-between;
@@ -1059,17 +1052,13 @@
   gap: 10px;
 }
 
-/* Bloco com abas inline em vez de flex: assim o ::before flutuante reserva o
-   canto do .ficha-topo-acoes SO na primeira fileira. Em container flex o float
-   e ignorado, e reservar por padding-right roubava largura de TODAS as
-   fileiras — custava uma fileira a mais em telas medias. */
+/* Inline em vez de flex pro ::before flutuante reservar só a 1ª fileira. */
 .tabs {
   display: block;
   margin-bottom: 30px;
   border-bottom: 1px solid var(--border);
   padding-bottom: 0;
-  /* Mata a folga de espaco em branco entre inline-blocks; .tab repoe o tamanho.
-     Sem isso o layout depende de o JSX nao emitir texto entre os botoes. */
+  /* Mata o espaço entre inline-blocks; .tab repõe o tamanho. */
   font-size: 0;
 }
 
@@ -1077,8 +1066,6 @@
   content: "";
   float: right;
   width: var(--topo-acoes-reserva);
-  /* 1px de propósito: o float so encurta a linha que ele cruza, entao a
-     reserva morre depois da primeira fileira. */
   height: 1px;
 }
 
@@ -1096,8 +1083,6 @@
   align-items: center;
   gap: 6px;
   text-decoration: none;
-  /* Substitui o gap do flex; vertical-align mata a folga de baseline do
-     inline-block. */
   margin: 0 15px 10px 0;
   vertical-align: top;
 }
@@ -1306,14 +1291,6 @@
   border: 1px solid color-mix(in oklch, var(--color-bonus) 30%, transparent);
 }
 
-.tipo-cards-4 {
-  grid-template-columns: repeat(4, 1fr);
-}
-
-.tipo-cards-5 {
-  grid-template-columns: repeat(5, 1fr);
-}
-
 /* ─── PESO/CARGA ───────────────────────────────────────────── */
 .peso-bar { margin: 20px 0; }
 .msg-sobrecarga {
@@ -1383,8 +1360,6 @@
   display: flex;
   align-items: center;
   gap: 9px;
-  /* Sem isto o conteúdo vaza da célula do grid: os controles têm largura fixa
-     e .prof-nome (flex:1) não encolhe abaixo do próprio texto. */
   min-width: 0;
   overflow: hidden;
   padding: 8px 11px;
@@ -1447,7 +1422,6 @@
   gap: 5px;
 }
 
-/* Nome comprido corta com reticência em vez de empurrar os controles. */
 .prof-nome > :first-child,
 .prof-nome {
   overflow: hidden;
@@ -1597,17 +1571,32 @@
 }
 
 .tipo-card:hover {
-  border-color: var(--primary);
+  border-color: color-mix(in oklch, var(--tipo-cor, var(--primary)) 70%, var(--border));
   transform: translateY(-2px);
 }
 
 .tipo-card.ativo {
-  border-color: var(--color-power);
-  background: color-mix(in oklch, var(--color-power) 10%, var(--bg-card));
+  border-color: var(--tipo-cor, var(--primary));
+  background: color-mix(in oklch, var(--tipo-cor, var(--primary)) 12%, var(--bg-card));
+  box-shadow:
+    inset 0 0 0 1px var(--tipo-cor, var(--primary)),
+    0 8px 18px -10px var(--tipo-cor, var(--primary));
+}
+
+.tipo-card:focus-visible {
+  outline: 2px solid var(--tipo-cor, var(--primary));
+  outline-offset: 2px;
 }
 
 .tipo-card-icone {
-  font-size: 1.5rem;
+  font-size: 1.4rem;
+  color: var(--tipo-cor, var(--text-sec));
+  transition: color 0.15s, transform 0.15s;
+}
+
+.tipo-card.ativo .tipo-card-icone {
+  color: var(--tipo-cor, var(--primary));
+  transform: scale(1.08);
 }
 
 .tipo-card-titulo {
@@ -1618,6 +1607,25 @@
 .tipo-card-sub {
   font-size: 0.7rem;
   color: var(--text-sec);
+}
+
+/* Especificidade dobrada pra vencer o repeat(3) de .tipo-cards. */
+.tipo-cards.tipo-cards-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.tipo-cards.tipo-cards-5 {
+  grid-template-columns: repeat(5, 1fr);
+}
+
+@media (max-width: 520px) {
+  .tipo-cards.tipo-cards-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .tipo-cards.tipo-cards-5 {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }
 
 .modal-hint {
@@ -1900,10 +1908,14 @@
 
 /* ─── MODAL: ORIGEM PILLS ─────────────────────────────────── */
 .origem-pills {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin: 5px 0 14px;
+}
+
+.origem-pills > .origem-pill {
+  flex: 1 1 auto;
 }
 
 .origem-pill {
@@ -1930,8 +1942,23 @@
 }
 
 .origem-pill.ativo {
-  border-width: 2px;
+  /* Anel por sombra pra não empurrar as vizinhas. */
+  box-shadow: inset 0 0 0 1px currentColor;
+  background: color-mix(in oklch, currentColor 10%, var(--bg-card));
   font-weight: 700;
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.obj-prazo-modo {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 340px;
+}
+
+.obj-prazo-dias input {
+  display: block;
+  max-width: 140px;
 }
 
 /* ─── MODAL: EFEITOS — picker de presets ─────────────────── */
@@ -2452,17 +2479,9 @@
   white-space: pre-wrap;
 }
 
-/* ═══ ESTILOS DE COR (brilho) ══════════════════════════════
-   Cor base + tons derivados chegam inline como --fx-* (lib/estilos-cor.ts);
-   aqui só ficam as regras que consomem. Três famílias:
-     .fx-chip        → pílula de tag / chip de custo (texto dentro de .fx-texto)
-     .fx-barra       → preenchimento da barra de recurso
-     .fx-texto-solto → nome solto (recurso na sidebar)
-   Sem cor válida nenhuma dessas classes é aplicada e o alvo fica no visual
-   padrão do tema. */
+/* ═══ ESTILOS DE COR (brilho) ══════════════════════════════ */
+/* Cor base e tons chegam inline como --fx-* (lib/estilos-cor.ts). */
 
-/* Tom do texto: no claro usa a cor cheia, no escuro a versão clareada
-   (cor saturada escura some no fundo escuro). */
 .fx-chip,
 .fx-texto-solto {
   --fx-txt: var(--fx-cor);
@@ -2487,8 +2506,7 @@
   color: var(--fx-txt);
 }
 
-/* Gradiente, metálico e holo pintam o texto via background-clip — por isso o
-   span interno: a pílula fica no elemento de fora, o degradê no de dentro. */
+/* O degradê vai no span interno (background-clip); a pílula fica no de fora. */
 .fx-gradiente .fx-texto,
 .fx-metalico .fx-texto,
 .fx-holo .fx-texto {
@@ -2498,8 +2516,6 @@
   -webkit-text-fill-color: transparent;
 }
 
-/* Gradiente é animado: a rampa cor→companheira→cor desliza em loop. O
-   background-size de 200% dá o comprimento extra que a translação consome. */
 .fx-gradiente .fx-texto {
   background-image: linear-gradient(
     95deg,
@@ -2714,7 +2730,6 @@
     0 0 12px color-mix(in oklch, var(--fx-cor) 55%, transparent);
 }
 
-/* Contorno em texto solto vira letra vazada com traço na cor. */
 .fx-texto-solto.fx-contorno {
   color: transparent;
   -webkit-text-stroke: 0.7px var(--fx-cor);
@@ -2724,16 +2739,7 @@
   animation: fx-pulse-texto 1.8s ease-in-out infinite;
 }
 
-/* IMPORTANTE — por que 200%: `background-position` em porcentagem NÃO é
-   translação direta. O deslocamento real é (container − imagem) × p, e o fundo
-   se repete a cada largura de imagem. Pra o loop fechar sem salto, o percurso
-   precisa ser múltiplo INTEIRO do ladrilho:
-
-     size 200% → imagem 2×, deslocamento = −1× × p → p = 200% dá exatamente 1 ladrilho
-     size 300% → imagem 3×, deslocamento = −2× × p → p = 300% dá exatamente 2
-
-   O metálico usava size 250% com percurso de 350%, o que dava 2,1 ladrilhos —
-   a fração de sobra era o "snap" no fim de cada volta. */
+/* Percurso de 200% = exatamente 1 ladrilho, então o loop fecha sem salto. */
 @keyframes fx-metalico-brilho {
   to {
     background-position: 0 200%, 0 0;
@@ -2805,8 +2811,7 @@
   }
 }
 
-/* ─── PICKER DE ESTILO (efeito + cor) ──────────────────────
-   Usado no modal de Recurso e no editor de tags (item e habilidade). */
+/* ─── PICKER DE ESTILO (efeito + cor) ────────────────────── */
 .estilo-picker {
   display: flex;
   flex-direction: column;
@@ -2850,7 +2855,6 @@
   box-shadow: inset 0 0 0 1px var(--primary);
 }
 
-/* A prévia dentro do botão usa a família "texto solto" com a cor escolhida. */
 .efeito-opcao .fx-texto-solto {
   font-size: 0.9rem;
 }
@@ -2917,10 +2921,7 @@
   color: var(--text-main);
 }
 
-/* ─── TETO DE ATRIBUTO ─────────────────────────────────────
-   O limite de 20 é do Aprimoramento de Atributo (e do ajuste de espécie na
-   criação), não um teto duro — o livro lista pontuações até 30 pra lendários.
-   Por isso a ficha só sinaliza; nada bloqueia a edição. */
+/* ─── TETO DE ATRIBUTO ───────────────────────────────────── */
 .attr-teto-nota {
   font-weight: 400;
   color: var(--text-sec);
@@ -2946,11 +2947,7 @@
   vertical-align: super;
 }
 
-/* ═══ ÁRVORES DE TALENTO ═══════════════════════════════════
-   Canvas contínuo: trilho de camadas à esquerda (nome em pé) e faixas à direita
-   divididas em raias. O nó é posicionado em % dentro da faixa (offsetY), o que
-   dá o escalonamento de árvore; os conectores são um <svg> absoluto medido do
-   DOM (ver ArvoreCanvas). */
+/* ═══ ÁRVORES DE TALENTO ═══════════════════════════════════ */
 
 .arvores-wrap {
   display: flex;
@@ -3076,7 +3073,6 @@
   padding: 0;
 }
 
-/* Véu escuro sobre a arte de fundo pra manter os cards legíveis. */
 .arvore-canvas-veu {
   position: absolute;
   inset: 0;
@@ -3109,6 +3105,62 @@
   stroke-dasharray: none;
   stroke-width: 2.5;
 }
+
+/* ─── Fio de progresso: trilha dos talentos já comprados ──── */
+.arvore-canvas {
+  --arvore-fio-cor: var(--primary);
+}
+
+.arvore-fio path {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.arvore-fio-halo {
+  stroke: color-mix(in oklch, var(--arvore-fio-cor) 30%, transparent);
+  stroke-width: 9;
+}
+
+.arvore-fio-traco {
+  stroke: var(--arvore-fio-cor);
+  stroke-width: 3.5;
+}
+
+.arvore-fio-brilho {
+  stroke: color-mix(in oklch, var(--arvore-fio-cor) 35%, white);
+  stroke-width: 2;
+  stroke-dasharray: 14 86;
+  animation: arvore-fio-corre 2.8s linear infinite;
+}
+
+.arvore-fio.livre .arvore-fio-halo {
+  stroke-width: 7;
+}
+
+.arvore-fio.livre .arvore-fio-traco {
+  stroke-width: 2.5;
+  opacity: 0.8;
+}
+
+.arvore-canvas.foco .arvore-fio {
+  opacity: 0.3;
+}
+
+@keyframes arvore-fio-corre {
+  from {
+    stroke-dashoffset: 100;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arvore-fio-brilho {
+    display: none;
+  }
+}
+
 
 /* ─── Cabeçalho das raias ─────────────────────────────────── */
 .arvore-raias-head {
@@ -3148,8 +3200,6 @@
   border-top: none;
 }
 
-/* Camada trancada: esmaecida, não escondida — o jogador precisa ver o que vem
-   pela frente pra planejar a build. */
 .arvore-faixa-linha.fechada {
   opacity: 0.5;
 }
@@ -3166,7 +3216,6 @@
   background: color-mix(in oklch, var(--bg-surface) 55%, transparent);
 }
 
-/* Nome da camada em pé, como o INEXPERIENTE / TREINADO / PERITO da referência. */
 .arvore-trilho-nome {
   writing-mode: vertical-rl;
   transform: rotate(180deg);
@@ -3269,12 +3318,10 @@
 }
 
 .arvore-no.comprado {
-  border-color: color-mix(in oklch, var(--primary) 70%, transparent);
-  background: color-mix(in oklch, var(--primary) 10%, var(--bg-card));
+  border-color: color-mix(in oklch, var(--arvore-fio-cor, var(--primary)) 70%, transparent);
+  background: color-mix(in oklch, var(--arvore-fio-cor, var(--primary)) 10%, var(--bg-card));
 }
 
-/* "Dá pra comprar agora" precisa saltar sem o modo de foco ligado — a borda
-   levemente tingida de antes se perdia em árvore grande. */
 .arvore-no.disponivel {
   border-color: color-mix(in oklch, var(--color-react) 65%, var(--border));
   box-shadow:
@@ -3282,7 +3329,6 @@
     0 0 0 2px color-mix(in oklch, var(--color-react) 35%, transparent);
 }
 
-/* Modo de foco: apaga o resto pra sobrar só o comprável. */
 .arvore-canvas.foco .arvore-no:not(.disponivel) {
   opacity: 0.28;
   filter: grayscale(0.5);
@@ -3305,8 +3351,6 @@
   }
 }
 
-/* Contador de compráveis na barra — botão quando há o que destacar, texto
-   morto quando não há. */
 .arvore-disponiveis {
   display: inline-flex;
   align-items: center;
@@ -3347,7 +3391,6 @@
   color: var(--text-sec);
 }
 
-/* Marca na tira da camada recolhida e no resumo da árvore recolhida. */
 .arvore-tira-disp,
 .arvore-resumo-disp {
   font-style: normal;
@@ -3369,7 +3412,6 @@
   opacity: 0.72;
 }
 
-/* Selo de custo — círculo no canto, como o número da referência. */
 .arvore-no-selo {
   position: absolute;
   top: -9px;
@@ -3514,7 +3556,6 @@
 }
 
 
-/* Telas estreitas: o trilho encolhe e as raias viram uma coluna só. */
 @media (max-width: 640px) {
   .arvore-raias-head,
   .arvore-faixa-linha {
@@ -3531,7 +3572,6 @@
   }
 }
 
-/* Habilidade travada por um nó não liberado — mostrada na aba Habilidades. */
 .hab-travada {
   opacity: 0.6;
 }
@@ -3545,7 +3585,7 @@
   color: #e0a000;
 }
 
-/* ─── Picker de ícone (grade visual, nunca slug digitado) ─── */
+/* ─── Picker de ícone ─────────────────────────────────────── */
 .icone-picker {
   position: relative;
 }
@@ -3687,13 +3727,11 @@
   color: var(--text-sec);
 }
 
-/* Raia sob o cursor durante o arrasto. */
 .arvore-raia.alvo {
   background: color-mix(in oklch, var(--primary) 9%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--primary) 35%, transparent);
 }
 
-/* Convite a clicar no vazio pra criar talento — discreto até o hover. */
 .arvore-raia:hover {
   background: color-mix(in oklch, var(--primary) 4%, transparent);
 }
@@ -3729,7 +3767,6 @@
   color: var(--primary);
 }
 
-/* Camada recolhida vira uma tira fina com o placar de liberados. */
 .arvore-faixa-tira {
   display: flex;
   align-items: center;
@@ -3777,7 +3814,6 @@
   margin-left: auto;
 }
 
-/* Raia vazia: convite explícito em vez de um retângulo morto. */
 .arvore-slot-vazio {
   position: absolute;
   top: 50%;
@@ -3844,7 +3880,7 @@
     );
 }
 
-/* A prévia reusa .arvore-no, que é absoluto no canvas — aqui vira estático. */
+/* .arvore-no é absoluto no canvas; na prévia vira estático. */
 .no-previa-card {
   position: static;
   transform: none;
@@ -3864,7 +3900,6 @@
   }
 }
 
-/* Ranks viram botões — 1..5 clicável em vez de campo numérico. */
 .rank-escolha {
   display: flex;
   gap: 4px;
@@ -3940,7 +3975,6 @@
   background: color-mix(in oklch, var(--primary) 6%, transparent);
 }
 
-/* Caixa de marcação desenhada — a nativa não aceita estilo consistente. */
 .req-check {
   display: flex;
   align-items: center;
@@ -3991,7 +4025,6 @@
   flex-shrink: 0;
 }
 
-/* Rank exigido: botões visuais (Base / ✩ / ★) no lugar do <select>. */
 .req-ranks {
   display: flex;
   gap: 4px;
@@ -4030,7 +4063,6 @@
   margin: 6px 0 0;
 }
 
-/* Linha secundária do item na lista de cópia (origem + tamanho da árvore). */
 .copiar-origem {
   display: block;
   margin-top: 2px;
@@ -4039,9 +4071,7 @@
   color: var(--text-sec);
 }
 
-/* ─── DESCANSO (sidebar) ───────────────────────────────────
-   Curto/longo + gasto de Dado de Vida. Fica logo abaixo da exaustão porque os
-   três mexem no mesmo ciclo: gastar, cansar, recuperar. */
+/* ─── DESCANSO (sidebar) ─────────────────────────────────── */
 .descanso-bloco {
   display: flex;
   flex-direction: column;
@@ -4110,9 +4140,7 @@
   color: var(--primary);
 }
 
-/* ─── SUBIR DE NÍVEL ───────────────────────────────────────
-   PE só sugere: a barra acende e o botão ganha destaque ao cruzar o limiar,
-   mas subir segue sendo ato manual. */
+/* ─── SUBIR DE NÍVEL ─────────────────────────────────────── */
 .pe-bar.pe-pronto .pe-fill {
   box-shadow: 0 0 8px color-mix(in oklch, var(--primary) 65%, transparent);
 }
@@ -4252,9 +4280,7 @@
 }
 
 
-/* ─── OBJETIVOS ────────────────────────────────────────────────
-   Metas do personagem. O prazo é uma data do calendário da mesa;
-   a aba só LÊ `dataAtualDias` pra contar quanto falta. */
+/* ─── OBJETIVOS ──────────────────────────────────────────────── */
 .obj-barra {
   display: flex;
   justify-content: space-between;
@@ -4290,8 +4316,6 @@
   opacity: 0.8;
 }
 
-/* Estado vazio: mesma afordância tracejada de "clique pra criar" usada na
-   árvore e no calendário. */
 .obj-vazio {
   width: 100%;
   flex-direction: column;
@@ -4396,7 +4420,6 @@
   background: var(--bg-card);
 }
 
-/* Pílula de prazo: contagem relativa em destaque, data absoluta ao lado. */
 .obj-prazo {
   display: inline-flex;
   align-items: center;
@@ -4464,21 +4487,13 @@
 }
 
 
-/* ─── RESPONSIVO ──────────────────────────────────────────────
-   Único breakpoint do grid raiz: abaixo de 900px a sidebar deixa
-   de ser coluna e empilha acima do conteúdo. Quem cobre os vitais
-   a partir daí é a faixa condensada. Fica no fim do arquivo de
-   propósito — media query não soma especificidade, então a ordem
-   é o que garante que estas regras vençam. */
+/* ─── RESPONSIVO ────────────────────────────────────────────── */
+/* No fim do arquivo de propósito: a ordem garante que estas regras vençam. */
 @media (max-width: 900px) {
   .ficha-layout {
-    /* O botao de tema ganha uma faixa so dele no topo (padding abaixo), entao
-       o trilho de abas volta a ter a largura inteira. */
     --topo-acoes-reserva: 0px;
     grid-template-columns: 1fr;
     gap: 20px;
-    /* O topo reserva uma faixa pras ações absolutas (botão de tema), que
-       de outro modo cairiam em cima do ícone de editar da sidebar. */
     padding: 62px 16px 20px;
   }
 
@@ -4491,22 +4506,14 @@
     padding: 20px 18px;
   }
 
-  /* Sidebar ocupando a largura toda comporta os 6 atributos em 3 colunas,
-     em vez de 2 colunas esticadas. */
   .attr-grid {
     grid-template-columns: repeat(3, 1fr);
   }
 
-  /* As abas continuam quebrando em fileiras, so que compactas. Ja foram um
-     trilho com overflow-x: rolava, mas sem barra nem sombra ninguem descobria
-     — metade das abas simplesmente parecia cortada. Mostrar todas custa uma
-     fileira a mais e vale a pena. */
   .tabs {
     margin-bottom: 20px;
   }
 
-  /* O botao de tema tem faixa propria no topo aqui, entao nao ha canto a
-     reservar na primeira fileira. */
   .tabs::before {
     display: none;
   }
@@ -4531,7 +4538,6 @@
     padding-bottom: 60px;
   }
 
-  /* Ações do objetivo descem pra baixo do texto em vez de espremer o título. */
   .obj-linha {
     grid-template-columns: auto minmax(0, 1fr);
   }

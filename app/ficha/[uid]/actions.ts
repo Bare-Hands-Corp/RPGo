@@ -42,7 +42,7 @@ import {
 } from "@/lib/descanso";
 import {
   MAX_RANKS_TETO,
-  dependentesQuebrados,
+  bloqueiosDevolver,
   estadoNo,
   lerRequisitos,
   acharPreset,
@@ -304,8 +304,7 @@ function normalizarItemInput(input: ItemInput) {
   if (input.tipo !== undefined) data.tipo = String(input.tipo) || "comum";
   if (input.tags !== undefined) data.tags = (input.tags as string) || "";
   if (input.tagsEstilo !== undefined) {
-    // Poda estilos de tags que sumiram do texto livre (quando o texto veio
-    // no mesmo patch) pra não acumular lixo no Json.
+    // Poda estilos de tags que sumiram do texto.
     const tagsDoPatch =
       input.tags !== undefined ? separarTags(String(input.tags)) : undefined;
     data.tagsEstilo =
@@ -1194,9 +1193,6 @@ export async function deletarNavio(personagemId: string) {
 }
 
 // ─── Árvores de talento ────────────────────────────────────
-// Toda mutação de nó/camada carrega `arvoreId` no `where` e a árvore é
-// checada contra o personagem — defesa em profundidade, o cliente nunca é
-// fonte de verdade sobre a quem a árvore pertence.
 
 const ALLOWED_ARVORE = [
   "nome",
@@ -1237,7 +1233,6 @@ function normalizarArvore(input: ArvoreInput) {
   return data;
 }
 
-/** Confere que a árvore é do personagem e devolve ela com camadas + nós. */
 async function arvoreDoPersonagem(personagemId: string, arvoreId: string) {
   const arvore = await prisma.arvore.findFirst({
     where: { id: arvoreId, personagemId },
@@ -1259,8 +1254,7 @@ export async function criarArvore(
   const data = normalizarArvore(input);
   if (data.nome === undefined) throw new Error("Nome da árvore é obrigatório.");
 
-  // O molde define camadas, raias e critério. Sem preset explícito cai no
-  // último ("Em branco"), que é 1 camada sem trava.
+  // Sem preset explícito cai no último ("Em branco").
   const preset = acharPreset(input.preset);
 
   const arvore = await prisma.arvore.create({
@@ -1272,7 +1266,6 @@ export async function criarArvore(
       cor2: (data.cor2 as string | null) ?? null,
       efeito: (data.efeito as string) ?? "solido",
       ordem: (data.ordem as number) ?? 0,
-      // Critério explícito do formulário vence o do molde.
       criterio: (data.criterio as string) ?? preset.criterio,
       recursoCustoId: (data.recursoCustoId as string | null) ?? null,
       fundoUrl: (data.fundoUrl as string | null) ?? null,
@@ -1306,7 +1299,6 @@ export async function atualizarArvore(
 
 export async function deletarArvore(personagemId: string, arvoreId: string) {
   await autorizar(personagemId);
-  // Camadas e nós caem por onDelete: Cascade.
   await prisma.arvore.delete({ where: { id: arvoreId, personagemId } });
   revalidatePath(`/ficha/${personagemId}`);
 }
@@ -1373,7 +1365,6 @@ export async function deletarCamada(
   if (arvore.camadas.length <= 1) {
     throw new Error("A árvore precisa de pelo menos uma camada.");
   }
-  // Os nós da camada caem junto (Cascade). Avisar é papel da UI.
   await prisma.arvoreCamada.delete({ where: { id: camadaId, arvoreId } });
   revalidatePath(`/ficha/${personagemId}`);
 }
@@ -1429,7 +1420,6 @@ function normalizarNo(input: NoInput) {
   return data;
 }
 
-/** A camada precisa ser DESTA árvore, e o requisito não pode apontar pra fora. */
 function validarVinculosDoNo(
   data: Record<string, unknown>,
   arvore: { camadas: { id: string }[]; ramos: { id: string }[]; nos: { id: string }[] },
@@ -1458,7 +1448,6 @@ function validarVinculosDoNo(
   }
 }
 
-/** Busca em profundidade: `noId` alcança a si mesmo seguindo os requisitos? */
 function criaCiclo(noId: string, novosReqs: RequisitoNo[], nos: NoArvore[]): boolean {
   const porId = new Map(nos.map((n) => [n.id, n]));
   const vistos = new Set<string>();
@@ -1558,10 +1547,8 @@ export async function deletarNo(
 }
 
 // ─── Comprar / devolver rank ───────────────────────────────
-// O gating é revalidado AQUI com o mesmo `estadoNo` que o cliente usa — o
-// cliente pinta o botão, o server é quem decide.
+// O server revalida com o mesmo `estadoNo` do cliente.
 
-/** Monta o contexto de avaliação a partir do estado real no banco. */
 async function contextoDaArvore(
   personagemId: string,
   arvore: { criterio: string; recursoCustoId: string | null; nos: NoArvore[] },
@@ -1572,7 +1559,6 @@ async function contextoDaArvore(
     const recurso = await prisma.recurso.findFirst({
       where: { id: arvore.recursoCustoId, personagemId },
     });
-    // Recurso apagado depois de configurado → volta a ser custo informativo.
     saldoRecurso = recurso ? recurso.valorAtual : null;
   }
   return {
@@ -1609,8 +1595,6 @@ export async function comprarNo(
       data: { rankAtual: { increment: 1 } },
     }),
   ];
-  // Debita o recurso só quando a árvore tem um configurado E ele ainda existe
-  // (saldoRecurso null = custo virou informativo).
   if (arvore.recursoCustoId && ctx.saldoRecurso !== null && estado.custoProximo > 0) {
     ops.push(
       prisma.recurso.update({
@@ -1628,18 +1612,21 @@ export async function devolverNo(
   arvoreId: string,
   noId: string,
 ) {
-  await autorizar(personagemId);
+  const { personagem } = await autorizar(personagemId);
   const arvore = await arvoreDoPersonagem(personagemId, arvoreId);
   const no = arvore.nos.find((n) => n.id === noId);
   if (!no) throw new Error("Talento não encontrado.");
   if (no.rankAtual <= 0) throw new Error("Esse talento não está comprado.");
 
   const rankAlvo = no.rankAtual - 1;
-  const quebrados = dependentesQuebrados(noId, rankAlvo, arvore.nos as NoArvore[]);
-  if (quebrados.length > 0) {
-    throw new Error(
-      `Devolva antes: ${quebrados.map((n) => n.nome).join(", ")} depende deste talento.`,
-    );
+  const ctx = await contextoDaArvore(
+    personagemId,
+    { ...arvore, nos: arvore.nos as NoArvore[] },
+    personagem.nivel,
+  );
+  const bloqueios = bloqueiosDevolver(noId, arvore.camadas, ctx);
+  if (bloqueios.length > 0) {
+    throw new Error(`Devolva antes: ${bloqueios.join("; ")}.`);
   }
 
   const ops: Prisma.PrismaPromise<unknown>[] = [
@@ -1649,8 +1636,7 @@ export async function devolverNo(
     }),
   ];
   if (arvore.recursoCustoId && no.custo > 0) {
-    // Reembolso clampado ao máximo do recurso é feito abaixo, fora da
-    // transação declarativa — increment simples pode estourar o valorMax.
+    // Reembolso clampado no valorMax, fora da transação.
     const recurso = await prisma.recurso.findFirst({
       where: { id: arvore.recursoCustoId, personagemId },
     });
@@ -1670,8 +1656,6 @@ export async function devolverNo(
 }
 
 // ─── Raias (ramos) ─────────────────────────────────────────
-// Colunas nomeadas do canvas (ex: "Ofensivo" / "Defensivo"). Puramente visual —
-// não entram no gating.
 
 export async function criarRamo(
   personagemId: string,
@@ -1717,17 +1701,12 @@ export async function deletarRamo(
 ) {
   await autorizar(personagemId);
   await arvoreDoPersonagem(personagemId, arvoreId);
-  // Os nós NÃO caem junto — `ramoId` é onDelete: SetNull e eles voltam pra
-  // primeira raia. Raia é enfeite; talento comprado não pode sumir por isso.
+  // ramoId é SetNull: os nós voltam pra primeira raia.
   await prisma.arvoreRamo.delete({ where: { id: ramoId, arvoreId } });
   revalidatePath(`/ficha/${personagemId}`);
 }
 
-/**
- * Reposiciona um nó no canvas (arrastar). Só mexe em raia + altura — nada de
- * gating —, então é barato e não revalida a página inteira: o cliente já
- * aplicou o movimento de forma otimista.
- */
+/** Só raia + altura; não revalida porque o cliente já moveu de forma otimista. */
 export async function moverNo(
   personagemId: string,
   arvoreId: string,
@@ -1750,16 +1729,8 @@ export async function moverNo(
 }
 
 /**
- * Copia uma árvore inteira (camadas, raias, talentos, requisitos) pra outro
- * personagem — ou pro mesmo, como duplicata.
- *
- * A Árvore de Talentos do Haki é igual pra todo mundo: sem isso, cada
- * personagem da mesa remonta os 17 talentos na mão. O progresso NÃO vem junto
- * (`rankAtual` zera) — copia-se a estrutura, não a build.
- *
- * Referências soltas (`habilidadeId`, `recursoCustoId`) apontam pra linhas do
- * personagem de ORIGEM e não valem no destino. São religadas **por nome**
- * quando existe equivalente lá, e viram null quando não existe.
+ * Copia a estrutura da árvore (sem progresso) pra outro personagem ou pro mesmo.
+ * habilidadeId e recursoCustoId são religados por nome no destino, ou viram null.
  */
 export async function duplicarArvore(
   personagemId: string,
@@ -1784,7 +1755,6 @@ export async function duplicarArvore(
     origem.personagem.mesa?.userId === user.id;
   if (!podeLerOrigem) throw new Error("Sem acesso à árvore de origem.");
 
-  // Religação por nome (case-insensitive) com o que o destino já tem.
   const [habilidadesDestino, recursosDestino] = await Promise.all([
     prisma.habilidade.findMany({
       where: { personagemId },
@@ -1813,13 +1783,12 @@ export async function duplicarArvore(
     }
   }
 
-  // Nome único-ish: só marca cópia quando fica no mesmo personagem.
   const mesmoDono = origem.personagemId === personagemId;
   const nome = mesmoDono ? `${origem.nome} (cópia)`.slice(0, 60) : origem.nome;
 
   const ordemFinal = await prisma.arvore.count({ where: { personagemId } });
 
-  // Fase 1: árvore + camadas + raias, pra ter os ids novos.
+  // 1: árvore, camadas e raias.
   const nova = await prisma.arvore.create({
     data: {
       personagemId,
@@ -1849,8 +1818,7 @@ export async function duplicarArvore(
     },
   });
 
-  // Camadas e raias saem na mesma ordem que entraram, então o pareamento por
-  // índice é seguro (nomes podem repetir; ordem não).
+  // Pareamento por índice: a ordem é preservada, nomes podem repetir.
   const mapaCamada = new Map<string, string>();
   origem.camadas.forEach((c, i) => {
     const destino = nova.camadas[i];
@@ -1862,7 +1830,7 @@ export async function duplicarArvore(
     if (destino) mapaRamo.set(r.id, destino.id);
   });
 
-  // Fase 2: talentos sem requisito (os ids novos ainda não existem todos).
+  // 2: talentos, ainda sem requisitos.
   const mapaNo = new Map<string, string>();
   for (const no of origem.nos) {
     const camadaId = mapaCamada.get(no.camadaId);
@@ -1878,7 +1846,6 @@ export async function duplicarArvore(
         icone: no.icone,
         custo: no.custo,
         maxRanks: no.maxRanks,
-        // Estrutura copia; progresso não.
         rankAtual: 0,
         nivelMinimo: no.nivelMinimo,
         habilidadeId: habPorNome.get(no.nome.trim().toLowerCase()) ?? null,
@@ -1890,7 +1857,7 @@ export async function duplicarArvore(
     mapaNo.set(no.id, criado.id);
   }
 
-  // Fase 3: requisitos remapeados pros ids novos.
+  // 3: requisitos com os ids novos.
   const comRequisitos = origem.nos
     .map((no) => {
       const reqs = lerRequisitos(no.requisitos)
@@ -1922,15 +1889,8 @@ export async function duplicarArvore(
 // ─── Descanso ──────────────────────────────────────────────
 
 /**
- * Aplica um descanso curto ou longo numa transação só.
- *
- * Curto: recupera recursos/habilidades marcados como "descansoCurto".
- * Longo: tudo do curto + os marcados como "descansoLongo", PV e PP cheios,
- * PV temporário zerado, exaustão −1 e metade dos Dados de Vida de volta.
- *
- * Recursos "manual" e "encontro" NÃO são tocados — têm gatilho próprio.
- * Habilidade sustentada (`ligada`) também não é desligada: quando ela cai é
- * decisão de jogo, e desligar por baixo tiraria bônus sem o jogador ver.
+ * Curto recupera o que é "descansoCurto"; longo também o "descansoLongo", PV/PP cheios,
+ * PV temporário zerado, exaustão −1 e metade dos Dados de Vida. Sustentada não é desligada.
  */
 export async function descansar(personagemId: string, tipo: TipoDescanso) {
   if (tipo !== "curto" && tipo !== "longo") {
@@ -1969,7 +1929,6 @@ export async function descansar(personagemId: string, tipo: TipoDescanso) {
 
   for (const h of habilidades) {
     if (!recuperaNoDescanso(h.recarga, tipo)) continue;
-    // Usos ilimitados (usos null) não têm o que recarregar.
     if (h.usos == null || (h.usosAtual ?? 0) >= h.usos) continue;
     ops.push(
       prisma.habilidade.update({
@@ -2012,14 +1971,7 @@ export async function descansar(personagemId: string, tipo: TipoDescanso) {
   return resumo;
 }
 
-/**
- * Gasta um Dado de Vida e cura o valor rolado no cliente.
- *
- * A rolagem acontece no cliente de propósito: é assim que todo o resto da ficha
- * funciona (o resultado vai pro Rolador da Bandeja e a mesa vê). Aqui o server
- * só debita o dado e aplica a cura, clampando nos limites — `curado` vindo do
- * cliente é tratado como não confiável.
- */
+/** A rolagem é no cliente (vai pro Rolador); aqui só debita o dado e clampa a cura. */
 export async function gastarDadoDeVida(personagemId: string, curado: number) {
   const { personagem } = await autorizar(personagemId);
 
@@ -2042,18 +1994,7 @@ export async function gastarDadoDeVida(personagemId: string, curado: number) {
 
 // ─── Subir de nível ────────────────────────────────────────
 
-/**
- * Sobe um nível aplicando o que o assistente propôs e o jogador confirmou.
- *
- * Decisão do user: o sistema **propõe e o jogador confirma** — nada aqui é
- * decidido sozinho. E **PE só sugere**: chegar ao limiar não sobe o nível, mas
- * também não é exigido (mesa por marco narrativo distribui nível sem PE), por
- * isso não há trava de `peAlcancado`.
- *
- * Tudo que vem do cliente é revalidado: o ganho de PV é clampado ao teto do
- * dado + CON, e o aprimoramento passa pelo mesmo `validarAprimoramento` que o
- * modal usou.
- */
+/** Aplica a proposta do assistente. PV e aprimoramento vindos do cliente são revalidados. */
 export async function subirDeNivel(
   personagemId: string,
   entrada: { pvGanho: unknown; aprimoramento?: unknown },
@@ -2069,7 +2010,6 @@ export async function subirDeNivel(
   const teto = tetoGanhoPv(personagem.tipoDadoVida, modCon);
   const pvGanho = Math.min(clampGanhoPv(Number(entrada.pvGanho) || 0), teto);
 
-  // Aprimoramento: filtra pros 6 atributos e inteiros positivos.
   const bruto = (entrada.aprimoramento ?? {}) as Record<string, unknown>;
   const apr: Aprimoramento = {};
   for (const a of ATRIBUTOS) {
@@ -2099,8 +2039,6 @@ export async function subirDeNivel(
   const data: Record<string, unknown> = {
     nivel: nivelNovo,
     hpMax: personagem.hpMax + pvGanho + retroativo,
-    // O PV atual acompanha o ganho — subir de nível não deixa o personagem
-    // ferido de graça.
     hpAtual: personagem.hpAtual + pvGanho + retroativo,
   };
   for (const [slug, ganho] of Object.entries(apr)) {
@@ -2113,9 +2051,7 @@ export async function subirDeNivel(
 }
 
 // ─── Objetivos ─────────────────────────────────────────────
-// Metas do personagem (arcos, treinamentos, promessas). O prazo é uma data do
-// calendário DA MESA em dias absolutos — a ficha só lê `dataAtualDias` pra
-// contar quantos faltam; nada é escrito no calendário.
+// O prazo fica em dias absolutos do calendário da mesa.
 
 const ALLOWED_OBJETIVO = ["titulo", "descricao", "estado", "icone", "prazoDias", "ordem"] as const;
 type ObjetivoInput = Partial<Record<(typeof ALLOWED_OBJETIVO)[number], unknown>>;
@@ -2141,7 +2077,6 @@ function normalizarObjetivo(input: ObjetivoInput, parcial: boolean) {
     } else if (key === "icone") {
       data.icone = String(input.icone).trim() || "fa-scroll";
     } else if (key === "prazoDias") {
-      // null limpa o prazo; qualquer outra coisa vira inteiro.
       data.prazoDias =
         input.prazoDias === null ? null : Math.trunc(Number(input.prazoDias) || 0);
     } else if (key === "ordem") {
@@ -2158,7 +2093,6 @@ export async function criarObjetivo(personagemId: string, input: ObjetivoInput) 
   await autorizar(personagemId);
   const data = normalizarObjetivo(input, false);
 
-  // Entra no fim da lista quando o cliente não manda ordem.
   const ultimo = await prisma.objetivo.findFirst({
     where: { personagemId },
     orderBy: { ordem: "desc" },
@@ -2177,7 +2111,6 @@ export async function criarObjetivo(personagemId: string, input: ObjetivoInput) 
     },
   });
   revalidatePath(`/ficha/${personagemId}`);
-  // Devolve a entidade pro cliente trocar o registro otimista sem refetch.
   return {
     id: criado.id,
     titulo: criado.titulo,

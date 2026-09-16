@@ -30,6 +30,7 @@ import { EstiloPicker } from "./estilo-cor-picker";
 import { IconePicker } from "@/components/icone-picker";
 import {
   EFEITO_COR_PADRAO,
+  corValida,
   estiloAplicado,
   normalizarEfeitoCor,
   type EfeitoCor,
@@ -38,9 +39,11 @@ import {
   CRITERIOS_ARVORE,
   MAX_RANKS_TETO,
   PRESETS_ARVORE,
+  bloqueiosDevolver,
   camadasAbertas,
   clampOffsetY,
   evitarSobreposicao,
+  fioDeProgresso,
   marcaRank,
   estadoNo,
   lerRequisitos,
@@ -50,6 +53,7 @@ import {
   type CamadaArvore,
   type CriterioArvore,
   type NoArvore,
+  type PontoCanvas,
   type RamoArvore,
   type RequisitoNo,
 } from "@/lib/arvore";
@@ -70,7 +74,6 @@ export type Arvore = {
   nos: NoArvore[];
 };
 
-/** Árvore de qualquer personagem do mesmo dono, oferecida pra cópia. */
 export type ArvoreCopiavel = {
   id: string;
   nome: string;
@@ -139,9 +142,6 @@ export function ArvoresTab({
   type NovoNo = { novo: true; camadaId: string; ramoId: string | null; offsetY: number };
   const [modalNo, setModalNo] = useState<NoArvore | NovoNo | null>(null);
   const [noSelecionadoId, setNoSelecionado] = useState<string | null>(null);
-  // Colapso é estado de visualização, por camada. `arvoreColapsada` esconde o
-  // canvas inteiro — útil quando o jogador tem várias árvores e quer só o
-  // resumo de cada uma.
   const [camadasColapsadas, setCamadasColapsadas] = useState<Set<string>>(
     () => new Set(),
   );
@@ -177,8 +177,18 @@ export function ArvoresTab({
   const arvore =
     ordenadas.find((a) => a.id === selecionadaId) ?? ordenadas[0] ?? null;
 
+  // Saldo otimista pro contador e a barra não ficarem velhos até o revalidate.
+  const [recursosOt, ajustarRecurso] = useOptimistic(
+    recursos,
+    (state, p: { id: string; delta: number }) =>
+      state.map((r) =>
+        r.id === p.id
+          ? { ...r, valorAtual: Math.min(r.valorMax, r.valorAtual + p.delta) }
+          : r,
+      ),
+  );
   const recursoCusto = arvore?.recursoCustoId
-    ? recursos.find((r) => r.id === arvore.recursoCustoId) ?? null
+    ? recursosOt.find((r) => r.id === arvore.recursoCustoId) ?? null
     : null;
 
   const camadas = useMemo(
@@ -203,25 +213,35 @@ export function ArvoresTab({
   const abertas = useMemo(() => camadasAbertas(camadas, ctx), [camadas, ctx]);
   const gastos = useMemo(() => pontosGastos(ctx.nos), [ctx.nos]);
 
-  // Quantos talentos dá pra comprar agora. Mesma `estadoNo` que pinta o card e
-  // que o server revalida — o contador nunca discorda do botão.
   const disponiveis = useMemo(
     () => ctx.nos.filter((n) => estadoNo(n, camadas, ctx).podeComprar).length,
     [camadas, ctx],
   );
-  // Modo de foco: esmaece o que não dá pra comprar. Em árvore grande o jogador
-  // caçava visualmente. Cai sozinho quando não sobra nada disponível, senão a
-  // tela ficaria inteira apagada sem nada em destaque.
+  // Modo de foco: desliga sozinho quando não há nada disponível.
   const [foco, setFoco] = useState(false);
   const focoAtivo = foco && disponiveis > 0;
+
+  /** Aplica o delta do recurso na barra e na sidebar; devolve o desfazer. */
+  function moverSaldo(no: NoArvore, sinal: 1 | -1): () => void {
+    if (!recursoCusto || no.custo <= 0) return () => {};
+    const id = recursoCusto.id;
+    const delta = sinal * no.custo;
+    ajustarRecurso({ id, delta });
+    const avisar = (d: number) =>
+      window.dispatchEvent(new CustomEvent("rpgo:patch-recurso", { detail: { [id]: d } }));
+    avisar(delta);
+    return () => avisar(-delta);
+  }
 
   function comprar(no: NoArvore) {
     if (!arvore) return;
     startTransition(async () => {
       aplicar({ kind: "rank", noId: no.id, rank: no.rankAtual + 1 });
+      const desfazer = moverSaldo(no, -1);
       try {
         await comprarNo(personagemId, arvore.id, no.id);
       } catch (err) {
+        desfazer();
         mostrarErro(err);
       }
     });
@@ -231,9 +251,11 @@ export function ArvoresTab({
     if (!arvore) return;
     startTransition(async () => {
       aplicar({ kind: "rank", noId: no.id, rank: no.rankAtual - 1 });
+      const desfazer = moverSaldo(no, 1);
       try {
         await devolverNo(personagemId, arvore.id, no.id);
       } catch (err) {
+        desfazer();
         mostrarErro(err);
       }
     });
@@ -378,7 +400,6 @@ export function ArvoresTab({
   }
   const noEmEdicao = modalNo && !("novo" in modalNo) ? modalNo : null;
 
-  /** Clique em área vazia da faixa: já nasce na camada, raia e altura do clique. */
   function criarNoAqui(camadaId: string, ramoId: string | null, offsetY: number) {
     if (!arvore) return;
     setModalNo({
@@ -648,6 +669,9 @@ export function ArvoresTab({
               <PainelNo
                 no={sel}
                 estado={estadoNo(sel, camadas, ctx)}
+                bloqueiosDevolver={
+                  sel.rankAtual > 0 ? bloqueiosDevolver(sel.id, camadas, ctx) : []
+                }
                 camadaNome={
                   camadas.find((c) => c.id === sel.camadaId)?.nome ?? "—"
                 }
@@ -788,10 +812,6 @@ export function ArvoresTab({
   );
 }
 
-/**
- * Escolha da árvore a copiar. Copia a ESTRUTURA (camadas, raias, talentos,
- * requisitos); o progresso não vem junto.
- */
 function CopiarModal({
   opcoes,
   onCancelar,
@@ -814,6 +834,9 @@ function CopiarModal({
   return (
     <div className="modal-overlay" onClick={onCancelar}>
       <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="modal-close" onClick={onCancelar} aria-label="Fechar">
+          <i className="fas fa-times" />
+        </button>
         <h2>Copiar Árvore</h2>
         <p className="campo-dica" style={{ marginBottom: 12 }}>
           Vem a estrutura inteira — camadas, raias, talentos e requisitos. O{" "}
@@ -865,14 +888,29 @@ function CopiarModal({
 }
 
 // ─── Canvas: faixas contínuas, raias e conectores ───────────
-//
-// Layout: coluna-trilho à esquerda com o nome da camada em pé, e à direita as
-// faixas (uma por camada) divididas em raias nomeadas. Dentro da faixa o nó fica
-// em `offsetY` (0–100 % da altura) — é esse escalonamento que dá o desenho de
-// árvore em vez de grade. Arrastar o nó grava raia + offsetY; clicar sem
-// arrastar abre o painel de detalhe (o card no canvas é compacto de propósito).
 
 const ALTURA_FAIXA = 250;
+
+type LinhaCanvas = {
+  d: string;
+  /** req = requisito pendente · req-ativo = cumprido · fio = trilha do que já foi comprado */
+  tipo: "req" | "req-ativo" | "fio" | "fio-livre";
+};
+
+/** Curva em S que sai e entra na vertical, como a árvore do livro. */
+function curvaVertical(a: PontoCanvas, b: PontoCanvas): string {
+  const dy = Math.max(40, Math.abs(b.y - a.y) * 0.55);
+  return `M ${a.x} ${a.y} C ${a.x} ${a.y + dy}, ${b.x} ${b.y - dy}, ${b.x} ${b.y}`;
+}
+
+/** Escolhe o eixo dominante: nós lado a lado ganham S horizontal. */
+function curvaLivre(a: PontoCanvas, b: PontoCanvas): string {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  if (Math.abs(dy) >= Math.abs(dx) * 0.6) return curvaVertical(a, b);
+  const k = dx * 0.5;
+  return `M ${a.x} ${a.y} C ${a.x + k} ${a.y}, ${b.x - k} ${b.y}, ${b.x} ${b.y}`;
+}
 
 function ArvoreCanvas({
   arvore,
@@ -905,24 +943,21 @@ function ArvoreCanvas({
   onCriarNoAqui: (camadaId: string, ramoId: string | null, offsetY: number) => void;
   colapsadas: Set<string>;
   onAlternarCamada: (id: string) => void;
-  /** Esmaece o que não dá pra comprar agora. */
   foco: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const nosRef = useRef(new Map<string, HTMLElement>());
-  const [linhas, setLinhas] = useState<{ d: string; ativa: boolean }[]>([]);
+  const [linhas, setLinhas] = useState<LinhaCanvas[]>([]);
+  const [fio, setFio] = useState<LinhaCanvas[]>([]);
   const [tamanho, setTamanho] = useState({ w: 0, h: 0 });
   const [arrastando, setArrastando] = useState<string | null>(null);
-  // Raia sob o cursor durante o arrasto — realimenta o destaque visual.
   const [raiaAlvo, setRaiaAlvo] = useState<string | null>(null);
 
   const criterioLimiar = CRITERIOS_ARVORE.find((c) => c.slug === criterio);
-  // Raia única implícita quando a árvore não tem nenhuma.
+  const corFio = corValida(arvore.cor);
   const colunas: (RamoArvore | null)[] = ramos.length > 0 ? ramos : [null];
 
-  // Conectores são medidos do DOM: as raias refluem com a viewport e a posição
-  // vertical vem de %, então não dá pra derivar. O ResizeObserver cobre resize,
-  // troca de aba (display:none → visível) e mudança na quantidade de nós.
+  // Conectores medidos do DOM (raias refluem, altura em %).
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -933,32 +968,47 @@ function ArvoreCanvas({
       const base = cont.getBoundingClientRect();
       if (base.width === 0) return; // aba escondida — remede quando aparecer
 
-      const novas: { d: string; ativa: boolean }[] = [];
+      const centros = new Map<string, PontoCanvas>();
       for (const no of arvore.nos) {
-        const filho = nosRef.current.get(no.id);
-        // Nó de camada recolhida não está no DOM — pula a curva inteira.
-        if (!filho || !filho.isConnected) continue;
-        const rf = filho.getBoundingClientRect();
-        for (const req of lerRequisitos(no.requisitos)) {
-          const pai = nosRef.current.get(req.noId);
-          if (!pai || !pai.isConnected) continue;
-          const rp = pai.getBoundingClientRect();
-          const paiNo = arvore.nos.find((n) => n.id === req.noId);
+        const el = nosRef.current.get(no.id);
+        if (!el || !el.isConnected) continue;
+        const r = el.getBoundingClientRect();
+        centros.set(no.id, {
+          x: r.left - base.left + r.width / 2,
+          y: r.top - base.top + r.height / 2,
+        });
+      }
 
-          const x1 = rp.left - base.left + rp.width / 2;
-          const y1 = rp.top - base.top + rp.height / 2;
-          const x2 = rf.left - base.left + rf.width / 2;
-          const y2 = rf.top - base.top + rf.height / 2;
-          // Curva em S: sai e entra na vertical, como a árvore do livro.
-          const dy = Math.max(40, Math.abs(y2 - y1) * 0.55);
+      const fio = fioDeProgresso(arvore.nos, camadas, centros);
+      const noFio = new Set(
+        fio.filter((l) => l.porRequisito).map((l) => `${l.deId}>${l.paraId}`),
+      );
+
+      const novas: LinhaCanvas[] = [];
+      for (const no of arvore.nos) {
+        const b = centros.get(no.id);
+        if (!b) continue;
+        for (const req of lerRequisitos(no.requisitos)) {
+          const a = centros.get(req.noId);
+          if (!a || noFio.has(`${req.noId}>${no.id}`)) continue;
+          const paiNo = arvore.nos.find((n) => n.id === req.noId);
           novas.push({
-            d: `M ${x1} ${y1} C ${x1} ${y1 + dy}, ${x2} ${y2 - dy}, ${x2} ${y2}`,
-            ativa: (paiNo?.rankAtual ?? 0) >= req.rank,
+            d: curvaVertical(a, b),
+            tipo: (paiNo?.rankAtual ?? 0) >= req.rank ? "req-ativo" : "req",
           });
         }
       }
+      const caminho: LinhaCanvas[] = fio.map((l) => {
+        const a = centros.get(l.deId)!;
+        const b = centros.get(l.paraId)!;
+        return l.porRequisito
+          ? { d: curvaVertical(a, b), tipo: "fio" }
+          : { d: curvaLivre(a, b), tipo: "fio-livre" };
+      });
+
       setTamanho({ w: base.width, h: base.height });
       setLinhas(novas);
+      setFio(caminho);
     }
 
     medir();
@@ -967,12 +1017,7 @@ function ArvoreCanvas({
     return () => ro.disconnect();
   }, [arvore.nos, camadas, ramos, colapsadas]);
 
-  /**
-   * Arrasto: converte a posição do ponteiro na faixa em `offsetY` (%) e acha a
-   * raia pela coluna sob o cursor. Pointer capture mantém o movimento vivo mesmo
-   * quando o cursor sai do card. Movimento curto (< 4 px) conta como clique e
-   * abre o painel em vez de reposicionar.
-   */
+  /** Movimento < 4px conta como clique e abre o painel. */
   function iniciarArrasto(
     e: React.PointerEvent,
     no: NoArvore,
@@ -1018,9 +1063,7 @@ function ArvoreCanvas({
       card.removeEventListener("pointermove", mover);
       card.removeEventListener("pointerup", soltar);
       card.removeEventListener("pointercancel", soltar);
-      // Repõe o valor do modelo em vez de limpar: apagar o inline style
-      // deixaria o nó sem `top` até um re-render que pode não vir (no clique
-      // simples nada muda, então o React não mexe nesse atributo).
+      // Repõe o valor em vez de limpar: no clique simples o React não re-renderiza o `top`.
       card.style.top = `${moveu ? pendenteY : no.offsetY}%`;
       setRaiaAlvo(null);
       if (!moveu) {
@@ -1043,9 +1086,12 @@ function ArvoreCanvas({
       className={`arvore-canvas${foco ? " foco" : ""}`}
       ref={containerRef}
       style={
-        arvore.fundoUrl
-          ? { backgroundImage: `url("${arvore.fundoUrl.replace(/"/g, "%22")}")` }
-          : undefined
+        {
+          ...(corFio ? { "--arvore-fio-cor": corFio } : {}),
+          ...(arvore.fundoUrl
+            ? { backgroundImage: `url("${arvore.fundoUrl.replace(/"/g, "%22")}")` }
+            : {}),
+        } as React.CSSProperties
       }
     >
       <div className="arvore-canvas-veu" />
@@ -1057,7 +1103,18 @@ function ArvoreCanvas({
         aria-hidden="true"
       >
         {linhas.map((l, i) => (
-          <path key={i} d={l.d} className={`arvore-conector ${l.ativa ? "ativo" : ""}`} />
+          <path
+            key={i}
+            d={l.d}
+            className={`arvore-conector ${l.tipo === "req-ativo" ? "ativo" : ""}`}
+          />
+        ))}
+        {fio.map((l, i) => (
+          <g key={i} className={`arvore-fio ${l.tipo === "fio-livre" ? "livre" : ""}`}>
+            <path d={l.d} className="arvore-fio-halo" />
+            <path d={l.d} className="arvore-fio-traco" />
+            <path d={l.d} className="arvore-fio-brilho" pathLength={100} />
+          </g>
         ))}
       </svg>
 
@@ -1196,8 +1253,6 @@ function FaixaCamada({
           {nos.length === 0
             ? "sem talentos"
             : `${nos.filter((n) => n.rankAtual > 0).length} de ${nos.length} liberado(s)`}
-          {/* Camada recolhida esconde o card: sem esta marca o jogador não tem
-              como saber que o que dá pra comprar está justamente aqui dentro. */}
           {(() => {
             const disp = nos.filter((n) => estadoNo(n, camadas, ctx).podeComprar).length;
             return disp > 0 ? (
@@ -1218,8 +1273,7 @@ function FaixaCamada({
         }}
       >
         {colunas.map((col, i) => {
-          // Sem raias, uma coluna só recebe tudo. Com raias, nó sem `ramoId`
-          // (ou apontando pra raia apagada) cai na primeira.
+          // Nó sem raia (ou de raia apagada) cai na primeira.
           const daColuna =
             colunas.length === 1 && !col
               ? nos
@@ -1236,8 +1290,6 @@ function FaixaCamada({
                 arrastando && raiaAlvo === (col?.id ?? null) ? " alvo" : ""
               }`}
               data-raia={col?.id ?? ""}
-              // Clique em área vazia cria o talento ali mesmo — evita "cria e
-              // depois procura onde caiu". Só clique direto na raia conta.
               onClick={(e) => {
                 if (e.target !== e.currentTarget) return;
                 const r = e.currentTarget.getBoundingClientRect();
@@ -1275,11 +1327,6 @@ function FaixaCamada({
   );
 }
 
-/**
- * Card compacto do canvas: selo de custo, nome e as estrelas de rank. Detalhe,
- * bloqueios e ações vivem no painel — no canvas o nó precisa ser pequeno pra
- * caber muita coisa e não brigar com os conectores.
- */
 function NoCard({
   no,
   estado,
@@ -1339,10 +1386,10 @@ function NoCard({
   );
 }
 
-/** Detalhe + ações do talento selecionado, abaixo do canvas. */
 function PainelNo({
   no,
   estado,
+  bloqueiosDevolver,
   camadaNome,
   habilidadeNome,
   onFechar,
@@ -1352,6 +1399,7 @@ function PainelNo({
 }: {
   no: NoArvore;
   estado: ReturnType<typeof estadoNo>;
+  bloqueiosDevolver: string[];
   camadaNome: string;
   habilidadeNome: string | null;
   onFechar: () => void;
@@ -1401,6 +1449,13 @@ function PainelNo({
         </ul>
       )}
 
+      {bloqueiosDevolver.length > 0 && (
+        <p className="campo-dica">
+          <i className="fas fa-circle-info" /> Não dá pra devolver agora:{" "}
+          {bloqueiosDevolver.join("; ")}.
+        </p>
+      )}
+
       <div className="arvore-painel-acoes">
         {estado.proximoRank !== null && (
           <button
@@ -1416,7 +1471,17 @@ function PainelNo({
           <span className="arvore-no-maximo">No máximo</span>
         )}
         {estado.rank > 0 && (
-          <button type="button" className="btn-rect outline" onClick={onDevolver}>
+          <button
+            type="button"
+            className="btn-rect outline"
+            onClick={onDevolver}
+            disabled={bloqueiosDevolver.length > 0}
+            title={
+              bloqueiosDevolver.length > 0
+                ? `Devolva antes: ${bloqueiosDevolver.join("; ")}`
+                : undefined
+            }
+          >
             <i className="fas fa-rotate-left" /> Devolver
           </button>
         )}
@@ -1470,7 +1535,7 @@ function ArvoreModal({
   );
   const [recursoCustoId, setRecursoCustoId] = useState(inicial?.recursoCustoId ?? "");
   const [fundoUrl, setFundoUrl] = useState(inicial?.fundoUrl ?? "");
-  // Molde só vale na criação — editar não remonta camadas já existentes.
+  // Molde só vale na criação.
   const [preset, setPreset] = useState(PRESETS_ARVORE[0].slug);
 
   function submit(e: React.FormEvent) {
@@ -1497,6 +1562,9 @@ function ArvoreModal({
   return (
     <div className="modal-overlay" onClick={onCancelar}>
       <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="modal-close" onClick={onCancelar} aria-label="Fechar">
+          <i className="fas fa-times" />
+        </button>
         <h2>{inicial ? "Editar Árvore" : "Nova Árvore"}</h2>
         <form onSubmit={submit}>
           <h3 className="modal-secao" style={{ marginTop: 0 }}>
@@ -1631,6 +1699,9 @@ function CamadaModal({
   return (
     <div className="modal-overlay" onClick={onCancelar}>
       <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="modal-close" onClick={onCancelar} aria-label="Fechar">
+          <i className="fas fa-times" />
+        </button>
         <h2>{inicial ? "Editar Camada" : "Nova Camada"}</h2>
         <form
           onSubmit={(e) => {
@@ -1709,7 +1780,6 @@ function NoModal({
   onApagar,
 }: {
   inicial: NoArvore | null;
-  /** Posição vinda do clique no canvas, quando o talento é novo. */
   posicaoInicial: { camadaId: string; ramoId: string | null; offsetY: number } | null;
   camadas: CamadaArvore[];
   nos: NoArvore[];
@@ -1735,7 +1805,6 @@ function NoModal({
 
   const [buscaReq, setBuscaReq] = useState("");
 
-  // Candidatos a requisito: qualquer outro nó da árvore.
   const candidatos = nos.filter((n) => n.id !== inicial?.id);
   const candidatosFiltrados = buscaReq.trim()
     ? candidatos.filter((c) =>
@@ -1760,6 +1829,9 @@ function NoModal({
   return (
     <div className="modal-overlay" onClick={onCancelar}>
       <div className="modal-box modal-box-lg" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="modal-close" onClick={onCancelar} aria-label="Fechar">
+          <i className="fas fa-times" />
+        </button>
         <h2>{inicial ? "Editar Talento" : "Novo Talento"}</h2>
         <form
           onSubmit={(e) => {
@@ -1787,7 +1859,6 @@ function NoModal({
             });
           }}
         >
-          {/* Prévia: o card exatamente como vai aparecer no canvas. */}
           <div className="no-previa">
             <span className="no-previa-rotulo">Prévia</span>
             <div className="no-previa-palco">

@@ -1,10 +1,4 @@
-// Árvores de talento — regras de liberação.
-//
-// Módulo puro (sem React, sem Prisma): é a fonte única consultada pelo cliente
-// (pra pintar o nó e habilitar o botão) e pelo server action (pra validar de
-// verdade antes de gravar). Espelha a Árvore de Talentos do Haki do livro
-// (`07-haki.md`), mas o modelo é genérico o bastante pros níveis de Estilo de
-// Combate e pra qualquer trilha que o jogador queira montar.
+// Regras de liberação das árvores de talento. Usado no cliente e revalidado no server.
 
 export type CriterioArvore = "manual" | "nivel" | "pontos";
 
@@ -41,7 +35,7 @@ export function normalizarCriterio(raw: unknown): CriterioArvore {
   return CRITERIOS_VALIDOS.has(v) ? (v as CriterioArvore) : "manual";
 }
 
-/** Exige `noId` no rank >= `rank`. Rank 2 = Forma Dominada (✩), 3 = Avançada (★). */
+/** Exige `noId` no rank >= `rank`. 2 = Dominada (✩), 3 = Avançada (★). */
 export type RequisitoNo = { noId: string; rank: number };
 
 export type RamoArvore = {
@@ -60,7 +54,7 @@ export type CamadaArvore = {
 export type NoArvore = {
   id: string;
   camadaId: string;
-  /** Raia do canvas. null = primeira raia. Puramente visual. */
+  /** null = primeira raia. */
   ramoId: string | null;
   /** Altura dentro da faixa da camada, 0–100 (%). */
   offsetY: number;
@@ -78,7 +72,6 @@ export type NoArvore = {
 
 export const MAX_RANKS_TETO = 5;
 
-/** Rótulo do rank. O livro chama a 2ª compra de Dominada (✩) e a 3ª de Avançada (★). */
 export function rotuloRank(rank: number): string {
   if (rank <= 1) return "Base";
   if (rank === 2) return "Dominada ✩";
@@ -93,7 +86,7 @@ export function marcaRank(rank: number): string {
   return `×${rank}`;
 }
 
-/** Lê o Json cru de requisitos. Nunca lança — roda no render. */
+/** Nunca lança: roda no render. */
 export function lerRequisitos(raw: unknown): RequisitoNo[] {
   if (!Array.isArray(raw)) return [];
   const out: RequisitoNo[] = [];
@@ -107,7 +100,6 @@ export function lerRequisitos(raw: unknown): RequisitoNo[] {
   return out;
 }
 
-/** Total já investido na árvore — soma custo × rank de cada nó. */
 export function pontosGastos(nos: NoArvore[]): number {
   return nos.reduce((tot, n) => tot + Math.max(0, n.custo) * Math.max(0, n.rankAtual), 0);
 }
@@ -121,11 +113,8 @@ export type ContextoArvore = {
 };
 
 /**
- * Camadas abertas, na ordem. Em "manual" todas abrem; nos outros critérios a
- * camada abre quando o valor corrente (nível ou pontos gastos) alcança o limiar.
- *
- * Monotônico de propósito: se a camada 3 abriu, as anteriores também estão
- * abertas mesmo que alguém tenha digitado limiares fora de ordem.
+ * Monotônico: se uma camada abriu, as anteriores também.
+ * Em "pontos" a 1ª abre sempre, senão a árvore nunca sai do zero.
  */
 export function camadasAbertas(
   camadas: CamadaArvore[],
@@ -138,14 +127,14 @@ export function camadasAbertas(
     ctx.criterio === "nivel" ? ctx.nivelPersonagem : pontosGastos(ctx.nos);
 
   const abertas = new Set<string>();
-  let ultimaAberta = -1;
+  let ultimaAberta = ctx.criterio === "pontos" && ordenadas.length > 0 ? 0 : -1;
+  if (ultimaAberta === 0) abertas.add(ordenadas[0].id);
   ordenadas.forEach((c, i) => {
     if (valor >= c.limiar) {
       abertas.add(c.id);
       ultimaAberta = i;
     }
   });
-  // Preenche buracos abaixo da última aberta.
   for (let i = 0; i < ultimaAberta; i++) abertas.add(ordenadas[i].id);
   return abertas;
 }
@@ -154,26 +143,15 @@ export type EstadoNo = {
   /** rank atual, 0 = não comprado */
   rank: number;
   comprado: boolean;
-  /** rank que uma compra agora concederia (rank + 1), ou null se está no teto */
   proximoRank: number | null;
   custoProximo: number;
   podeComprar: boolean;
-  /** Por que NÃO pode comprar. Vazio quando `podeComprar` é true. */
   bloqueios: string[];
 };
 
 /**
- * Avalia um nó. Regras, na ordem em que aparecem pro jogador:
- *
- * 1. Rank abaixo do teto (`maxRanks`).
- * 2. Camada do nó aberta.
- * 3. Nível do personagem >= `nivelMinimo`.
- * 4. Todo requisito satisfeito (nó pai no rank exigido).
- * 5. **Rank extra exige a próxima camada** — comprar o rank N pede a camada de
- *    índice N−1 aberta. É a regra do livro: Forma Dominada exige Estágio
- *    Treinado (2ª camada), Avançada exige Perito (3ª). Nó de rank único
- *    (`maxRanks: 1`) nunca é afetado.
- * 6. Saldo do recurso cobre o custo (quando a árvore tem recurso de custo).
+ * Regras na ordem: teto de rank, camada aberta, nível mínimo, requisitos,
+ * rank extra exige a camada seguinte (rank N pede a camada N−1) e saldo do recurso.
  */
 export function estadoNo(
   no: NoArvore,
@@ -237,11 +215,7 @@ export function estadoNo(
   };
 }
 
-/**
- * Nós que dependem deste (direta ou indiretamente) e já estão comprados num
- * rank que deixaria de ser válido se este nó caísse pra `rankAlvo`. Usado pra
- * impedir devolução que quebraria a árvore.
- */
+/** Dependentes comprados que ficariam inválidos se este nó caísse pra `rankAlvo`. */
 export function dependentesQuebrados(
   noId: string,
   rankAlvo: number,
@@ -255,13 +229,43 @@ export function dependentesQuebrados(
   });
 }
 
-/**
- * IDs de habilidade que estão TRAVADAS por um nó não comprado. A ficha filtra
- * essas habilidades antes de agregar efeitos — nó travado não concede nada.
- *
- * Uma habilidade ligada a vários nós é liberada se QUALQUER um deles estiver
- * comprado (o jogador pode ter dois caminhos pro mesmo talento).
- */
+/** Vazio = pode devolver. Bloqueia por requisito de filho ou camada que fecharia com talento dentro. */
+export function bloqueiosDevolver(
+  noId: string,
+  camadas: CamadaArvore[],
+  ctx: ContextoArvore,
+): string[] {
+  const no = ctx.nos.find((n) => n.id === noId);
+  if (!no || no.rankAtual <= 0) return ["Esse talento não está comprado."];
+  const rankAlvo = no.rankAtual - 1;
+
+  const bloqueios = dependentesQuebrados(noId, rankAlvo, ctx.nos).map(
+    (d) => `${d.nome} depende deste talento`,
+  );
+
+  const depois = ctx.nos.map((n) => (n.id === noId ? { ...n, rankAtual: rankAlvo } : n));
+  const ordenadas = [...camadas].sort((a, b) => a.ordem - b.ordem);
+  const abertasAntes = camadasAbertas(ordenadas, ctx);
+  const abertasDepois = camadasAbertas(ordenadas, { ...ctx, nos: depois });
+  // Só conta camada que esta devolução fecha, não inconsistência antiga.
+  const fecha = (id: string) => abertasAntes.has(id) && !abertasDepois.has(id);
+
+  for (const n of depois) {
+    if (n.rankAtual <= 0) continue;
+    const propria = ordenadas.find((c) => c.id === n.camadaId);
+    if (propria && fecha(propria.id)) {
+      bloqueios.push(`${n.nome} ficaria em "${propria.nome}", que fecharia`);
+      continue;
+    }
+    const exigida = n.rankAtual > 1 ? ordenadas[n.rankAtual - 1] : null;
+    if (exigida && fecha(exigida.id)) {
+      bloqueios.push(`${n.nome} ${marcaRank(n.rankAtual)} exige "${exigida.nome}", que fecharia`);
+    }
+  }
+  return bloqueios;
+}
+
+/** Habilidade ligada a vários nós fica liberada se qualquer um estiver comprado. */
 export function habilidadesTravadas(nos: NoArvore[]): Set<string> {
   const travadas = new Set<string>();
   const liberadas = new Set<string>();
@@ -274,10 +278,81 @@ export function habilidadesTravadas(nos: NoArvore[]): Set<string> {
   return travadas;
 }
 
+// ─── Fio de progresso ──────────────────────────────────────
+// Liga os talentos comprados: segue o requisito quando existe, senão o comprado
+// mais próximo antes dele na leitura.
+
+export type PontoCanvas = { x: number; y: number };
+
+export type LigacaoFio = {
+  deId: string;
+  paraId: string;
+  /** true = segue uma linha de requisito; false = ligação só visual. */
+  porRequisito: boolean;
+};
+
+/** Nó sem posição (camada recolhida) fica fora do fio. */
+export function fioDeProgresso(
+  nos: NoArvore[],
+  camadas: CamadaArvore[],
+  posicoes: Map<string, PontoCanvas>,
+): LigacaoFio[] {
+  const ordemCamada = new Map(
+    [...camadas].sort((a, b) => a.ordem - b.ordem).map((c, i) => [c.id, i]),
+  );
+  const comprados = nos
+    .filter((n) => n.rankAtual > 0 && posicoes.has(n.id))
+    .sort(
+      (a, b) =>
+        (ordemCamada.get(a.camadaId) ?? 0) - (ordemCamada.get(b.camadaId) ?? 0) ||
+        a.offsetY - b.offsetY ||
+        posicoes.get(a.id)!.x - posicoes.get(b.id)!.x,
+    );
+  const idsComprados = new Set(comprados.map((n) => n.id));
+
+  // Union-find garante fio conexo mesmo com requisito apontando pra baixo.
+  const pai = new Map(comprados.map((n) => [n.id, n.id]));
+  const raiz = (id: string): string => {
+    let r = id;
+    while (pai.get(r) !== r) r = pai.get(r)!;
+    pai.set(id, r);
+    return r;
+  };
+  const unir = (a: string, b: string) => pai.set(raiz(a), raiz(b));
+
+  const out: LigacaoFio[] = [];
+  for (const no of comprados) {
+    for (const r of lerRequisitos(no.requisitos)) {
+      if (!idsComprados.has(r.noId)) continue;
+      out.push({ deId: r.noId, paraId: no.id, porRequisito: true });
+      unir(r.noId, no.id);
+    }
+  }
+
+  const anteriores: NoArvore[] = [];
+  for (const no of comprados) {
+    const p = posicoes.get(no.id)!;
+    let melhor: NoArvore | null = null;
+    let melhorDist = Infinity;
+    for (const a of anteriores) {
+      if (raiz(a.id) === raiz(no.id)) continue;
+      const q = posicoes.get(a.id)!;
+      const d = Math.hypot(q.x - p.x, q.y - p.y);
+      if (d < melhorDist) {
+        melhorDist = d;
+        melhor = a;
+      }
+    }
+    if (melhor) {
+      out.push({ deId: melhor.id, paraId: no.id, porRequisito: false });
+      unir(melhor.id, no.id);
+    }
+    anteriores.push(no);
+  }
+  return out;
+}
+
 // ─── Presets de árvore ─────────────────────────────────────
-// Árvore nova nascia com uma camada "Camada 1" e mais nada — tela em branco é
-// o pior começo. Estes moldes montam camadas/raias/critério já no formato do
-// livro; o jogador só preenche os talentos.
 
 export type PresetArvore = {
   slug: string;
@@ -335,9 +410,7 @@ export function acharPreset(slug: unknown): PresetArvore {
   return achado ?? PRESETS_ARVORE[PRESETS_ARVORE.length - 1];
 }
 
-// Faixa útil do `offsetY`. O card é ancorado pelo centro (translate -50%), então
-// 0 e 100 deixariam metade dele pra fora da faixa — invadindo o cabeçalho das
-// raias e a camada de baixo.
+// Margem pro card (ancorado no centro) não invadir as faixas vizinhas.
 export const OFFSET_MIN = 12;
 export const OFFSET_MAX = 88;
 
@@ -346,11 +419,7 @@ export function clampOffsetY(y: number): number {
   return Math.round(Math.max(OFFSET_MIN, Math.min(OFFSET_MAX, y)));
 }
 
-/**
- * Empurra o nó pra baixo quando cai em cima de outro na mesma raia/camada.
- * Só cosmético: dois cards sobrepostos escondem um ao outro e não há como
- * clicar no de baixo.
- */
+/** Empurra o nó pra baixo quando cai em cima de outro na mesma raia. */
 export function evitarSobreposicao(
   noId: string,
   camadaId: string,
@@ -366,7 +435,6 @@ export function evitarSobreposicao(
       (n.ramoId ?? ramoPadrao) === (ramoId ?? ramoPadrao),
   );
   let y = clampOffsetY(offsetY);
-  // No máximo 8 tentativas — evita laço se a raia estiver lotada.
   for (let i = 0; i < 8; i++) {
     const colide = vizinhos.some((n) => Math.abs(n.offsetY - y) < 9);
     if (!colide) break;
