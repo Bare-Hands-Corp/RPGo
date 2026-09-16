@@ -68,6 +68,10 @@ type BaseRolagemPayload = {
   cd?: number | null;
   sucesso?: boolean | null;
   privacidadeResultado?: boolean | null;
+  ocultarRolagem?: boolean | null;
+  ocultarResultado?: boolean | null;
+  bonusDetalhe?: string | null;
+  bonusTotal?: number | null;
   solicitacaoTesteId?: string | null;
   alvoNome?: string | null;
 };
@@ -89,8 +93,9 @@ type RolagemPayload = RolagemUnitariaPayload | RolagemLotePayload;
 
 function obterStatusTeste(
   rolagem: RolagemPayload,
-  detalhes: { rolls?: Array<{ resultado: number }> } | null,
+  detalhes: { rolls?: Array<{ resultado: number }> | null } | null,
 ): string {
+  if (rolagem.ocultarResultado) return "Rolagem recebida";
   const primeiroDado = detalhes?.rolls?.[0]?.resultado;
   if (primeiroDado === 20) return "Sucesso Crítico";
   if (primeiroDado === 1) return "Falha Crítica";
@@ -102,8 +107,8 @@ function obterStatusTeste(
 function extrairRoladas(detalhes: unknown): Array<{ resultado: number }> {
   if (Array.isArray(detalhes)) return detalhes as Array<{ resultado: number }>;
   if (detalhes && typeof detalhes === "object" && "rolls" in detalhes) {
-    const rolls = (detalhes as { rolls?: Array<{ resultado: number }> }).rolls;
-    return rolls || [];
+    const rolls = (detalhes as { rolls?: Array<{ resultado: number }> | null }).rolls;
+    return rolls ?? [];
   }
   return [];
 }
@@ -144,7 +149,7 @@ export async function registrarRolagem(
                 total: execucao.total,
                 modificador: execucao.modificador,
                 modo: execucao.modo,
-                rolls: execucao.detalhes,
+                rolls: rolagem.ocultarRolagem ? null : execucao.detalhes,
                 texto: execucao.texto ?? null,
               })),
               nomePreset: rolagem.nomePreset || null,
@@ -153,12 +158,16 @@ export async function registrarRolagem(
               cd: rolagem.cd ?? null,
               sucesso: rolagem.sucesso ?? null,
               privacidadeResultado: rolagem.privacidadeResultado ?? null,
+              ocultarRolagem: rolagem.ocultarRolagem ?? null,
+              ocultarResultado: rolagem.ocultarResultado ?? null,
+              bonusDetalhe: rolagem.bonusDetalhe ?? null,
+              bonusTotal: rolagem.bonusTotal ?? null,
               solicitacaoTesteId: rolagem.solicitacaoTesteId ?? null,
             }
           : {
               kind: "rolagem",
               modo: rolagem.modo,
-              rolls: rolagem.detalhes,
+              rolls: rolagem.ocultarRolagem ? null : rolagem.detalhes,
               nomePreset: rolagem.nomePreset || null,
               // String HTML já formatada (vantagem, crit, fontes) da rolagem
               // contextual. O chat a renderiza direto quando presente.
@@ -168,6 +177,10 @@ export async function registrarRolagem(
               cd: rolagem.cd ?? null,
               sucesso: rolagem.sucesso ?? null,
               privacidadeResultado: rolagem.privacidadeResultado ?? null,
+              ocultarRolagem: rolagem.ocultarRolagem ?? null,
+              ocultarResultado: rolagem.ocultarResultado ?? null,
+              bonusDetalhe: rolagem.bonusDetalhe ?? null,
+              bonusTotal: rolagem.bonusTotal ?? null,
               solicitacaoTesteId: rolagem.solicitacaoTesteId ?? null,
             }
       ) as Prisma.InputJsonValue,
