@@ -713,6 +713,9 @@ function ModalPericiaCustom({
   return (
     <div className="modal-overlay" onClick={onCancelar}>
       <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="modal-close" onClick={onCancelar} aria-label="Fechar">
+          <i className="fas fa-times" />
+        </button>
         <h2>{inicial ? "Editar perícia" : "Nova perícia"}</h2>
         <p className="modal-intro">
           Perícias fora do set padrão (Profissão, treinamento, homebrew).

@@ -258,8 +258,6 @@ export function RecursosSidebar({
       {ordenados.map((r) => {
         const cor = r.cor || "var(--color-power)";
         const estilo = { cor: r.cor, cor2: r.cor2, efeito: normalizarEfeitoCor(r.efeito) };
-        // Sem cor configurada não há tons a derivar: nome e barra caem no
-        // padrão do tema (--color-power).
         const fxNome = estiloAplicado(estilo, "texto");
         const fxBarra = estiloAplicado(estilo, "barra");
         return (
@@ -330,6 +328,9 @@ export function RecursosSidebar({
       {modalAberto && (
         <div className="modal-overlay" onClick={() => setModalAberto(false)}>
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="modal-close" onClick={() => setModalAberto(false)} aria-label="Fechar">
+              <i className="fas fa-times" />
+            </button>
             <h2>{form.id ? "Editar Recurso" : "Novo Recurso"}</h2>
             <p className="modal-intro">
               Pool numérico (ex: Pontos de Carateca, PA, Pontos de Okama).

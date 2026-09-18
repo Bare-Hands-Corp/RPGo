@@ -207,40 +207,68 @@ a {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
   display: flex;
   justify-content: center;
   align-items: center;
   z-index: 1000;
   padding: 20px;
+  animation: modal-overlay-entra 0.16s ease-out;
 }
 
 .modal-box {
+  --modal-pad: 25px;
   position: relative;
   background: var(--bg-card);
-  padding: 25px;
-  border-radius: 12px;
+  padding: var(--modal-pad);
+  border: 1px solid var(--border);
+  border-radius: 14px;
   width: 100%;
   max-width: 400px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.35),
+    0 2px 8px rgba(0, 0, 0, 0.15);
   color: var(--text-main);
   max-height: 90vh;
   overflow-y: auto;
+  animation: modal-box-entra 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  container-type: scroll-state;
+}
+
+@keyframes modal-overlay-entra {
+  from { opacity: 0; }
+}
+
+@keyframes modal-box-entra {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-overlay,
+  .modal-box {
+    animation: none;
+  }
 }
 
 .modal-box-grande {
   max-width: 720px;
 }
 
-.modal-box h2 {
-  margin-bottom: 15px;
+/* Só o h2 direto: o calendário tem cabeçalho próprio. */
+.modal-box > h2 {
+  font-size: 1.3rem;
+  line-height: 1.25;
+  margin: 0 0 16px;
+  padding: 0 36px 14px 0;
+  border-bottom: 1px solid var(--border);
 }
 
 .modal-box label {
   display: block;
-  margin-top: 10px;
+  margin-top: 12px;
   font-weight: 600;
-  font-size: 0.9rem;
+  font-size: 0.82rem;
   color: var(--text-sec);
 }
 
@@ -248,49 +276,114 @@ a {
 .modal-box textarea,
 .modal-box select {
   width: 100%;
-  padding: 10px;
+  padding: 10px 12px;
   margin-top: 5px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   font-family: inherit;
+  font-size: 0.9rem;
   background: var(--bg-surface);
   color: var(--text-main);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.modal-box input::placeholder,
+.modal-box textarea::placeholder {
+  color: var(--text-sec);
+  opacity: 0.65;
+}
+
+.modal-box input:hover,
+.modal-box textarea:hover,
+.modal-box select:hover {
+  border-color: color-mix(in oklch, var(--primary) 45%, var(--border));
+}
+
+.modal-box input:focus-visible,
+.modal-box textarea:focus-visible,
+.modal-box select:focus-visible {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--primary) 28%, transparent);
+}
+
+.modal-box input[type="checkbox"],
+.modal-box input[type="radio"],
+.modal-box input[type="color"],
+.modal-box input[type="range"] {
+  width: auto;
+  padding: 0;
+  box-shadow: none;
+}
+
+.modal-box input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.modal-box input[type="number"]::-webkit-inner-spin-button,
+.modal-box input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .modal-box textarea {
   min-height: 80px;
   resize: vertical;
+  line-height: 1.45;
 }
 
-/* Botão × no canto do modal — promovido de .narrador-modal-close. */
 .modal-close {
   position: absolute;
-  top: 10px;
-  right: 12px;
-  border: none;
+  top: 20px;
+  right: 18px;
+  z-index: 3;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-sec);
-  font-size: 1.5rem;
+  font-size: 1.05rem;
   line-height: 1;
   cursor: pointer;
-  transition: color 0.15s;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
 }
 
 .modal-close:hover {
   color: var(--text-main);
+  background: var(--bg-surface);
+  border-color: var(--border);
 }
 
+.modal-close:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+/* Rodapé grudado pro Salvar não sumir em modal comprido. */
 .modal-actions {
-  margin-top: 20px;
+  position: sticky;
+  bottom: calc(-1 * var(--modal-pad, 0px));
+  z-index: 2;
+  margin: 20px calc(-1 * var(--modal-pad, 0px)) calc(-1 * var(--modal-pad, 0px));
+  padding: 14px var(--modal-pad, 0px) var(--modal-pad, 0px);
+  background: var(--bg-card);
   display: flex;
   gap: 10px;
   justify-content: flex-end;
 }
 
-/* Rodapé separado por linha — promovido de .cal-modal-footer. Opt-in porque o
-   modal curto da ficha fica melhor sem a régua. */
+@container scroll-state(scrollable: bottom) {
+  .modal-actions {
+    box-shadow: 0 -14px 14px -14px rgba(0, 0, 0, 0.45);
+  }
+}
+
 .modal-actions.separada {
-  padding-top: 12px;
   border-top: 1px solid var(--border);
 }
 
@@ -301,12 +394,17 @@ a {
   cursor: pointer;
   border: none;
   font-family: inherit;
+  transition: filter 0.15s, border-color 0.15s;
 }
 
 .modal-btn-cancel {
   background: var(--bg-surface);
   color: var(--text-main);
   border: 1px solid var(--border) !important;
+}
+
+.modal-btn-cancel:hover {
+  border-color: color-mix(in oklch, var(--text-sec) 60%, var(--border)) !important;
 }
 
 .modal-btn-save {
@@ -318,10 +416,106 @@ a {
   filter: brightness(1.1);
 }
 
-/* ─── ANATOMIA DO MODAL (compartilhado) ───────────────
-   Promovido de ficha.css: enquanto morava lá, nenhuma outra rota podia usar
-   essas primitivas nem querendo. Modal novo (calendário, narrador, bandeja)
-   monta o miolo com estas classes em vez de inventar as próprias. */
+/* ─── SELECT ───────────────────────────────────────────────── */
+/* base-select (Chrome/Edge 135+) deixa estilizar a lista; o resto fica no nativo. */
+@supports (appearance: base-select) {
+  select,
+  ::picker(select) {
+    appearance: base-select;
+  }
+
+  select {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+  }
+
+  select::picker-icon {
+    margin-left: auto;
+    color: var(--text-sec);
+    transition: rotate 0.18s ease;
+  }
+
+  select:open::picker-icon {
+    rotate: 180deg;
+  }
+
+  select:open {
+    border-color: var(--primary);
+  }
+
+  ::picker(select) {
+    margin-block: 4px;
+    padding: 4px;
+    max-height: min(320px, 45vh);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-card);
+    color: var(--text-main);
+    box-shadow:
+      0 16px 36px rgba(0, 0, 0, 0.35),
+      0 2px 6px rgba(0, 0, 0, 0.15);
+  }
+
+  select option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+
+  select option:hover,
+  select option:focus-visible {
+    outline: none;
+    background: color-mix(in oklch, var(--primary) 16%, transparent);
+  }
+
+  select option:checked {
+    font-weight: 700;
+  }
+
+  select option::checkmark {
+    order: 1;
+    margin-left: auto;
+    color: var(--primary);
+  }
+
+  select option[value=""] {
+    color: var(--text-sec);
+    font-style: italic;
+  }
+
+  select optgroup {
+    padding-top: 4px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-sec);
+  }
+
+  select optgroup option {
+    font-size: 0.9rem;
+    font-weight: 400;
+    letter-spacing: normal;
+    text-transform: none;
+    color: var(--text-main);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    select::picker-icon {
+      transition: none;
+    }
+  }
+}
+
+/* ─── ANATOMIA DO MODAL (compartilhado) ─────────────── */
 .modal-box-lg {
   max-width: 560px;
 }
@@ -335,6 +529,14 @@ a {
   color: var(--text-sec);
   border-bottom: 1px solid var(--border);
   padding-bottom: 4px;
+}
+
+/* Wrapper de campos. Não usar .modal-secao aqui: o text-transform herda. */
+.modal-bloco {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 12px;
 }
 
 .modal-secao-detalhe {
@@ -376,7 +578,6 @@ a {
   padding: 0 14px 14px;
 }
 
-/* Texto de abertura de modal — era style inline repetido em 6 lugares. */
 .modal-intro {
   font-size: 0.84rem;
   line-height: 1.45;
@@ -384,9 +585,7 @@ a {
   margin: 0 0 15px;
 }
 
-/* ─── BOTÃO PADRÃO ─────────────────────────────────
-   Vocabulário único de botão do RPGo. Rota nova usa .btn-rect (+ .primary /
-   .outline) em vez de criar `<area>-btn-*`. */
+/* ─── BOTÃO PADRÃO ───────────────────────────────── */
 .btn-rect {
   padding: 10px 20px;
   border-radius: 8px;
@@ -402,8 +601,6 @@ a {
   font-family: inherit;
 }
 
-/* Estado desabilitado — faltava no primitivo; bandeja e dashboard tinham cada um
-   o seu. Vale pra todas as variantes. */
 .btn-rect:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -440,8 +637,6 @@ a {
   color: white;
 }
 
-/* Botão neutro (superfície + borda) — o que ameaças e calendário chamavam de
-   "secundário". Não é o mesmo que .outline, que puxa a cor primária. */
 .btn-rect.neutro {
   background: var(--bg-surface);
   color: var(--text-main);
@@ -453,8 +648,6 @@ a {
   color: var(--primary);
 }
 
-/* Afordância "criar/expandir aqui" — borda tracejada, fundo transparente.
-   Mesma linguagem do .arvore-slot-vazio da ficha: tracejado = clique pra criar. */
 .btn-rect.tracejado {
   background: transparent;
   border: 1px dashed var(--border);
@@ -468,7 +661,6 @@ a {
   background: color-mix(in oklch, var(--primary) 6%, transparent);
 }
 
-/* Tamanho compacto — botão de linha de lista, "+ adicionar", remover item. */
 .btn-rect.sm {
   padding: 6px 10px;
   font-size: 0.78rem;
@@ -496,10 +688,7 @@ a {
   margin: 4px 0 0;
 }
 
-/* Checkbox padrão — a nativa não aceita estilo consistente entre navegadores.
-   Desenhada aqui, sem depender de fonte de ícone. Era escopada em .ficha-main
-   e .modal-box; global agora pra alcançar também modal de rota própria
-   (ex: .narrador-modal-overlay). */
+/* Checkbox desenhada: a nativa não aceita estilo consistente. */
 input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
@@ -543,9 +732,7 @@ input[type="checkbox"]:disabled {
   cursor: not-allowed;
 }
 
-/* O seletor duplo é proposital: `.modal-box label` tem especificidade (0,1,1) e
-   engolia o display:flex daqui — a linha de checkbox dentro de modal vinha
-   quebrando em bloco sem ninguém notar. */
+/* Seletor duplo pra vencer `.modal-box label` (0,1,1). */
 .checkbox-linha,
 .modal-box label.checkbox-linha {
   display: flex;

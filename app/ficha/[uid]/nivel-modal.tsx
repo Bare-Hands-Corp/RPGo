@@ -14,13 +14,8 @@ import { ATRIBUTOS, formatarMod, modificador, type Atributo } from "@/lib/op-rpg
 import { rolarDados } from "@/lib/dice";
 import { empilharRolagem } from "@/lib/empilhar-rolagem";
 
-/** Camada de árvore que passa a abrir com o nível novo. */
 export type CamadaQueAbre = { arvore: string; camada: string };
 
-/**
- * Assistente de subida de nível: propõe, o jogador confirma. Nada é gravado
- * antes do "Confirmar" — decisão do user.
- */
 export function NivelModal({
   personagemId,
   nivel,
@@ -52,7 +47,6 @@ export function NivelModal({
   const gastos = Object.values(apr).reduce((t, v) => t + (v ?? 0), 0);
   const restantes = PONTOS_APRIMORAMENTO - gastos;
 
-  // CON que sobe de modificador rende PV retroativo — mostra antes de confirmar.
   const conDepois = atributos.constituicao + (apr.constituicao ?? 0);
   const retroativo =
     (modificador(conDepois) - modificador(atributos.constituicao)) *
@@ -116,6 +110,9 @@ export function NivelModal({
   return (
     <div className="modal-overlay" onClick={onFechar}>
       <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="modal-close" onClick={onFechar} aria-label="Fechar">
+          <i className="fas fa-times" />
+        </button>
         <h2>
           Nível {proposta.nivelAtual} → {proposta.nivelNovo}
         </h2>

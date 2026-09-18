@@ -112,6 +112,8 @@ function capitalizar(s: string): string {
 type PatchPersonagem = Partial<
   Pick<
     Personagem,
+    | "nivel"
+    | "pe"
     | "hpAtual"
     | "hpTemp"
     | "hpMax"
@@ -162,6 +164,15 @@ function aplicarDelta(
   return next;
 }
 
+/** Enter/Espaço num card clicável — os cards de rolar são div, não botão. */
+function porTeclado(acao: () => void) {
+  return (e: React.KeyboardEvent) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    acao();
+  };
+}
+
 export function PerfilSidebar({
   personagem: inicial,
   habilidades,
@@ -187,8 +198,7 @@ export function PerfilSidebar({
   // prop drilling. Reseta quando inicial muda (Server Component re-renderizou
   // com a verdade).
   const [modalNivel, setModalNivel] = useState(false);
-  // Âncora da faixa condensada: o bloco de Pontos de Poder, último dos dois
-  // vitais. Sair dele por cima significa que PV e PE saíram juntos de vista.
+  // Âncora da faixa condensada.
   const vitaisRef = useRef<HTMLDivElement>(null);
   const [shadow, setShadow] = useState<PatchPersonagem>({});
   useEffect(() => {
@@ -330,17 +340,13 @@ export function PerfilSidebar({
   const nadoEfetivo = Math.max(p.nado, nadarExtra?.valor ?? 0);
   const nadoPorEfeito = (nadarExtra?.valor ?? 0) >= p.nado && !!nadarExtra?.fontes.length;
 
-  // CR resolvida aqui em cima porque a faixa condensada também precisa do
-  // total — o `CrEditavel` continua dono da edição de `crOutros`. O atributo
-  // pode ser trocado por habilidade; a DES já chega com a penalidade da
-  // armadura embutida via `atributosParaTeste`.
+  // CR calculada aqui porque a faixa condensada também usa.
   const crAtrib = atributoDeCalculo("cr", "destreza", subs);
   const crBonusFixo = caArmadura + efeitosAgregados.bonusCR.valor;
   const crTotal = crBase(atributosParaTeste[crAtrib.atributo], p.crOutros) + crBonusFixo;
 
   return (
     <aside className="sidebar">
-      {/* Portal — só entra na tela quando `vitaisRef` sai por cima. */}
       <FaixaVitais
         personagemId={p.id}
         hpAtual={p.hpAtual}
@@ -379,7 +385,12 @@ export function PerfilSidebar({
         <h2 className="char-name">{p.nome || "Sem Nome"}</h2>
         <span className="char-level">
           Nível{" "}
-          <EditableStat personagemId={p.id} campo="nivel" valor={p.nivel} />
+          <EditableStat
+            personagemId={p.id}
+            campo="nivel"
+            valor={p.nivel}
+            onOtimista={(novo) => aplicarOtimista({ nivel: novo })}
+          />
           <span className="char-prof">
             {" · Prof "}
             {formatarMod(bonusProficiencia(p.nivel))}
@@ -390,15 +401,19 @@ export function PerfilSidebar({
             <div className="pe-fill" style={{ width: `${pePct}%` }} />
           </div>
           <div className="pe-label">
-            <EditableStat personagemId={p.id} campo="pe" valor={p.pe} formato="milhar" />
+            <EditableStat
+              personagemId={p.id}
+              campo="pe"
+              valor={p.pe}
+              formato="milhar"
+              onOtimista={(novo) => aplicarOtimista({ pe: novo })}
+            />
             {peProximo && (
               <span className="pe-prox"> / {peProximo.toLocaleString("pt-BR")}</span>
             )}
           </div>
         </div>
 
-        {/* PE só SUGERE: o botão aparece destacado ao cruzar o limiar, mas
-            subir continua sendo ato manual (decisão do user). */}
         <button
           type="button"
           className={`nivel-subir ${podeSubir ? "pronto" : ""}`}
@@ -481,6 +496,7 @@ export function PerfilSidebar({
               campo="ppAtual"
               valor={p.ppAtual}
               max={ppMaxEfetivo}
+              onOtimista={(novo) => aplicarOtimista({ ppAtual: novo })}
             />{" "}
             /{" "}
             <span
@@ -629,7 +645,12 @@ export function PerfilSidebar({
             <div
               className="derivado-card derivado-rolar"
               title={`Empilhar Iniciativa no Rolador${titulo ? ` · ${titulo}` : ""}`}
+              role="button"
+              tabIndex={0}
               onClick={() => empilharD20(iniEf, "Iniciativa", { tipo: "iniciativa" })}
+              onKeyDown={porTeclado(() =>
+                empilharD20(iniEf, "Iniciativa", { tipo: "iniciativa" }),
+              )}
             >
               <div className="derivado-label">Iniciativa</div>
               <div className={`derivado-value ${reduzido ? "valor-exausto" : ""}`}>
@@ -789,9 +810,7 @@ export function PerfilSidebar({
           const valor = atributosEfetivos[slug];
           const bonus = efeitosAgregados.bonusAtributo[slug];
           const modEf = modificador(valor) - penD20;
-          // Teto do Aprimoramento de Atributo: compara a pontuação BASE (a que
-          // o EditFichaModal edita), não a efetiva — bônus de habilidade não
-          // passa pelo Aprimoramento. Avisa, não impede.
+          // Compara a pontuação base: bônus de habilidade não passa pelo Aprimoramento.
           const teto = tetoAtributo(efeitosAgregados.bonusTetoAtributo, slug);
           const acimaDoTeto = p[slug] > teto.valor;
           const titulo = [
@@ -810,12 +829,20 @@ export function PerfilSidebar({
               className="attr-card attr-rolar"
               key={label}
               title={`Empilhar Teste ${label} no Rolador${titulo ? ` · ${titulo}` : ""}`}
+              role="button"
+              tabIndex={0}
               onClick={() =>
                 empilharD20(modEf, `Teste ${label}`, {
                   tipo: "teste-atributo",
                   atributo: slug,
                 })
               }
+              onKeyDown={porTeclado(() =>
+                empilharD20(modEf, `Teste ${label}`, {
+                  tipo: "teste-atributo",
+                  atributo: slug,
+                }),
+              )}
             >
               <div className="attr-label">
                 {label}

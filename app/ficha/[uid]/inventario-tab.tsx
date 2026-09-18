@@ -350,7 +350,6 @@ export function InventarioTab({
       peso: Number(form.peso) || 0,
       tipo: form.tipo,
       tags: form.tags,
-      // Só sobe estilo de tag que ainda existe no texto livre.
       tagsEstilo: podarEstilosTag(form.tagsEstilo, form.tags),
       descricao: form.descricao,
       dano: ehArma ? form.dano : "",
@@ -663,6 +662,9 @@ export function InventarioTab({
       {modalAberto && (
         <div className="modal-overlay" onClick={fechar}>
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="modal-close" onClick={fechar} aria-label="Fechar">
+              <i className="fas fa-times" />
+            </button>
             <h2>{form.id ? "Editar Item" : "Novo Item"}</h2>
 
             <div className="tipo-cards">
@@ -677,6 +679,7 @@ export function InventarioTab({
                   type="button"
                   key={slug}
                   className={`tipo-card ${form.tipo === slug ? "ativo" : ""}`}
+                  aria-pressed={form.tipo === slug}
                   onClick={() => set("tipo", slug)}
                 >
                   <span className="tipo-card-icone">

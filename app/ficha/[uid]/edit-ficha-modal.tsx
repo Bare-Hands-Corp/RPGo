@@ -22,8 +22,6 @@ type Atributos = {
 type Props = {
   personagemId: string;
   inicial: Atributos;
-  // Só o mapa de tetos importa aqui — o efeito `teto-<atributo>` de habilidade
-  // eleva o limite de 20 do Aprimoramento de Atributo.
   bonusTetoAtributo: EfeitosAgregados["bonusTetoAtributo"];
   onOtimista?: (patch: Atributos) => void;
 };
@@ -85,6 +83,9 @@ export function EditFichaModal({
       {aberto && (
         <div className="modal-overlay" onClick={() => !pending && setAberto(false)}>
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="modal-close" onClick={() => !pending && setAberto(false)} aria-label="Fechar">
+              <i className="fas fa-times" />
+            </button>
             <h2>Editar Atributos</h2>
             <p className="modal-intro">
               Ajuste seus limites e atributos base.
@@ -161,7 +162,7 @@ export function EditFichaModal({
                   ] as const
                 ).map(([label, key]) => {
                   const teto = tetoAtributo(bonusTetoAtributo, key as Atributo);
-                  // Passar do teto é legal (lendários vão até 30) — só avisa.
+                  // Passar do teto é permitido (lendários vão até 30); só avisa.
                   const acima = valores[key] > teto.valor;
                   return (
                     <div key={key}>

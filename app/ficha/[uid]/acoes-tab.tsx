@@ -609,6 +609,9 @@ export function AcoesTab({
       {modalAberto && (
         <div className="modal-overlay" onClick={fecharModal}>
           <div className="modal-box modal-box-lg" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="modal-close" onClick={fecharModal} aria-label="Fechar">
+              <i className="fas fa-times" />
+            </button>
             <h2>{form.id ? "Editar Ação" : "Nova Ação"}</h2>
 
             <div className="tipo-cards tipo-cards-5">
@@ -625,10 +628,11 @@ export function AcoesTab({
                   type="button"
                   key={slug}
                   className={`tipo-card ${form.tipo === slug ? "ativo" : ""}`}
-                  style={form.tipo === slug ? { borderColor: cor, backgroundColor: `color-mix(in oklch, ${cor} 10%, var(--bg-card))` } : undefined}
+                  style={{ "--tipo-cor": cor } as React.CSSProperties}
+                  aria-pressed={form.tipo === slug}
                   onClick={() => setF("tipo", slug)}
                 >
-                  <i className={`fas ${icone}`} style={{ fontSize: "1.4rem", color: cor }} />
+                  <i className={`fas ${icone} tipo-card-icone`} />
                   <span className="tipo-card-titulo">{titulo}</span>
                 </button>
               ))}

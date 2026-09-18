@@ -776,7 +776,6 @@ function HabilidadeModal({
       usosAtual: inicial ? inicial.usosAtual : usosNum,
       recarga: recarga || null,
       tags: tags.trim() || null,
-      // Só sobe estilo de tag que ainda existe no texto livre.
       tagsEstilo: podarEstilosTag(tagsEstilo, tags),
       efeitos,
     });
@@ -802,6 +801,9 @@ function HabilidadeModal({
   return (
     <div className="modal-overlay" onClick={onCancelar}>
       <div className="modal-box modal-box-lg" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="modal-close" onClick={onCancelar} aria-label="Fechar">
+          <i className="fas fa-times" />
+        </button>
         <h2>{inicial ? "Editar Habilidade" : "Nova Habilidade"}</h2>
 
         <form onSubmit={submit}>
@@ -812,6 +814,7 @@ function HabilidadeModal({
                 type="button"
                 key={o.slug}
                 className={`origem-pill ${origem === o.slug ? "ativo" : ""}`}
+                aria-pressed={origem === o.slug}
                 onClick={() => setOrigem(o.slug)}
                 style={origem === o.slug ? { borderColor: o.cor, color: o.cor } : undefined}
               >
@@ -827,17 +830,11 @@ function HabilidadeModal({
                 type="button"
                 key={t.slug}
                 className={`tipo-card ${tipo === t.slug ? "ativo" : ""}`}
-                style={
-                  tipo === t.slug
-                    ? {
-                        borderColor: t.cor,
-                        backgroundColor: `color-mix(in oklch, ${t.cor} 10%, var(--bg-card))`,
-                      }
-                    : undefined
-                }
+                style={{ "--tipo-cor": t.cor } as React.CSSProperties}
+                aria-pressed={tipo === t.slug}
                 onClick={() => setTipo(t.slug)}
               >
-                <i className={`fas ${t.icone}`} style={{ fontSize: "1.4rem", color: t.cor }} />
+                <i className={`fas ${t.icone} tipo-card-icone`} />
                 <span className="tipo-card-titulo">{t.nome}</span>
               </button>
             ))}

@@ -452,6 +452,9 @@ function ModalNavio({
   return (
     <div className="modal-overlay" onClick={onCancelar}>
       <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="modal-close" onClick={onCancelar} aria-label="Fechar">
+          <i className="fas fa-times" />
+        </button>
         <h2>Editar navio</h2>
         <form onSubmit={submeter}>
           <label>Nome</label>
