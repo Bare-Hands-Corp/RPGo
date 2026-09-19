@@ -9,7 +9,7 @@ import {
   criarSolicitacaoTeste,
 } from "./actions";
 import type { MensagemSerializada } from "@/lib/mensagens";
-import { ATRIBUTOS, type Atributo } from "@/lib/op-rpg";
+import { ATRIBUTOS, type Atributo, type PericiaSlug } from "@/lib/op-rpg";
 
 type AbaTeste = "pericias" | "salvaguardas";
 type ModoTeste = "normal" | "vantagem" | "desvantagem";
@@ -19,7 +19,7 @@ type PericiaAgregada = {
   nome: string;
   atributo: Atributo;
   siglaAtributo: string;
-  slugCanonico: string | null;
+  slugCanonico: PericiaSlug | null;
   origem: "canonica" | "custom";
   quantidade: number;
   personagensIds: string[];
