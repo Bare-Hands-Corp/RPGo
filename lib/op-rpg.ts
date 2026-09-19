@@ -493,17 +493,8 @@ export const EXAUSTAO_EFEITOS: {
   { nivel: 6, d20: -10, deslocamento: -9, desmaio: true },
 ];
 
-// Teto de pontuação de atributo.
-//
-// No OP RPG o limite de 20 vale pro **Aprimoramento de Atributo** (níveis-chave
-// do Estilo de Combate: +2 num atributo ou +1 em dois) e pro ajuste de espécie
-// na criação. NÃO é um teto duro do sistema: as faixas de valor do livro vão
-// até 30 ("criaturas/piratas/marinheiros lendários"). Por isso a ficha AVISA
-// quando a pontuação passa do teto, mas nunca trava — mesmo padrão dos canhões
-// acima do máximo do navio.
-//
-// O efeito `teto-<atributo>` (agregado em `bonusTetoAtributo`) eleva esse
-// limite, no molde do "seu máximo de Força passa a ser 22" do 5e.
+// Teto de atributo: 20 é o limite do Aprimoramento, não um teto duro (vai até 30).
+// A ficha só avisa. `teto-<atributo>` eleva o limite.
 export const TETO_ATRIBUTO_BASE = 20;
 
 export function tetoAtributo(

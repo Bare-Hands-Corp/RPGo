@@ -4,7 +4,6 @@ import { useEffect, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { EditableStat } from "./editable-stat";
 
-// Patch que a faixa sabe emitir — subconjunto do patch otimista da sidebar.
 type PatchVitais = {
   hpAtual?: number;
   hpTemp?: number;
@@ -20,20 +19,13 @@ type Props = {
   ppMax: number;
   cr: number;
   exaustao: number;
-  // Bloco da sidebar observado (o de Pontos de Poder, último dos dois vitais).
-  // Enquanto ele estiver em vista os mesmos números já estão na tela, então a
-  // faixa fica fora do caminho — sidebar e faixa nunca são lidas juntas.
+  // Bloco da sidebar observado; a faixa só aparece quando ele sai por cima.
   ancora: RefObject<HTMLElement | null>;
   onOtimista: (patch: PatchVitais) => void;
 };
 
-// Altura da faixa. Entra no rootMargin pra âncora contar como "fora de vista"
-// já ao passar por baixo dela, e não só ao cruzar o topo da viewport.
 const ALTURA = 46;
 
-// Faixa condensada com PV/PE/CR grudada no topo, visível só depois que a
-// sidebar sai de vista. É o que mantém os números da sessão à mão no celular,
-// onde a sidebar empilha acima do conteúdo e some na primeira rolagem.
 export function FaixaVitais({
   personagemId,
   hpAtual,
@@ -53,8 +45,6 @@ export function FaixaVitais({
     if (!alvo) return;
     const observador = new IntersectionObserver(
       ([entrada]) => {
-        // Só aparece quando a âncora saiu POR CIMA. Se ela está abaixo da
-        // viewport, a sidebar ainda vai ser lida e não há o que repetir.
         setVisivel(!entrada.isIntersecting && entrada.boundingClientRect.top < ALTURA);
       },
       { rootMargin: `-${ALTURA}px 0px 0px 0px` },
@@ -65,8 +55,7 @@ export function FaixaVitais({
 
   if (!visivel) return null;
 
-  // Mesmo denominador da barra da sidebar: escala quando atual+temp passa do
-  // máximo efetivo, mantendo a proporção visual coerente.
+  // Mesmo denominador da barra da sidebar.
   const totalVisivel = Math.max(hpMax, hpAtual + hpTemp, 1);
   const hpPct = (Math.max(0, hpAtual) / totalVisivel) * 100;
   const tempPct = (Math.max(0, hpTemp) / totalVisivel) * 100;

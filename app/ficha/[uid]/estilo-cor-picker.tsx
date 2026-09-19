@@ -13,8 +13,7 @@ import {
   type MapaEstilosTag,
 } from "@/lib/estilos-cor";
 
-// Paleta inicial dos pickers. Precisa ser hex — <input type="color"> não
-// aceita var(), e os tons derivados (gradiente/metálico/holo) saem do hex.
+// Hex: <input type="color"> não aceita var().
 export const SWATCHES_COR = [
   "#d4af37", // berries/ouro
   "#1f9eff", // azul
@@ -27,11 +26,7 @@ export const SWATCHES_COR = [
   "#64748b", // cinza
 ];
 
-/**
- * Pinta um texto com o estilo escolhido, na família pedida. É o render
- * compartilhado: o `<span>` interno existe porque gradiente/metálico/holo
- * clipam o degradê no texto, e a pílula precisa sobrar no elemento de fora.
- */
+/** O <span> interno recebe o background-clip; a pílula fica no de fora. */
 export function TextoFx({
   texto,
   estilo,
@@ -65,7 +60,6 @@ export function TextoFx({
   );
 }
 
-/** Pílula de tag. Sem estilo configurado cai na classe padrão passada. */
 export function TagChip({
   nome,
   estilo,
@@ -86,10 +80,6 @@ export function TagChip({
   );
 }
 
-/**
- * Picker de cor + efeito. Cor vazia = padrão do tema (aí o efeito não tem
- * o que pintar e o alvo fica no visual original).
- */
 export function EstiloPicker({
   cor,
   cor2 = "",
@@ -106,8 +96,6 @@ export function EstiloPicker({
   amostra?: string;
   permitirSemCor?: boolean;
 }) {
-  // Prévia dos efeitos precisa de alguma cor pra mostrar diferença — quando
-  // o usuário ainda não escolheu, mostra na primeira da paleta.
   const corPrevia = cor || SWATCHES_COR[0];
   const varsPrevia = varsEstiloCor(corPrevia, cor2 || null) ?? undefined;
 
@@ -176,8 +164,6 @@ export function EstiloPicker({
         </div>
       </div>
 
-      {/* A 2ª cor só existe no gradiente — os outros efeitos derivam tudo da
-          cor base, então mostrar aqui seria um controle que não faz nada. */}
       {efeito === "gradiente" && (
         <div>
           <div className="estilo-picker-titulo">Cor 2</div>
@@ -225,12 +211,6 @@ export function EstiloPicker({
   );
 }
 
-/**
- * Campo de tags: continua sendo texto livre separado por vírgula, e embaixo
- * lista as tags como chips clicáveis. Clicar num chip abre o picker daquela
- * tag — o estilo vive no mapa `estilos` (nome da tag → cor + efeito), gravado
- * na coluna `tagsEstilo` do item/habilidade.
- */
 export function TagsEditor({
   tags,
   estilos,
@@ -262,7 +242,6 @@ export function TagsEditor({
       efeito: patch.efeito ?? atual.efeito,
     };
     const mapa = { ...estilos };
-    // Sem cor e sem efeito não vale entrada — some do mapa.
     if (!proximo.cor && proximo.efeito === EFEITO_COR_PADRAO) delete mapa[alvo];
     else mapa[alvo] = proximo;
     onEstilos(mapa);
@@ -291,9 +270,7 @@ export function TagsEditor({
               const estilo = estilos[t];
               const semCor = !estilo?.cor;
               const { className: fx, style } = estiloAplicado(estilo, "chip");
-              // <span> e não <button>: dentro de um <form> o botão herdaria
-              // estilo do agente e competiria em especificidade com as classes
-              // fx-*, que precisam pintar igualzinho ao chip do card.
+              // <span> e não <button>: dentro de <form> o botão herda estilo do agente.
               return (
                 <span
                   key={t}
@@ -347,5 +324,4 @@ export function TagsEditor({
   );
 }
 
-/** Re-export pra quem só precisa ler o Json do banco sem importar a lib. */
 export { lerEstilosTag, separarTags };

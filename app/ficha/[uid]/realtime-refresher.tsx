@@ -84,10 +84,7 @@ export function FichaRealtime({
         },
         () => router.refresh(),
       )
-      // Árvores de talento. Só a tabela `arvores` é assinada: camadas e nós não
-      // têm `personagem_id` pra filtrar, e quem edita é o dono da ficha —
-      // otimismo + revalidate já cobrem a visão dele (mesma decisão do toggle
-      // `ligada` das habilidades). Criar/apagar/renomear árvore chega ao vivo.
+      // Só `arvores` é assinada: camadas e nós não têm personagem_id pra filtrar.
       .on(
         "postgres_changes",
         {
@@ -98,9 +95,7 @@ export function FichaRealtime({
         },
         () => router.refresh(),
       )
-      // Objetivos: têm `personagem_id`, então dá pra filtrar. Vale assinar
-      // porque o narrador também pode mexer (autorizar() libera dono OU
-      // narrador) e a aba aberta do jogador precisa refletir.
+      // Narrador também edita objetivos.
       .on(
         "postgres_changes",
         {

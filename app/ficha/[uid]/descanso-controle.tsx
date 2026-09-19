@@ -12,13 +12,6 @@ import {
 import { rolarDados } from "@/lib/dice";
 import { empilharRolagem } from "@/lib/empilhar-rolagem";
 
-/**
- * Descanso curto/longo + gasto de Dado de Vida.
- *
- * A rolagem do Dado de Vida acontece AQUI (cliente) e é empilhada no Rolador,
- * pra a mesa ver o resultado — mesmo padrão de perícia, ataque e técnica. O
- * server só debita o dado e aplica a cura clampada.
- */
 export function DescansoControle({
   personagemId,
   nivel,
@@ -92,7 +85,7 @@ export function DescansoControle({
 
   function usarDadoDeVida() {
     if (disponiveis <= 0) return;
-    // Rola aqui pra o resultado aparecer no Rolador da Bandeja.
+    // Rola no cliente pro resultado ir pro Rolador.
     const resultado = rolarDados([{ faces, sinal: 1 }], modConstituicao);
     const curado = Math.max(0, resultado.total);
 
@@ -104,8 +97,7 @@ export function DescansoControle({
 
     setOcupado(true);
     startTransition(async () => {
-      // useOptimistic exige que o update aconteça DENTRO da transition —
-      // fora dela o React lança "optimistic state update outside a transition".
+      // Dentro da transition, senão o useOptimistic reclama.
       onOtimista?.({ deltaHpAtual: curado });
       try {
         await gastarDadoDeVida(personagemId, curado);

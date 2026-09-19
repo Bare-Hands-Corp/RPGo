@@ -1,10 +1,4 @@
-// Estilos visuais de cor ("brilho") aplicáveis a tags, chips, barras e nomes.
-//
-// Um estilo é uma cor base (hex) + um efeito. O efeito vira classe CSS
-// (`fx-<slug>`, ver ficha.css) e a cor vira um punhado de custom properties
-// (`--fx-*`) calculadas aqui — gradiente, metálico e holo precisam de tons
-// derivados (rotação de matiz, clareado, escurecido) que o CSS sozinho não
-// deriva de um hex arbitrário.
+// Estilos de cor: a cor vira custom properties --fx-* e o efeito vira classe fx-<slug>.
 
 import type { CSSProperties } from "react";
 
@@ -40,12 +34,7 @@ export function normalizarEfeitoCor(raw: unknown): EfeitoCor {
   return EFEITOS_VALIDOS.has(v) ? (v as EfeitoCor) : EFEITO_COR_PADRAO;
 }
 
-/**
- * Estilo de um alvo pintável (uma tag, um recurso, uma árvore).
- * `cor` null = padrão do tema (nenhum efeito é aplicado).
- * `cor2` só é lida pelo efeito `gradiente`; null = derivada da `cor`
- * (matiz +38°), que é o comportamento antigo e segue sendo o default.
- */
+/** `cor` null = padrão do tema. `cor2` só vale no gradiente; null = derivada (+38°). */
 export type EstiloCor = {
   cor: string | null;
   cor2?: string | null;
@@ -67,10 +56,7 @@ export function corValida(raw: unknown): string | null {
   return HEX_RE.test(v) ? v.toLowerCase() : null;
 }
 
-/**
- * Lê o Json cru do banco (ou do estado otimista) num mapa tipado. Entrada
- * inválida vira mapa vazio — nunca lança, porque isso roda no render.
- */
+/** Nunca lança: roda no render. */
 export function lerEstilosTag(raw: unknown): MapaEstilosTag {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const out: MapaEstilosTag = {};
@@ -81,7 +67,6 @@ export function lerEstilosTag(raw: unknown): MapaEstilosTag {
     const cor = corValida(v.cor);
     const cor2 = corValida(v.cor2);
     const efeito = normalizarEfeitoCor(v.efeito);
-    // Sem cor e sem efeito não vale entrada — cai no visual padrão.
     if (!cor && efeito === EFEITO_COR_PADRAO) continue;
     out[nome] = { cor, cor2, efeito };
     if (Object.keys(out).length >= MAX_TAGS_ESTILIZADAS) break;
@@ -89,10 +74,7 @@ export function lerEstilosTag(raw: unknown): MapaEstilosTag {
   return out;
 }
 
-/**
- * Versão pro server action: mesma normalização, mas descarta estilos de tags
- * que não existem mais no texto livre (evita lixo acumulado no Json).
- */
+/** Versão do server: descarta estilos de tags que não existem mais. */
 export function normalizarEstilosTag(
   raw: unknown,
   tagsAtuais?: string[],
@@ -107,10 +89,7 @@ export function normalizarEstilosTag(
   return Object.keys(mapa).length > 0 ? mapa : null;
 }
 
-/**
- * Versão cliente da poda: recebe o texto livre e devolve só os estilos das tags
- * que sobreviveram. Roda antes de mandar pro server action (e no otimista).
- */
+/** Versão do cliente da poda. */
 export function podarEstilosTag(
   mapa: MapaEstilosTag,
   tagsTexto: string,
@@ -123,7 +102,6 @@ export function podarEstilosTag(
   return out;
 }
 
-/** Quebra o campo `tags` (texto livre separado por vírgula) na lista exibida. */
 export function separarTags(raw: string | null | undefined): string[] {
   return (raw ?? "")
     .split(",")
@@ -168,11 +146,7 @@ function css({ h, s, l }: Hsl): string {
   return `hsl(${((h % 360) + 360) % 360} ${clamp(s, 0, 100).toFixed(1)}% ${clamp(l, 0, 100).toFixed(1)}%)`;
 }
 
-/**
- * Custom properties `--fx-*` derivadas da cor base. Vão inline no elemento;
- * as classes `fx-*` do CSS consomem. Cor inválida/ausente → `null` (o chamador
- * então não aplica classe de efeito e o alvo fica no visual padrão do tema).
- */
+/** Cor inválida ou ausente → null. */
 export function varsEstiloCor(
   cor: string | null | undefined,
   cor2?: string | null,
@@ -181,9 +155,7 @@ export function varsEstiloCor(
   const base = hexParaHsl(cor);
   if (!base) return null;
 
-  // Segunda cor do gradiente: explícita quando o usuário escolheu, senão
-  // derivada — matiz +38° mantém a família da cor sem virar outra cor.
-  // Saturação mínima garante que cinza/preto ainda gradiem.
+  // cor2 explícita ou derivada (+38°); saturação mínima pra cinza ainda gradiar.
   const s = Math.max(base.s, 12);
   const escolhida = corValida(cor2);
   const par = escolhida ? hexParaHsl(escolhida) : null;
@@ -200,7 +172,6 @@ export function varsEstiloCor(
     }),
     "--fx-escura": css({ h: base.h, s, l: Math.max(base.l - 22, 10) }),
     "--fx-brilho": css({ h: base.h, s: Math.min(s, 30), l: 96 }),
-    // Paleta do holo: a base rodando o círculo de matizes.
     "--fx-h1": css({ h: base.h + 90, s: Math.max(s, 65), l: Math.max(base.l, 58) }),
     "--fx-h2": css({ h: base.h + 180, s: Math.max(s, 65), l: Math.max(base.l, 58) }),
     "--fx-h3": css({ h: base.h + 270, s: Math.max(s, 65), l: Math.max(base.l, 58) }),
@@ -208,11 +179,7 @@ export function varsEstiloCor(
   return vars as CSSProperties;
 }
 
-/**
- * Classe + style prontos pra espalhar no elemento. `familia` escolhe o conjunto
- * de regras: chip (pílula de tag), barra (preenchimento de progresso) ou texto
- * (nome solto). Sem cor válida devolve `{ className: "", style: undefined }`.
- */
+/** Sem cor válida devolve `{ className: "", style: undefined }`. */
 export function estiloAplicado(
   estilo: EstiloCor | null | undefined,
   familia: "chip" | "barra" | "texto",

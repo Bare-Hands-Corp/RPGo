@@ -1,11 +1,4 @@
-// Subir de nível.
-//
-// O user decidiu: **assistente que propõe e o jogador confirma** (nada é
-// gravado sozinho) e **PE sugere, subir é manual** — em mesa onde o narrador
-// controla o momento da evolução, cruzar o limiar não pode empurrar o nível.
-//
-// Módulo puro: mesma função serve o modal (pra montar a proposta) e a action
-// (pra revalidar o que voltou do cliente).
+// Subir de nível: o assistente propõe e o jogador confirma; PE só sugere.
 
 import { PE_POR_NIVEL, bonusProficiencia, modificador, type Atributo } from "./op-rpg";
 import { TETO_ATRIBUTO_BASE } from "./op-rpg";
@@ -20,12 +13,7 @@ export const PV_FIXO_POR_DADO: Record<number, number> = {
 
 export const NIVEL_MAXIMO = PE_POR_NIVEL.length;
 
-/**
- * Níveis-chave de Aprimoramento de Atributo. O livro diz que são definidos pelo
- * Estilo de Combate e "normalmente 4, 8, 12, 16, 19" — como a ficha não guarda
- * estilo (decisão de rumo: o RPGo vai virar genérico), usamos o padrão e
- * deixamos o jogador aplicar fora de nível-chave se a mesa dele mandar.
- */
+/** Padrão do livro; o jogador pode aplicar fora de nível-chave. */
 export const NIVEIS_APRIMORAMENTO = [4, 8, 12, 16, 19];
 
 export function ehNivelDeAprimoramento(nivel: number): boolean {
@@ -40,13 +28,11 @@ export function facesDoDado(tipoDadoVida: string | null | undefined): number {
   return Number.isFinite(n) && n > 0 ? n : 8;
 }
 
-/** PV fixo (média do livro) do dado, sem o modificador de CON. */
 export function pvFixoDoDado(tipoDadoVida: string | null | undefined): number {
   const faces = facesDoDado(tipoDadoVida);
   return PV_FIXO_POR_DADO[faces] ?? Math.floor(faces / 2) + 1;
 }
 
-/** Ganho de PV nunca é menor que 1, mesmo com CON negativa. */
 export function clampGanhoPv(bruto: number): number {
   return Math.max(1, Math.trunc(bruto));
 }
@@ -61,16 +47,11 @@ export function tetoGanhoPv(
 
 export type Aprimoramento = Partial<Record<Atributo, number>>;
 
-/** Soma dos pontos gastos num Aprimoramento. */
 export function pontosGastos(apr: Aprimoramento): number {
   return Object.values(apr).reduce((t, v) => t + Math.max(0, v ?? 0), 0);
 }
 
-/**
- * Valida uma distribuição de Aprimoramento. Devolve o motivo da recusa, ou
- * `null` quando está válida. Sem aprimoramento (objeto vazio) é sempre válido:
- * o jogador pode pular.
- */
+/** Devolve o motivo da recusa, ou null. Objeto vazio é válido. */
 export function validarAprimoramento(
   apr: Aprimoramento,
   atributosAtuais: Record<Atributo, number>,
@@ -94,14 +75,7 @@ export function validarAprimoramento(
   return null;
 }
 
-/**
- * PV retroativo por CON par (livro, `01-core-rules.md`): quando a Constituição
- * cruza pra um valor que sobe o modificador, o PV máximo ganha +1 **por nível
- * já atingido**. Devolve o bônus a somar no hpMax, além do PV do nível novo.
- *
- * `nivelNovo` é o nível DEPOIS de subir — o livro conta "por nível já atingido",
- * e o nível recém-ganho já conta.
- */
+/** PV retroativo: +1 por nível já atingido (incluindo o novo) quando o mod de CON sobe. */
 export function pvRetroativoPorCon(
   conAntes: number,
   conDepois: number,
@@ -124,7 +98,6 @@ export type PropostaNivel = {
   profDepois: number;
   profMudou: boolean;
   pedeAprimoramento: boolean;
-  /** true quando o PE já alcançou o limiar do próximo nível. */
   peAlcancado: boolean;
   peFaltando: number;
 };
@@ -159,13 +132,8 @@ export function montarProposta(
 }
 
 /**
- * Faixa de PE do nível **declarado** do personagem.
- *
- * NÃO usar `progresso(pe)` pra isso: aquela função deriva o nível a partir do
- * PE, então o "próximo" que ela devolve está sempre acima do PE atual — a barra
- * ignorava o nível real da ficha e a checagem `pe >= peProximo` nunca podia ser
- * verdadeira. Aqui a âncora é o `nivel` gravado, que é o que a ficha exibe e o
- * que o assistente sobe.
+ * Faixa de PE do nível declarado. Não usar `progresso(pe)`: ela deriva o nível
+ * do PE e o próximo limiar fica sempre acima.
  */
 export function faixaPeDoNivel(nivel: number): {
   peBase: number;
@@ -178,7 +146,6 @@ export function faixaPeDoNivel(nivel: number): {
   };
 }
 
-/** Progresso 0–100 dentro da faixa do nível declarado. */
 export function pctPeDoNivel(nivel: number, pe: number): number {
   const { peBase, peProximo } = faixaPeDoNivel(nivel);
   if (peProximo == null) return 100;

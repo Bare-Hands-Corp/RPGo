@@ -174,14 +174,7 @@ model Personagem {
   @@map("personagens")
 }
 
-// Objetivo do personagem — a lista do que ele quer fazer (metas de arco,
-// treinamentos em curso, promessas). Substitui a antiga aba "Missões".
-//
-// O prazo é uma data do calendário DA MESA (`prazoDias`, mesmo eixo absoluto
-// que EventoCalendario.dataDias). Guardado aqui e não como evento porque o
-// objetivo é do personagem, não da mesa: a ficha só LÊ `Calendario.dataAtualDias`
-// pra dizer quantos dias faltam. Personagem sem mesa simplesmente não mostra
-// contagem — o objetivo continua válido.
+// Objetivo do personagem. `prazoDias` usa o eixo absoluto do calendário da mesa.
 model Objetivo {
   id            String     @id @default(uuid())
   personagemId  String     @map("personagem_id")
@@ -189,8 +182,7 @@ model Objetivo {
 
   titulo        String
   descricao     String     @default("")
-  // "aberto" | "feito" | "abandonado" — texto e não enum porque o resto do
-  // schema segue o mesmo padrão (tipo de ação, resetEm, critério de árvore).
+  // "aberto" | "feito" | "abandonado"
   estado        String     @default("aberto")
   icone         String     @default("fa-scroll")
 
@@ -462,9 +454,6 @@ model EventoCalendario {
 }
 
 // ─── Árvores de talento ────────────────────────────────────
-// Árvore de progressão montada pelo próprio jogador (Haki, níveis de Estilo de
-// Combate, caminhos de Akuma no Mi…). Uma árvore por personagem — o RPGo é
-// player-driven; não há template de mesa (ver HANDOFF).
 
 model Arvore {
   id            String     @id @default(uuid())
@@ -491,7 +480,6 @@ model Arvore {
   // informativo e nada é debitado. Ref solta a Recurso.id — sem FK.
   recursoCustoId String?   @map("recurso_custo_id")
 
-  // Arte de fundo do canvas (URL). Opcional.
   fundoUrl      String?    @map("fundo_url")
 
   camadas       ArvoreCamada[]
@@ -519,8 +507,7 @@ model ArvoreCamada {
   @@map("arvore_camadas")
 }
 
-// Raia vertical do canvas (ex: "Ofensivo" / "Defensivo"). Puramente visual —
-// não participa do gating. Árvore sem ramo nenhum renderiza uma raia única.
+// Raia vertical do canvas, só visual. Árvore sem ramo usa uma raia única.
 model ArvoreRamo {
   id        String @id @default(uuid())
   arvoreId  String @map("arvore_id")
@@ -544,8 +531,7 @@ model ArvoreNo {
   // Raia onde o nó aparece. null = primeira raia (ou a raia única).
   ramoId      String?      @map("ramo_id")
   ramo        ArvoreRamo?  @relation(fields: [ramoId], references: [id], onDelete: SetNull)
-  // Altura dentro da faixa da camada, 0–100 (%). É o escalonamento vertical que
-  // dá o desenho de árvore; ajustado arrastando o nó no canvas.
+  // Altura dentro da faixa da camada, 0–100 (%).
   offsetY     Int          @default(50) @map("offset_y")
 
   nome        String
@@ -561,9 +547,7 @@ model ArvoreNo {
   // Nível mínimo do personagem pra liberar o nó. 0 = sem trava de nível.
   nivelMinimo Int          @default(0) @map("nivel_minimo")
 
-  // Habilidade que este nó libera (opcional). Ref solta a Habilidade.id — sem
-  // FK, mesmo padrão de Acao.armaId. Enquanto o nó está travado, a habilidade
-  // não entra no agregador de efeitos.
+  // Habilidade liberada pelo nó. Ref solta a Habilidade.id, sem FK.
   habilidadeId String?     @map("habilidade_id")
 
   // Requisitos: [{ noId, rank }] — exige aquele nó no rank >= rank.

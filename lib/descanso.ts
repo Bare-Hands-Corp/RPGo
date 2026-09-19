@@ -1,14 +1,4 @@
-// Descanso curto e longo.
-//
-// `Recurso.resetEm` e `Habilidade.recarga` já guardavam "descansoCurto" /
-// "descansoLongo" desde sempre, mas nada no app disparava um descanso — a
-// configuração ficava morta e o jogador restaurava tudo na mão. Este módulo é
-// a regra de quem recupera o quê; a action em actions.ts só aplica.
-//
-// ⚠️ O arquivo de regras `11-aventura.md` do skill OP RPG não existe, então os
-// detalhes de descanso seguem o padrão D&D 5e (base declarada do sistema). O
-// que está confirmado no livro (`01-core-rules.md` l.270) é a redução de
-// exaustão no descanso longo.
+// Regras de descanso (padrão D&D 5e; redução de exaustão confirmada no livro).
 
 export type TipoDescanso = "curto" | "longo";
 
@@ -33,10 +23,7 @@ export const TIPOS_DESCANSO: {
   },
 ];
 
-/**
- * Um gatilho de descanso longo também satisfaz o que recarrega em curto —
- * um descanso longo contém um curto.
- */
+/** Descanso longo contém um curto. */
 export function recuperaNoDescanso(
   gatilho: string | null | undefined,
   tipo: TipoDescanso,
@@ -47,18 +34,13 @@ export function recuperaNoDescanso(
   return false;
 }
 
-/**
- * Dados de Vida devolvidos por um descanso longo: metade do total do
- * personagem (arredondado pra baixo), no mínimo 1. Nunca devolve mais do que
- * o que foi gasto.
- */
+/** Metade dos Dados de Vida (mín. 1), sem passar do que foi gasto. */
 export function dadosVidaRecuperados(nivel: number, gastos: number): number {
   if (gastos <= 0) return 0;
   const metade = Math.max(1, Math.floor(Math.max(0, nivel) / 2));
   return Math.min(metade, gastos);
 }
 
-/** Faces do dado de vida a partir do slug guardado ("d8" → 8). */
 export function facesDadoVida(tipo: string | null | undefined): number {
   const n = Number(String(tipo ?? "").replace(/^d/i, ""));
   return Number.isFinite(n) && n > 0 ? n : 8;
@@ -75,7 +57,6 @@ export type ResumoDescanso = {
   dadosVidaDevolvidos: number;
 };
 
-/** Texto curto pro toast/confirmação. Vazio quando nada mudou. */
 export function descreverDescanso(r: ResumoDescanso): string[] {
   const linhas: string[] = [];
   if (r.pvRestaurado > 0) linhas.push(`+${r.pvRestaurado} PV`);

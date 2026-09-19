@@ -2,8 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-// Catálogo curado de ícones (Font Awesome free-solid, que já vem no layout).
-// Agrupado por tema pro jogador achar rápido em vez de decorar slug.
+// Font Awesome free-solid, agrupado por tema.
 export const ICONES_CATALOGO: { grupo: string; icones: { slug: string; nome: string }[] }[] = [
   {
     grupo: "Combate",
@@ -117,10 +116,6 @@ const TODOS = ICONES_CATALOGO.flatMap((g) =>
   g.icones.map((i) => ({ ...i, grupo: g.grupo })),
 );
 
-/**
- * Escolha de ícone em grade visual. Nunca pedir slug digitado — o jogador vê e
- * clica. A busca casa nome e slug (quem sabe o nome do Font Awesome também acha).
- */
 export function IconePicker({
   valor,
   onChange,
