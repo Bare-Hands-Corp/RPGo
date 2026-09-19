@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useOptimistic, useState } from "react";
+import { useEffect, useMemo, useOptimistic, useRef, useState } from "react";
 import Link from "next/link";
 import { EditableStat } from "./editable-stat";
 import { EditFichaModal } from "./edit-ficha-modal";
@@ -8,11 +8,16 @@ import { AvatarUploadModal } from "./avatar-upload-modal";
 import { RecursosSidebar, type Recurso } from "./recursos-sidebar";
 import { CrEditavel } from "./cr-editavel";
 import { ExaustaoControle } from "./exaustao-controle";
+import { DescansoControle } from "./descanso-controle";
+import { NivelModal, type CamadaQueAbre } from "./nivel-modal";
+import { FaixaVitais } from "./faixa-vitais";
+import { faixaPeDoNivel, pctPeDoNivel } from "@/lib/nivel";
 import { MarcaExausto } from "./marca-exausto";
 import {
   agregarEfeitos,
   atributoDeCalculo,
   bonusProficiencia,
+  crBase,
   deslocamentoEfetivo,
   formatarMod,
   iniciativa,
@@ -21,7 +26,7 @@ import {
   penalidadeD20Exaustao,
   percepcaoPassiva,
   estadoDefesa,
-  progresso,
+  tetoAtributo,
   type Atributo,
   type DefesaAgregada,
 } from "@/lib/op-rpg";
@@ -107,6 +112,8 @@ function capitalizar(s: string): string {
 type PatchPersonagem = Partial<
   Pick<
     Personagem,
+    | "nivel"
+    | "pe"
     | "hpAtual"
     | "hpTemp"
     | "hpMax"
@@ -157,11 +164,21 @@ function aplicarDelta(
   return next;
 }
 
+/** Enter/Espaço num card clicável — os cards de rolar são div, não botão. */
+function porTeclado(acao: () => void) {
+  return (e: React.KeyboardEvent) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    acao();
+  };
+}
+
 export function PerfilSidebar({
   personagem: inicial,
   habilidades,
   slugsPericiaCustom,
   penalidadeDesArmadura,
+  camadasQueAbrem,
 }: {
   personagem: Personagem;
   // Habilidades cruas — a sidebar recomputa o agregado client-side pra refletir
@@ -169,6 +186,7 @@ export function PerfilSidebar({
   habilidades: HabSidebar[];
   slugsPericiaCustom: string[];
   penalidadeDesArmadura: number;
+  camadasQueAbrem: CamadaQueAbre[];
 }) {
   // useOptimistic do personagem inteiro: o EditFichaModal e qualquer outro
   // editor podem aplicar patches via `aplicarOtimista` pra refletir mudanças
@@ -179,6 +197,9 @@ export function PerfilSidebar({
   // `rpgo:patch-personagem` com deltas, e a sidebar reflete sem precisar de
   // prop drilling. Reseta quando inicial muda (Server Component re-renderizou
   // com a verdade).
+  const [modalNivel, setModalNivel] = useState(false);
+  // Âncora da faixa condensada.
+  const vitaisRef = useRef<HTMLDivElement>(null);
   const [shadow, setShadow] = useState<PatchPersonagem>({});
   useEffect(() => {
     setShadow({});
@@ -238,10 +259,10 @@ export function PerfilSidebar({
   const avatarSrc =
     p.fotoUrl || `https://api.dicebear.com/7.x/adventurer/svg?seed=${p.id}`;
 
-  const { peBase, peProximo } = progresso(p.pe);
-  const pePct = peProximo
-    ? Math.max(0, Math.min(100, ((p.pe - peBase) / (peProximo - peBase)) * 100))
-    : 100;
+  // Âncora no nível DECLARADO, não no derivado do PE — ver faixaPeDoNivel.
+  const { peProximo } = faixaPeDoNivel(p.nivel);
+  const podeSubir = peProximo != null && p.pe >= peProximo;
+  const pePct = pctPeDoNivel(p.nivel, p.pe);
 
   // CR ganha automaticamente o `ca` de cada armadura equipada. A penalidade de
   // DES NÃO entra aqui — é aplicada via `atributosParaTeste` (reduz o mod de DES),
@@ -319,8 +340,25 @@ export function PerfilSidebar({
   const nadoEfetivo = Math.max(p.nado, nadarExtra?.valor ?? 0);
   const nadoPorEfeito = (nadarExtra?.valor ?? 0) >= p.nado && !!nadarExtra?.fontes.length;
 
+  // CR calculada aqui porque a faixa condensada também usa.
+  const crAtrib = atributoDeCalculo("cr", "destreza", subs);
+  const crBonusFixo = caArmadura + efeitosAgregados.bonusCR.valor;
+  const crTotal = crBase(atributosParaTeste[crAtrib.atributo], p.crOutros) + crBonusFixo;
+
   return (
     <aside className="sidebar">
+      <FaixaVitais
+        personagemId={p.id}
+        hpAtual={p.hpAtual}
+        hpTemp={p.hpTemp}
+        hpMax={hpMaxEfetivo}
+        ppAtual={p.ppAtual}
+        ppMax={ppMaxEfetivo}
+        cr={crTotal}
+        exaustao={p.exaustao}
+        ancora={vitaisRef}
+        onOtimista={aplicarOtimista}
+      />
       <div className="sidebar-icons right">
         <EditFichaModal
           personagemId={p.id}
@@ -337,6 +375,7 @@ export function PerfilSidebar({
             vontade: p.vontade,
             presenca: p.presenca,
           }}
+          bonusTetoAtributo={efeitosAgregados.bonusTetoAtributo}
           onOtimista={aplicarOtimista}
         />
       </div>
@@ -346,23 +385,47 @@ export function PerfilSidebar({
         <h2 className="char-name">{p.nome || "Sem Nome"}</h2>
         <span className="char-level">
           Nível{" "}
-          <EditableStat personagemId={p.id} campo="nivel" valor={p.nivel} />
+          <EditableStat
+            personagemId={p.id}
+            campo="nivel"
+            valor={p.nivel}
+            onOtimista={(novo) => aplicarOtimista({ nivel: novo })}
+          />
           <span className="char-prof">
             {" · Prof "}
             {formatarMod(bonusProficiencia(p.nivel))}
           </span>
         </span>
-        <div className="pe-bar">
+        <div className={`pe-bar ${podeSubir ? "pe-pronto" : ""}`}>
           <div className="pe-track">
             <div className="pe-fill" style={{ width: `${pePct}%` }} />
           </div>
           <div className="pe-label">
-            <EditableStat personagemId={p.id} campo="pe" valor={p.pe} formato="milhar" />
+            <EditableStat
+              personagemId={p.id}
+              campo="pe"
+              valor={p.pe}
+              formato="milhar"
+              onOtimista={(novo) => aplicarOtimista({ pe: novo })}
+            />
             {peProximo && (
               <span className="pe-prox"> / {peProximo.toLocaleString("pt-BR")}</span>
             )}
           </div>
         </div>
+
+        <button
+          type="button"
+          className={`nivel-subir ${podeSubir ? "pronto" : ""}`}
+          onClick={() => setModalNivel(true)}
+          title={
+            podeSubir
+              ? "PE suficiente — abrir o assistente de nível"
+              : "Abrir o assistente de nível mesmo sem o PE do limiar"
+          }
+        >
+          <i className="fas fa-arrow-up" /> Subir de nível
+        </button>
       </div>
 
       <hr />
@@ -424,7 +487,7 @@ export function PerfilSidebar({
         })()}
       </div>
 
-      <div className="bar-group bar-en">
+      <div className="bar-group bar-en" ref={vitaisRef}>
         <div className="bar-label">
           <span><i className="fas fa-bolt" /> Pontos de Poder</span>
           <div className="stat-values">
@@ -433,6 +496,7 @@ export function PerfilSidebar({
               campo="ppAtual"
               valor={p.ppAtual}
               max={ppMaxEfetivo}
+              onOtimista={(novo) => aplicarOtimista({ ppAtual: novo })}
             />{" "}
             /{" "}
             <span
@@ -463,14 +527,18 @@ export function PerfilSidebar({
 
       <ExaustaoControle personagemId={p.id} exaustao={p.exaustao} />
 
-      <div className="recurso-linha">
-        <span className="recurso-icone"><i className="fas fa-dice" /></span>
-        <span className="recurso-nome">Dado de Vida {p.tipoDadoVida}</span>
-        <span className="stat-values">
-          <span>{Math.max(0, p.nivel - p.dadosVidaGastos)}</span> /{" "}
-          <span>{p.nivel}</span>
-        </span>
-      </div>
+      <DescansoControle
+        personagemId={p.id}
+        nivel={p.nivel}
+        dadosVidaGastos={p.dadosVidaGastos}
+        tipoDadoVida={p.tipoDadoVida}
+        modConstituicao={modificador(atributosEfetivos.constituicao)}
+        onOtimista={(patch) =>
+          aplicarOtimista({
+            hpAtual: Math.min(p.hpAtual + patch.deltaHpAtual, hpMaxEfetivo),
+          })
+        }
+      />
 
       {/* Deslocamento + Nado lado a lado: dois stats base de movimento na altura
           de uma linha só. */}
@@ -528,7 +596,6 @@ export function PerfilSidebar({
 
       <div className="derivados-grid">
         {(() => {
-          const crAtrib = atributoDeCalculo("cr", "destreza", subs);
           const crDesReduz = crAtrib.atributo === "destreza" && desReduz;
           const titulo =
             [
@@ -544,7 +611,7 @@ export function PerfilSidebar({
               personagemId={p.id}
               atributoScore={atributosParaTeste[crAtrib.atributo]}
               crOutros={p.crOutros}
-              bonusFixo={caArmadura + efeitosAgregados.bonusCR.valor}
+              bonusFixo={crBonusFixo}
               siglaSubstituida={
                 crAtrib.substituido ? SIGLA_ATRIBUTO[crAtrib.atributo] : undefined
               }
@@ -578,7 +645,12 @@ export function PerfilSidebar({
             <div
               className="derivado-card derivado-rolar"
               title={`Empilhar Iniciativa no Rolador${titulo ? ` · ${titulo}` : ""}`}
+              role="button"
+              tabIndex={0}
               onClick={() => empilharD20(iniEf, "Iniciativa", { tipo: "iniciativa" })}
+              onKeyDown={porTeclado(() =>
+                empilharD20(iniEf, "Iniciativa", { tipo: "iniciativa" }),
+              )}
             >
               <div className="derivado-label">Iniciativa</div>
               <div className={`derivado-value ${reduzido ? "valor-exausto" : ""}`}>
@@ -738,9 +810,17 @@ export function PerfilSidebar({
           const valor = atributosEfetivos[slug];
           const bonus = efeitosAgregados.bonusAtributo[slug];
           const modEf = modificador(valor) - penD20;
+          // Compara a pontuação base: bônus de habilidade não passa pelo Aprimoramento.
+          const teto = tetoAtributo(efeitosAgregados.bonusTetoAtributo, slug);
+          const acimaDoTeto = p[slug] > teto.valor;
           const titulo = [
             bonus ? `${formatarMod(bonus.valor)} de ${bonus.fontes.join(", ")}` : null,
             penD20 ? `−${penD20} de exaustão` : null,
+            acimaDoTeto
+              ? `${p[slug]} acima do teto de ${teto.valor}${
+                  teto.fontes.length ? ` (elevado por ${teto.fontes.join(", ")})` : ""
+                }`
+              : null,
           ]
             .filter(Boolean)
             .join(" · ");
@@ -749,16 +829,30 @@ export function PerfilSidebar({
               className="attr-card attr-rolar"
               key={label}
               title={`Empilhar Teste ${label} no Rolador${titulo ? ` · ${titulo}` : ""}`}
+              role="button"
+              tabIndex={0}
               onClick={() =>
                 empilharD20(modEf, `Teste ${label}`, {
                   tipo: "teste-atributo",
                   atributo: slug,
                 })
               }
+              onKeyDown={porTeclado(() =>
+                empilharD20(modEf, `Teste ${label}`, {
+                  tipo: "teste-atributo",
+                  atributo: slug,
+                }),
+              )}
             >
               <div className="attr-label">
                 {label}
                 {bonus && <i className="fas fa-link prof-fonte" />}
+                {acimaDoTeto && (
+                  <i
+                    className="fas fa-triangle-exclamation attr-acima-teto"
+                    title={`Acima do teto de ${teto.valor}`}
+                  />
+                )}
               </div>
               <div className={`attr-value ${penD20 > 0 ? "valor-exausto" : ""}`}>
                 {formatarMod(modEf)}
@@ -773,6 +867,18 @@ export function PerfilSidebar({
       <Link href="/dashboard" className="btn-voltar-ficha">
         ← Voltar
       </Link>
+
+      {modalNivel && (
+        <NivelModal
+          personagemId={p.id}
+          nivel={p.nivel}
+          pe={p.pe}
+          tipoDadoVida={p.tipoDadoVida}
+          atributos={atributosEfetivos}
+          camadasQueAbrem={camadasQueAbrem}
+          onFechar={() => setModalNivel(false)}
+        />
+      )}
     </aside>
   );
 }

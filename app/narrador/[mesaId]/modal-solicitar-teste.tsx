@@ -324,7 +324,7 @@ export function ModalSolicitarTeste({ mesaId, aberto, onFechar, onCriada, person
         </label>
 
         <div>
-          <div style={{ fontWeight: 800, marginBottom: 8, color: "var(--text-sec)" }}>Alvos</div>
+          <div className="modal-secao">Alvos</div>
           <div className="alvos-grid">
             <button
               type="button"
@@ -446,11 +446,11 @@ export function ModalSolicitarTeste({ mesaId, aberto, onFechar, onCriada, person
           </div>
         </div>
 
-        <div className="narrador-modal-actions">
-          <button type="button" className="narrador-btn-sec" onClick={onFechar}>
+        <div className="modal-actions">
+          <button type="button" className="modal-btn-cancel" onClick={onFechar}>
             Cancelar
           </button>
-          <button type="button" className="narrador-btn-pri" onClick={enviar} disabled={enviando}>
+          <button type="button" className="modal-btn-save" onClick={enviar} disabled={enviando}>
             {enviando ? "Enviando..." : "Solicitar"}
           </button>
         </div>

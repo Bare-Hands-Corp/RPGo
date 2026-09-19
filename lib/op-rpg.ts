@@ -13,7 +13,6 @@ export function formatarMod(mod: number): string {
 }
 
 // Bônus de proficiência por nível (livro do jogador, p. 32).
-// 1–6 → +2, 7–10 → +3, 11–14 → +4, 15–18 → +5, 19–20 → +6.
 export function bonusProficiencia(nivel: number): number {
   // Progressão padrão D&D 5e: +2 + ⌊(nível−1)/4⌋ (sobe a cada 4 níveis a
   // partir do 5). Faixas: 1–4 +2, 5–8 +3, 9–12 +4, 13–16 +5, 17–20 +6.
@@ -493,6 +492,21 @@ export const EXAUSTAO_EFEITOS: {
   { nivel: 5, d20: -10, deslocamento: -7.5 },
   { nivel: 6, d20: -10, deslocamento: -9, desmaio: true },
 ];
+
+// Teto de atributo: 20 é o limite do Aprimoramento, não um teto duro (vai até 30).
+// A ficha só avisa. `teto-<atributo>` eleva o limite.
+export const TETO_ATRIBUTO_BASE = 20;
+
+export function tetoAtributo(
+  bonusTeto: Partial<Record<Atributo, FonteValor>>,
+  atributo: Atributo,
+): { valor: number; fontes: string[] } {
+  const b = bonusTeto[atributo];
+  return {
+    valor: TETO_ATRIBUTO_BASE + (b?.valor ?? 0),
+    fontes: b?.fontes ?? [],
+  };
+}
 
 // Deslocamento efetivo em metros: (base + bônus de habilidade) − 1,5 m por
 // nível de exaustão (regra OP RPG). Nível 6 = desmaio → 0. Nunca negativo.

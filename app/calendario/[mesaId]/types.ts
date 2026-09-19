@@ -17,3 +17,5 @@ export type TipoClima = {
   icone: string | null;
   pesosPorEstacao: Record<string, number>;
 };
+
+export type { ObjetivoPrazo } from "@/lib/calendario/carregar";

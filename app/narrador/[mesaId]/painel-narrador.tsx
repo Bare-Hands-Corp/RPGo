@@ -13,7 +13,10 @@ import { ThemeButton } from "@/components/temas/theme-button";
 import { ModalSolicitarTeste } from "./modal-solicitar-teste";
 import { CalendarioRealtime } from "@/app/calendario/[mesaId]/realtime-refresher";
 import { CalendarioView } from "@/app/calendario/[mesaId]/calendario-view";
-import type { CalendarioCarregado } from "@/lib/calendario/carregar";
+import type {
+  CalendarioCarregado,
+  ObjetivoPrazo,
+} from "@/lib/calendario/carregar";
 
 type Personagem = {
   id: string;
@@ -39,6 +42,7 @@ type Props = {
   userId: string;
   mensagensIniciais: MensagemSerializada[];
   calendario: CalendarioCarregado;
+  objetivosComPrazo: ObjetivoPrazo[];
 };
 
 type Aba = "jogadores" | "acoes" | "calendario";
@@ -85,7 +89,13 @@ const ACOES_PROTOTIPO: AcaoNarrador[] = [
   },
 ] as const;
 
-export function NarradorShell({ mesa, userId, mensagensIniciais, calendario }: Props) {
+export function NarradorShell({
+  mesa,
+  userId,
+  mensagensIniciais,
+  calendario,
+  objetivosComPrazo,
+}: Props) {
   const [aba, setAba] = useState<Aba>("jogadores");
   const [modalTesteAberto, setModalTesteAberto] = useState(false);
   const [mensagemCriada, setMensagemCriada] = useState<MensagemSerializada | null>(null);
@@ -197,6 +207,7 @@ export function NarradorShell({ mesa, userId, mensagensIniciais, calendario }: P
                 dataAtualDias={calendario.dataAtualDias}
                 eventos={calendario.eventos}
                 tiposClima={calendario.tiposClima}
+                objetivos={objetivosComPrazo}
               />
             </section>
           ) : (

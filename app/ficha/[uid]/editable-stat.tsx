@@ -104,6 +104,12 @@ export function EditableStat({ personagemId, campo, valor, max, formato, onOtimi
     <span
       className="editable-num"
       onClick={() => setEditando(true)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          setEditando(true);
+        }
+      }}
       role="button"
       tabIndex={0}
     >

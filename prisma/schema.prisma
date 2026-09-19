@@ -14,6 +14,7 @@
 //   ALTER TABLE calendarios         REPLICA IDENTITY FULL;
 //   ALTER TABLE tipos_clima         REPLICA IDENTITY FULL;
 //   ALTER TABLE eventos_calendario  REPLICA IDENTITY FULL;
+//   ALTER TABLE objetivos           REPLICA IDENTITY FULL;
 // E adicione cada tabela na lista de publicações do Realtime no Supabase Dashboard.
 //
 // Tabelas do Bestiário (criaturas, trait_templates, trait_instances,
@@ -137,8 +138,32 @@ model Personagem {
   recursos       Recurso[]
   habilidades    Habilidade[]
   periciasCustom PericiaCustom[]
+  arvores        Arvore[]
+  objetivos      Objetivo[]
 
   @@map("personagens")
+}
+
+// Objetivo do personagem. `prazoDias` usa o eixo absoluto do calendário da mesa.
+model Objetivo {
+  id            String     @id @default(uuid())
+  personagemId  String     @map("personagem_id")
+  personagem    Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
+
+  titulo        String
+  descricao     String     @default("")
+  // "aberto" | "feito" | "abandonado"
+  estado        String     @default("aberto")
+  icone         String     @default("fa-scroll")
+
+  // Data-alvo no calendário da mesa (dias absolutos). null = sem prazo.
+  prazoDias     Int?       @map("prazo_dias")
+  ordem         Int        @default(0)
+
+  criadoEm      DateTime   @default(now()) @map("criado_em")
+
+  @@index([personagemId, ordem])
+  @@map("objetivos")
 }
 
 // Perícia customizada do personagem — perícias que não existem no set fixo do
@@ -174,15 +199,20 @@ model PericiaCustom {
 // Pontos de Okama). Modelagem genérica porque o livro tem dezenas de pools
 // específicos por estilo/profissão e novos surgem em homebrews.
 model Recurso {
-  id           String     @id @default(uuid())
-  personagemId String     @map("personagem_id")
-  personagem   Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
+  id            String     @id @default(uuid())
+  personagemId  String     @map("personagem_id")
+  personagem    Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
 
-  nome       String
-  valorAtual Int     @default(0) @map("valor_atual")
-  valorMax   Int     @default(0) @map("valor_max")
-  ordem      Int     @default(0)
-  cor        String? // hex (#ffaa00) ou nome de variável CSS; opcional
+  nome          String
+  valorAtual    Int        @default(0) @map("valor_atual")
+  valorMax      Int        @default(0) @map("valor_max")
+  ordem         Int        @default(0)
+  cor           String?    // hex (#ffaa00) ou nome de variável CSS; opcional
+  // 2ª cor do gradiente. null = derivada da `cor` (matiz +38°).
+  cor2          String?    @map("cor_2")
+  // Efeito visual aplicado a cor: "solido" | "gradiente" | "neon" | "metalico"
+  // | "contorno" | "holo" | "pulse" (ver lib/estilos-cor.ts).
+  efeito        String     @default("solido")
   // Quando o recurso recupera: "encontro" | "descansoCurto" | "descansoLongo" | "manual"
   resetEm    String  @default("manual") @map("reset_em")
 
@@ -199,6 +229,8 @@ model Item {
   peso          Float   @default(0)
   tipo          String  @default("comum")
   tags          String?
+  // Estilo visual por tag: { "<nome da tag>": { cor, efeito } } (lib/estilos-cor.ts).
+  tagsEstilo    Json?      @map("tags_estilo")
   descricao     String?
   dano          String?
   modificador   Int     @default(0)
@@ -289,9 +321,11 @@ model Habilidade {
   // "descansoCurto" | "descansoLongo" | "encontro" | "manual"
   recarga   String?
 
-  tags     String? // texto livre, separado por vírgula
-  favorita Boolean @default(false)
-  ordem    Int     @default(0)
+  tags              String?    // texto livre, separado por vírgula
+  // Estilo visual por tag: { "<nome da tag>": { cor, efeito } } (lib/estilos-cor.ts).
+  tagsEstilo        Json?      @map("tags_estilo")
+  favorita          Boolean    @default(false)
+  ordem             Int        @default(0)
 
   // Estado "ligada" de habilidade sustentada (ativa/reativa com efeito sustentado).
   // Enquanto true, os efeitos sustentados entram no agregador como uma passiva.
@@ -389,208 +423,109 @@ model EventoCalendario {
   @@map("eventos_calendario")
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Bestiário — biblioteca de criaturas do narrador, reutilizável entre mesas.
-// Dono é o narrador (userId), não a Mesa: um mestre que roda várias campanhas
-// reaproveita o mesmo bestiário em todas. userId nulo = conteúdo oficial do
-// manual (seed), visível e reutilizável por qualquer narrador.
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Árvores de talento ────────────────────────────────────
 
-// Agrupamento leve de tiers de uma mesma "família" de criatura (ex: Marinheiros:
-// Recruta → Aprendiz → 1ª Classe → Cabo → Sargento...). Cada tier é uma Criatura
-// própria e completa — Linhagem só existe pra UI do bestiário poder agrupar/
-// colapsar visualmente e ordenar a progressão. Não implica herança de campos:
-// criar um tier novo clona os traits do tier anterior no momento da criação
-// (wizard); depois cada Criatura vive independente da outra.
-model Linhagem {
-  id     String  @id @default(uuid())
-  userId String? @map("user_id") // null = linhagem oficial do manual
-
-  nome String
-
-  criaturas Criatura[]
-
-  @@index([userId])
-  @@map("linhagens")
-}
-
-model Criatura {
-  id         String    @id @default(uuid())
-  userId     String?   @map("user_id") // null = conteúdo oficial do manual (seed)
-  linhagemId String?   @map("linhagem_id")
-  linhagem   Linhagem? @relation(fields: [linhagemId], references: [id], onDelete: SetNull)
-  // Posição do tier dentro da linhagem (1=Recruta...8=Almirante). Só relevante
-  // com linhagemId setado; define a ordem de exibição na UI agrupada.
-  ordemTier  Int?      @map("ordem_tier")
+model Arvore {
+  id            String     @id @default(uuid())
+  personagemId  String     @map("personagem_id")
+  personagem    Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
 
   nome          String
-  // Categoria livre (Marinha/Pirata/CP/Animal/Pacifista/...) — texto, não enum,
-  // pra não travar homebrew com categorias fora do manual oficial.
-  categoria     String
-  tamanho       String   @default("medio")
-  imagemUrl     String?  @map("imagem_url")
-  tags          String[] @default([])
-  // Rótulo curto de comportamento em combate, usado pela sugestão tática
-  // (Camada 2, fase futura): "tatico" | "covarde" | "kamikaze" | "sadico" | ...
-  personalidade String?
+  icone         String     @default("fa-sitemap")
+  cor           String?
+  // 2ª cor do gradiente. null = derivada da `cor`.
+  cor2          String?    @map("cor_2")
+  // Efeito de brilho aplicado à cor (ver lib/estilos-cor.ts).
+  efeito        String     @default("solido")
+  ordem         Int        @default(0)
 
-  // Nível — ND do manual pode ser fracionário ("1/8", "1/4", "1/2"), por isso
-  // o valor de exibição é texto; ndValor é o equivalente numérico (0.125,
-  // 0.25, 0.5, 1, 2...) usado em filtro por faixa e nas heurísticas de progressão.
-  nd          String @default("1")
-  ndValor     Float  @default(1) @map("nd_valor")
-  xp          Int    @default(0)
-  pontosPoder Int    @default(0) @map("pontos_poder")
+  // Como as camadas destravam:
+  // "manual"  → todas abertas (a árvore é só organização visual);
+  // "nivel"   → limiar da camada é o nível do personagem (níveis de Estilo);
+  // "pontos"  → limiar é o total de pontos gastos NA PRÓPRIA árvore. É o
+  //             Estágio do Haki (1–10 Inexperiente, 11–30 Treinado, 31+ Perito).
+  criterio       String    @default("manual")
 
-  classeResistencia Int    @default(10) @map("classe_resistencia")
-  // Fórmula de exibição ("7d12+7"); pvMedio é o valor resolvido e cacheado,
-  // usado como PV inicial de instância de combate (fase futura) e no cálculo
-  // de EHP — evita reparsear a fórmula toda vez que o bestiário é lido em lote.
-  pvFormula         String @default("") @map("pv_formula")
-  pvMedio           Int    @default(0) @map("pv_medio")
-  bonusProficiencia Int    @default(2) @map("bonus_proficiencia")
-  classeDificuldade Int    @default(10) @map("classe_dificuldade")
+  // Recurso que paga os nós (ex: um Recurso custom "PA"). null = o custo é só
+  // informativo e nada é debitado. Ref solta a Recurso.id — sem FK.
+  recursoCustoId String?   @map("recurso_custo_id")
 
-  deslocamento     Int    @default(9)
-  deslocamentoNado Float? @map("deslocamento_nado")
-  deslocamentoVoo  Float? @map("deslocamento_voo")
+  fundoUrl      String?    @map("fundo_url")
 
-  forca        Int @default(10)
-  destreza     Int @default(10)
-  constituicao Int @default(10)
-  sabedoria    Int @default(10)
-  presenca     Int @default(10)
-  vontade      Int @default(10)
+  camadas       ArvoreCamada[]
+  ramos         ArvoreRamo[]
+  nos           ArvoreNo[]
 
-  // { pericias: [{nome, bonus}], salvaguardas: [{nome, bonus}],
-  //   sentidos: {percepcaoPassiva, extras} } — mesmo formato usado na extinta
-  // Ameaca, mantido como Json por ser lido inteiro na ficha, nunca consultado
-  // de forma cruzada entre criaturas.
-  caracteristicas Json @default("{}")
-
-  // { danoResistencia: string[], danoImunidade: string[], danoVulneravel: string[],
-  //   condicaoImunidade: string[] } — usado no cálculo de EHP (seção 5 da spec).
-  resistencias Json @default("{}")
-
-  anotacoesPrivadas String? @map("anotacoes_privadas")
-  loot              String?
-
-  // Derivados recalculados e cacheados a cada save (não sob demanda) — o
-  // gerador de encontros varre o bestiário inteiro e não pode reparsear
-  // traits em cada linha lida. Ver lib/bestiario-calculo.ts (fase futura).
-  dprMedio Float @default(0) @map("dpr_medio")
-  ehp      Float @default(0)
-
-  componentes TraitInstance[]
-
-  criadoEm     DateTime @default(now()) @map("criado_em")
-  atualizadoEm DateTime @updatedAt @map("atualizado_em")
-
-  @@index([userId, categoria])
-  @@index([userId, ndValor])
-  @@index([linhagemId, ordemTier])
-  @@map("criaturas")
+  @@index([personagemId, ordem])
+  @@map("arvores")
 }
 
-// Biblioteca de traits reutilizáveis entre criaturas (Evasão, Táticas Marciais,
-// Ataque de Oportunidade, Crueldade Inata...). Tags de sinergia reaproveitam o
-// mesmo vocabulário de alvo/contexto de EfeitoHabilidade (lib/op-rpg.ts) — ver
-// ALVOS_CONTEXTUAIS/casaContexto — em vez de um sistema de tags paralelo.
-model TraitTemplate {
-  id     String  @id @default(uuid())
-  userId String? @map("user_id") // null = biblioteca oficial do manual
+model ArvoreCamada {
+  id        String @id @default(uuid())
+  arvoreId  String @map("arvore_id")
+  arvore    Arvore @relation(fields: [arvoreId], references: [id], onDelete: Cascade)
 
   nome      String
-  // "aspecto" | "acao" | "acaoBonus" | "reacao" | "acaoPoderosa" | "acaoLendaria"
-  categoria String
+  ordem     Int    @default(0)
+  // Valor mínimo pra camada abrir, lido conforme o `criterio` da árvore.
+  // Ignorado quando criterio = "manual".
+  limiar    Int    @default(0)
 
-  // Texto com placeholders — "{cd}", "{bonus_ataque}", "{dano}", "{alcance}".
-  textoTemplate     String @map("texto_template")
-  // Como cada placeholder deriva de atributo/ND/CR da criatura, ex:
-  // { cd: "8 + bonusProficiencia + mod(constituicao)" }. Interpretado no
-  // momento de aplicar o template numa Criatura (wizard), não em runtime de combate.
-  formulaParametros Json   @default("{}") @map("formula_parametros")
+  nos       ArvoreNo[]
 
-  // Tags de sinergia (seção 6 da spec) — mesmo vocabulário de EfeitoHabilidade.alvo.
-  tagsProve   String[] @default([]) @map("tags_prove")
-  tagsConsome String[] @default([]) @map("tags_consome")
-  tagsReageA  String[] @default([]) @map("tags_reage_a")
-
-  criadoEm DateTime @default(now()) @map("criado_em")
-
-  @@index([userId, categoria])
-  @@map("trait_templates")
+  @@index([arvoreId, ordem])
+  @@map("arvore_camadas")
 }
 
-// Trait aplicado numa Criatura específica, com os placeholders já resolvidos
-// pro ND daquela criatura. traitTemplateId é referência solta (sem FK, mesmo
-// padrão de Acao.habilidadeId/Acao.armaId acima): se o template for editado
-// ou apagado depois, a instância já salva não é afetada — ela só deixa de
-// contar como "aplicação" daquele template pra fins de glossário/contagem de uso.
-model TraitInstance {
-  id         String   @id @default(uuid())
-  criaturaId String   @map("criatura_id")
-  criatura   Criatura @relation(fields: [criaturaId], references: [id], onDelete: Cascade)
+// Raia vertical do canvas, só visual. Árvore sem ramo usa uma raia única.
+model ArvoreRamo {
+  id        String @id @default(uuid())
+  arvoreId  String @map("arvore_id")
+  arvore    Arvore @relation(fields: [arvoreId], references: [id], onDelete: Cascade)
 
-  traitTemplateId String? @map("trait_template_id")
-
-  // Nome próprio (não derivado do template, mesmo raciocínio de categoria) —
-  // "Sabre", "Táticas Marciais". Trait customizado não tem de onde puxar nome.
   nome      String
-  // Categoria própria (não derivada do template) — trait 100% customizado
-  // (traitTemplateId nulo) também precisa saber em que bloco do statblock
-  // aparece: "aspecto" | "acao" | "acaoBonus" | "reacao" | "acaoPoderosa" | "acaoLendaria"
-  categoria String
   ordem     Int    @default(0)
 
-  // Valores já calculados pro ND desta criatura: { cd, bonusAtaque, danoDado,
-  // danoFixo, tipoDano, alcance, custoPp, custoPa, recarga, usos, usosPorDia }.
-  parametrosResolvidos Json @default("{}") @map("parametros_resolvidos")
+  nos       ArvoreNo[]
 
-  // Texto final já interpolado (+ links de glossário embutidos, fase futura) —
-  // cacheado na escrita pra não reprocessar interpolação em toda leitura de ficha.
-  textoRenderizado String @map("texto_renderizado")
-
-  criadoEm DateTime @default(now()) @map("criado_em")
-
-  @@index([criaturaId, categoria, ordem])
-  @@index([traitTemplateId])
-  @@map("trait_instances")
+  @@index([arvoreId, ordem])
+  @@map("arvore_ramos")
 }
 
-// Composição salva e reutilizável de criaturas (ex: "1 Sargento + 4 Soldados
-// de 1ª Classe"). Congela só a referência + quantidade — inserir um esquadrão
-// num Encontro copia os itens pra lá, sem manter vínculo vivo (editar o
-// esquadrão depois não deve alterar encontros já preparados).
-model Esquadrao {
-  id     String  @id @default(uuid())
-  userId String? @map("user_id")
+model ArvoreNo {
+  id          String       @id @default(uuid())
+  arvoreId    String       @map("arvore_id")
+  arvore      Arvore       @relation(fields: [arvoreId], references: [id], onDelete: Cascade)
+  camadaId    String       @map("camada_id")
+  camada      ArvoreCamada @relation(fields: [camadaId], references: [id], onDelete: Cascade)
+  // Raia onde o nó aparece. null = primeira raia (ou a raia única).
+  ramoId      String?      @map("ramo_id")
+  ramo        ArvoreRamo?  @relation(fields: [ramoId], references: [id], onDelete: SetNull)
+  // Altura dentro da faixa da camada, 0–100 (%).
+  offsetY     Int          @default(50) @map("offset_y")
 
-  nome  String
-  // [{ criaturaId: string, quantidade: number }]
-  itens Json   @default("[]")
+  nome        String
+  descricao   String       @default("")
+  icone       String       @default("fa-circle-nodes")
 
-  criadoEm DateTime @default(now()) @map("criado_em")
+  // Custo POR rank (no Haki, comprar de novo custa o mesmo).
+  custo       Int          @default(0)
+  // Quantas vezes o nó pode ser comprado. 3 = base + Dominada (✩) + Avançada (★).
+  maxRanks    Int          @default(1) @map("max_ranks")
+  // Progresso: 0 = não comprado; 1..maxRanks = rank atual.
+  rankAtual   Int          @default(0) @map("rank_atual")
+  // Nível mínimo do personagem pra liberar o nó. 0 = sem trava de nível.
+  nivelMinimo Int          @default(0) @map("nivel_minimo")
 
-  @@index([userId])
-  @@map("esquadroes")
-}
+  // Habilidade liberada pelo nó. Ref solta a Habilidade.id, sem FK.
+  habilidadeId String?     @map("habilidade_id")
 
-// Encontro preparado com antecedência e salvo pra reabrir numa sessão futura
-// (atalho "Iniciar encontro" do Modo Sessão, fase futura). Mesmo formato de
-// itens que Esquadrao, propositalmente — um esquadrão é só um atalho de
-// preenchimento na hora de montar o encontro.
-model Encontro {
-  id     String  @id @default(uuid())
-  userId String? @map("user_id")
+  // Requisitos: [{ noId, rank }] — exige aquele nó no rank >= rank.
+  // No livro, "Clarividência (★)" vira { noId: <clarividência>, rank: 3 }.
+  requisitos  Json         @default("[]")
+  ordem       Int          @default(0)
 
-  nome  String
-  tags  String[] @default([])
-  // [{ criaturaId: string, quantidade: number }]
-  itens Json     @default("[]")
-
-  criadoEm DateTime @default(now()) @map("criado_em")
-
-  @@index([userId])
-  @@map("encontros")
+  @@index([arvoreId])
+  @@index([camadaId, ordem])
+  @@map("arvore_nos")
 }
