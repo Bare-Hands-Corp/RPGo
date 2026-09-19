@@ -41,6 +41,13 @@ import {
 } from "@/lib/op-rpg";
 import { type Dado, parseFormulaDados } from "@/lib/dice";
 import { empilharRolagem } from "@/lib/empilhar-rolagem";
+import { TagChip, TagsEditor } from "./estilo-cor-picker";
+import {
+  lerEstilosTag,
+  podarEstilosTag,
+  separarTags,
+  type MapaEstilosTag,
+} from "@/lib/estilos-cor";
 
 type Habilidade = {
   id: string;
@@ -56,6 +63,7 @@ type Habilidade = {
   usosAtual: number | null;
   recarga: string | null;
   tags: string | null;
+  tagsEstilo: unknown;
   favorita: boolean;
   ordem: number;
   efeitos: unknown;
@@ -77,6 +85,8 @@ type Props = {
   recursos: RecursoMinimo[];
   atributos: Record<Atributo, number>;
   periciasCustom: { slug: string; nome: string }[];
+  /** IDs de habilidade presas a um nó de árvore ainda não liberado. */
+  travadas?: string[];
 };
 
 type Patch =
@@ -115,7 +125,9 @@ export function HabilidadesTab({
   recursos,
   atributos,
   periciasCustom,
+  travadas = [],
 }: Props) {
+  const travadasSet = useMemo(() => new Set(travadas), [travadas]);
   const [otimistas, aplicar] = useOptimistic(habilidades, aplicarPatch);
   const [, startTransition] = useTransition();
   const alvosCustom = useMemo(() => alvosPericiaCustom(periciasCustom), [periciasCustom]);
@@ -333,13 +345,12 @@ export function HabilidadesTab({
         <button
           type="button"
           className="btn-rect primary"
-          style={{ background: "var(--color-power)" }}
           onClick={abrirNova}
         >
           + Nova Habilidade
         </button>
       </div>
-      <p style={{ color: "var(--text-sec)", fontSize: "0.9rem", marginBottom: 20 }}>
+      <p className="modal-intro">
         Catalogue passivas, ativas e reativas vindas de Profissão, Estilo, Haki,
         Espécie, Akuma no Mi ou Treinamento.
       </p>
@@ -374,6 +385,7 @@ export function HabilidadesTab({
               <CardHabilidade
                 key={`fav-${h.id}`}
                 habilidade={h}
+                travada={travadasSet.has(h.id)}
                 recursoNomePorId={recursoNomePorId}
                 atributos={atributos}
                 onEdit={() => abrirEdit(h)}
@@ -404,6 +416,7 @@ export function HabilidadesTab({
                 <CardHabilidade
                   key={h.id}
                   habilidade={h}
+                  travada={travadasSet.has(h.id)}
                   recursoNomePorId={recursoNomePorId}
                   atributos={atributos}
                   onEdit={() => abrirEdit(h)}
@@ -447,6 +460,7 @@ export function HabilidadesTab({
 // ─── Card de habilidade ────────────────────────────────────────────────
 function CardHabilidade({
   habilidade,
+  travada,
   recursoNomePorId,
   atributos,
   onEdit,
@@ -456,6 +470,7 @@ function CardHabilidade({
   onFavorita,
 }: {
   habilidade: Habilidade;
+  travada: boolean;
   recursoNomePorId: Map<string, string>;
   atributos: Record<Atributo, number>;
   onEdit: () => void;
@@ -508,10 +523,8 @@ function CardHabilidade({
       `${habilidade.custoRecursoValor} ${recursoNomePorId.get(habilidade.custoRecursoId) ?? "?"}`,
     );
   }
-  const tags = (habilidade.tags ?? "")
-    .split(",")
-    .map((t) => t.trim())
-    .filter(Boolean);
+  const tags = separarTags(habilidade.tags);
+  const estilosTag = lerEstilosTag(habilidade.tagsEstilo);
 
   // Mapeia tipo de habilidade pra classe de cor de borda (reusa as do .action-card).
   const tipoClass =
@@ -526,7 +539,11 @@ function CardHabilidade({
   const ligadaAtiva = mostrarToggle && habilidade.ligada;
 
   return (
-    <div className={`action-card ${tipoClass}${ligadaAtiva ? " hab-card-ligada" : ""}`}>
+    <div
+      className={`action-card ${tipoClass}${ligadaAtiva ? " hab-card-ligada" : ""}${
+        travada ? " hab-travada" : ""
+      }`}
+    >
       <button
         type="button"
         className={`btn-favorito ${habilidade.favorita ? "ativo" : ""}`}
@@ -577,6 +594,12 @@ function CardHabilidade({
             </span>
           )}
         </div>
+        {travada && (
+          <div className="hab-travada-nota">
+            <i className="fas fa-lock" /> travada por um talento não liberado —
+            os efeitos não contam
+          </div>
+        )}
         {efeitos.length > 0 && (
           <div className="efeito-chips">
             {efeitos.map((e, i) => (
@@ -601,9 +624,7 @@ function CardHabilidade({
             </span>
           ))}
           {tags.map((t, i) => (
-            <span key={`t${i}`} className="tag">
-              {t}
-            </span>
+            <TagChip key={`t${i}`} nome={t} estilo={estilosTag[t]} />
           ))}
           {rolagens.map((r, i) => (
             <button
@@ -680,6 +701,7 @@ type HabilidadeFormDados = {
   usosAtual: number | null;
   recarga: string | null;
   tags: string | null;
+  tagsEstilo: MapaEstilosTag;
   efeitos: EfeitoHabilidade[];
 };
 
@@ -718,6 +740,9 @@ function HabilidadeModal({
   const [usos, setUsos] = useState(inicial?.usos != null ? String(inicial.usos) : "");
   const [recarga, setRecarga] = useState(inicial?.recarga ?? "");
   const [tags, setTags] = useState(inicial?.tags ?? "");
+  const [tagsEstilo, setTagsEstilo] = useState<MapaEstilosTag>(
+    lerEstilosTag(inicial?.tagsEstilo),
+  );
   const [efeitos, setEfeitos] = useState<EfeitoHabilidade[]>(
     lerEfeitos(inicial?.efeitos),
   );
@@ -751,6 +776,7 @@ function HabilidadeModal({
       usosAtual: inicial ? inicial.usosAtual : usosNum,
       recarga: recarga || null,
       tags: tags.trim() || null,
+      tagsEstilo: podarEstilosTag(tagsEstilo, tags),
       efeitos,
     });
   }
@@ -775,6 +801,9 @@ function HabilidadeModal({
   return (
     <div className="modal-overlay" onClick={onCancelar}>
       <div className="modal-box modal-box-lg" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="modal-close" onClick={onCancelar} aria-label="Fechar">
+          <i className="fas fa-times" />
+        </button>
         <h2>{inicial ? "Editar Habilidade" : "Nova Habilidade"}</h2>
 
         <form onSubmit={submit}>
@@ -785,6 +814,7 @@ function HabilidadeModal({
                 type="button"
                 key={o.slug}
                 className={`origem-pill ${origem === o.slug ? "ativo" : ""}`}
+                aria-pressed={origem === o.slug}
                 onClick={() => setOrigem(o.slug)}
                 style={origem === o.slug ? { borderColor: o.cor, color: o.cor } : undefined}
               >
@@ -800,17 +830,11 @@ function HabilidadeModal({
                 type="button"
                 key={t.slug}
                 className={`tipo-card ${tipo === t.slug ? "ativo" : ""}`}
-                style={
-                  tipo === t.slug
-                    ? {
-                        borderColor: t.cor,
-                        backgroundColor: `color-mix(in oklch, ${t.cor} 10%, var(--bg-card))`,
-                      }
-                    : undefined
-                }
+                style={{ "--tipo-cor": t.cor } as React.CSSProperties}
+                aria-pressed={tipo === t.slug}
                 onClick={() => setTipo(t.slug)}
               >
-                <i className={`fas ${t.icone}`} style={{ fontSize: "1.4rem", color: t.cor }} />
+                <i className={`fas ${t.icone} tipo-card-icone`} />
                 <span className="tipo-card-titulo">{t.nome}</span>
               </button>
             ))}
@@ -974,10 +998,11 @@ function HabilidadeModal({
           </details>
 
           <label style={{ marginTop: 14 }}>Tags (separadas por vírgula)</label>
-          <input
-            type="text"
-            value={tags}
-            onChange={(e) => setTags(e.target.value)}
+          <TagsEditor
+            tags={tags}
+            estilos={tagsEstilo}
+            onTags={setTags}
+            onEstilos={setTagsEstilo}
             placeholder="combate, descanso longo, graduacao:profissional"
           />
 

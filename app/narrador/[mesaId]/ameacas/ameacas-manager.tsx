@@ -435,7 +435,7 @@ export function AmeacasManager({ mesaId, ameacasIniciais }: Props) {
             <span className="ameacas-kicker">CATÁLOGO DA MESA</span>
             <h2>Ameaças {ameacas.length > 0 ? `(${ameacas.length})` : ""}</h2>
           </div>
-          <button type="button" className="ameacas-btn-sec" onClick={abrirNovaAmeaca} aria-expanded={editorAberto}>
+          <button type="button" className="btn-rect neutro" onClick={abrirNovaAmeaca} aria-expanded={editorAberto}>
             <i className="fas fa-plus" /> Nova
           </button>
         </div>
@@ -508,21 +508,21 @@ export function AmeacasManager({ mesaId, ameacasIniciais }: Props) {
             <div className="ameacas-editor-acoes">
               {modoPainel === "editar" ? (
                 <>
-                  <button type="button" className="ameacas-btn-sec" onClick={cancelarEdicao}>
+                  <button type="button" className="btn-rect neutro" onClick={cancelarEdicao}>
                     Cancelar
                   </button>
-                  <button type="button" className="ameacas-btn-primary" onClick={salvar} disabled={salvando}>
+                  <button type="button" className="btn-rect primary" onClick={salvar} disabled={salvando}>
                     <i className="fas fa-check" /> {salvando ? "Salvando..." : "Salvar"}
                   </button>
                 </>
               ) : (
                 <>
                   {selecionada ? (
-                    <button type="button" className="ameacas-btn-sec" onClick={() => abrirEdicao(selecionada)}>
+                    <button type="button" className="btn-rect neutro" onClick={() => abrirEdicao(selecionada)}>
                       <i className="fas fa-pen" /> Editar
                     </button>
                   ) : null}
-                  <button type="button" className="ameacas-btn-sec" onClick={fecharPainel}>
+                  <button type="button" className="btn-rect neutro" onClick={fecharPainel}>
                     Fechar
                   </button>
                 </>
@@ -802,7 +802,7 @@ export function AmeacasManager({ mesaId, ameacasIniciais }: Props) {
                   <div className="ameacas-subbloco">
                     <div className="ameacas-subcabecalho">
                       <h4>Perícias</h4>
-                      <button type="button" className="ameacas-mini-btn" onClick={adicionarPericia}>
+                      <button type="button" className="btn-rect neutro sm" onClick={adicionarPericia}>
                         <i className="fas fa-plus" /> Adicionar
                       </button>
                     </div>
@@ -814,7 +814,7 @@ export function AmeacasManager({ mesaId, ameacasIniciais }: Props) {
                           <div className="ameacas-linha-flex" key={item.id}>
                             <input className="ameacas-input" type="text" value={item.nome} onChange={(e) => atualizarPericia(indice, { nome: e.target.value })} placeholder="Nome" />
                             <NumeroInput className="ameacas-input ameacas-input-curto" value={item.bonus} onChange={(valor) => atualizarPericia(indice, { bonus: valor })} placeholder="Bônus" />
-                            <button type="button" className="ameacas-mini-btn danger" onClick={() => setDraft((atual) => ({ ...atual, caracteristicas: { ...atual.caracteristicas, pericias: atual.caracteristicas.pericias.filter((_, i) => i !== indice) } }))}>
+                            <button type="button" className="btn-rect neutro sm danger" onClick={() => setDraft((atual) => ({ ...atual, caracteristicas: { ...atual.caracteristicas, pericias: atual.caracteristicas.pericias.filter((_, i) => i !== indice) } }))}>
                               <i className="fas fa-times" />
                             </button>
                           </div>
@@ -826,7 +826,7 @@ export function AmeacasManager({ mesaId, ameacasIniciais }: Props) {
                   <div className="ameacas-subbloco">
                     <div className="ameacas-subcabecalho">
                       <h4>Salvaguardas</h4>
-                      <button type="button" className="ameacas-mini-btn" onClick={adicionarSalvaguarda}>
+                      <button type="button" className="btn-rect neutro sm" onClick={adicionarSalvaguarda}>
                         <i className="fas fa-plus" /> Adicionar
                       </button>
                     </div>
@@ -838,7 +838,7 @@ export function AmeacasManager({ mesaId, ameacasIniciais }: Props) {
                           <div className="ameacas-linha-flex" key={item.id}>
                             <input className="ameacas-input" type="text" value={item.nome} onChange={(e) => atualizarSalvaguarda(indice, { nome: e.target.value })} placeholder="Nome" />
                             <NumeroInput className="ameacas-input ameacas-input-curto" value={item.bonus} onChange={(valor) => atualizarSalvaguarda(indice, { bonus: valor })} placeholder="Bônus" />
-                            <button type="button" className="ameacas-mini-btn danger" onClick={() => setDraft((atual) => ({ ...atual, caracteristicas: { ...atual.caracteristicas, salvaguardas: atual.caracteristicas.salvaguardas.filter((_, i) => i !== indice) } }))}>
+                            <button type="button" className="btn-rect neutro sm danger" onClick={() => setDraft((atual) => ({ ...atual, caracteristicas: { ...atual.caracteristicas, salvaguardas: atual.caracteristicas.salvaguardas.filter((_, i) => i !== indice) } }))}>
                               <i className="fas fa-times" />
                             </button>
                           </div>
@@ -851,7 +851,7 @@ export function AmeacasManager({ mesaId, ameacasIniciais }: Props) {
                 <div className="ameacas-bloco">
                   <div className="ameacas-subcabecalho">
                     <h3>Aspectos</h3>
-                    <button type="button" className="ameacas-mini-btn" onClick={() => adicionarItemLista("aspectos") }>
+                    <button type="button" className="btn-rect neutro sm" onClick={() => adicionarItemLista("aspectos") }>
                       <i className="fas fa-plus" /> Adicionar
                     </button>
                   </div>
@@ -863,7 +863,7 @@ export function AmeacasManager({ mesaId, ameacasIniciais }: Props) {
                         <div key={item.id} className="ameacas-card-vertical">
                           <div className="ameacas-linha-flex">
                             <input className="ameacas-input" type="text" value={item.nome} onChange={(e) => atualizarAspecto(indice, { nome: e.target.value })} placeholder="Nome do aspecto" />
-                            <button type="button" className="ameacas-mini-btn danger" onClick={() => removerItemLista("aspectos", indice)}>
+                            <button type="button" className="btn-rect neutro sm danger" onClick={() => removerItemLista("aspectos", indice)}>
                               <i className="fas fa-times" />
                             </button>
                           </div>
@@ -881,7 +881,7 @@ export function AmeacasManager({ mesaId, ameacasIniciais }: Props) {
                         <h3>Ações {categoria.label}</h3>
                         <p className="ameacas-subtexto">{categoria.descricao}</p>
                       </div>
-                      <button type="button" className="ameacas-mini-btn" onClick={() => adicionarItemLista(categoria.key)}>
+                      <button type="button" className="btn-rect neutro sm" onClick={() => adicionarItemLista(categoria.key)}>
                         <i className="fas fa-plus" /> Adicionar
                       </button>
                     </div>
@@ -893,7 +893,7 @@ export function AmeacasManager({ mesaId, ameacasIniciais }: Props) {
                           <div key={item.id} className="ameacas-card-vertical">
                             <div className="ameacas-linha-flex">
                               <input className="ameacas-input" type="text" value={item.nome} onChange={(e) => atualizarAcao(categoria.key, indice, { nome: e.target.value })} placeholder="Nome da ação" />
-                              <button type="button" className="ameacas-mini-btn danger" onClick={() => removerItemLista(categoria.key, indice)}>
+                              <button type="button" className="btn-rect neutro sm danger" onClick={() => removerItemLista(categoria.key, indice)}>
                                 <i className="fas fa-times" />
                               </button>
                             </div>

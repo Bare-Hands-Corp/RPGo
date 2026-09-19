@@ -766,7 +766,7 @@ export function PainelRolador({
           />
         </label>
 
-        <button type="button" className="clear-btn" title="Limpar" onClick={limpar}>
+        <button type="button" className="btn-rect neutro sm" title="Limpar" onClick={limpar}>
           <i className="fas fa-trash" />
         </button>
       </div>
@@ -849,7 +849,7 @@ export function PainelRolador({
           <div className="rolador-pendente-acoes">
             <button
               type="button"
-              className="rolador-pendente-btn rerrolar"
+              className="btn-rect neutro sm rolador-pendente-btn rerrolar"
               onClick={rerrolar}
               disabled={pendente.rerollsRestantes <= 0}
             >
@@ -857,7 +857,7 @@ export function PainelRolador({
             </button>
             <button
               type="button"
-              className="rolador-pendente-btn manter"
+              className="btn-rect neutro sm rolador-pendente-btn manter"
               onClick={manter}
             >
               <i className="fas fa-check" /> Manter
@@ -900,7 +900,7 @@ export function PainelRolador({
               <p>Nenhum preset criado</p>
               <button
                 type="button"
-                className="preset-add-btn"
+                className="btn-rect tracejado"
                 onClick={entrarGravacao}
               >
                 <i className="fas fa-plus" /> Criar Preset
@@ -938,7 +938,7 @@ export function PainelRolador({
               </div>
               <button
                 type="button"
-                className="preset-add-btn"
+                className="btn-rect tracejado"
                 onClick={entrarGravacao}
               >
                 <i className="fas fa-plus" /> Novo Preset
@@ -975,14 +975,14 @@ export function PainelRolador({
             <div className="preset-name-actions">
               <button
                 type="button"
-                className="preset-name-btn cancel"
+                className="btn-rect neutro sm"
                 onClick={() => setPedindoNome(false)}
               >
                 Cancelar
               </button>
               <button
                 type="button"
-                className="preset-name-btn ok"
+                className="btn-rect primary sm"
                 onClick={salvarPresetComNome}
               >
                 Salvar

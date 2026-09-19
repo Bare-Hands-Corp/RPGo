@@ -73,12 +73,12 @@ export function ModalSolicitarTeste({ mesaId, aberto, onFechar, onCriada, person
   }
 
   return (
-    <div className="narrador-modal-overlay" onClick={onFechar}>
-      <div className="narrador-modal" onClick={(e) => e.stopPropagation()}>
-        <button type="button" className="narrador-modal-close" onClick={onFechar} aria-label="Fechar">
+    <div className="modal-overlay" onClick={onFechar}>
+      <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="modal-close" onClick={onFechar} aria-label="Fechar">
           ×
         </button>
-        <h3>Pedir Teste</h3>
+        <h2>Pedir Teste</h2>
         <label>
           Perícia
           <input type="text" value={pericia} onChange={(e) => setPericia(e.target.value)} placeholder="Ex: Atletismo" />
@@ -88,7 +88,7 @@ export function ModalSolicitarTeste({ mesaId, aberto, onFechar, onCriada, person
           <input type="number" value={cd} onChange={(e) => setCd(Number(e.target.value) || 0)} min={0} />
         </label>
         <div>
-          <div style={{ fontWeight: 800, marginBottom: 8, color: "var(--text-sec)" }}>Alvos</div>
+          <div className="modal-secao">Alvos</div>
           <div className="alvos-grid">
             <button
               type="button"
@@ -134,7 +134,7 @@ export function ModalSolicitarTeste({ mesaId, aberto, onFechar, onCriada, person
           </div>
         </div>
         <div style={{ marginTop: 8 }}>
-          <label className="narrador-check">
+          <label className="checkbox-linha">
             <input
               type="checkbox"
               checked={privacidadeCd}
@@ -142,7 +142,7 @@ export function ModalSolicitarTeste({ mesaId, aberto, onFechar, onCriada, person
             />
             Mostrar CD aos jogadores
           </label>
-          <label className="narrador-check">
+          <label className="checkbox-linha">
             <input
               type="checkbox"
               checked={privacidadeResultado}
@@ -152,11 +152,11 @@ export function ModalSolicitarTeste({ mesaId, aberto, onFechar, onCriada, person
           </label>
         </div>
 
-        <div className="narrador-modal-actions">
-          <button type="button" className="narrador-btn-sec" onClick={onFechar}>
+        <div className="modal-actions">
+          <button type="button" className="modal-btn-cancel" onClick={onFechar}>
             Cancelar
           </button>
-          <button type="button" className="narrador-btn-pri" onClick={enviar} disabled={enviando}>
+          <button type="button" className="modal-btn-save" onClick={enviar} disabled={enviando}>
             {enviando ? "Enviando..." : "Solicitar"}
           </button>
         </div>

@@ -83,6 +83,28 @@ export function FichaRealtime({
           filter: `personagem_id=eq.${personagemId}`,
         },
         () => router.refresh(),
+      )
+      // Só `arvores` é assinada: camadas e nós não têm personagem_id pra filtrar.
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "arvores",
+          filter: `personagem_id=eq.${personagemId}`,
+        },
+        () => router.refresh(),
+      )
+      // Narrador também edita objetivos.
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "objetivos",
+          filter: `personagem_id=eq.${personagemId}`,
+        },
+        () => router.refresh(),
       );
 
     // Tripulação: navio da mesa + demais personagens dela (roster ao vivo).

@@ -15,6 +15,7 @@
 //   ALTER TABLE tipos_clima         REPLICA IDENTITY FULL;
 //   ALTER TABLE eventos_calendario  REPLICA IDENTITY FULL;
 //   ALTER TABLE ameacas             REPLICA IDENTITY FULL;
+//   ALTER TABLE objetivos           REPLICA IDENTITY FULL;
 // E adicione cada tabela na lista de publicações do Realtime no Supabase Dashboard.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -167,8 +168,32 @@ model Personagem {
   recursos       Recurso[]
   habilidades    Habilidade[]
   periciasCustom PericiaCustom[]
+  arvores        Arvore[]
+  objetivos      Objetivo[]
 
   @@map("personagens")
+}
+
+// Objetivo do personagem. `prazoDias` usa o eixo absoluto do calendário da mesa.
+model Objetivo {
+  id            String     @id @default(uuid())
+  personagemId  String     @map("personagem_id")
+  personagem    Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
+
+  titulo        String
+  descricao     String     @default("")
+  // "aberto" | "feito" | "abandonado"
+  estado        String     @default("aberto")
+  icone         String     @default("fa-scroll")
+
+  // Data-alvo no calendário da mesa (dias absolutos). null = sem prazo.
+  prazoDias     Int?       @map("prazo_dias")
+  ordem         Int        @default(0)
+
+  criadoEm      DateTime   @default(now()) @map("criado_em")
+
+  @@index([personagemId, ordem])
+  @@map("objetivos")
 }
 
 // Perícia customizada do personagem — perícias que não existem no set fixo do
@@ -213,6 +238,11 @@ model Recurso {
   valorMax      Int        @default(0) @map("valor_max")
   ordem         Int        @default(0)
   cor           String?    // hex (#ffaa00) ou nome de variável CSS; opcional
+  // 2ª cor do gradiente. null = derivada da `cor` (matiz +38°).
+  cor2          String?    @map("cor_2")
+  // Efeito visual aplicado a cor: "solido" | "gradiente" | "neon" | "metalico"
+  // | "contorno" | "holo" | "pulse" (ver lib/estilos-cor.ts).
+  efeito        String     @default("solido")
   // Quando o recurso recupera: "encontro" | "descansoCurto" | "descansoLongo" | "manual"
   resetEm       String     @default("manual") @map("reset_em")
 
@@ -229,6 +259,8 @@ model Item {
   peso          Float      @default(0)
   tipo          String     @default("comum")
   tags          String?
+  // Estilo visual por tag: { "<nome da tag>": { cor, efeito } } (lib/estilos-cor.ts).
+  tagsEstilo    Json?      @map("tags_estilo")
   descricao     String?
   dano          String?
   modificador   Int        @default(0)
@@ -320,6 +352,8 @@ model Habilidade {
   recarga           String?
 
   tags              String?    // texto livre, separado por vírgula
+  // Estilo visual por tag: { "<nome da tag>": { cor, efeito } } (lib/estilos-cor.ts).
+  tagsEstilo        Json?      @map("tags_estilo")
   favorita          Boolean    @default(false)
   ordem             Int        @default(0)
 
@@ -417,4 +451,111 @@ model EventoCalendario {
 
   @@index([calendarioId, dataDias])
   @@map("eventos_calendario")
+}
+
+// ─── Árvores de talento ────────────────────────────────────
+
+model Arvore {
+  id            String     @id @default(uuid())
+  personagemId  String     @map("personagem_id")
+  personagem    Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
+
+  nome          String
+  icone         String     @default("fa-sitemap")
+  cor           String?
+  // 2ª cor do gradiente. null = derivada da `cor`.
+  cor2          String?    @map("cor_2")
+  // Efeito de brilho aplicado à cor (ver lib/estilos-cor.ts).
+  efeito        String     @default("solido")
+  ordem         Int        @default(0)
+
+  // Como as camadas destravam:
+  // "manual"  → todas abertas (a árvore é só organização visual);
+  // "nivel"   → limiar da camada é o nível do personagem (níveis de Estilo);
+  // "pontos"  → limiar é o total de pontos gastos NA PRÓPRIA árvore. É o
+  //             Estágio do Haki (1–10 Inexperiente, 11–30 Treinado, 31+ Perito).
+  criterio       String    @default("manual")
+
+  // Recurso que paga os nós (ex: um Recurso custom "PA"). null = o custo é só
+  // informativo e nada é debitado. Ref solta a Recurso.id — sem FK.
+  recursoCustoId String?   @map("recurso_custo_id")
+
+  fundoUrl      String?    @map("fundo_url")
+
+  camadas       ArvoreCamada[]
+  ramos         ArvoreRamo[]
+  nos           ArvoreNo[]
+
+  @@index([personagemId, ordem])
+  @@map("arvores")
+}
+
+model ArvoreCamada {
+  id        String @id @default(uuid())
+  arvoreId  String @map("arvore_id")
+  arvore    Arvore @relation(fields: [arvoreId], references: [id], onDelete: Cascade)
+
+  nome      String
+  ordem     Int    @default(0)
+  // Valor mínimo pra camada abrir, lido conforme o `criterio` da árvore.
+  // Ignorado quando criterio = "manual".
+  limiar    Int    @default(0)
+
+  nos       ArvoreNo[]
+
+  @@index([arvoreId, ordem])
+  @@map("arvore_camadas")
+}
+
+// Raia vertical do canvas, só visual. Árvore sem ramo usa uma raia única.
+model ArvoreRamo {
+  id        String @id @default(uuid())
+  arvoreId  String @map("arvore_id")
+  arvore    Arvore @relation(fields: [arvoreId], references: [id], onDelete: Cascade)
+
+  nome      String
+  ordem     Int    @default(0)
+
+  nos       ArvoreNo[]
+
+  @@index([arvoreId, ordem])
+  @@map("arvore_ramos")
+}
+
+model ArvoreNo {
+  id          String       @id @default(uuid())
+  arvoreId    String       @map("arvore_id")
+  arvore      Arvore       @relation(fields: [arvoreId], references: [id], onDelete: Cascade)
+  camadaId    String       @map("camada_id")
+  camada      ArvoreCamada @relation(fields: [camadaId], references: [id], onDelete: Cascade)
+  // Raia onde o nó aparece. null = primeira raia (ou a raia única).
+  ramoId      String?      @map("ramo_id")
+  ramo        ArvoreRamo?  @relation(fields: [ramoId], references: [id], onDelete: SetNull)
+  // Altura dentro da faixa da camada, 0–100 (%).
+  offsetY     Int          @default(50) @map("offset_y")
+
+  nome        String
+  descricao   String       @default("")
+  icone       String       @default("fa-circle-nodes")
+
+  // Custo POR rank (no Haki, comprar de novo custa o mesmo).
+  custo       Int          @default(0)
+  // Quantas vezes o nó pode ser comprado. 3 = base + Dominada (✩) + Avançada (★).
+  maxRanks    Int          @default(1) @map("max_ranks")
+  // Progresso: 0 = não comprado; 1..maxRanks = rank atual.
+  rankAtual   Int          @default(0) @map("rank_atual")
+  // Nível mínimo do personagem pra liberar o nó. 0 = sem trava de nível.
+  nivelMinimo Int          @default(0) @map("nivel_minimo")
+
+  // Habilidade liberada pelo nó. Ref solta a Habilidade.id, sem FK.
+  habilidadeId String?     @map("habilidade_id")
+
+  // Requisitos: [{ noId, rank }] — exige aquele nó no rank >= rank.
+  // No livro, "Clarividência (★)" vira { noId: <clarividência>, rank: 3 }.
+  requisitos  Json         @default("[]")
+  ordem       Int          @default(0)
+
+  @@index([arvoreId])
+  @@index([camadaId, ordem])
+  @@map("arvore_nos")
 }

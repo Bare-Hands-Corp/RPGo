@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { listarMensagensSessao } from "@/lib/mensagens";
 import { carregarCalendario } from "@/lib/calendario/carregar";
 import { agregarEfeitos } from "@/lib/op-rpg";
+import { habilidadesTravadas } from "@/lib/arvore";
 import { PerfilSidebar } from "./perfil-sidebar";
 import { FichaTabs } from "./ficha-tabs";
 import { FichaRealtime } from "./realtime-refresher";
@@ -12,10 +13,13 @@ import { ThemeButton } from "@/components/temas/theme-button";
 import "../../calendario/[mesaId]/calendario.css";
 import "./ficha.css";
 
-type Params = { params: Promise<{ uid: string }> };
+type Params = {
+  params: Promise<{ uid: string }>;
+  searchParams: Promise<{ aba?: string | string[] }>;
+};
 
-export default async function FichaPage({ params }: Params) {
-  const { uid } = await params;
+export default async function FichaPage({ params, searchParams }: Params) {
+  const [{ uid }, { aba }] = await Promise.all([params, searchParams]);
 
   const supabase = await createClient();
 
@@ -36,6 +40,15 @@ export default async function FichaPage({ params }: Params) {
         recursos: { orderBy: [{ ordem: "asc" }, { nome: "asc" }] },
         habilidades: { orderBy: [{ ordem: "asc" }, { criadoEm: "asc" }] },
         periciasCustom: { orderBy: [{ ordem: "asc" }, { nome: "asc" }] },
+        objetivos: { orderBy: [{ ordem: "asc" }, { criadoEm: "asc" }] },
+        arvores: {
+          orderBy: [{ ordem: "asc" }, { nome: "asc" }],
+          include: {
+            camadas: { orderBy: { ordem: "asc" } },
+            ramos: { orderBy: { ordem: "asc" } },
+            nos: { orderBy: { ordem: "asc" } },
+          },
+        },
       },
     }),
   ]);
@@ -58,16 +71,31 @@ export default async function FichaPage({ params }: Params) {
     personagem.periciasCustom.map((p) => p.slug),
   );
 
+  // Habilidade presa a nó não liberado não entra no agregador.
+  const travadasPorArvore = habilidadesTravadas(
+    personagem.arvores.flatMap((a) => a.nos),
+  );
+  const habilidadesAtivas = personagem.habilidades.filter(
+    (h) => !travadasPorArvore.has(h.id),
+  );
+
   // Agrega efeitos das habilidades (modificadores + proficiências) pra alvos
   // canônicos + perícias custom. Computado no servidor — frio, sem estado, barato.
-  const efeitosAgregados = agregarEfeitos(
-    personagem.habilidades,
-    slugsPericiaCustom,
-  );
+  const efeitosAgregados = agregarEfeitos(habilidadesAtivas, slugsPericiaCustom);
 
   // Penalidade de DES das armaduras equipadas (geralmente negativa). Reduz o
   // modificador de DES em todos os cálculos derivados (CR, iniciativa, salv/
   // perícia de DES, ataque à distância) — não só na CR.
+  // Camadas por "nivel" que abrem no próximo nível, pro assistente mostrar.
+  const camadasQueAbrem = personagem.arvores.flatMap((a) => {
+    if (a.criterio !== "nivel") return [];
+    return a.camadas
+      .filter(
+        (c) => c.limiar > personagem.nivel && c.limiar <= personagem.nivel + 1,
+      )
+      .map((c) => ({ arvore: a.nome, camada: c.nome }));
+  });
+
   const penalidadeDesArmadura = personagem.itens.reduce(
     (acc, i) => (i.tipo === "armadura" && i.equipado ? acc + i.penalidadeDes : acc),
     0,
@@ -75,7 +103,8 @@ export default async function FichaPage({ params }: Params) {
 
   // Pré-carrega mensagens do chat + calendário + tripulação/navio (se houver
   // mesa) em paralelo. Tripulação = personagens que compartilham o mesaId.
-  const [mensagensIniciais, calendario, tripulantes, navio] = await Promise.all([
+  const [mensagensIniciais, calendario, tripulantes, navio, arvoresCopiaveis] =
+    await Promise.all([
     listarMensagensSessao(sessionId),
     personagem.mesaId
       ? carregarCalendario(personagem.mesaId, { isNarrador })
@@ -90,6 +119,19 @@ export default async function FichaPage({ params }: Params) {
     personagem.mesaId
       ? prisma.navio.findUnique({ where: { mesaId: personagem.mesaId } })
       : Promise.resolve(null),
+    // Árvores de qualquer personagem do mesmo dono, pra copiar.
+    prisma.arvore.findMany({
+      where: { personagem: { userId: user.id } },
+      orderBy: [{ personagemId: "asc" }, { ordem: "asc" }],
+      select: {
+        id: true,
+        nome: true,
+        icone: true,
+        personagemId: true,
+        personagem: { select: { nome: true } },
+        _count: { select: { nos: true, camadas: true } },
+      },
+    }),
   ]);
 
   return (
@@ -97,12 +139,15 @@ export default async function FichaPage({ params }: Params) {
       <FichaRealtime personagemId={personagem.id} mesaId={personagem.mesaId} />
       <PerfilSidebar
         personagem={personagem}
-        habilidades={personagem.habilidades}
+        habilidades={habilidadesAtivas}
         slugsPericiaCustom={[...slugsPericiaCustom]}
         penalidadeDesArmadura={penalidadeDesArmadura}
+        camadasQueAbrem={camadasQueAbrem}
       />
       <FichaTabs
         personagemId={personagem.id}
+        personagemNome={personagem.nome}
+        abaInicial={typeof aba === "string" ? aba : null}
         mesaId={personagem.mesaId}
         nivel={personagem.nivel}
         exaustao={personagem.exaustao}
@@ -142,9 +187,33 @@ export default async function FichaPage({ params }: Params) {
           id: r.id,
           nome: r.nome,
           cor: r.cor,
+          cor2: r.cor2,
+          efeito: r.efeito,
+          valorAtual: r.valorAtual,
+          valorMax: r.valorMax,
         }))}
         habilidades={personagem.habilidades}
+        habilidadesTravadas={[...travadasPorArvore]}
+        arvores={personagem.arvores}
+        arvoresCopiaveis={arvoresCopiaveis.map((a) => ({
+          id: a.id,
+          nome: a.nome,
+          icone: a.icone,
+          personagemNome: a.personagem.nome,
+          doProprio: a.personagemId === personagem.id,
+          talentos: a._count.nos,
+          camadas: a._count.camadas,
+        }))}
         calendario={calendario}
+        objetivos={personagem.objetivos.map((o) => ({
+          id: o.id,
+          titulo: o.titulo,
+          descricao: o.descricao,
+          estado: o.estado,
+          icone: o.icone,
+          prazoDias: o.prazoDias,
+          ordem: o.ordem,
+        }))}
         isNarradorDaMesa={isNarrador}
         tripulantes={tripulantes}
         navio={

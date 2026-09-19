@@ -70,19 +70,19 @@ export function ModalGerarClima({ mesaId, config, dataAtualDias, onFechar }: Pro
 
   return (
     <div className="modal-overlay" onClick={onFechar}>
-      <div className="modal-box cal-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-box modal-box-lg" onClick={(e) => e.stopPropagation()}>
         <div className="cal-modal-header">
-          <span className="cal-kicker">GERAR CLIMA</span>
+          <span className="cal-kicker">Gerar clima</span>
           <h2>Sorteio em intervalo</h2>
         </div>
-        <p className="cal-modal-hint">
+        <p className="campo-dica">
           Sorteia um evento climático pra cada dia do intervalo, ponderado pelos pesos
           de cada tipo na estação correspondente. Eventos não aparecem pros jogadores
           até a data atual chegar no dia deles.
         </p>
 
         <div className="cal-modal-divider">
-          <span className="cal-kicker">INÍCIO</span>
+          <span className="cal-kicker">Início</span>
         </div>
         <div className="cal-field-row3">
           <div className="cal-field">
@@ -117,7 +117,7 @@ export function ModalGerarClima({ mesaId, config, dataAtualDias, onFechar }: Pro
         </div>
 
         <div className="cal-modal-divider">
-          <span className="cal-kicker">FIM</span>
+          <span className="cal-kicker">Fim</span>
         </div>
         <div className="cal-field-row3">
           <div className="cal-field">
@@ -165,11 +165,11 @@ export function ModalGerarClima({ mesaId, config, dataAtualDias, onFechar }: Pro
           </div>
         </label>
 
-        <div className="cal-modal-footer">
-          <button type="button" className="cal-btn-sm" onClick={onFechar} disabled={pending}>
+        <div className="modal-actions separada">
+          <button type="button" className="btn-rect neutro sm" onClick={onFechar} disabled={pending}>
             Cancelar
           </button>
-          <button type="button" className="cal-btn-primary-sm" onClick={gerar} disabled={pending}>
+          <button type="button" className="btn-rect outline sm" onClick={gerar} disabled={pending}>
             <i className="fas fa-dice" /> {pending ? "Gerando..." : "Gerar"}
           </button>
         </div>

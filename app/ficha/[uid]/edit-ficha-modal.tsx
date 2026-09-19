@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { patchPersonagem } from "./actions";
+import { tetoAtributo, type Atributo, type EfeitosAgregados } from "@/lib/op-rpg";
 
 type Atributos = {
   hpMax: number;
@@ -21,10 +22,16 @@ type Atributos = {
 type Props = {
   personagemId: string;
   inicial: Atributos;
+  bonusTetoAtributo: EfeitosAgregados["bonusTetoAtributo"];
   onOtimista?: (patch: Atributos) => void;
 };
 
-export function EditFichaModal({ personagemId, inicial, onOtimista }: Props) {
+export function EditFichaModal({
+  personagemId,
+  inicial,
+  bonusTetoAtributo,
+  onOtimista,
+}: Props) {
   const [aberto, setAberto] = useState(false);
   const [valores, setValores] = useState<Atributos>(inicial);
   const [pending, startTransition] = useTransition();
@@ -76,8 +83,11 @@ export function EditFichaModal({ personagemId, inicial, onOtimista }: Props) {
       {aberto && (
         <div className="modal-overlay" onClick={() => !pending && setAberto(false)}>
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="modal-close" onClick={() => !pending && setAberto(false)} aria-label="Fechar">
+              <i className="fas fa-times" />
+            </button>
             <h2>Editar Atributos</h2>
-            <p style={{ fontSize: "0.8rem", color: "var(--text-sec)", marginBottom: 15 }}>
+            <p className="modal-intro">
               Ajuste seus limites e atributos base.
             </p>
 
@@ -150,16 +160,30 @@ export function EditFichaModal({ personagemId, inicial, onOtimista }: Props) {
                     ["VON", "vontade"],
                     ["PRE", "presenca"],
                   ] as const
-                ).map(([label, key]) => (
-                  <div key={key}>
-                    <label style={{ fontSize: "0.7rem" }}>{label}</label>
-                    <input
-                      type="number"
-                      value={valores[key]}
-                      onChange={(e) => set(key, e.target.value)}
-                    />
-                  </div>
-                ))}
+                ).map(([label, key]) => {
+                  const teto = tetoAtributo(bonusTetoAtributo, key as Atributo);
+                  // Passar do teto é permitido (lendários vão até 30); só avisa.
+                  const acima = valores[key] > teto.valor;
+                  return (
+                    <div key={key}>
+                      <label style={{ fontSize: "0.7rem" }}>
+                        {label}{" "}
+                        <span className="attr-teto-nota">máx {teto.valor}</span>
+                      </label>
+                      <input
+                        type="number"
+                        className={acima ? "input-acima-teto" : undefined}
+                        value={valores[key]}
+                        onChange={(e) => set(key, e.target.value)}
+                      />
+                      {acima && (
+                        <div className="attr-teto-aviso">
+                          acima do teto de Aprimoramento
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
 
               <div className="modal-actions">

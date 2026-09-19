@@ -154,50 +154,6 @@
   color: var(--text-sec);
 }
 
-.ameacas-btn-primary,
-.ameacas-btn-sec,
-.ameacas-mini-btn {
-  border: 1px solid var(--border);
-  background: var(--bg-surface);
-  color: var(--text-main);
-  font: inherit;
-  font-weight: 700;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: 0.15s ease;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.ameacas-btn-primary {
-  background: var(--primary);
-  color: white;
-  border-color: var(--primary);
-  padding: 10px 14px;
-}
-
-.ameacas-btn-sec {
-  padding: 8px 12px;
-}
-
-.ameacas-mini-btn {
-  padding: 6px 10px;
-  font-size: 0.78rem;
-}
-
-.ameacas-mini-btn.danger {
-  color: #c0392b;
-  border-color: color-mix(in oklch, #c0392b 28%, var(--border));
-}
-
-.ameacas-btn-primary:hover,
-.ameacas-btn-sec:hover,
-.ameacas-mini-btn:hover {
-  border-color: var(--primary);
-  color: var(--primary);
-}
-
 .ameacas-lista-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));

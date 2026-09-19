@@ -74,9 +74,9 @@ export function ModalEvento({
 
   return (
     <div className="modal-overlay" onClick={onFechar}>
-      <div className="modal-box cal-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-box modal-box-lg" onClick={(e) => e.stopPropagation()}>
         <div className="cal-modal-header">
-          <span className="cal-kicker">EVENTO</span>
+          <span className="cal-kicker">Evento</span>
           <h2>{eventoInicial ? "Editar Evento" : "Novo Evento"}</h2>
         </div>
 
@@ -175,11 +175,11 @@ export function ModalEvento({
           </label>
         </div>
 
-        <div className="cal-modal-footer">
-          <button type="button" className="cal-btn-sm" onClick={onFechar}>
+        <div className="modal-actions separada">
+          <button type="button" className="btn-rect neutro sm" onClick={onFechar}>
             Cancelar
           </button>
-          <button type="button" className="cal-btn-primary-sm" onClick={salvar}>
+          <button type="button" className="btn-rect outline sm" onClick={salvar}>
             <i className="fas fa-check" /> Salvar
           </button>
         </div>

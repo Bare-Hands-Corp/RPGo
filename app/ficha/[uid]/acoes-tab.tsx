@@ -17,6 +17,8 @@ import { parseFormulaDados } from "@/lib/dice";
 import { empilharD20, empilharRolagem } from "@/lib/empilhar-rolagem";
 import { useExaustaoOtimista } from "./use-exaustao-otimista";
 import { MarcaExausto } from "./marca-exausto";
+import { TagChip } from "./estilo-cor-picker";
+import { normalizarEfeitoCor, type EstiloCor } from "@/lib/estilos-cor";
 
 // O modelo de Ação só guarda alcance como texto livre, então inferimos CC vs
 // distância por palavra-chave / metragem pra montar o contexto da rolagem.
@@ -50,7 +52,13 @@ type Acao = {
   habilidadeId: string | null;
 };
 
-type RecursoMinimo = { id: string; nome: string; cor: string | null };
+type RecursoMinimo = {
+  id: string;
+  nome: string;
+  cor: string | null;
+  cor2: string | null;
+  efeito: string;
+};
 
 // Subconjunto de Habilidade pra exibir/selecionar o vínculo "deriva de".
 type HabilidadeRef = { id: string; nome: string };
@@ -319,18 +327,17 @@ export function AcoesTab({
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div className="tab-topo">
         <h1>Ações de Combate</h1>
         <button
           type="button"
           className="btn-rect primary"
-          style={{ background: "var(--color-power)" }}
           onClick={abrirNova}
         >
           + Nova Ação
         </button>
       </div>
-      <p style={{ color: "var(--text-sec)", fontSize: "0.9rem", marginBottom: 20 }}>
+      <p className="modal-intro">
         Gerencie suas técnicas e ataques aqui.
       </p>
 
@@ -441,13 +448,17 @@ export function AcoesTab({
                   const atributoSalv = acao.atributoSalv as Atributo | null;
                   // Cada custo carrega cor opcional pra colorir o chip.
                   // Recurso customizado usa a cor configurada; PP/PA usam padrão.
-                  const custos: { texto: string; cor?: string }[] = [];
+                  const custos: { texto: string; estilo?: EstiloCor }[] = [];
                   if (acao.custoPp > 0) custos.push({ texto: `${acao.custoPp} PP` });
                   if (acao.custoPa > 0) custos.push({ texto: `${acao.custoPa} PA` });
                   if (recursoCusto && acao.custoRecursoValor > 0) {
                     custos.push({
                       texto: `${acao.custoRecursoValor} ${recursoCusto.nome}`,
-                      cor: recursoCusto.cor ?? undefined,
+                      estilo: {
+                        cor: recursoCusto.cor,
+                        cor2: recursoCusto.cor2,
+                        efeito: normalizarEfeitoCor(recursoCusto.efeito),
+                      },
                     });
                   }
                   return (
@@ -564,21 +575,12 @@ export function AcoesTab({
                       {(custos.length > 0 || acao.tag || habDerivada) && (
                         <div className="card-tags">
                           {custos.map((c, i) => (
-                            <span
+                            <TagChip
                               key={i}
-                              className="tag tag-custo"
-                              style={
-                                c.cor
-                                  ? {
-                                      background: `color-mix(in oklch, ${c.cor} 15%, transparent)`,
-                                      color: c.cor,
-                                      borderColor: `color-mix(in oklch, ${c.cor} 30%, transparent)`,
-                                    }
-                                  : undefined
-                              }
-                            >
-                              {c.texto}
-                            </span>
+                              nome={c.texto}
+                              estilo={c.estilo}
+                              classePadrao="tag tag-custo"
+                            />
                           ))}
                           {acao.tag && (
                             <span className="tag tag-damage">{acao.tag}</span>
@@ -607,6 +609,9 @@ export function AcoesTab({
       {modalAberto && (
         <div className="modal-overlay" onClick={fecharModal}>
           <div className="modal-box modal-box-lg" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="modal-close" onClick={fecharModal} aria-label="Fechar">
+              <i className="fas fa-times" />
+            </button>
             <h2>{form.id ? "Editar Ação" : "Nova Ação"}</h2>
 
             <div className="tipo-cards tipo-cards-5">
@@ -623,10 +628,11 @@ export function AcoesTab({
                   type="button"
                   key={slug}
                   className={`tipo-card ${form.tipo === slug ? "ativo" : ""}`}
-                  style={form.tipo === slug ? { borderColor: cor, backgroundColor: `color-mix(in oklch, ${cor} 10%, var(--bg-card))` } : undefined}
+                  style={{ "--tipo-cor": cor } as React.CSSProperties}
+                  aria-pressed={form.tipo === slug}
                   onClick={() => setF("tipo", slug)}
                 >
-                  <i className={`fas ${icone}`} style={{ fontSize: "1.4rem", color: cor }} />
+                  <i className={`fas ${icone} tipo-card-icone`} />
                   <span className="tipo-card-titulo">{titulo}</span>
                 </button>
               ))}
