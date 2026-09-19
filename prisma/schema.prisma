@@ -14,9 +14,13 @@
 //   ALTER TABLE calendarios         REPLICA IDENTITY FULL;
 //   ALTER TABLE tipos_clima         REPLICA IDENTITY FULL;
 //   ALTER TABLE eventos_calendario  REPLICA IDENTITY FULL;
-//   ALTER TABLE ameacas             REPLICA IDENTITY FULL;
 //   ALTER TABLE objetivos           REPLICA IDENTITY FULL;
 // E adicione cada tabela na lista de publicações do Realtime no Supabase Dashboard.
+//
+// Tabelas do Bestiário (criaturas, trait_templates, trait_instances,
+// esquadroes, encontros) não entram nessa lista de propósito: são editadas
+// só pelo narrador dono, um cliente por vez — sem necessidade de sync
+// realtime entre navegadores como Mesa/Personagem/Calendario têm.
 // ─────────────────────────────────────────────────────────────────────────────
 
 generator client {
@@ -37,43 +41,9 @@ model Mesa {
   bannerUrl    String?      @map("banner_url")
   personagens  Personagem[]
   calendario   Calendario?
-  ameacas      Ameaca[]
   navio        Navio?
 
   @@map("mesas")
-}
-
-model Ameaca {
-  id                  String   @id @default(uuid())
-  mesaId              String   @map("mesa_id")
-  mesa                Mesa     @relation(fields: [mesaId], references: [id], onDelete: Cascade)
-
-  nome                String
-  classeResistencia   Int      @default(0) @map("classe_resistencia")
-  pontosVida          Int      @default(0) @map("pontos_vida")
-  classeDificuldade   Int      @default(0) @map("classe_dificuldade")
-  nivelDesafio        Int      @default(0) @map("nivel_desafio")
-  deslocamento        Int      @default(0)
-  deslocamentoNado    Int?     @map("deslocamento_nado")
-  pontosPoder         Int      @default(0) @map("pontos_poder")
-  bonusProficiencia   Int      @default(0) @map("bonus_proficiencia")
-
-  forca               Int      @default(0)
-  destreza            Int      @default(0)
-  constituicao        Int      @default(0)
-  sabedoria           Int      @default(0)
-  presenca            Int      @default(0)
-  vontade             Int      @default(0)
-
-  caracteristicas      Json
-  aspectos             Json
-  acoes                Json
-
-  criadoEm            DateTime @default(now()) @map("criado_em")
-  atualizadoEm        DateTime @updatedAt      @map("atualizado_em")
-
-  @@index([mesaId, nome])
-  @@map("ameacas")
 }
 
 // Navio da tripulação — 1:1 com a Mesa (a tripulação humana é a própria Mesa:
@@ -82,16 +52,16 @@ model Ameaca {
 // tripulantes/deques derivam do tamanho e CR/BR derivam da madeira via
 // lib/navio.ts (tabelas do cap. 14 do livro). Qualquer membro da mesa edita.
 model Navio {
-  id        String  @id @default(uuid())
-  mesaId    String  @unique @map("mesa_id")
-  mesa      Mesa    @relation(fields: [mesaId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  mesaId String @unique @map("mesa_id")
+  mesa   Mesa   @relation(fields: [mesaId], references: [id], onDelete: Cascade)
 
-  nome      String  @default("")
+  nome    String @default("")
   // "pequeno" | "medio" | "grande" | "enorme" | "colossal" — deriva PV máx,
   // canhões máx, tripulantes, deques e desaceleração por peso.
-  tamanho   String  @default("pequeno")
+  tamanho String @default("pequeno")
   // "cedro" | "carvalho" | "cerejeira" | "adam" — deriva CR e Bônus de Resistência.
-  madeira   String  @default("cedro")
+  madeira String @default("cedro")
 
   pvAtual       Int    @default(0) @map("pv_atual")
   // Velocidade em nós (soma das velas − desaceleração ± correnteza). No MVP é
@@ -101,67 +71,67 @@ model Navio {
   canhoes       Int    @default(0)
   descricao     String @default("")
 
-  criadoEm  DateTime @default(now()) @map("criado_em")
+  criadoEm DateTime @default(now()) @map("criado_em")
 
   @@map("navios")
 }
 
 model Personagem {
-  id            String  @id @default(uuid())
-  userId        String  @map("user_id")
-  mesaId        String? @map("mesa_id")
-  mesa          Mesa?   @relation(fields: [mesaId], references: [id], onDelete: SetNull)
+  id     String  @id @default(uuid())
+  userId String  @map("user_id")
+  mesaId String? @map("mesa_id")
+  mesa   Mesa?   @relation(fields: [mesaId], references: [id], onDelete: SetNull)
 
   nome          String
   fotoUrl       String? @map("foto_url")
   nivel         Int     @default(1)
   pe            Int     @default(0)
-  hpAtual       Int     @default(0)  @map("hp_atual")
-  hpMax         Int     @default(0)  @map("hp_max")
-  hpTemp        Int     @default(0)  @map("hp_temp")
-  ppAtual       Int     @default(0)  @map("pp_atual")
-  ppMax         Int     @default(0)  @map("pp_max")
+  hpAtual       Int     @default(0) @map("hp_atual")
+  hpMax         Int     @default(0) @map("hp_max")
+  hpTemp        Int     @default(0) @map("hp_temp")
+  ppAtual       Int     @default(0) @map("pp_atual")
+  ppMax         Int     @default(0) @map("pp_max")
   exaustao      Int     @default(0)
   cargaMaxima   Float   @default(20) @map("carga_maxima")
   ultimaRolagem String? @map("ultima_rolagem")
 
   // Economia
-  berries           Int    @default(0)
+  berries Int @default(0)
 
   // Dado de Vida — tipo vem do Estilo de Combate (d6..d12).
   // dadosVidaGastos = quantos já foram gastos em descansos curtos.
   // Total disponível = nivel - dadosVidaGastos.
-  tipoDadoVida      String @default("d8") @map("tipo_dado_vida")
-  dadosVidaGastos   Int    @default(0)    @map("dados_vida_gastos")
+  tipoDadoVida    String @default("d8") @map("tipo_dado_vida")
+  dadosVidaGastos Int    @default(0) @map("dados_vida_gastos")
 
   // Bônus extra na CR (armadura, escudo, característica, etc).
   // CR total = 10 + mod_DES + crOutros.
-  crOutros          Int    @default(0)    @map("cr_outros")
+  crOutros Int @default(0) @map("cr_outros")
 
   // Deslocamento terrestre base em metros (a espécie define; 9 m é o padrão).
   // Exaustão reduz na exibição (½ no nível 2, 0 no 5) e bônus de habilidade
   // somam via agregador (efeito `deslocamento` → bonusDeslocamento).
-  deslocamento      Int    @default(9)
+  deslocamento Int @default(9)
 
   // Deslocamento de nado base em metros (stat próprio de espécie, não derivado
   // do terrestre: Humano 4,5; Sireno 18; usuário de Akuma no Mi 0). Float por
   // causa dos meios-metros. Efeito `deslocamento` com tipoMov `nadar` prevalece
   // o maior contra este base (ver agregarEfeitos).
-  nado              Float  @default(4.5)
+  nado Float @default(4.5)
 
   // Atributos desnormalizados para simplicidade de queries
-  forca         Int     @default(0)
-  destreza      Int     @default(0)
-  constituicao  Int     @default(0)
-  sabedoria     Int     @default(0)
-  vontade       Int     @default(0)
-  presenca      Int     @default(0)
+  forca        Int @default(0)
+  destreza     Int @default(0)
+  constituicao Int @default(0)
+  sabedoria    Int @default(0)
+  vontade      Int @default(0)
+  presenca     Int @default(0)
 
   // Proficiências (perícias e salvaguardas). Estrutura:
   // { pericias: string[], periciasDobradas: string[], salvaguardas: string[] }
   // Mantido como Json (não tabela separada) porque é set fixo (17 perícias, 6 salvaguardas)
   // e nunca consultado de forma cruzada entre personagens.
-  proficiencias Json    @default("{}")
+  proficiencias Json @default("{}")
 
   itens          Item[]
   acoes          Acao[]
@@ -202,23 +172,23 @@ model Objetivo {
 // é aberto. Proficiência/dobrada/bônus ficam na própria linha (não no Json),
 // pra deletar a perícia limpar tudo junto, sem chaves órfãs.
 model PericiaCustom {
-  id            String     @id @default(uuid())
-  personagemId  String     @map("personagem_id")
-  personagem    Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
+  id           String     @id @default(uuid())
+  personagemId String     @map("personagem_id")
+  personagem   Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
 
-  nome          String
+  nome     String
   // Slug derivado do nome, estável e único por personagem. É o que efeitos de
   // habilidade (modificador/proficiencia) referenciam e o que casaContexto usa.
-  slug          String
+  slug     String
   // "forca" | "destreza" | "constituicao" | "sabedoria" | "vontade" | "presenca"
-  atributo      String
+  atributo String
   // Texto livre — de onde a perícia veio (ex: "Profissão Capitão"). Só exibição.
-  origem        String     @default("")
+  origem   String @default("")
 
-  proficiente   Boolean    @default(false)
-  dobrada       Boolean    @default(false)
-  bonusOutros   Int        @default(0) @map("bonus_outros")
-  ordem         Int        @default(0)
+  proficiente Boolean @default(false)
+  dobrada     Boolean @default(false)
+  bonusOutros Int     @default(0) @map("bonus_outros")
+  ordem       Int     @default(0)
 
   @@unique([personagemId, slug])
   @@index([personagemId, ordem])
@@ -244,81 +214,81 @@ model Recurso {
   // | "contorno" | "holo" | "pulse" (ver lib/estilos-cor.ts).
   efeito        String     @default("solido")
   // Quando o recurso recupera: "encontro" | "descansoCurto" | "descansoLongo" | "manual"
-  resetEm       String     @default("manual") @map("reset_em")
+  resetEm    String  @default("manual") @map("reset_em")
 
   @@index([personagemId, ordem])
   @@map("recursos")
 }
 
 model Item {
-  id            String     @id @default(uuid())
-  personagemId  String     @map("personagem_id")
-  personagem    Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
+  id           String     @id @default(uuid())
+  personagemId String     @map("personagem_id")
+  personagem   Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
 
   nome          String
-  peso          Float      @default(0)
-  tipo          String     @default("comum")
+  peso          Float   @default(0)
+  tipo          String  @default("comum")
   tags          String?
   // Estilo visual por tag: { "<nome da tag>": { cor, efeito } } (lib/estilos-cor.ts).
   tagsEstilo    Json?      @map("tags_estilo")
   descricao     String?
   dano          String?
-  modificador   Int        @default(0)
-  ca            Int        @default(0)
-  penalidadeDes Int        @default(0) @map("penalidade_des")
-  equipado      Boolean    @default(false)
-  favorito      Boolean    @default(false)
+  modificador   Int     @default(0)
+  ca            Int     @default(0)
+  penalidadeDes Int     @default(0) @map("penalidade_des")
+  equipado      Boolean @default(false)
+  favorito      Boolean @default(false)
 
   // Arma — categoria oficial do OP RPG (livro do jogador, cap. 8).
   // "cortante" | "fogo" | "especial" | "marcial"
-  categoria        String  @default("cortante")
+  categoria       String  @default("cortante")
   // Alcance: define o cálculo padrão do atributo de ataque (FOR/DES).
   // "corpo_a_corpo" | "distancia"
-  alcance          String  @default("corpo_a_corpo")
+  alcance         String  @default("corpo_a_corpo")
   // Alcance real em metros — texto livre, descritivo (ex: "1,5 m", "9/15 m",
   // "cone 3 m"). Complementa a categoria `alcance` com o número exibido no card.
-  alcanceMetros    String? @map("alcance_metros")
+  alcanceMetros   String? @map("alcance_metros")
   // Propriedades canônicas (Acuidade, Arremesso, etc) — array de slugs.
-  propriedades     Json    @default("[]")
+  propriedades    Json    @default("[]")
   // Override manual do atributo de ataque ("forca", "destreza", "sabedoria", …).
   // Quando null, é derivado da categoria + propriedades.
-  atributoAtaque   String? @map("atributo_ataque")
-  proficienteArma  Boolean @default(true) @map("proficiente_arma")
+  atributoAtaque  String? @map("atributo_ataque")
+  proficienteArma Boolean @default(true) @map("proficiente_arma")
 
   @@map("itens")
 }
 
 model Acao {
-  id            String     @id @default(uuid())
-  personagemId  String     @map("personagem_id")
-  personagem    Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
+  id           String     @id @default(uuid())
+  personagemId String     @map("personagem_id")
+  personagem   Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
 
-  nome          String
-  descricao     String
-  tipo          String     // "padrao" | "bonus" | "power" | "react" | "livre"
-  tag           String?    // texto livre (dano resumido, ex: "1d8+2")
+  nome      String
+  descricao String
+  tipo      String // "padrao" | "bonus" | "power" | "react" | "livre"
+  tag       String? // texto livre (dano resumido, ex: "1d8+2")
 
   // Custos da técnica.
-  custoPp           Int     @default(0)  @map("custo_pp")
-  custoPa           Int     @default(0)  @map("custo_pa")
-  custoRecursoId    String? @map("custo_recurso_id")  // referência opcional a Recurso (PC, PN, PO…)
-  custoRecursoValor Int     @default(0)  @map("custo_recurso_valor")
+  custoPp           Int     @default(0) @map("custo_pp")
+  custoPa           Int     @default(0) @map("custo_pa")
+  custoRecursoId    String? @map("custo_recurso_id") // referência opcional a Recurso (PC, PN, PO…)
+  custoRecursoValor Int     @default(0) @map("custo_recurso_valor")
 
   // Mecânica de ataque/salvaguarda.
-  atributoAtaque    String? @map("atributo_ataque")     // "forca" | "destreza" | "sabedoria" | …
-  atributoSalv      String? @map("atributo_salv")       // atributo que o alvo testa pra resistir
-  atributoCd        String? @map("atributo_cd")         // atributo primário do usuário pra CD (8+prof+mod)
-  dano              String?                              // "1d8 cortante", "2d6 fogo"
-  alcance           String?                              // "cc 1,5 m", "9 m", "linha 18 m"
+  atributoAtaque String? @map("atributo_ataque") // "forca" | "destreza" | "sabedoria" | …
+  atributoSalv   String? @map("atributo_salv") // atributo que o alvo testa pra resistir
+  atributoCd     String? @map("atributo_cd") // atributo primário do usuário pra CD (8+prof+mod)
+  dano           String? // "1d8 cortante", "2d6 fogo"
+  alcance        String? // "cc 1,5 m", "9 m", "linha 18 m"
   // Quando setado, acerto/dano vêm da arma equipada (Item.id) em vez do cálculo
   // manual — ex: Seiken usando a arma marcial equipada. Referência solta (sem FK):
   // se a arma sumir/desequipar, a UI cai no cálculo manual (atributoAtaque/dano).
-  armaId            String? @map("arma_id")
+  armaId         String? @map("arma_id")
 
   // Vínculo opcional a uma Habilidade do personagem — a ação "deriva de" uma
   // técnica catalogada em Habilidades. Referência solta (sem FK): se a
   // habilidade sumir, a UI só ignora o vínculo.
-  habilidadeId      String? @map("habilidade_id")
+  habilidadeId String? @map("habilidade_id")
 
   @@map("acoes")
 }
@@ -328,28 +298,28 @@ model Acao {
 // item livre. Diferente de Acao (focada em combate com dano/salv/atributo),
 // Habilidade é genérica: nome + descrição + lista de efeitos estruturados.
 model Habilidade {
-  id                String     @id @default(uuid())
-  personagemId      String     @map("personagem_id")
-  personagem        Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
+  id           String     @id @default(uuid())
+  personagemId String     @map("personagem_id")
+  personagem   Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
 
-  nome              String
+  nome      String
   // "profissao" | "estilo" | "haki" | "especie" | "akumaNoMi" | "treinamento" | "livre"
-  origem            String     @default("livre")
+  origem    String @default("livre")
   // "passiva" | "ativa" | "reativa" | "livre"
-  tipo              String     @default("passiva")
-  descricao         String     @default("")
+  tipo      String @default("passiva")
+  descricao String @default("")
 
   // Custos (todos opcionais, 0 = sem custo).
-  custoPp           Int        @default(0)  @map("custo_pp")
-  custoPa           Int        @default(0)  @map("custo_pa")
-  custoRecursoId    String?    @map("custo_recurso_id")
-  custoRecursoValor Int        @default(0)  @map("custo_recurso_valor")
+  custoPp           Int     @default(0) @map("custo_pp")
+  custoPa           Int     @default(0) @map("custo_pa")
+  custoRecursoId    String? @map("custo_recurso_id")
+  custoRecursoValor Int     @default(0) @map("custo_recurso_valor")
 
   // Usos limitados. null = ilimitado; usosAtual conta o que sobrou.
-  usos              Int?
-  usosAtual         Int?       @map("usos_atual")
+  usos      Int?
+  usosAtual Int?    @map("usos_atual")
   // "descansoCurto" | "descansoLongo" | "encontro" | "manual"
-  recarga           String?
+  recarga   String?
 
   tags              String?    // texto livre, separado por vírgula
   // Estilo visual por tag: { "<nome da tag>": { cor, efeito } } (lib/estilos-cor.ts).
@@ -360,12 +330,12 @@ model Habilidade {
   // Estado "ligada" de habilidade sustentada (ativa/reativa com efeito sustentado).
   // Enquanto true, os efeitos sustentados entram no agregador como uma passiva.
   // Habilidade só-instantânea (cura pura) não usa esse campo (continua no "Usar").
-  ligada            Boolean    @default(false)
+  ligada Boolean @default(false)
 
   // Lista de efeitos estruturados (ver lib/op-rpg.ts EfeitoHabilidade).
-  efeitos           Json       @default("[]")
+  efeitos Json @default("[]")
 
-  criadoEm          DateTime   @default(now()) @map("criado_em")
+  criadoEm DateTime @default(now()) @map("criado_em")
 
   @@index([personagemId])
   @@map("habilidades")
@@ -391,39 +361,39 @@ model Mensagem {
 // Datas são representadas como Int = "dias absolutos desde o dia 0 do calendário".
 // ano/mes/dia/diaSemana/estação são derivados de `config` via engine pura.
 model Calendario {
-  id            String   @id @default(uuid())
-  mesaId        String   @unique @map("mesa_id")
-  mesa          Mesa     @relation(fields: [mesaId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  mesaId String @unique @map("mesa_id")
+  mesa   Mesa   @relation(fields: [mesaId], references: [id], onDelete: Cascade)
 
   // Estrutura validada em runtime no backend:
   // { meses: [{nome,dias}], diasSemana: [string], estacoes: [{nome,mesInicio,mesFim}],
   //   cicloLuaDias: number, diaSemanaEpoch: number, anoEpoch: number }
-  config        Json
+  config Json
 
-  dataAtualDias Int      @default(0) @map("data_atual_dias")
+  dataAtualDias Int @default(0) @map("data_atual_dias")
 
-  tiposClima    TipoClima[]
-  eventos       EventoCalendario[]
+  tiposClima TipoClima[]
+  eventos    EventoCalendario[]
 
-  criadoEm      DateTime @default(now()) @map("criado_em")
-  atualizadoEm  DateTime @updatedAt       @map("atualizado_em")
+  criadoEm     DateTime @default(now()) @map("criado_em")
+  atualizadoEm DateTime @updatedAt @map("atualizado_em")
 
   @@map("calendarios")
 }
 
 model TipoClima {
-  id              String     @id @default(uuid())
-  calendarioId    String     @map("calendario_id")
-  calendario      Calendario @relation(fields: [calendarioId], references: [id], onDelete: Cascade)
+  id           String     @id @default(uuid())
+  calendarioId String     @map("calendario_id")
+  calendario   Calendario @relation(fields: [calendarioId], references: [id], onDelete: Cascade)
 
   nome            String
   descricao       String?
-  icone           String?    // classe FontAwesome ou emoji
+  icone           String? // classe FontAwesome ou emoji
   // Pesos por estação. Chave = nome da estação em Calendario.config.estacoes.
   // Peso 0 ou ausente = nunca sorteado naquela estação.
-  pesosPorEstacao Json       @map("pesos_por_estacao")
+  pesosPorEstacao Json    @map("pesos_por_estacao")
 
-  eventos         EventoCalendario[]
+  eventos EventoCalendario[]
 
   @@index([calendarioId])
   @@map("tipos_clima")
@@ -434,20 +404,20 @@ model EventoCalendario {
   calendarioId String     @map("calendario_id")
   calendario   Calendario @relation(fields: [calendarioId], references: [id], onDelete: Cascade)
 
-  dataDias     Int        @map("data_dias")
-  tipo         String     // 'climatico' | 'narrativo'
-  titulo       String
-  descricao    String?
+  dataDias  Int     @map("data_dias")
+  tipo      String // 'climatico' | 'narrativo'
+  titulo    String
+  descricao String?
 
   // Quando true, evento não é enviado pro jogador (mesmo se a data atual já passou).
   // Narrador usa pra reservar surpresas/segredos. Default false pra manter retrocompat.
-  oculto       Boolean    @default(false)
+  oculto Boolean @default(false)
 
   // Só preenchido quando tipo='climatico'. SetNull pra preservar histórico se tipo for deletado.
-  tipoClimaId  String?    @map("tipo_clima_id")
-  tipoClima    TipoClima? @relation(fields: [tipoClimaId], references: [id], onDelete: SetNull)
+  tipoClimaId String?    @map("tipo_clima_id")
+  tipoClima   TipoClima? @relation(fields: [tipoClimaId], references: [id], onDelete: SetNull)
 
-  criadoEm     DateTime   @default(now()) @map("criado_em")
+  criadoEm DateTime @default(now()) @map("criado_em")
 
   @@index([calendarioId, dataDias])
   @@map("eventos_calendario")
@@ -558,4 +528,210 @@ model ArvoreNo {
   @@index([arvoreId])
   @@index([camadaId, ordem])
   @@map("arvore_nos")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bestiário — biblioteca de criaturas do narrador, reutilizável entre mesas.
+// Dono é o narrador (userId), não a Mesa: um mestre que roda várias campanhas
+// reaproveita o mesmo bestiário em todas. userId nulo = conteúdo oficial do
+// manual (seed), visível e reutilizável por qualquer narrador.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Agrupamento leve de tiers de uma mesma "família" de criatura (ex: Marinheiros:
+// Recruta → Aprendiz → 1ª Classe → Cabo → Sargento...). Cada tier é uma Criatura
+// própria e completa — Linhagem só existe pra UI do bestiário poder agrupar/
+// colapsar visualmente e ordenar a progressão. Não implica herança de campos:
+// criar um tier novo clona os traits do tier anterior no momento da criação
+// (wizard); depois cada Criatura vive independente da outra.
+model Linhagem {
+  id     String  @id @default(uuid())
+  userId String? @map("user_id") // null = linhagem oficial do manual
+
+  nome String
+
+  criaturas Criatura[]
+
+  @@index([userId])
+  @@map("linhagens")
+}
+
+model Criatura {
+  id         String    @id @default(uuid())
+  userId     String?   @map("user_id") // null = conteúdo oficial do manual (seed)
+  linhagemId String?   @map("linhagem_id")
+  linhagem   Linhagem? @relation(fields: [linhagemId], references: [id], onDelete: SetNull)
+  // Posição do tier dentro da linhagem (1=Recruta...8=Almirante). Só relevante
+  // com linhagemId setado; define a ordem de exibição na UI agrupada.
+  ordemTier  Int?      @map("ordem_tier")
+
+  nome          String
+  // Categoria livre (Marinha/Pirata/CP/Animal/Pacifista/...) — texto, não enum,
+  // pra não travar homebrew com categorias fora do manual oficial.
+  categoria     String
+  tamanho       String   @default("medio")
+  imagemUrl     String?  @map("imagem_url")
+  tags          String[] @default([])
+  // Rótulo curto de comportamento em combate, usado pela sugestão tática
+  // (Camada 2, fase futura): "tatico" | "covarde" | "kamikaze" | "sadico" | ...
+  personalidade String?
+
+  // Nível — ND do manual pode ser fracionário ("1/8", "1/4", "1/2"), por isso
+  // o valor de exibição é texto; ndValor é o equivalente numérico (0.125,
+  // 0.25, 0.5, 1, 2...) usado em filtro por faixa e nas heurísticas de progressão.
+  nd          String @default("1")
+  ndValor     Float  @default(1) @map("nd_valor")
+  xp          Int    @default(0)
+  pontosPoder Int    @default(0) @map("pontos_poder")
+
+  classeResistencia Int    @default(10) @map("classe_resistencia")
+  // Fórmula de exibição ("7d12+7"); pvMedio é o valor resolvido e cacheado,
+  // usado como PV inicial de instância de combate (fase futura) e no cálculo
+  // de EHP — evita reparsear a fórmula toda vez que o bestiário é lido em lote.
+  pvFormula         String @default("") @map("pv_formula")
+  pvMedio           Int    @default(0) @map("pv_medio")
+  bonusProficiencia Int    @default(2) @map("bonus_proficiencia")
+  classeDificuldade Int    @default(10) @map("classe_dificuldade")
+
+  deslocamento     Int    @default(9)
+  deslocamentoNado Float? @map("deslocamento_nado")
+  deslocamentoVoo  Float? @map("deslocamento_voo")
+
+  forca        Int @default(10)
+  destreza     Int @default(10)
+  constituicao Int @default(10)
+  sabedoria    Int @default(10)
+  presenca     Int @default(10)
+  vontade      Int @default(10)
+
+  // { pericias: [{nome, bonus}], salvaguardas: [{nome, bonus}],
+  //   sentidos: {percepcaoPassiva, extras} } — mesmo formato usado na extinta
+  // Ameaca, mantido como Json por ser lido inteiro na ficha, nunca consultado
+  // de forma cruzada entre criaturas.
+  caracteristicas Json @default("{}")
+
+  // { danoResistencia: string[], danoImunidade: string[], danoVulneravel: string[],
+  //   condicaoImunidade: string[] } — usado no cálculo de EHP (seção 5 da spec).
+  resistencias Json @default("{}")
+
+  anotacoesPrivadas String? @map("anotacoes_privadas")
+  loot              String?
+
+  // Derivados recalculados e cacheados a cada save (não sob demanda) — o
+  // gerador de encontros varre o bestiário inteiro e não pode reparsear
+  // traits em cada linha lida. Ver lib/bestiario-calculo.ts (fase futura).
+  dprMedio Float @default(0) @map("dpr_medio")
+  ehp      Float @default(0)
+
+  componentes TraitInstance[]
+
+  criadoEm     DateTime @default(now()) @map("criado_em")
+  atualizadoEm DateTime @updatedAt @map("atualizado_em")
+
+  @@index([userId, categoria])
+  @@index([userId, ndValor])
+  @@index([linhagemId, ordemTier])
+  @@map("criaturas")
+}
+
+// Biblioteca de traits reutilizáveis entre criaturas (Evasão, Táticas Marciais,
+// Ataque de Oportunidade, Crueldade Inata...). Tags de sinergia reaproveitam o
+// mesmo vocabulário de alvo/contexto de EfeitoHabilidade (lib/op-rpg.ts) — ver
+// ALVOS_CONTEXTUAIS/casaContexto — em vez de um sistema de tags paralelo.
+model TraitTemplate {
+  id     String  @id @default(uuid())
+  userId String? @map("user_id") // null = biblioteca oficial do manual
+
+  nome      String
+  // "aspecto" | "acao" | "acaoBonus" | "reacao" | "acaoPoderosa" | "acaoLendaria"
+  categoria String
+
+  // Texto com placeholders — "{cd}", "{bonus_ataque}", "{dano}", "{alcance}".
+  textoTemplate     String @map("texto_template")
+  // Como cada placeholder deriva de atributo/ND/CR da criatura, ex:
+  // { cd: "8 + bonusProficiencia + mod(constituicao)" }. Interpretado no
+  // momento de aplicar o template numa Criatura (wizard), não em runtime de combate.
+  formulaParametros Json   @default("{}") @map("formula_parametros")
+
+  // Tags de sinergia (seção 6 da spec) — mesmo vocabulário de EfeitoHabilidade.alvo.
+  tagsProve   String[] @default([]) @map("tags_prove")
+  tagsConsome String[] @default([]) @map("tags_consome")
+  tagsReageA  String[] @default([]) @map("tags_reage_a")
+
+  criadoEm DateTime @default(now()) @map("criado_em")
+
+  @@index([userId, categoria])
+  @@map("trait_templates")
+}
+
+// Trait aplicado numa Criatura específica, com os placeholders já resolvidos
+// pro ND daquela criatura. traitTemplateId é referência solta (sem FK, mesmo
+// padrão de Acao.habilidadeId/Acao.armaId acima): se o template for editado
+// ou apagado depois, a instância já salva não é afetada — ela só deixa de
+// contar como "aplicação" daquele template pra fins de glossário/contagem de uso.
+model TraitInstance {
+  id         String   @id @default(uuid())
+  criaturaId String   @map("criatura_id")
+  criatura   Criatura @relation(fields: [criaturaId], references: [id], onDelete: Cascade)
+
+  traitTemplateId String? @map("trait_template_id")
+
+  // Nome próprio (não derivado do template, mesmo raciocínio de categoria) —
+  // "Sabre", "Táticas Marciais". Trait customizado não tem de onde puxar nome.
+  nome      String
+  // Categoria própria (não derivada do template) — trait 100% customizado
+  // (traitTemplateId nulo) também precisa saber em que bloco do statblock
+  // aparece: "aspecto" | "acao" | "acaoBonus" | "reacao" | "acaoPoderosa" | "acaoLendaria"
+  categoria String
+  ordem     Int    @default(0)
+
+  // Valores já calculados pro ND desta criatura: { cd, bonusAtaque, danoDado,
+  // danoFixo, tipoDano, alcance, custoPp, custoPa, recarga, usos, usosPorDia }.
+  parametrosResolvidos Json @default("{}") @map("parametros_resolvidos")
+
+  // Texto final já interpolado (+ links de glossário embutidos, fase futura) —
+  // cacheado na escrita pra não reprocessar interpolação em toda leitura de ficha.
+  textoRenderizado String @map("texto_renderizado")
+
+  criadoEm DateTime @default(now()) @map("criado_em")
+
+  @@index([criaturaId, categoria, ordem])
+  @@index([traitTemplateId])
+  @@map("trait_instances")
+}
+
+// Composição salva e reutilizável de criaturas (ex: "1 Sargento + 4 Soldados
+// de 1ª Classe"). Congela só a referência + quantidade — inserir um esquadrão
+// num Encontro copia os itens pra lá, sem manter vínculo vivo (editar o
+// esquadrão depois não deve alterar encontros já preparados).
+model Esquadrao {
+  id     String  @id @default(uuid())
+  userId String? @map("user_id")
+
+  nome  String
+  // [{ criaturaId: string, quantidade: number }]
+  itens Json   @default("[]")
+
+  criadoEm DateTime @default(now()) @map("criado_em")
+
+  @@index([userId])
+  @@map("esquadroes")
+}
+
+// Encontro preparado com antecedência e salvo pra reabrir numa sessão futura
+// (atalho "Iniciar encontro" do Modo Sessão, fase futura). Mesmo formato de
+// itens que Esquadrao, propositalmente — um esquadrão é só um atalho de
+// preenchimento na hora de montar o encontro.
+model Encontro {
+  id     String  @id @default(uuid())
+  userId String? @map("user_id")
+
+  nome  String
+  tags  String[] @default([])
+  // [{ criaturaId: string, quantidade: number }]
+  itens Json     @default("[]")
+
+  criadoEm DateTime @default(now()) @map("criado_em")
+
+  @@index([userId])
+  @@map("encontros")
 }

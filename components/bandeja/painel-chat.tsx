@@ -234,6 +234,10 @@ function MensagemView({
           tipoTeste?: boolean | null;
           pericia?: string | null;
           cd?: number | null;
+          ocultarRolagem?: boolean | null;
+          ocultarResultado?: boolean | null;
+          bonusDetalhe?: string | null;
+          bonusTotal?: number | null;
           sucesso?: boolean | null;
           privacidadeResultado?: boolean | null;
         }
@@ -247,8 +251,10 @@ function MensagemView({
     const textoPronto = !Array.isArray(raw) ? raw.texto || null : null;
     const testeLabel = !Array.isArray(raw) ? raw.pericia || null : null;
     const sucesso = !Array.isArray(raw) ? raw.sucesso ?? null : null;
-    const privacidadeResultado = !Array.isArray(raw) ? raw.privacidadeResultado ?? true : true;
-    const resultadoOculto = !privacidadeResultado;
+    const resultadoOculto = !Array.isArray(raw)
+      ? (raw.ocultarResultado ?? (raw.privacidadeResultado === false))
+      : false;
+    const rolagemOculta = !Array.isArray(raw) ? (raw.ocultarRolagem ?? false) : false;
     const totalDisplay = resultadoOculto ? "?" : ehLote ? `${quantidade}x` : String(msg.total ?? "?");
     // Rolagem contextual já traz a string formatada (`texto`); só reconstrói
     // dos rolls quando ela não existe.
@@ -262,7 +268,12 @@ function MensagemView({
     const modoLabel = modo === "vantagem" ? "Vantagem" : modo === "desvantagem" ? "Desvantagem" : "Normal";
 
     return (
-      <div className={"chat-message roll-message" + (sucesso === true ? " success" : sucesso === false ? " fail" : "") }>
+      <div
+        className={
+          "chat-message roll-message" +
+          (!resultadoOculto ? (sucesso === true ? " success" : sucesso === false ? " fail" : "") : "")
+        }
+      >
         <div className="roll-header">
           {hora} <strong>{nome}</strong>
         </div>
@@ -293,7 +304,7 @@ function MensagemView({
         <div className="roll-box">
           <div className="roll-total">{totalDisplay}</div>
           {ehLote ? (
-            resultadoOculto ? (
+            resultadoOculto || rolagemOculta ? (
               <div className="roll-details">Resultado oculto</div>
             ) : (
               <div className="roll-batch-list">
@@ -318,7 +329,10 @@ function MensagemView({
               </div>
             )
           ) : (
-            <div className="roll-details" dangerouslySetInnerHTML={{ __html: detalhesUnitarios }} />
+            <div
+              className="roll-details"
+              dangerouslySetInnerHTML={{ __html: rolagemOculta ? "Rolagem privada" : detalhesUnitarios }}
+            />
           )}
         </div>
       </div>
@@ -371,13 +385,19 @@ function TesteMensagemView({
   const detalhes = msg.detalhes as {
     pericia?: string | null;
     cd?: number | null;
+    cdInterna?: number | null;
     privacidadeCd?: boolean;
     privacidadeResultado?: boolean;
+    ocultarCd?: boolean;
+    ocultarRolagem?: boolean;
+    ocultarResultado?: boolean;
     alvos?: string[] | "TODOS";
     alvosNomes?: string[];
     statusPorNome?: Record<string, string>;
+    modosPorAlvo?: Record<string, "normal" | "vantagem" | "desvantagem">;
+    bonusPorAlvo?: Record<string, number>;
+    bonusDetalhesPorAlvo?: Record<string, string>;
   };
-  const [modificador, setModificador] = useState(0);
   const [rolando, setRolando] = useState(false);
   const [acompanhamentoAberto, setAcompanhamentoAberto] = useState(false);
 
@@ -398,6 +418,18 @@ function TesteMensagemView({
     detalhes.alvos === "TODOS"
       ? detalhes.alvosNomes || []
       : detalhes.alvosNomes || [];
+  const modoAtual = personagemId ? detalhes.modosPorAlvo?.[personagemId] ?? "normal" : "normal";
+  const bonusAtual = personagemId ? detalhes.bonusPorAlvo?.[personagemId] ?? 0 : 0;
+  const bonusDetalhado = personagemId ? detalhes.bonusDetalhesPorAlvo?.[personagemId] ?? null : null;
+  const cdInterna =
+    typeof detalhes.cdInterna === "number"
+      ? detalhes.cdInterna
+      : typeof detalhes.cd === "number"
+        ? detalhes.cd
+        : null;
+  const ocultarCd = detalhes.ocultarCd ?? (detalhes.privacidadeCd === false);
+  const ocultarRolagem = detalhes.ocultarRolagem ?? false;
+  const ocultarResultado = detalhes.ocultarResultado ?? (detalhes.privacidadeResultado === false);
 
   if (!isNarrador && !isAlvo) {
     return null;
@@ -411,8 +443,8 @@ function TesteMensagemView({
     if (rolando || !isAlvo || jaRolou) return;
     setRolando(true);
     try {
-      const resultado = rolarDados([{ faces: 20, sinal: 1 }], modificador);
-      const sucesso = typeof detalhes.cd === "number" ? resultado.total >= detalhes.cd : null;
+      const resultado = rolarDados([{ faces: 20, sinal: 1 }], bonusAtual, modoAtual);
+      const sucesso = typeof cdInterna === "number" ? resultado.total >= cdInterna : null;
       const mensagem = await registrarRolagem(
         sessionId,
         userName,
@@ -420,19 +452,23 @@ function TesteMensagemView({
           tipo: "rolagem",
           total: resultado.total,
           detalhes: resultado.detalhes,
-          modificador,
-          modo: "normal",
+          modificador: bonusAtual,
+          modo: modoAtual,
           nomePreset: null,
           tipoTeste: true,
           pericia: detalhes.pericia || null,
-          cd: detalhes.cd ?? null,
+          cd: ocultarCd ? null : detalhes.cd ?? null,
           sucesso,
-          privacidadeResultado: detalhes.privacidadeResultado ?? true,
+          privacidadeResultado: !ocultarResultado,
+          ocultarRolagem,
+          ocultarResultado,
+          bonusDetalhe: bonusDetalhado,
+          bonusTotal: bonusAtual,
           solicitacaoTesteId: msg.id,
           alvoNome: userName,
         },
         personagemId,
-        personagemId ? `[${resultado.total}] = 1d20 ${modificador >= 0 ? "+" : "-"} ${Math.abs(modificador)}` : null,
+        personagemId ? `[${resultado.total}] = 1d20 ${bonusAtual >= 0 ? "+" : "-"} ${Math.abs(bonusAtual)}` : null,
       );
       onMensagemAtualizada(mensagem);
     } catch (error) {
@@ -488,28 +524,25 @@ function TesteMensagemView({
           </>
         ) : isAlvo ? (
           <>
-            {typeof detalhes.cd === "number" && detalhes.privacidadeCd !== false && (
+            {typeof detalhes.cd === "number" && !ocultarCd && (
               <div className="teste-meta-linha">
                 <div className="teste-cd">CD {detalhes.cd}</div>
               </div>
             )}
-            {!jaRolou && (
-              <label className="teste-status-label">
-                Modificador manual
-                <input
-                  type="number"
-                  value={modificador}
-                  onChange={(e) => setModificador(Number(e.target.value) || 0)}
-                />
-              </label>
-            )}
+            <label className="teste-status-label">
+              Bônus automático
+              <input type="text" value={bonusDetalhado ?? `Total ${bonusAtual >= 0 ? "+" : ""}${bonusAtual}`} readOnly />
+            </label>
+            <div className="teste-meta-linha">
+              <div className="teste-cd">Modo: {modoAtual === "normal" ? "Normal" : modoAtual === "vantagem" ? "Vantagem" : "Desvantagem"}</div>
+            </div>
             <button
               type="button"
               className={"teste-btn" + (jaRolou ? " teste-btn-done" : "")}
               onClick={resolverTeste}
               disabled={rolando || jaRolou}
             >
-              {rolando ? "Rolando..." : jaRolou ? "Teste realizado" : "Rolar teste"}
+              {rolando ? "Rolando..." : jaRolou ? "Teste realizado" : "Rolar teste automático"}
             </button>
           </>
         ) : null}
