@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  createContext,
-  useContext,
-  useMemo,
-  useOptimistic,
-  useState,
-  useTransition,
-} from "react";
+import { useMemo, useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import {
   alternarHabilidade,
@@ -17,28 +10,27 @@ import {
   usarHabilidade,
 } from "./actions";
 import {
-  ALVOS_AGREGAVEIS,
-  ALVOS_CONTEXTUAIS,
-  ALVOS_SUBSTITUIVEIS,
-  ATRIBUTOS,
-  alvosPericiaCustom,
-  GRUPOS_PRESET,
-  META_EFEITOS,
   ORIGENS_HABILIDADE,
-  PRESETS_EFEITO,
   RECARGAS_HABILIDADE,
   TIPOS_HABILIDADE,
+  alvosPericiaCustom,
   computarDeltasInstantaneos,
   formatarMod,
   lerEfeitos,
   resolverAtributosNaFormula,
-  resumoEfeito,
   temEfeitoSustentado,
   type Atributo,
   type EfeitoHabilidade,
   type OrigemHabilidade,
   type TipoHabilidade,
 } from "@/lib/op-rpg";
+import {
+  AlvosCustomContext,
+  ChipEfeito,
+  DatalistAlvos,
+  EfeitosEditor,
+  type RecursoMinimo,
+} from "./efeitos-editor";
 import { type Dado, parseFormulaDados } from "@/lib/dice";
 import { empilharRolagem } from "@/lib/empilhar-rolagem";
 import { TagChip, TagsEditor } from "./estilo-cor-picker";
@@ -68,16 +60,11 @@ type Habilidade = {
   ordem: number;
   efeitos: unknown;
   ligada: boolean;
+  itemId: string | null;
 };
 
-type RecursoMinimo = { id: string; nome: string };
-
-type AlvoEntry = { slug: string; nome: string; grupo: string };
-
-// Perícias customizadas do personagem, no formato de alvo de efeito. Disponível
-// pros SelectAlvo/datalist via contexto pra não precisar drilar a prop por toda
-// a árvore do editor (EditorEfeito → renderCorpo → SelectAlvo).
-const AlvosCustomContext = createContext<AlvoEntry[]>([]);
+// Item que pode conceder uma habilidade — só o necessário pro select e pro gate.
+type ItemRef = { id: string; nome: string; equipado: boolean };
 
 type Props = {
   personagemId: string;
@@ -87,6 +74,8 @@ type Props = {
   periciasCustom: { slug: string; nome: string }[];
   /** IDs de habilidade presas a um nó de árvore ainda não liberado. */
   travadas?: string[];
+  /** Itens do personagem — habilidade concedida por item exige ele equipado. */
+  itens: ItemRef[];
 };
 
 type Patch =
@@ -126,6 +115,7 @@ export function HabilidadesTab({
   atributos,
   periciasCustom,
   travadas = [],
+  itens,
 }: Props) {
   const travadasSet = useMemo(() => new Set(travadas), [travadas]);
   const [otimistas, aplicar] = useOptimistic(habilidades, aplicarPatch);
@@ -134,6 +124,13 @@ export function HabilidadesTab({
   const [modalAberto, setModalAberto] = useState(false);
   const [edit, setEdit] = useState<Habilidade | null>(null);
   const [filtro, setFiltro] = useState<Filtro>("todas");
+
+  // Itens indexados pra o card resolver de onde a habilidade veio.
+  const itemPorId = useMemo(() => {
+    const m = new Map<string, ItemRef>();
+    for (const i of itens) m.set(i.id, i);
+    return m;
+  }, [itens]);
 
   const recursoNomePorId = useMemo(() => {
     const m = new Map<string, string>();
@@ -386,6 +383,7 @@ export function HabilidadesTab({
                 key={`fav-${h.id}`}
                 habilidade={h}
                 travada={travadasSet.has(h.id)}
+                itemOrigem={h.itemId ? itemPorId.get(h.itemId) : undefined}
                 recursoNomePorId={recursoNomePorId}
                 atributos={atributos}
                 onEdit={() => abrirEdit(h)}
@@ -417,6 +415,7 @@ export function HabilidadesTab({
                   key={h.id}
                   habilidade={h}
                   travada={travadasSet.has(h.id)}
+                  itemOrigem={h.itemId ? itemPorId.get(h.itemId) : undefined}
                   recursoNomePorId={recursoNomePorId}
                   atributos={atributos}
                   onEdit={() => abrirEdit(h)}
@@ -449,6 +448,7 @@ export function HabilidadesTab({
         <HabilidadeModal
           inicial={edit}
           recursos={recursos}
+          itens={itens}
           onCancelar={() => setModalAberto(false)}
           onSalvar={salvarForm}
         />
@@ -461,6 +461,7 @@ export function HabilidadesTab({
 function CardHabilidade({
   habilidade,
   travada,
+  itemOrigem,
   recursoNomePorId,
   atributos,
   onEdit,
@@ -471,6 +472,7 @@ function CardHabilidade({
 }: {
   habilidade: Habilidade;
   travada: boolean;
+  itemOrigem?: ItemRef;
   recursoNomePorId: Map<string, string>;
   atributos: Record<Atributo, number>;
   onEdit: () => void;
@@ -480,6 +482,10 @@ function CardHabilidade({
   onFavorita: () => void;
 }) {
   const efeitos = lerEfeitos(habilidade.efeitos);
+  // Habilidade concedida por item só vale com o item equipado — mesmo efeito
+  // prático de estar travada por um nó de árvore não liberado.
+  const travadaPorItem = !!habilidade.itemId && !itemOrigem?.equipado;
+  const bloqueada = travada || travadaPorItem;
   const tipoMeta = TIPOS_HABILIDADE.find((t) => t.slug === habilidade.tipo);
   const ehAtivavel = habilidade.tipo === "ativa" || habilidade.tipo === "reativa";
   // Habilidade ativável com efeito sustentado ganha switch on/off (estado
@@ -541,7 +547,7 @@ function CardHabilidade({
   return (
     <div
       className={`action-card ${tipoClass}${ligadaAtiva ? " hab-card-ligada" : ""}${
-        travada ? " hab-travada" : ""
+        bloqueada ? " hab-travada" : ""
       }`}
     >
       <button
@@ -594,10 +600,32 @@ function CardHabilidade({
             </span>
           )}
         </div>
+        {itemOrigem && (
+          <div className="acao-stats">
+            <span
+              className="acao-stat"
+              style={travadaPorItem ? { color: "var(--text-sec)" } : undefined}
+              title={
+                travadaPorItem
+                  ? "Vem de um item que não está equipado"
+                  : "Habilidade concedida por este item"
+              }
+            >
+              <i className={`fas ${travadaPorItem ? "fa-lock" : "fa-sack-dollar"}`} />{" "}
+              {itemOrigem.nome}
+            </span>
+          </div>
+        )}
         {travada && (
           <div className="hab-travada-nota">
             <i className="fas fa-lock" /> travada por um talento não liberado —
             os efeitos não contam
+          </div>
+        )}
+        {travadaPorItem && (
+          <div className="hab-travada-nota">
+            <i className="fas fa-lock" /> equipe {itemOrigem?.nome ?? "o item"} pra
+            valer — os efeitos não contam
           </div>
         )}
         {efeitos.length > 0 && (
@@ -669,24 +697,6 @@ function CardHabilidade({
   );
 }
 
-function ChipEfeito({ efeito }: { efeito: EfeitoHabilidade }) {
-  const meta = META_EFEITOS[efeito.tipo];
-  return (
-    <span
-      className="efeito-chip"
-      style={{
-        background: `color-mix(in oklch, ${meta.cor} 15%, transparent)`,
-        color: meta.cor,
-        borderColor: `color-mix(in oklch, ${meta.cor} 35%, transparent)`,
-      }}
-    >
-      <i className={`fas ${meta.icone}`} />
-      <span className="efeito-chip-label">{meta.nome}</span>
-      <span className="efeito-chip-resumo">{resumoEfeito(efeito)}</span>
-    </span>
-  );
-}
-
 // ─── Modal ────────────────────────────────────────────────────────────
 type HabilidadeFormDados = {
   nome: string;
@@ -703,20 +713,22 @@ type HabilidadeFormDados = {
   tags: string | null;
   tagsEstilo: MapaEstilosTag;
   efeitos: EfeitoHabilidade[];
+  itemId: string | null;
 };
 
 function HabilidadeModal({
   inicial,
   recursos,
+  itens,
   onCancelar,
   onSalvar,
 }: {
   inicial: Habilidade | null;
   recursos: RecursoMinimo[];
+  itens: ItemRef[];
   onCancelar: () => void;
   onSalvar: (d: HabilidadeFormDados) => void;
 }) {
-  const periciasCustom = useContext(AlvosCustomContext);
   const [nome, setNome] = useState(inicial?.nome ?? "");
   const [origem, setOrigem] = useState<OrigemHabilidade>(
     (inicial?.origem as OrigemHabilidade) ?? "livre",
@@ -746,8 +758,7 @@ function HabilidadeModal({
   const [efeitos, setEfeitos] = useState<EfeitoHabilidade[]>(
     lerEfeitos(inicial?.efeitos),
   );
-  const [pickerAberto, setPickerAberto] = useState(false);
-
+  const [itemId, setItemId] = useState(inicial?.itemId ?? "");
   function submit(e: React.FormEvent) {
     e.preventDefault();
     const nomeLimpo = nome.trim();
@@ -778,24 +789,8 @@ function HabilidadeModal({
       tags: tags.trim() || null,
       tagsEstilo: podarEstilosTag(tagsEstilo, tags),
       efeitos,
+      itemId: itemId || null,
     });
-  }
-
-  function addEfeitoPorPreset(presetId: string) {
-    const preset = PRESETS_EFEITO.find((p) => p.id === presetId);
-    if (!preset) return;
-    setEfeitos((curr) => [...curr, preset.criar()]);
-    setPickerAberto(false);
-  }
-
-  function patchEfeito(idx: number, patch: Partial<EfeitoHabilidade>) {
-    setEfeitos((curr) =>
-      curr.map((e, i) => (i === idx ? ({ ...e, ...patch } as EfeitoHabilidade) : e)),
-    );
-  }
-
-  function removerEfeito(idx: number) {
-    setEfeitos((curr) => curr.filter((_, i) => i !== idx));
   }
 
   return (
@@ -855,6 +850,23 @@ function HabilidadeModal({
             onChange={(e) => setDescricao(e.target.value)}
             placeholder="Como funciona, quando se aplica, regras especiais..."
           />
+
+          <label>Vem do item (opcional)</label>
+          <select value={itemId} onChange={(e) => setItemId(e.target.value)}>
+            <option value="">— nenhum —</option>
+            {itens.map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.nome}
+                {i.equipado ? "" : " (desequipado)"}
+              </option>
+            ))}
+          </select>
+          {itemId && (
+            <p className="modal-hint" style={{ marginTop: 8 }}>
+              <i className="fas fa-circle-info" /> Os efeitos só contam enquanto esse
+              item estiver equipado.
+            </p>
+          )}
 
           <details
             className="modal-secao-detalhe"
@@ -958,42 +970,17 @@ function HabilidadeModal({
             </div>
           </details>
 
-          <details className="modal-secao-detalhe" open={efeitos.length > 0 || pickerAberto}>
+          <details className="modal-secao-detalhe" open={efeitos.length > 0}>
             <summary>
               <i className="fas fa-list-check" /> Efeitos ({efeitos.length})
             </summary>
             <div className="modal-secao-corpo">
-              {!pickerAberto ? (
-                <button
-                  type="button"
-                  className="btn-rect outline"
-                  onClick={() => setPickerAberto(true)}
-                  style={{ width: "100%", padding: "10px 14px" }}
-                >
-                  <i className="fas fa-plus" /> Adicionar efeito
-                </button>
-              ) : (
-                <PickerPreset
-                  onPick={addEfeitoPorPreset}
-                  onCancelar={() => setPickerAberto(false)}
-                />
-              )}
-
-              {efeitos.length === 0 && !pickerAberto && (
-                <p className="modal-hint" style={{ marginTop: 10 }}>
-                  Nenhum efeito ainda. Clique no botão acima e escolha o que a
-                  habilidade faz em linguagem natural.
-                </p>
-              )}
-              {efeitos.map((e, i) => (
-                <EditorEfeito
-                  key={i}
-                  efeito={e}
-                  recursos={recursos}
-                  onPatch={(p) => patchEfeito(i, p)}
-                  onRemover={() => removerEfeito(i)}
-                />
-              ))}
+              <EfeitosEditor
+                efeitos={efeitos}
+                onChange={setEfeitos}
+                recursos={recursos}
+                pergunta="O que essa habilidade faz?"
+              />
             </div>
           </details>
 
@@ -1016,868 +1003,9 @@ function HabilidadeModal({
           </div>
         </form>
 
-        {/* Sugestões canônicas pros campos de alvo automatizáveis.
-            Texto livre continua aceito; só não modifica cálculo. */}
-        <datalist id="alvos-efeito">
-          {[...ALVOS_AGREGAVEIS, ...periciasCustom].map((a) => (
-            <option key={a.slug} value={a.slug}>
-              {a.nome} ({a.grupo})
-            </option>
-          ))}
-        </datalist>
+        <DatalistAlvos />
       </div>
     </div>
   );
 }
 
-// Picker visual em grid: presets em linguagem natural agrupados por tema.
-// Clicar adiciona o efeito já com o tipo + campos pré-preenchidos.
-function PickerPreset({
-  onPick,
-  onCancelar,
-}: {
-  onPick: (presetId: string) => void;
-  onCancelar: () => void;
-}) {
-  return (
-    <div className="picker-preset">
-      <div className="picker-preset-topo">
-        <span>O que essa habilidade faz?</span>
-        <button
-          type="button"
-          className="picker-preset-fechar"
-          onClick={onCancelar}
-          title="Cancelar"
-        >
-          <i className="fas fa-xmark" />
-        </button>
-      </div>
-      {GRUPOS_PRESET.map((grupo) => {
-        const lista = PRESETS_EFEITO.filter((p) => p.grupo === grupo.slug);
-        if (lista.length === 0) return null;
-        return (
-          <div key={grupo.slug} className="picker-preset-grupo">
-            <div className="picker-preset-grupo-titulo">{grupo.nome}</div>
-            <div className="picker-preset-grid">
-              {lista.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  className="picker-preset-card"
-                  onClick={() => onPick(p.id)}
-                  title={p.descricao}
-                  style={{ borderLeftColor: p.cor }}
-                >
-                  <i className={`fas ${p.icone}`} style={{ color: p.cor }} />
-                  <div className="picker-preset-card-info">
-                    <strong>{p.nome}</strong>
-                    <span>{p.descricao}</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// Subset de alvos que faz sentido para `multiplicador` (Espécie Gigante dobra
-// carga, etc). Tudo o que não tá aqui (perícia, ataque, dano…) cai no "Outro".
-const ALVOS_MULTIPLICADOR_SLUGS = new Set([
-  "carga",
-  "deslocamento",
-  "hp-max",
-  "pp-max",
-]);
-const ALVOS_MULTIPLICADOR = ALVOS_AGREGAVEIS.filter((a) =>
-  ALVOS_MULTIPLICADOR_SLUGS.has(a.slug),
-);
-
-// Select de alvo agrupado por categoria. Mostra "Outro…" no fim — escolher
-// abre o input livre, mantendo a flexibilidade que tinha antes.
-function SelectAlvo({
-  valor,
-  onChange,
-  placeholder,
-  alvos = ALVOS_AGREGAVEIS,
-}: {
-  valor: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  alvos?: typeof ALVOS_AGREGAVEIS;
-}) {
-  // Perícias customizadas entram nas listas que já oferecem perícias (modificador,
-  // proficiência, vantagem, substituição) — não no multiplicador (Derivado/Pool).
-  const periciasCustom = useContext(AlvosCustomContext);
-  const alvosFinais =
-    periciasCustom.length > 0 && alvos.some((a) => a.grupo === "Perícia")
-      ? [...alvos, ...periciasCustom]
-      : alvos;
-
-  const slugsCanonicos = new Set(alvosFinais.map((a) => a.slug));
-  // Se o valor existente não está na lista canônica, automaticamente vira "outro".
-  const ehOutro = valor !== "" && !slugsCanonicos.has(valor);
-  const [modoOutro, setModoOutro] = useState(ehOutro);
-
-  const grupos: Record<string, typeof ALVOS_AGREGAVEIS> = {};
-  for (const a of alvosFinais) {
-    (grupos[a.grupo] ||= []).push(a);
-  }
-
-  if (modoOutro) {
-    return (
-      <div className="select-alvo-livre">
-        <input
-          type="text"
-          value={valor}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder ?? "texto livre"}
-          autoFocus
-          list="alvos-efeito"
-        />
-        <button
-          type="button"
-          className="select-alvo-voltar"
-          onClick={() => {
-            setModoOutro(false);
-            onChange("");
-          }}
-          title="Voltar pra lista"
-        >
-          <i className="fas fa-list" />
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <select
-      value={valor}
-      onChange={(e) => {
-        if (e.target.value === "__outro__") {
-          setModoOutro(true);
-          onChange("");
-        } else {
-          onChange(e.target.value);
-        }
-      }}
-    >
-      <option value="">— escolha —</option>
-      {Object.entries(grupos).map(([nomeGrupo, lista]) => (
-        <optgroup key={nomeGrupo} label={nomeGrupo}>
-          {lista.map((a) => (
-            <option key={a.slug} value={a.slug}>
-              {a.nome}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-      <option value="__outro__">Outro (texto livre)…</option>
-    </select>
-  );
-}
-
-// ─── Editor de efeito (campos por tipo) ────────────────────────────────
-function EditorEfeito({
-  efeito,
-  recursos,
-  onPatch,
-  onRemover,
-}: {
-  efeito: EfeitoHabilidade;
-  recursos: RecursoMinimo[];
-  onPatch: (patch: Partial<EfeitoHabilidade>) => void;
-  onRemover: () => void;
-}) {
-  const meta = META_EFEITOS[efeito.tipo];
-  return (
-    <div className="efeito-editor" style={{ borderColor: meta.cor }}>
-      <div className="efeito-editor-topo" style={{ color: meta.cor }}>
-        <i className={`fas ${meta.icone}`} />
-        <strong>{meta.nome}</strong>
-        <button
-          type="button"
-          className="efeito-editor-rm"
-          onClick={onRemover}
-          title="Remover efeito"
-        >
-          <i className="fas fa-xmark" />
-        </button>
-      </div>
-      <div className="efeito-editor-corpo">{renderCorpo(efeito, recursos, onPatch)}</div>
-    </div>
-  );
-}
-
-function renderCorpo(
-  e: EfeitoHabilidade,
-  recursos: RecursoMinimo[],
-  onPatch: (p: Partial<EfeitoHabilidade>) => void,
-): React.ReactNode {
-  // Helper: bloco de campos opcionais colapsável.
-  const Detalhes = ({
-    children,
-    aberto,
-  }: {
-    children: React.ReactNode;
-    aberto?: boolean;
-  }) => (
-    <details className="efeito-detalhes" open={aberto}>
-      <summary>Detalhes (opcional)</summary>
-      <div className="efeito-detalhes-corpo">{children}</div>
-    </details>
-  );
-
-  switch (e.tipo) {
-    case "modificador": {
-      // Quando o alvo é canônico e estável (hp-temp, hp-max, pp-max, cr…),
-      // o card mostra só "Quantidade". Alvo livre → mostra select de alvo.
-      const ALVOS_FIXOS_LABEL: Record<string, string> = {
-        "hp-temp": "PV Temporário",
-        "hp-max": "PV Máximo",
-        "pp-max": "PP Máximo",
-      };
-      const labelFixo = ALVOS_FIXOS_LABEL[e.alvo];
-      return (
-        <>
-          {labelFixo ? (
-            <div style={{ gridColumn: "1 / -1" }}>
-              <label>{labelFixo}</label>
-              <input
-                type="number"
-                value={e.valor}
-                onChange={(ev) =>
-                  onPatch({ valor: Number(ev.target.value) || 0 } as Partial<EfeitoHabilidade>)
-                }
-                placeholder="quantidade"
-              />
-            </div>
-          ) : (
-            <>
-              <div>
-                <label>Em qual?</label>
-                <SelectAlvo
-                  valor={e.alvo}
-                  onChange={(v) => onPatch({ alvo: v } as Partial<EfeitoHabilidade>)}
-                />
-              </div>
-              <CampoNum
-                label="Bônus"
-                valor={e.valor}
-                onChange={(v) => onPatch({ valor: v } as Partial<EfeitoHabilidade>)}
-              />
-            </>
-          )}
-          <Detalhes aberto={!!e.quando}>
-            <Campo
-              label="Quando se aplica"
-              valor={e.quando ?? ""}
-              onChange={(v) =>
-                onPatch({ quando: v || undefined } as Partial<EfeitoHabilidade>)
-              }
-              placeholder="sempre, no mar, escondido…"
-            />
-          </Detalhes>
-        </>
-      );
-    }
-    case "vantagem":
-    case "desvantagem":
-      return (
-        <>
-          <div style={{ gridColumn: "1 / -1" }}>
-            <label>Em qual teste?</label>
-            <SelectAlvo
-              valor={e.alvo}
-              onChange={(v) => onPatch({ alvo: v } as Partial<EfeitoHabilidade>)}
-              alvos={ALVOS_CONTEXTUAIS}
-            />
-          </div>
-          <Detalhes aberto={!!e.quando}>
-            <Campo
-              label="Quando se aplica"
-              valor={e.quando ?? ""}
-              onChange={(v) =>
-                onPatch({ quando: v || undefined } as Partial<EfeitoHabilidade>)
-              }
-              placeholder="opcional"
-            />
-          </Detalhes>
-        </>
-      );
-    case "proficiencia":
-      return (
-        <>
-          <div style={{ gridColumn: "1 / -1" }}>
-            <label>Em qual?</label>
-            <SelectAlvo
-              valor={e.alvo}
-              onChange={(v) => onPatch({ alvo: v } as Partial<EfeitoHabilidade>)}
-            />
-          </div>
-          <label
-            className="checkbox-linha"
-            style={{ gridColumn: "1 / -1", marginTop: 4 }}
-          >
-            <input
-              type="checkbox"
-              checked={!!e.dobrada}
-              onChange={(ev) =>
-                onPatch({
-                  dobrada: ev.target.checked || undefined,
-                } as Partial<EfeitoHabilidade>)
-              }
-            />
-            Dobrada (proficiência ×2)
-          </label>
-        </>
-      );
-    case "recurso_delta":
-      return (
-        <>
-          {recursos.length > 0 ? (
-            <div>
-              <label>Recurso</label>
-              <select
-                // Normaliza grafia legada (hpMax) pro slug canônico no display.
-                value={e.recurso === "hpMax" ? "hp-max" : e.recurso}
-                onChange={(ev) =>
-                  onPatch({ recurso: ev.target.value } as Partial<EfeitoHabilidade>)
-                }
-              >
-                <option value="">—</option>
-                <option value="pp">PP</option>
-                <option value="hp-max">PV Máx</option>
-                {recursos.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.nome}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : (
-            <Campo
-              label="Recurso"
-              valor={e.recurso}
-              onChange={(v) => onPatch({ recurso: v } as Partial<EfeitoHabilidade>)}
-              placeholder="pp, hp-max ou id do recurso"
-            />
-          )}
-          <CampoNum
-            label="Quantidade"
-            valor={e.valor}
-            onChange={(v) => onPatch({ valor: v } as Partial<EfeitoHabilidade>)}
-          />
-        </>
-      );
-    case "cura":
-      return (
-        <>
-          <Campo
-            label="Quanto cura"
-            valor={e.valor}
-            onChange={(v) => onPatch({ valor: v } as Partial<EfeitoHabilidade>)}
-            placeholder="1d8+CON, 2d6, 5…"
-          />
-          <Detalhes aberto={!!e.alvoCura}>
-            <div>
-              <label>Onde aplica</label>
-              <select
-                // PV é o padrão (alvoCura vazio); só grava slug pros outros
-                // pools. Aliases legados (ppv/pv-temp/pv) caem no canônico.
-                value={
-                  e.alvoCura === "pp"
-                    ? "pp"
-                    : e.alvoCura === "hp-temp" ||
-                        e.alvoCura === "hptemp" ||
-                        e.alvoCura === "pv-temp" ||
-                        e.alvoCura === "ppv"
-                      ? "hp-temp"
-                      : "hp"
-                }
-                onChange={(ev) => {
-                  const v = ev.target.value;
-                  onPatch({
-                    alvoCura: v === "hp" ? undefined : v,
-                  } as Partial<EfeitoHabilidade>);
-                }}
-              >
-                <option value="hp">PV (padrão)</option>
-                <option value="hp-temp">PV Temporário</option>
-                <option value="pp">PP</option>
-              </select>
-            </div>
-          </Detalhes>
-        </>
-      );
-    case "condicao_imune":
-    case "condicao_remover":
-      return (
-        <div style={{ gridColumn: "1 / -1" }}>
-          <Campo
-            label="Condição"
-            valor={e.condicao}
-            onChange={(v) => onPatch({ condicao: v } as Partial<EfeitoHabilidade>)}
-            placeholder="envenenado, atordoado, agarrado…"
-          />
-        </div>
-      );
-    case "condicao_aplicar":
-      return (
-        <>
-          <Campo
-            label="Condição"
-            valor={e.condicao}
-            onChange={(v) => onPatch({ condicao: v } as Partial<EfeitoHabilidade>)}
-            placeholder="envenenado, atordoado…"
-          />
-          <CampoNum
-            label="CD da Salv."
-            valor={e.cd ?? 0}
-            onChange={(v) =>
-              onPatch({ cd: v || undefined } as Partial<EfeitoHabilidade>)
-            }
-          />
-          <Detalhes aberto={!!e.duracao}>
-            <Campo
-              label="Duração"
-              valor={e.duracao ?? ""}
-              onChange={(v) =>
-                onPatch({ duracao: v || undefined } as Partial<EfeitoHabilidade>)
-              }
-              placeholder="1 minuto, 1 turno…"
-            />
-          </Detalhes>
-        </>
-      );
-    case "resistencia":
-    case "imunidade":
-      return (
-        <div style={{ gridColumn: "1 / -1" }}>
-          <Campo
-            label="Tipo de dano"
-            valor={e.tipoDano}
-            onChange={(v) => onPatch({ tipoDano: v } as Partial<EfeitoHabilidade>)}
-            placeholder="cortante, fogo, ácido, psíquico…"
-          />
-        </div>
-      );
-    case "deslocamento":
-      return (
-        <>
-          <div>
-            <label>Tipo</label>
-            <select
-              value={e.tipoMov}
-              onChange={(ev) =>
-                onPatch({ tipoMov: ev.target.value } as Partial<EfeitoHabilidade>)
-              }
-            >
-              <option value="caminhar">Caminhar</option>
-              <option value="nadar">Nadar</option>
-              <option value="voar">Voar</option>
-              <option value="escalar">Escalar</option>
-              <option value="cavar">Cavar</option>
-            </select>
-          </div>
-          <CampoNum
-            label="Valor (m)"
-            valor={e.valor}
-            onChange={(v) => onPatch({ valor: v } as Partial<EfeitoHabilidade>)}
-          />
-        </>
-      );
-    case "multiplicador":
-      return (
-        <>
-          <div>
-            <label>O quê</label>
-            <SelectAlvo
-              valor={e.alvo}
-              onChange={(v) => onPatch({ alvo: v } as Partial<EfeitoHabilidade>)}
-              alvos={ALVOS_MULTIPLICADOR}
-            />
-          </div>
-          <CampoNum
-            label="Fator (ex: 2 = dobra)"
-            valor={e.fator}
-            onChange={(v) => onPatch({ fator: v } as Partial<EfeitoHabilidade>)}
-            step={0.1}
-          />
-        </>
-      );
-    case "substituir_atributo":
-      return (
-        <>
-          <div>
-            <label>Cálculo</label>
-            <SelectAlvo
-              valor={e.alvo}
-              onChange={(v) => onPatch({ alvo: v } as Partial<EfeitoHabilidade>)}
-              alvos={ALVOS_SUBSTITUIVEIS}
-              placeholder="cr, iniciativa, salv-forca…"
-            />
-          </div>
-          <div>
-            <label>Passa a usar o atributo</label>
-            <select
-              value={e.atributo}
-              onChange={(ev) =>
-                onPatch({ atributo: ev.target.value as Atributo } as Partial<EfeitoHabilidade>)
-              }
-            >
-              {ATRIBUTOS.map((a) => (
-                <option key={a.slug} value={a.slug}>
-                  {a.sigla} — {a.nome}
-                </option>
-              ))}
-            </select>
-          </div>
-        </>
-      );
-    case "rolagem":
-      return (
-        <>
-          <Campo
-            label="Fórmula"
-            valor={e.formula}
-            onChange={(v) => onPatch({ formula: v } as Partial<EfeitoHabilidade>)}
-            placeholder="1d4 dano extra"
-          />
-          <Detalhes aberto={!!e.quando}>
-            <Campo
-              label="Quando"
-              valor={e.quando ?? ""}
-              onChange={(v) =>
-                onPatch({ quando: v || undefined } as Partial<EfeitoHabilidade>)
-              }
-              placeholder="opcional"
-            />
-          </Detalhes>
-        </>
-      );
-    case "trigger":
-      return (
-        <>
-          <Campo
-            label="Gatilho (quando)"
-            valor={e.gatilho}
-            onChange={(v) => onPatch({ gatilho: v } as Partial<EfeitoHabilidade>)}
-            placeholder="atingido por crítico…"
-          />
-          <Campo
-            label="Efeito (o quê)"
-            valor={e.efeito}
-            onChange={(v) => onPatch({ efeito: v } as Partial<EfeitoHabilidade>)}
-            placeholder="o que acontece"
-          />
-        </>
-      );
-    case "crit_range":
-      return (
-        <div style={{ gridColumn: "1 / -1" }}>
-          <label>Crítico a partir de</label>
-          <select
-            value={e.minimo}
-            onChange={(ev) =>
-              onPatch({
-                minimo: Number(ev.target.value) || 20,
-              } as Partial<EfeitoHabilidade>)
-            }
-          >
-            <option value={19}>19-20 (faixa expandida)</option>
-            <option value={18}>18-20 (super expandida)</option>
-            <option value={17}>17-20</option>
-            <option value={20}>20 (sem efeito)</option>
-          </select>
-        </div>
-      );
-    case "reroll":
-      return (
-        <>
-          <div>
-            <label>Em qual jogada</label>
-            <SelectAlvo
-              valor={e.gatilho}
-              onChange={(v) => onPatch({ gatilho: v } as Partial<EfeitoHabilidade>)}
-              alvos={ALVOS_CONTEXTUAIS}
-            />
-          </div>
-          <CampoNum
-            label="Usos / descanso longo"
-            valor={e.usos}
-            onChange={(v) =>
-              onPatch({
-                usos: Math.max(1, v),
-              } as Partial<EfeitoHabilidade>)
-            }
-          />
-        </>
-      );
-    case "floor_d20":
-      return (
-        <div style={{ gridColumn: "1 / -1" }}>
-          <label>Resultado mínimo no d20</label>
-          <select
-            value={e.minimo}
-            onChange={(ev) =>
-              onPatch({
-                minimo: Number(ev.target.value) || 0,
-              } as Partial<EfeitoHabilidade>)
-            }
-          >
-            <option value={5}>≤5 vira 5</option>
-            <option value={10}>≤10 vira 10 (Especialista)</option>
-            <option value={15}>≤15 vira 15</option>
-            <option value={0}>Desligado</option>
-          </select>
-        </div>
-      );
-    case "sentido":
-      return (
-        <>
-          <div>
-            <label>Sentido</label>
-            <input
-              type="text"
-              value={e.sentido}
-              onChange={(ev) =>
-                onPatch({ sentido: ev.target.value } as Partial<EfeitoHabilidade>)
-              }
-              placeholder="visão no escuro, sentir presença…"
-              list="sentidos-comuns"
-            />
-            <datalist id="sentidos-comuns">
-              <option value="visão no escuro" />
-              <option value="visão cega" />
-              <option value="sentir presença" />
-              <option value="visão verdadeira" />
-              <option value="percepção sísmica" />
-              <option value="sonar" />
-            </datalist>
-          </div>
-          <CampoNum
-            label="Alcance (m, 0 = passivo)"
-            valor={e.alcance}
-            onChange={(v) => onPatch({ alcance: Math.max(0, v) } as Partial<EfeitoHabilidade>)}
-          />
-        </>
-      );
-    case "acao_extra":
-      return (
-        <>
-          <div>
-            <label>Tipo</label>
-            <select
-              value={e.acao}
-              onChange={(ev) =>
-                onPatch({ acao: ev.target.value } as Partial<EfeitoHabilidade>)
-              }
-            >
-              <option value="ataque">Ataque extra</option>
-              <option value="acao">Ação extra</option>
-              <option value="acao bônus">Ação bônus extra</option>
-              <option value="reacao">Reação extra</option>
-              <option value="movimento">Movimento extra</option>
-            </select>
-          </div>
-          <CampoNum
-            label="Quantidade"
-            valor={e.quantidade}
-            onChange={(v) =>
-              onPatch({ quantidade: Math.max(1, v) } as Partial<EfeitoHabilidade>)
-            }
-          />
-          <Detalhes aberto={!!e.gatilho}>
-            <Campo
-              label="Quando se aplica"
-              valor={e.gatilho ?? ""}
-              onChange={(v) =>
-                onPatch({ gatilho: v || undefined } as Partial<EfeitoHabilidade>)
-              }
-              placeholder="por turno, 1× por descanso longo…"
-            />
-          </Detalhes>
-        </>
-      );
-    case "sucesso_auto":
-      return (
-        <>
-          <div style={{ gridColumn: "1 / -1" }}>
-            <label>Em qual teste?</label>
-            <SelectAlvo
-              valor={e.alvo}
-              onChange={(v) => onPatch({ alvo: v } as Partial<EfeitoHabilidade>)}
-              alvos={ALVOS_CONTEXTUAIS}
-            />
-          </div>
-          <Detalhes aberto={!!e.quando}>
-            <Campo
-              label="Quando se aplica"
-              valor={e.quando ?? ""}
-              onChange={(v) =>
-                onPatch({ quando: v || undefined } as Partial<EfeitoHabilidade>)
-              }
-              placeholder="1ª salv. de concentração, 3× por descanso…"
-            />
-          </Detalhes>
-        </>
-      );
-    case "dano_min":
-      return (
-        <>
-          <div style={{ gridColumn: "1 / -1", fontSize: "0.8rem", color: "var(--text-sec)" }}>
-            Garante <strong>metade do dano máximo</strong> da rolagem (arredonda pra
-            cima). Aparece como chip ao empilhar o dano no Rolador.
-          </div>
-          <Detalhes aberto={!!e.quando}>
-            <Campo
-              label="Quando se aplica"
-              valor={e.quando ?? ""}
-              onChange={(v) =>
-                onPatch({ quando: v || undefined } as Partial<EfeitoHabilidade>)
-              }
-              placeholder="opcional"
-            />
-          </Detalhes>
-        </>
-      );
-    case "alcance":
-      return (
-        <>
-          <CampoNum
-            label="Metros a somar"
-            valor={e.valor}
-            onChange={(v) => onPatch({ valor: v } as Partial<EfeitoHabilidade>)}
-          />
-          <div style={{ gridColumn: "1 / -1", fontSize: "0.75rem", color: "var(--text-sec)" }}>
-            Descritivo — anota a fonte no chip de ataque (não soma no valor da arma).
-          </div>
-          <Detalhes aberto={!!e.quando}>
-            <Campo
-              label="Quando se aplica"
-              valor={e.quando ?? ""}
-              onChange={(v) =>
-                onPatch({ quando: v || undefined } as Partial<EfeitoHabilidade>)
-              }
-              placeholder="opcional"
-            />
-          </Detalhes>
-        </>
-      );
-    case "ignora":
-      return (
-        <div style={{ gridColumn: "1 / -1" }}>
-          <label>O que ignora</label>
-          <input
-            type="text"
-            value={e.alvo}
-            onChange={(ev) =>
-              onPatch({ alvo: ev.target.value } as Partial<EfeitoHabilidade>)
-            }
-            placeholder="resistência, imunidade, reação, cobertura…"
-            list="ignora-comuns"
-          />
-          <datalist id="ignora-comuns">
-            <option value="resistência" />
-            <option value="imunidade" />
-            <option value="reação" />
-            <option value="cobertura" />
-          </datalist>
-        </div>
-      );
-    case "trocar_dano":
-      return (
-        <div style={{ gridColumn: "1 / -1" }}>
-          <Campo
-            label="Novo tipo de dano"
-            valor={e.tipoDano}
-            onChange={(v) => onPatch({ tipoDano: v } as Partial<EfeitoHabilidade>)}
-            placeholder="verdadeiro, fogo, cortante…"
-          />
-        </div>
-      );
-    case "crit_imune":
-      return (
-        <div style={{ gridColumn: "1 / -1", fontSize: "0.8rem", color: "var(--text-sec)" }}>
-          Não pode sofrer acerto crítico. Efeito defensivo — mostra no card; a
-          exibição na barra de defesas vem depois.
-        </div>
-      );
-    case "livre":
-      return (
-        <div style={{ gridColumn: "1 / -1" }}>
-          <Campo
-            label="Descrição"
-            valor={e.texto}
-            onChange={(v) => onPatch({ texto: v } as Partial<EfeitoHabilidade>)}
-            placeholder="mecânica não automatizável"
-            textarea
-          />
-        </div>
-      );
-  }
-}
-
-function Campo({
-  label,
-  valor,
-  onChange,
-  placeholder,
-  textarea,
-  list,
-}: {
-  label: string;
-  valor: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  textarea?: boolean;
-  list?: string;
-}) {
-  return (
-    <div>
-      <label>{label}</label>
-      {textarea ? (
-        <textarea
-          value={valor}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-        />
-      ) : (
-        <input
-          type="text"
-          value={valor}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          list={list}
-        />
-      )}
-    </div>
-  );
-}
-
-function CampoNum({
-  label,
-  valor,
-  onChange,
-  step,
-}: {
-  label: string;
-  valor: number;
-  onChange: (v: number) => void;
-  step?: number;
-}) {
-  return (
-    <div>
-      <label>{label}</label>
-      <input
-        type="number"
-        step={step ?? 1}
-        value={Number.isFinite(valor) ? valor : 0}
-        onChange={(e) => onChange(Number(e.target.value) || 0)}
-      />
-    </div>
-  );
-}
