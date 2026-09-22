@@ -258,6 +258,12 @@ model Item {
   nome          String
   peso          Float      @default(0)
   tipo          String     @default("comum")
+  // Quantas unidades do item o personagem tem (munição, rações, frascos).
+  // Peso de carga = peso × quantidade.
+  quantidade    Int        @default(1)
+  // Raridade do livro (cap. 8): "comum" | "incomum" | "raro" | "mercadoNegro".
+  // Só exibição/organização — não entra em cálculo.
+  raridade      String     @default("comum")
   tags          String?
   // Estilo visual por tag: { "<nome da tag>": { cor, efeito } } (lib/estilos-cor.ts).
   tagsEstilo    Json?      @map("tags_estilo")
@@ -284,6 +290,23 @@ model Item {
   // Quando null, é derivado da categoria + propriedades.
   atributoAtaque   String? @map("atributo_ataque")
   proficienteArma  Boolean @default(true) @map("proficiente_arma")
+  // Dano EXTRA da arma, somado ao dano base sempre que ela é usada — inclui as
+  // Ações que puxam o acerto dela via `Acao.armaId` (ex: Meito com "+1d6 fogo").
+  // Texto livre no mesmo formato de `dano` ("1d6 fogo", "+2").
+  danoBonus        String? @map("dano_bonus")
+  // Soma o modificador do atributo de ataque no dano (regra do livro). Default
+  // `false` porque fichas antigas já escreveram o modificador dentro de `dano`
+  // na mão — ligar é opt-in, pra não dobrar o bônus de quem já tinha arma.
+  danoSomaAtributo Boolean @default(false) @map("dano_soma_atributo")
+
+  // Efeitos estruturados do item (mesmo vocabulário de Habilidade.efeitos —
+  // ver lib/op-rpg.ts EfeitoHabilidade). Entram no agregador ENQUANTO o item
+  // estiver equipado, como se fossem uma passiva. É o que faz mochila somar
+  // carga, luva somar ataque, roupa dar resistência.
+  efeitos          Json    @default("[]")
+
+  // Ações e habilidades concedidas por este item (ref solta, sem FK — ver
+  // Acao.itemId / Habilidade.itemId).
 
   @@map("itens")
 }
@@ -315,6 +338,12 @@ model Acao {
   // se a arma sumir/desequipar, a UI cai no cálculo manual (atributoAtaque/dano).
   armaId            String? @map("arma_id")
 
+  // Item que CONCEDE esta ação (mochila com engenhoca, Meito com técnica
+  // própria). Referência solta (sem FK): enquanto o item não estiver equipado,
+  // a ação aparece travada na aba; se o item sumir, o vínculo é ignorado.
+  // Diferente de `armaId`, que só empresta o acerto de uma arma.
+  itemId            String? @map("item_id")
+
   // Vínculo opcional a uma Habilidade do personagem — a ação "deriva de" uma
   // técnica catalogada em Habilidades. Referência solta (sem FK): se a
   // habilidade sumir, a UI só ignora o vínculo.
@@ -333,7 +362,7 @@ model Habilidade {
   personagem        Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
 
   nome              String
-  // "profissao" | "estilo" | "haki" | "especie" | "akumaNoMi" | "treinamento" | "livre"
+  // "profissao" | "estilo" | "haki" | "especie" | "akumaNoMi" | "treinamento" | "item" | "livre"
   origem            String     @default("livre")
   // "passiva" | "ativa" | "reativa" | "livre"
   tipo              String     @default("passiva")
@@ -361,6 +390,11 @@ model Habilidade {
   // Enquanto true, os efeitos sustentados entram no agregador como uma passiva.
   // Habilidade só-instantânea (cura pura) não usa esse campo (continua no "Usar").
   ligada            Boolean    @default(false)
+
+  // Item que CONCEDE esta habilidade (ref solta, sem FK). Enquanto o item não
+  // estiver equipado, a habilidade fica travada: aparece no card com aviso e os
+  // efeitos NÃO entram no agregador — mesmo gate das travadas por árvore.
+  itemId            String?    @map("item_id")
 
   // Lista de efeitos estruturados (ver lib/op-rpg.ts EfeitoHabilidade).
   efeitos           Json       @default("[]")

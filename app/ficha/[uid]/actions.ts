@@ -6,7 +6,9 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import {
   ATRIBUTOS,
+  META_EFEITOS,
   PERICIAS,
+  RARIDADES_ITEM,
   computarDeltasInstantaneos,
   lerEfeitos,
   modificador,
@@ -147,6 +149,7 @@ const ALLOWED_ACAO = [
   "dano",
   "alcance",
   "armaId",
+  "itemId",
   "habilidadeId",
 ] as const;
 
@@ -190,6 +193,9 @@ function normalizarAcaoInput(input: AcaoInput) {
   // Referência solta a um Item (arma). Não validamos ownership aqui: pior caso
   // é um id que a UI não acha na lista de armas e cai no cálculo manual.
   if (input.armaId !== undefined) data.armaId = input.armaId ? String(input.armaId) : null;
+  // Item que concede a ação. Mesma lógica solta do armaId; a UI trava o card
+  // quando o item existe mas não está equipado.
+  if (input.itemId !== undefined) data.itemId = input.itemId ? String(input.itemId) : null;
   // Referência solta a uma Habilidade ("deriva de"). Mesma lógica do armaId:
   // sem validação de ownership — pior caso é um id que a UI não resolve.
   if (input.habilidadeId !== undefined) {
@@ -220,6 +226,7 @@ export async function criarAcao(personagemId: string, input: AcaoInput) {
       dano: (data.dano as string | null) ?? null,
       alcance: (data.alcance as string | null) ?? null,
       armaId: (data.armaId as string | null) ?? null,
+      itemId: (data.itemId as string | null) ?? null,
       habilidadeId: (data.habilidadeId as string | null) ?? null,
     },
   });
@@ -268,9 +275,16 @@ const ALLOWED_ITEM = [
   "propriedades",
   "atributoAtaque",
   "proficienteArma",
+  "danoBonus",
+  "danoSomaAtributo",
+  "efeitos",
+  "raridade",
+  "quantidade",
 ] as const;
 
 type ItemInput = Partial<Record<(typeof ALLOWED_ITEM)[number], unknown>>;
+
+const RARIDADES_VALIDAS_ITEM = new Set(RARIDADES_ITEM.map((r) => r.slug));
 
 const CATEGORIAS_VALIDAS = new Set(["cortante", "fogo", "especial", "marcial"]);
 const ALCANCES_VALIDOS = new Set(["corpo_a_corpo", "distancia"]);
@@ -345,6 +359,24 @@ function normalizarItemInput(input: ItemInput) {
   if (input.proficienteArma !== undefined) {
     data.proficienteArma = Boolean(input.proficienteArma);
   }
+  if (input.danoBonus !== undefined) {
+    const v = input.danoBonus ? String(input.danoBonus).trim().slice(0, 60) : "";
+    data.danoBonus = v || null;
+  }
+  if (input.danoSomaAtributo !== undefined) {
+    data.danoSomaAtributo = Boolean(input.danoSomaAtributo);
+  }
+  if (input.efeitos !== undefined) data.efeitos = normalizarEfeitosInput(input.efeitos);
+  if (input.raridade !== undefined) {
+    const v = String(input.raridade);
+    if (!RARIDADES_VALIDAS_ITEM.has(v as (typeof RARIDADES_ITEM)[number]["slug"])) {
+      throw new Error("Raridade inválida.");
+    }
+    data.raridade = v;
+  }
+  if (input.quantidade !== undefined) {
+    data.quantidade = Math.max(1, Math.trunc(Number(input.quantidade) || 1));
+  }
   return data;
 }
 
@@ -375,6 +407,11 @@ export async function criarItem(personagemId: string, input: ItemInput) {
       atributoAtaque: (data.atributoAtaque as string | null) ?? null,
       proficienteArma:
         data.proficienteArma === undefined ? true : (data.proficienteArma as boolean),
+      danoBonus: (data.danoBonus as string | null) ?? null,
+      danoSomaAtributo: (data.danoSomaAtributo as boolean) ?? false,
+      efeitos: (data.efeitos as EfeitoHabilidade[]) ?? [],
+      raridade: (data.raridade as string) ?? "comum",
+      quantidade: (data.quantidade as number) ?? 1,
     },
   });
   revalidatePath(`/ficha/${personagemId}`);
@@ -750,6 +787,7 @@ const ALLOWED_HABILIDADE = [
   "tagsEstilo",
   "favorita",
   "ordem",
+  "itemId",
   "efeitos",
 ] as const;
 
@@ -764,6 +802,7 @@ const ORIGENS_HAB_VALIDAS = new Set([
   "especie",
   "akumaNoMi",
   "treinamento",
+  "item",
   "livre",
 ]);
 const TIPOS_HAB_VALIDOS = new Set(["passiva", "ativa", "reativa", "livre"]);
@@ -773,28 +812,11 @@ const RECARGAS_VALIDAS_HAB = new Set([
   "encontro",
   "manual",
 ]);
-const TIPOS_EFEITO_VALIDOS = new Set<TipoEfeito>([
-  "modificador",
-  "vantagem",
-  "desvantagem",
-  "proficiencia",
-  "recurso_delta",
-  "cura",
-  "condicao_imune",
-  "condicao_remover",
-  "condicao_aplicar",
-  "resistencia",
-  "imunidade",
-  "deslocamento",
-  "multiplicador",
-  "substituir_atributo",
-  "rolagem",
-  "trigger",
-  "crit_range",
-  "reroll",
-  "floor_d20",
-  "livre",
-]);
+// Derivado do catálogo em lib/op-rpg — lista fixa aqui ficava pra trás a cada
+// tipo novo de efeito e o descartava silenciosamente ao salvar.
+const TIPOS_EFEITO_VALIDOS = new Set<TipoEfeito>(
+  Object.keys(META_EFEITOS) as TipoEfeito[],
+);
 
 function normalizarEfeitosInput(raw: unknown): EfeitoHabilidade[] {
   if (!Array.isArray(raw)) return [];
@@ -872,6 +894,9 @@ function normalizarHabilidadeInput(input: HabilidadeInput) {
   }
   if (input.favorita !== undefined) data.favorita = Boolean(input.favorita);
   if (input.ordem !== undefined) data.ordem = Math.trunc(Number(input.ordem) || 0);
+  // Item que concede a habilidade (ref solta). Sem o item equipado a UI e o
+  // agregador tratam a habilidade como travada.
+  if (input.itemId !== undefined) data.itemId = input.itemId ? String(input.itemId) : null;
   if (input.efeitos !== undefined) data.efeitos = normalizarEfeitosInput(input.efeitos);
   return data;
 }
@@ -904,6 +929,7 @@ export async function criarHabilidade(
         Prisma.DbNull,
       favorita: (data.favorita as boolean) ?? false,
       ordem: (data.ordem as number) ?? 0,
+      itemId: (data.itemId as string | null) ?? null,
       efeitos: (data.efeitos as EfeitoHabilidade[]) ?? [],
     },
   });

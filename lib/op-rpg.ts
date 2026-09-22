@@ -2,6 +2,8 @@
 // Sem estado, sem I/O — podem ser usados em Server Component, Client Component
 // ou Server Action.
 
+import { parseFormulaDados, type Dado } from "./dice";
+
 export function modificador(valor: number): number {
   return Math.floor((valor - 10) / 2);
 }
@@ -296,6 +298,56 @@ export const CATEGORIAS_ARMA: {
   { slug: "marcial", nome: "Marcial", icone: "fa-hand-fist" },
 ];
 
+// ─── Raridade de item (livro do jogador, 8.3) ────────────────────────
+// Define onde a mercadoria se acha/vende. Só organização e exibição — nenhum
+// cálculo depende disso.
+export type RaridadeItem = "comum" | "incomum" | "raro" | "mercadoNegro";
+
+export const RARIDADES_ITEM: {
+  slug: RaridadeItem;
+  nome: string;
+  icone: string;
+  cor: string;
+  descricao: string;
+}[] = [
+  {
+    slug: "comum",
+    nome: "Comum",
+    icone: "fa-circle",
+    cor: "var(--text-sec)",
+    descricao: "Qualquer vila, cidade ou reino",
+  },
+  {
+    slug: "incomum",
+    nome: "Incomum",
+    icone: "fa-certificate",
+    cor: "var(--color-bonus)",
+    descricao: "Grandes cidades e reinos, preço elevado",
+  },
+  {
+    slug: "raro",
+    nome: "Raro",
+    icone: "fa-gem",
+    cor: "var(--color-react)",
+    descricao: "Pode exigir permissão profissional ou política",
+  },
+  {
+    slug: "mercadoNegro",
+    nome: "Mercado Negro",
+    icone: "fa-skull-crossbones",
+    cor: "var(--color-power)",
+    descricao: "Restrito ou ilegal; preço varia até 100×",
+  },
+];
+
+const RARIDADES_VALIDAS = new Set<string>(RARIDADES_ITEM.map((r) => r.slug));
+
+export function lerRaridade(raw: unknown): RaridadeItem {
+  return typeof raw === "string" && RARIDADES_VALIDAS.has(raw)
+    ? (raw as RaridadeItem)
+    : "comum";
+}
+
 // Eixo separado: define o cálculo padrão do atributo de ataque.
 export type AlcanceArma = "corpo_a_corpo" | "distancia";
 
@@ -454,6 +506,112 @@ export function resolverAtaqueArma(opts: {
   };
 }
 
+// Uma parcela do dano composto, pro tooltip explicar de onde veio cada pedaço.
+export type ParteDano = { rotulo: string; texto: string };
+
+export type DanoArmaResolvido = {
+  dados: Dado[];
+  modificador: number;
+  // Fórmula normalizada do total ("1d8+1d6+3"), pronta pro chip.
+  formula: string;
+  partes: ParteDano[];
+  fontes: string[];
+  // false quando não sobrou nada pra rolar (sem dado e sem modificador).
+  rolavel: boolean;
+};
+
+// Compõe o dano de uma arma a partir das parcelas: dado base + dano bônus da
+// própria arma + modificador do atributo (quando a arma liga `danoSomaAtributo`)
+// + bônus de habilidade (`dano`, `dano-cc`, `dano-distancia`).
+//
+// O texto de cada parcela é livre ("1d8 cortante"), então o tipo de dano se
+// perde na soma — ele continua visível nas `partes`. Retorna null quando não há
+// nenhuma parcela.
+export function resolverDanoArma(opts: {
+  danoBase: string | null;
+  danoBonus: string | null;
+  somaAtributo: boolean;
+  atributoDano: Atributo | null;
+  atributos: Record<Atributo, number>;
+  alcance: AlcanceArma;
+  efeitosAgregados: EfeitosAgregados;
+}): DanoArmaResolvido | null {
+  const partes: ParteDano[] = [];
+  const dados: Dado[] = [];
+  let total = 0;
+
+  const base = opts.danoBase?.trim() ?? "";
+  if (base) {
+    const p = parseFormulaDados(base);
+    dados.push(...p.dados);
+    total += p.modificador;
+    partes.push({ rotulo: "Arma", texto: base });
+  }
+
+  const bonus = opts.danoBonus?.trim() ?? "";
+  if (bonus) {
+    const p = parseFormulaDados(bonus);
+    dados.push(...p.dados);
+    total += p.modificador;
+    partes.push({ rotulo: "Dano bônus", texto: bonus });
+  }
+
+  if (opts.somaAtributo && opts.atributoDano) {
+    const mod = modificador(opts.atributos[opts.atributoDano]);
+    if (mod !== 0) {
+      total += mod;
+      const sigla =
+        ATRIBUTOS.find((a) => a.slug === opts.atributoDano)?.sigla ?? opts.atributoDano;
+      partes.push({ rotulo: sigla, texto: formatarMod(mod) });
+    }
+  }
+
+  const agg = opts.efeitosAgregados;
+  const doAlcance =
+    opts.alcance === "corpo_a_corpo" ? agg.bonusDanoCC : agg.bonusDanoDistancia;
+  const extra = agg.bonusDano.valor + doAlcance.valor;
+  const fontes = [
+    ...agg.bonusDano.fontes,
+    ...doAlcance.fontes.filter((f) => !agg.bonusDano.fontes.includes(f)),
+  ];
+  if (extra !== 0) {
+    total += extra;
+    partes.push({
+      rotulo: fontes.join(", ") || "Habilidade",
+      texto: formatarMod(extra),
+    });
+  }
+
+  if (partes.length === 0) return null;
+  return {
+    dados,
+    modificador: total,
+    formula: formulaAgrupada(dados, total),
+    partes,
+    fontes,
+    rolavel: dados.length > 0 || total !== 0,
+  };
+}
+
+// Fórmula legível agrupando dados iguais ("3d6+1d4+3"). Difere do `formulaTexto`
+// do Rolador (que lista dado a dado) porque no card da arma o conjunto precisa
+// caber numa linha.
+function formulaAgrupada(dados: Dado[], mod: number): string {
+  const partes: string[] = [];
+  const contagem = new Map<string, number>();
+  for (const d of dados) {
+    const k = `${d.sinal}|${d.faces}`;
+    contagem.set(k, (contagem.get(k) ?? 0) + 1);
+  }
+  for (const [k, qtd] of contagem) {
+    const [sinal, faces] = k.split("|");
+    const prefixo = sinal === "-1" ? "−" : partes.length ? "+" : "";
+    partes.push(`${prefixo}${qtd}d${faces}`);
+  }
+  if (mod !== 0) partes.push(`${mod > 0 ? (partes.length ? "+" : "") : "−"}${Math.abs(mod)}`);
+  return partes.join("") || "0";
+}
+
 // ─── Técnicas / Ações ─────────────────────────────────────────────────
 
 // CD de uma técnica/salvaguarda forçada = 8 + bônus_prof + mod_atributo_primário.
@@ -536,6 +694,7 @@ export type OrigemHabilidade =
   | "especie"
   | "akumaNoMi"
   | "treinamento"
+  | "item"
   | "livre";
 
 export const ORIGENS_HABILIDADE: {
@@ -550,6 +709,7 @@ export const ORIGENS_HABILIDADE: {
   { slug: "especie", nome: "Espécie", icone: "fa-paw", cor: "var(--color-bonus)" },
   { slug: "akumaNoMi", nome: "Akuma no Mi", icone: "fa-apple-whole", cor: "var(--primary)" },
   { slug: "treinamento", nome: "Treinamento", icone: "fa-dumbbell", cor: "var(--color-padrao)" },
+  { slug: "item", nome: "Item", icone: "fa-sack-dollar", cor: "var(--color-bonus)" },
   { slug: "livre", nome: "Livre", icone: "fa-star", cor: "var(--text-sec)" },
 ];
 
@@ -1652,6 +1812,26 @@ export function efeitoEhSustentado(e: EfeitoHabilidade): boolean {
 // sem passo novo de autoria.
 export function temEfeitoSustentado(efeitos: EfeitoHabilidade[]): boolean {
   return efeitos.some(efeitoEhSustentado);
+}
+
+// Fonte de efeito no formato que `agregarEfeitos` consome. Item equipado entra
+// como `passiva` — enquanto estiver no corpo, os efeitos valem sempre.
+export type FonteEfeito = {
+  nome: string;
+  tipo: string;
+  efeitos: unknown;
+  ligada?: boolean;
+};
+
+// Converte os itens do personagem em fontes de efeito: só os EQUIPADOS, e só os
+// que têm algum efeito. Desequipar remove os bônus automaticamente, porque a
+// fonte some da lista antes de agregar.
+export function fontesDeEfeitoDeItens(
+  itens: { nome: string; equipado: boolean; efeitos: unknown }[],
+): FonteEfeito[] {
+  return itens
+    .filter((i) => i.equipado && Array.isArray(i.efeitos) && i.efeitos.length > 0)
+    .map((i) => ({ nome: i.nome, tipo: "passiva", efeitos: i.efeitos }));
 }
 
 // Varre habilidades e aplica efeitos sustentados (modificador, proficiência,
