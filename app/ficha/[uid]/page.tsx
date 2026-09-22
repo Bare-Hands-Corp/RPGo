@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { listarMensagensSessao } from "@/lib/mensagens";
 import { carregarCalendario } from "@/lib/calendario/carregar";
-import { agregarEfeitos } from "@/lib/op-rpg";
+import { agregarEfeitos, fontesDeEfeitoDeItens } from "@/lib/op-rpg";
 import { habilidadesTravadas } from "@/lib/arvore";
 import { PerfilSidebar } from "./perfil-sidebar";
 import { FichaTabs } from "./ficha-tabs";
@@ -71,17 +71,27 @@ export default async function FichaPage({ params, searchParams }: Params) {
     personagem.periciasCustom.map((p) => p.slug),
   );
 
-  // Habilidade presa a nó não liberado não entra no agregador.
+  // Habilidade presa a nó não liberado não entra no agregador. Idem a que vem
+  // de um item que não está equipado — guardar o Meito na mochila desliga a
+  // técnica que ele concede.
   const travadasPorArvore = habilidadesTravadas(
     personagem.arvores.flatMap((a) => a.nos),
   );
+  const itensEquipados = new Set(
+    personagem.itens.filter((i) => i.equipado).map((i) => i.id),
+  );
   const habilidadesAtivas = personagem.habilidades.filter(
-    (h) => !travadasPorArvore.has(h.id),
+    (h) =>
+      !travadasPorArvore.has(h.id) && (!h.itemId || itensEquipados.has(h.itemId)),
   );
 
-  // Agrega efeitos das habilidades (modificadores + proficiências) pra alvos
-  // canônicos + perícias custom. Computado no servidor — frio, sem estado, barato.
-  const efeitosAgregados = agregarEfeitos(habilidadesAtivas, slugsPericiaCustom);
+  // Agrega efeitos das habilidades ativas + dos itens equipados (mochila que
+  // soma carga, luva que soma ataque) pra alvos canônicos + perícias custom.
+  // Computado no servidor — frio, sem estado, barato.
+  const efeitosAgregados = agregarEfeitos(
+    [...habilidadesAtivas, ...fontesDeEfeitoDeItens(personagem.itens)],
+    slugsPericiaCustom,
+  );
 
   // Penalidade de DES das armaduras equipadas (geralmente negativa). Reduz o
   // modificador de DES em todos os cálculos derivados (CR, iniciativa, salv/

@@ -10,10 +10,10 @@ import {
   formatarMod,
   penalidadeD20Exaustao,
   resolverAtaqueArma,
+  resolverDanoArma,
   type Atributo,
   type EfeitosAgregados,
 } from "@/lib/op-rpg";
-import { parseFormulaDados } from "@/lib/dice";
 import { empilharD20, empilharRolagem } from "@/lib/empilhar-rolagem";
 import { useExaustaoOtimista } from "./use-exaustao-otimista";
 import { MarcaExausto } from "./marca-exausto";
@@ -49,6 +49,7 @@ type Acao = {
   dano: string | null;
   alcance: string | null;
   armaId: string | null;
+  itemId: string | null;
   habilidadeId: string | null;
 };
 
@@ -70,6 +71,7 @@ type ItemArma = {
   tipo: string;
   equipado: boolean;
   dano: string | null;
+  danoBonus: string | null;
   modificador: number;
   alcance: string;
   propriedades: unknown;
@@ -128,6 +130,7 @@ type FormState = {
   dano: string;
   alcance: string;
   armaId: string;
+  itemId: string;
   habilidadeId: string;
 };
 
@@ -147,6 +150,7 @@ const FORM_VAZIO: FormState = {
   dano: "",
   alcance: "",
   armaId: "",
+  itemId: "",
   habilidadeId: "",
 };
 
@@ -228,6 +232,7 @@ export function AcoesTab({
       dano: acao.dano || "",
       alcance: acao.alcance || "",
       armaId: acao.armaId || "",
+      itemId: acao.itemId || "",
       habilidadeId: acao.habilidadeId || "",
     });
     setModalAberto(true);
@@ -270,6 +275,7 @@ export function AcoesTab({
       dano: form.dano || null,
       alcance: form.alcance || null,
       armaId: form.armaId || null,
+      itemId: form.itemId || null,
       habilidadeId: form.habilidadeId || null,
     };
 
@@ -390,15 +396,13 @@ export function AcoesTab({
                     efeitosAgregados.bonusAtaqueDistancia.valor;
                   const extraCd = efeitosAgregados.bonusCdTecnicas.valor;
                   const fontesCd = efeitosAgregados.bonusCdTecnicas.fontes;
-                  const extraDano =
-                    efeitosAgregados.bonusDano.valor +
-                    efeitosAgregados.bonusDanoCC.valor +
-                    efeitosAgregados.bonusDanoDistancia.valor;
-                  const fontesDano = juntarFontes(
-                    efeitosAgregados.bonusDano.fontes,
-                    efeitosAgregados.bonusDanoCC.fontes,
-                    efeitosAgregados.bonusDanoDistancia.fontes,
-                  );
+                  // Item que concede a ação. Sem ele equipado, a ação fica
+                  // travada (card apagado, sem rolar) — igual às travadas por
+                  // árvore de talento.
+                  const itemOrigem = acao.itemId
+                    ? itens.find((i) => i.id === acao.itemId)
+                    : undefined;
+                  const travadaPorItem = !!acao.itemId && !itemOrigem?.equipado;
                   // Acerto: vem da arma (que já embute o bônus de habilidade do
                   // alcance) ou do cálculo manual da técnica.
                   const bonusAtq = ataqueArma
@@ -422,21 +426,28 @@ export function AcoesTab({
                   const alcanceContexto = ataqueArma
                     ? ataqueArma.alcance
                     : inferirAlcance(acao.alcance);
-                  // Dano é texto livre ("2d6 fogo") e é sempre da ação: cada
-                  // técnica tem dano próprio, então a arma ligada entra só no
-                  // acerto, nunca no dano.
-                  const danoParse = acao.dano ? parseFormulaDados(acao.dano) : null;
-                  const danoRolavel =
-                    !!danoParse &&
-                    (danoParse.dados.length > 0 ||
-                      danoParse.modificador + extraDano !== 0);
-                  const danoInner = acao.dano ? (
+                  // O dado de dano é da própria técnica, mas o `danoBonus` da
+                  // arma ligada entra junto: é dano da arma, vale em todo golpe
+                  // desferido com ela. Bônus de habilidade (dano/dano-cc/
+                  // dano-distancia) também são compostos aqui.
+                  const dano = acao.dano
+                    ? resolverDanoArma({
+                        danoBase: acao.dano,
+                        danoBonus: armaLigada?.danoBonus ?? null,
+                        somaAtributo: false,
+                        atributoDano: null,
+                        atributos: atributosParaTeste,
+                        alcance: alcanceContexto,
+                        efeitosAgregados,
+                      })
+                    : null;
+                  const tituloDano = dano
+                    ? dano.partes.map((x) => `${x.rotulo}: ${x.texto}`).join(" · ")
+                    : "";
+                  const danoInner = dano ? (
                     <>
-                      <i className="fas fa-burst" /> {acao.dano}
-                      {extraDano !== 0 && (
-                        <strong> {extraDano > 0 ? `+${extraDano}` : extraDano}</strong>
-                      )}
-                      {fontesDano.length > 0 && <i className="fas fa-link prof-fonte" />}
+                      <i className="fas fa-burst" /> {dano.formula}
+                      {dano.partes.length > 1 && <i className="fas fa-link prof-fonte" />}
                     </>
                   ) : null;
                   const cd = atributoCd
@@ -462,7 +473,10 @@ export function AcoesTab({
                     });
                   }
                   return (
-                    <div key={acao.id} className={`action-card type-${acao.tipo}`}>
+                    <div
+                      key={acao.id}
+                      className={`action-card type-${acao.tipo}${travadaPorItem ? " hab-travada" : ""}`}
+                    >
                       <button
                         type="button"
                         className="btn-card-edit"
@@ -481,11 +495,12 @@ export function AcoesTab({
                       </button>
                       <div>
                         <div className="card-title">{acao.nome}</div>
-                        {(bonusAtq != null || cd != null || atributoSalv || acao.dano || acao.alcance || acao.armaId) && (
+                        {(bonusAtq != null || cd != null || atributoSalv || acao.dano || acao.alcance || acao.armaId || acao.itemId) && (
                           <div className="acao-stats">
                             {bonusAtq != null && (
                               <button
                                 type="button"
+                                disabled={travadaPorItem}
                                 className={`acao-stat acao-rolar ${penD20 > 0 || desReduzAtq ? "valor-exausto" : ""}`}
                                 title={`Empilhar ataque no Rolador${
                                   ataqueArma ? ` · usa ${armaLigada?.nome}` : ""
@@ -506,20 +521,16 @@ export function AcoesTab({
                                 {penD20 > 0 && <MarcaExausto titulo={`−${penD20} de exaustão`} />}
                               </button>
                             )}
-                            {danoParse &&
-                              (danoRolavel ? (
+                            {dano &&
+                              (dano.rolavel && !travadaPorItem ? (
                                 <button
                                   type="button"
                                   className="acao-stat acao-rolar"
-                                  title={`Empilhar dano no Rolador${
-                                    fontesDano.length
-                                      ? ` · ${formatarMod(extraDano)} de ${fontesDano.join(", ")}`
-                                      : ""
-                                  }`}
+                                  title={`Empilhar dano no Rolador · ${tituloDano}`}
                                   onClick={() =>
                                     empilharRolagem({
-                                      dados: danoParse.dados,
-                                      modificador: danoParse.modificador + extraDano,
+                                      dados: dano.dados,
+                                      modificador: dano.modificador,
                                       nomePreset: `Dano ${acao.nome}`,
                                       // Contexto de dano casa dano_min/trocar_dano/
                                       // ignora no Rolador (etapa 3.5).
@@ -530,14 +541,7 @@ export function AcoesTab({
                                   {danoInner}
                                 </button>
                               ) : (
-                                <span
-                                  className="acao-stat"
-                                  title={
-                                    fontesDano.length
-                                      ? `${formatarMod(extraDano)} de ${fontesDano.join(", ")}`
-                                      : undefined
-                                  }
-                                >
+                                <span className="acao-stat" title={tituloDano || undefined}>
                                   {danoInner}
                                 </span>
                               ))}
@@ -557,6 +561,20 @@ export function AcoesTab({
                             {acao.alcance && (
                               <span className="acao-stat"><i className="fas fa-ruler-horizontal" /> {acao.alcance}</span>
                             )}
+                            {itemOrigem && (
+                              <span
+                                className="acao-stat"
+                                style={travadaPorItem ? { color: "var(--text-sec)" } : undefined}
+                                title={
+                                  travadaPorItem
+                                    ? "Esta ação vem de um item que não está equipado"
+                                    : "Ação concedida por este item"
+                                }
+                              >
+                                <i className={`fas ${travadaPorItem ? "fa-lock" : "fa-sack-dollar"}`} />{" "}
+                                {itemOrigem.nome}
+                              </span>
+                            )}
                             {armaLigada ? (
                               <span className="acao-stat" title="O acerto vem desta arma equipada">
                                 <i className="fas fa-khanda" /> {armaLigada.nome}
@@ -568,6 +586,12 @@ export function AcoesTab({
                                 </span>
                               )
                             )}
+                          </div>
+                        )}
+                        {travadaPorItem && (
+                          <div className="hab-travada-nota">
+                            <i className="fas fa-lock" /> vem de{" "}
+                            {itemOrigem?.nome ?? "um item"} — equipe o item pra usar
                           </div>
                         )}
                         <div className="card-desc">{acao.descricao}</div>
@@ -655,7 +679,7 @@ export function AcoesTab({
                 placeholder="Descreva o efeito..."
               />
 
-              <details className="modal-secao-detalhe" open={!!(form.dano || form.alcance || form.atributoAtaque || form.atributoSalv || form.atributoCd || form.tag || form.armaId || form.habilidadeId)}>
+              <details className="modal-secao-detalhe" open={!!(form.dano || form.alcance || form.atributoAtaque || form.atributoSalv || form.atributoCd || form.tag || form.armaId || form.itemId || form.habilidadeId)}>
                 <summary><i className="fas fa-gears" /> Mecânica de combate</summary>
                 <div className="modal-secao-corpo">
                   <label>Deriva de (habilidade)</label>
@@ -676,7 +700,23 @@ export function AcoesTab({
                     </p>
                   )}
 
-                  <label>Acerto vem da arma</label>
+                  <label>Vem do item</label>
+                  <select value={form.itemId} onChange={(e) => setF("itemId", e.target.value)}>
+                    <option value="">— nenhum —</option>
+                    {itens.map((i) => (
+                      <option key={i.id} value={i.id}>
+                        {i.nome}
+                        {i.equipado ? "" : " (desequipado)"}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="modal-hint" style={{ marginTop: 8 }}>
+                    <i className="fas fa-circle-info" /> Ação concedida por um item
+                    (Meito, engenhoca, luva). Fica travada enquanto o item não estiver
+                    equipado.
+                  </p>
+
+                  <label style={{ marginTop: 10 }}>Acerto vem da arma</label>
                   <select
                     value={form.armaId}
                     onChange={(e) => setF("armaId", e.target.value)}

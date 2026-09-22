@@ -217,6 +217,7 @@ export function FichaTabs({
           atributos={atributos}
           periciasCustom={periciasCustom}
           travadas={habilidadesTravadas}
+          itens={itens}
         />
       </div>
 
@@ -287,6 +288,10 @@ export function FichaTabs({
           penalidadeDesArmadura={penalidadeDesArmadura}
           atributos={atributos}
           efeitosAgregados={efeitosAgregados}
+          recursos={recursos}
+          periciasCustom={periciasCustom}
+          acoes={acoes}
+          habilidades={habilidades}
         />
       </div>
 
