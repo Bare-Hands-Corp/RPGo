@@ -3585,6 +3585,65 @@
   color: #e0a000;
 }
 
+/* ─── Item: raridade, pilha, dano bônus e concessões ───────── */
+.item-qtd {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-sec);
+}
+
+.item-raridade {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.item-dano-bonus {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-power);
+}
+
+/* Bloco do que o item dá (efeitos + ações/habilidades concedidas). Apagado
+   enquanto o item não está equipado — nada dali está valendo. */
+.item-concessoes {
+  margin-top: 8px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+}
+
+.item-concessoes.inativo {
+  opacity: 0.55;
+}
+
+.item-concessoes-aviso {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+  font-size: 0.72rem;
+  font-style: italic;
+  color: #e0a000;
+}
+
+/* Botão de rolar desabilitado (ação travada pelo item desequipado). */
+.acao-rolar:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
 /* ─── Picker de ícone ─────────────────────────────────────── */
 .icone-picker {
   position: relative;
