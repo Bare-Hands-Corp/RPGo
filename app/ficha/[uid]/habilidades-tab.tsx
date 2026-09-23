@@ -863,6 +863,7 @@ function HabilidadeModal({
             }))}
             marcado={itemId}
             onChange={setItemId}
+            rotulo="item"
             vazio="Nenhum item no inventário."
           />
           <details

@@ -3644,53 +3644,175 @@
   opacity: 0.7;
 }
 
-/* ─── Picker visual de vínculo (ação ↔ arma / habilidade / item) ───── */
-.vinculo-grade {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 8px;
+/* ─── Picker de vínculo: colapsado, com busca ─────────────────────── */
+.vinculo {
+  position: relative;
   margin-top: 4px;
 }
 
-.vinculo-card {
+/* Escolhidos ficam sempre à vista — é o estado que importa. */
+.vinculo-escolhidos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.vinculo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 4px 10px;
+  border: 1px solid color-mix(in oklch, var(--primary) 45%, transparent);
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--primary) 14%, transparent);
+  color: var(--text-main);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.vinculo-chip.inativo {
+  opacity: 0.6;
+  border-style: dashed;
+}
+
+.vinculo-chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-sec);
+  cursor: pointer;
+  font-size: 0.7rem;
+}
+
+.vinculo-chip-x:hover {
+  background: color-mix(in oklch, var(--primary) 25%, transparent);
+  color: var(--text-main);
+}
+
+.vinculo-abrir {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-sec);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.vinculo-abrir:hover {
+  border-color: var(--primary);
+  color: var(--text-main);
+}
+
+.vinculo-abrir-qtd {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--bg-surface);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.vinculo-painel {
+  border: 1px solid var(--primary);
+  border-radius: 9px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+
+.vinculo-busca {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 11px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--bg-surface);
-  color: var(--text-main);
-  cursor: pointer;
-  text-align: left;
-  transition: border-color 0.15s, background 0.15s, transform 0.08s;
-}
-
-.vinculo-card:hover {
-  border-color: var(--primary);
-  transform: translateY(-1px);
-}
-
-.vinculo-card.ativo {
-  border-color: var(--primary);
-  background: color-mix(in oklch, var(--primary) 12%, var(--bg-surface));
-}
-
-.vinculo-card.inativo:not(.ativo) {
-  opacity: 0.6;
-}
-
-.vinculo-card-icone {
-  flex-shrink: 0;
-  font-size: 1rem;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
   color: var(--text-sec);
 }
 
-.vinculo-card.ativo .vinculo-card-icone {
+/* Reseta o estilo global de input dentro do modal — aqui ele é embutido. */
+.modal-box .vinculo-busca input,
+.vinculo-busca input {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-main);
+  font-size: 0.85rem;
+}
+
+.vinculo-busca input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.vinculo-fechar {
+  display: inline-flex;
+  border: 0;
+  background: transparent;
+  color: var(--text-sec);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.vinculo-fechar:hover {
+  color: var(--text-main);
+}
+
+.vinculo-lista {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  max-height: 230px;
+  overflow-y: auto;
+}
+
+.vinculo-opcao {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-main);
+  cursor: pointer;
+  text-align: left;
+}
+
+.vinculo-opcao.cursor {
+  background: var(--bg-surface);
+}
+
+.vinculo-opcao.ativo {
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+}
+
+.vinculo-opcao.inativo:not(.ativo) {
+  opacity: 0.62;
+}
+
+.vinculo-opcao-icone {
+  flex-shrink: 0;
+  color: var(--text-sec);
+}
+
+.vinculo-opcao.ativo .vinculo-opcao-icone {
   color: var(--primary);
 }
 
-.vinculo-card-texto {
+.vinculo-opcao-texto {
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -3698,15 +3820,15 @@
   flex: 1;
 }
 
-.vinculo-card-texto strong {
-  font-size: 0.86rem;
+.vinculo-opcao-texto strong {
+  font-size: 0.85rem;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.vinculo-card-texto span {
+.vinculo-opcao-texto span {
   font-size: 0.72rem;
   color: var(--text-sec);
   overflow: hidden;
@@ -3714,14 +3836,28 @@
   white-space: nowrap;
 }
 
-.vinculo-card-marca {
+.vinculo-opcao-marca {
   flex-shrink: 0;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   color: var(--border);
 }
 
-.vinculo-card.ativo .vinculo-card-marca {
+.vinculo-opcao.ativo .vinculo-opcao-marca {
   color: var(--primary);
+}
+
+.vinculo-marca-busca {
+  background: color-mix(in oklch, var(--color-bonus) 35%, transparent);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.vinculo-sem-resultado {
+  padding: 12px 10px;
+  font-size: 0.8rem;
+  font-style: italic;
+  color: var(--text-sec);
 }
 
 .vinculo-vazio {

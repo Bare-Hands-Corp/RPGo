@@ -777,6 +777,7 @@ export function AcoesTab({
                 opcoes={opcoesHabilidade}
                 marcados={form.habilidadeIds}
                 onChange={(ids) => setF("habilidadeIds", ids)}
+                rotulo="habilidade"
                 vazio="Nenhuma habilidade cadastrada ainda — veja a aba Habilidades."
               />
 
@@ -785,6 +786,7 @@ export function AcoesTab({
                 opcoes={opcoesItem}
                 marcado={form.itemId}
                 onChange={(id) => setF("itemId", id)}
+                rotulo="item"
                 vazio="Nenhum item no inventário."
               />
 
@@ -795,6 +797,7 @@ export function AcoesTab({
                 opcoes={opcoesArma}
                 marcados={form.armaIds}
                 onChange={(ids) => setF("armaIds", ids)}
+                rotulo="arma"
                 vazio="Nenhuma arma no inventário."
               />
               {form.armaIds.length > 0 && (
