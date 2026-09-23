@@ -24,6 +24,7 @@ import {
   type OrigemHabilidade,
   type TipoHabilidade,
 } from "@/lib/op-rpg";
+import { SeletorUnico } from "./seletor-multiplo";
 import {
   AlvosCustomContext,
   ChipEfeito,
@@ -852,15 +853,18 @@ function HabilidadeModal({
           />
 
           <label>Vem do item (opcional)</label>
-          <select value={itemId} onChange={(e) => setItemId(e.target.value)}>
-            <option value="">— nenhum —</option>
-            {itens.map((i) => (
-              <option key={i.id} value={i.id}>
-                {i.nome}
-                {i.equipado ? "" : " (desequipado)"}
-              </option>
-            ))}
-          </select>
+          <SeletorUnico
+            opcoes={itens.map((i) => ({
+              id: i.id,
+              nome: i.nome,
+              icone: "fa-sack-dollar",
+              detalhe: i.equipado ? undefined : "desequipado",
+              inativo: !i.equipado,
+            }))}
+            marcado={itemId}
+            onChange={setItemId}
+            vazio="Nenhum item no inventário."
+          />
           <details
             className="modal-secao-detalhe"
             open={!!(custoPp || custoPa || custoRecursoId)}

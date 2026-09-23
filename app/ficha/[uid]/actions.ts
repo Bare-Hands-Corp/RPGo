@@ -148,9 +148,9 @@ const ALLOWED_ACAO = [
   "atributoCd",
   "dano",
   "alcance",
-  "armaId",
+  "armaIds",
   "itemId",
-  "habilidadeId",
+  "habilidadeIds",
 ] as const;
 
 type AcaoInput = Partial<Record<(typeof ALLOWED_ACAO)[number], unknown>>;
@@ -190,18 +190,28 @@ function normalizarAcaoInput(input: AcaoInput) {
   }
   if (input.dano !== undefined) data.dano = input.dano ? String(input.dano) : null;
   if (input.alcance !== undefined) data.alcance = input.alcance ? String(input.alcance) : null;
-  // Referência solta a um Item (arma). Não validamos ownership aqui: pior caso
-  // é um id que a UI não acha na lista de armas e cai no cálculo manual.
-  if (input.armaId !== undefined) data.armaId = input.armaId ? String(input.armaId) : null;
-  // Item que concede a ação. Mesma lógica solta do armaId; a UI trava o card
-  // quando o item existe mas não está equipado.
-  if (input.itemId !== undefined) data.itemId = input.itemId ? String(input.itemId) : null;
-  // Referência solta a uma Habilidade ("deriva de"). Mesma lógica do armaId:
-  // sem validação de ownership — pior caso é um id que a UI não resolve.
-  if (input.habilidadeId !== undefined) {
-    data.habilidadeId = input.habilidadeId ? String(input.habilidadeId) : null;
+  // Refs soltas a Item (armas) e Habilidade. Não validamos ownership: pior caso
+  // é um id que a UI não resolve e simplesmente ignora ao desenhar o card.
+  if (input.armaIds !== undefined) data.armaIds = normalizarIds(input.armaIds);
+  if (input.habilidadeIds !== undefined) {
+    data.habilidadeIds = normalizarIds(input.habilidadeIds);
   }
+  // Item que concede a ação; a UI trava o card quando ele não está equipado.
+  if (input.itemId !== undefined) data.itemId = input.itemId ? String(input.itemId) : null;
   return data;
+}
+
+// Lista de ids: só strings não-vazias, sem repetição, com teto defensivo.
+function normalizarIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const v of raw) {
+    if (typeof v !== "string") continue;
+    const id = v.trim();
+    if (id && !out.includes(id)) out.push(id);
+    if (out.length >= 20) break;
+  }
+  return out;
 }
 
 export async function criarAcao(personagemId: string, input: AcaoInput) {
@@ -225,9 +235,9 @@ export async function criarAcao(personagemId: string, input: AcaoInput) {
       atributoCd: (data.atributoCd as string | null) ?? null,
       dano: (data.dano as string | null) ?? null,
       alcance: (data.alcance as string | null) ?? null,
-      armaId: (data.armaId as string | null) ?? null,
+      armaIds: (data.armaIds as string[]) ?? [],
       itemId: (data.itemId as string | null) ?? null,
-      habilidadeId: (data.habilidadeId as string | null) ?? null,
+      habilidadeIds: (data.habilidadeIds as string[]) ?? [],
     },
   });
   revalidatePath(`/ficha/${personagemId}`);

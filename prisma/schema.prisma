@@ -333,10 +333,13 @@ model Acao {
   atributoCd        String? @map("atributo_cd")         // atributo primário do usuário pra CD (8+prof+mod)
   dano              String?                              // "1d8 cortante", "2d6 fogo"
   alcance           String?                              // "cc 1,5 m", "9 m", "linha 18 m"
-  // Quando setado, acerto/dano vêm da arma equipada (Item.id) em vez do cálculo
-  // manual — ex: Seiken usando a arma marcial equipada. Referência solta (sem FK):
-  // se a arma sumir/desequipar, a UI cai no cálculo manual (atributoAtaque/dano).
-  armaId            String? @map("arma_id")
+  // Armas que podem desferir esta ação (Item.id[]). Uma técnica costuma servir a
+  // mais de uma arma — Seiken vale com qualquer marcial equipada —, então o card
+  // desenha UM chip de acerto por arma equipada, cada um com o bônus e o dano
+  // bônus dela. Refs soltas (sem FK): arma que sumiu é ignorada; nenhuma arma
+  // equipada faz cair no cálculo manual (atributoAtaque/dano).
+  // Substituiu o antigo `armaId` singular (migrado em 2026-09-23).
+  armaIds           Json    @default("[]") @map("arma_ids")
 
   // Item que CONCEDE esta ação (mochila com engenhoca, Meito com técnica
   // própria). Referência solta (sem FK): enquanto o item não estiver equipado,
@@ -344,10 +347,11 @@ model Acao {
   // Diferente de `armaId`, que só empresta o acerto de uma arma.
   itemId            String? @map("item_id")
 
-  // Vínculo opcional a uma Habilidade do personagem — a ação "deriva de" uma
-  // técnica catalogada em Habilidades. Referência solta (sem FK): se a
-  // habilidade sumir, a UI só ignora o vínculo.
-  habilidadeId      String? @map("habilidade_id")
+  // Habilidades das quais a ação deriva (Habilidade.id[]). Uma técnica pode
+  // nascer do cruzamento de várias (Estilo + Haki, p. ex.). Refs soltas (sem
+  // FK): habilidade apagada some do card.
+  // Substituiu o antigo `habilidadeId` singular (migrado em 2026-09-23).
+  habilidadeIds     Json    @default("[]") @map("habilidade_ids")
 
   @@map("acoes")
 }

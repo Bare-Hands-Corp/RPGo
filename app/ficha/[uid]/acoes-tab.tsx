@@ -19,6 +19,7 @@ import { useExaustaoOtimista } from "./use-exaustao-otimista";
 import { MarcaExausto } from "./marca-exausto";
 import { TagChip } from "./estilo-cor-picker";
 import { normalizarEfeitoCor, type EstiloCor } from "@/lib/estilos-cor";
+import { SeletorMultiplo, SeletorUnico, type OpcaoVinculo } from "./seletor-multiplo";
 
 // O modelo de Ação só guarda alcance como texto livre, então inferimos CC vs
 // distância por palavra-chave / metragem pra montar o contexto da rolagem.
@@ -48,9 +49,9 @@ type Acao = {
   atributoCd: string | null;
   dano: string | null;
   alcance: string | null;
-  armaId: string | null;
+  armaIds: unknown;
   itemId: string | null;
-  habilidadeId: string | null;
+  habilidadeIds: unknown;
 };
 
 type RecursoMinimo = {
@@ -129,9 +130,9 @@ type FormState = {
   atributoCd: string;
   dano: string;
   alcance: string;
-  armaId: string;
+  armaIds: string[];
   itemId: string;
-  habilidadeId: string;
+  habilidadeIds: string[];
 };
 
 const FORM_VAZIO: FormState = {
@@ -149,10 +150,16 @@ const FORM_VAZIO: FormState = {
   atributoCd: "",
   dano: "",
   alcance: "",
-  armaId: "",
+  armaIds: [],
   itemId: "",
-  habilidadeId: "",
+  habilidadeIds: [],
 };
+
+// Lê um Json de ids vindo do banco com defesa contra lixo/legado.
+function lerIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((v): v is string => typeof v === "string" && v.length > 0);
+}
 
 // Une listas de fontes preservando ordem e removendo duplicatas.
 function juntarFontes(...listas: string[][]): string[] {
@@ -196,6 +203,29 @@ export function AcoesTab({
   };
   const desReduz = penalidadeDesArmadura < 0;
   const armas = itens.filter((i) => i.tipo === "arma");
+
+  // Opções dos pickers visuais do modal.
+  const opcoesArma: OpcaoVinculo[] = armas.map((a) => ({
+    id: a.id,
+    nome: a.nome,
+    icone: "fa-khanda",
+    detalhe: [a.dano, a.danoBonus ? `+${a.danoBonus}` : null, a.equipado ? null : "desequipada"]
+      .filter(Boolean)
+      .join(" · "),
+    inativo: !a.equipado,
+  }));
+  const opcoesItem: OpcaoVinculo[] = itens.map((i) => ({
+    id: i.id,
+    nome: i.nome,
+    icone: "fa-sack-dollar",
+    detalhe: i.equipado ? undefined : "desequipado",
+    inativo: !i.equipado,
+  }));
+  const opcoesHabilidade: OpcaoVinculo[] = habilidades.map((h) => ({
+    id: h.id,
+    nome: h.nome,
+    icone: "fa-star",
+  }));
   const [acoesOtimistas, aplicarPatch] = useOptimistic(
     acoes,
     (state: Acao[], p: Patch) => {
@@ -231,9 +261,9 @@ export function AcoesTab({
       atributoCd: acao.atributoCd || "",
       dano: acao.dano || "",
       alcance: acao.alcance || "",
-      armaId: acao.armaId || "",
+      armaIds: lerIds(acao.armaIds),
       itemId: acao.itemId || "",
-      habilidadeId: acao.habilidadeId || "",
+      habilidadeIds: lerIds(acao.habilidadeIds),
     });
     setModalAberto(true);
   }
@@ -274,9 +304,9 @@ export function AcoesTab({
       atributoCd: form.atributoCd || null,
       dano: form.dano || null,
       alcance: form.alcance || null,
-      armaId: form.armaId || null,
+      armaIds: form.armaIds,
       itemId: form.itemId || null,
-      habilidadeId: form.habilidadeId || null,
+      habilidadeIds: form.habilidadeIds,
     };
 
     const editandoId = form.id;
@@ -363,30 +393,34 @@ export function AcoesTab({
                   );
                   const atributoAtq = acao.atributoAtaque as Atributo | null;
                   const atributoCd = acao.atributoCd as Atributo | null;
-                  // Arma ligada à ação (ex: Seiken usando a arma marcial
-                  // equipada). Só vale se a arma ainda existe E está equipada —
-                  // senão cai no cálculo manual (atributo + dano da ação).
-                  const arma = acao.armaId
-                    ? armas.find((a) => a.id === acao.armaId)
-                    : undefined;
-                  const armaLigada = arma?.equipado ? arma : undefined;
-                  // Habilidade da qual a ação deriva (ref solta). Some o chip se
-                  // a habilidade foi apagada.
-                  const habDerivada = acao.habilidadeId
-                    ? habilidades.find((h) => h.id === acao.habilidadeId)
-                    : undefined;
-                  const ataqueArma = armaLigada
-                    ? resolverAtaqueArma({
-                        alcanceRaw: armaLigada.alcance,
-                        propriedadesRaw: armaLigada.propriedades,
-                        atributoOverride: armaLigada.atributoAtaque,
-                        modificadorArma: armaLigada.modificador || 0,
-                        proficiente: armaLigada.proficienteArma,
-                        atributos: atributosParaTeste,
-                        nivel,
-                        efeitosAgregados,
-                      })
-                    : null;
+                  // Armas ligadas à ação (ex: Seiken servindo a qualquer marcial).
+                  // Só as EQUIPADAS desferem; as demais só aparecem esmaecidas.
+                  const armasDaAcao = lerIds(acao.armaIds)
+                    .map((id) => armas.find((a) => a.id === id))
+                    .filter((a): a is ItemArma => !!a);
+                  const armasEquipadas = armasDaAcao.filter((a) => a.equipado);
+                  // Habilidades das quais a ação deriva (refs soltas). Somem do
+                  // card se forem apagadas.
+                  const habsDerivadas = lerIds(acao.habilidadeIds)
+                    .map((id) => habilidades.find((h) => h.id === id))
+                    .filter((h): h is HabilidadeRef => !!h);
+                  // Um acerto (e um dano) por arma equipada.
+                  const golpes = armasEquipadas.map((arma) => {
+                    const atq = resolverAtaqueArma({
+                      alcanceRaw: arma.alcance,
+                      propriedadesRaw: arma.propriedades,
+                      atributoOverride: arma.atributoAtaque,
+                      modificadorArma: arma.modificador || 0,
+                      proficiente: arma.proficienteArma,
+                      atributos: atributosParaTeste,
+                      nivel,
+                      efeitosAgregados,
+                    });
+                    return { arma, atq };
+                  });
+                  // A 1ª arma equipada define o alcance de contexto quando a
+                  // ação não tem atributo de ataque próprio.
+                  const ataqueArma = golpes[0]?.atq ?? null;
                   // Ação não distingue CC vs Distância (modelo só tem texto
                   // livre em alcance), então somamos os 3 buckets de ataque
                   // num bônus único; idem pra dano.
@@ -430,26 +464,27 @@ export function AcoesTab({
                   // arma ligada entra junto: é dano da arma, vale em todo golpe
                   // desferido com ela. Bônus de habilidade (dano/dano-cc/
                   // dano-distancia) também são compostos aqui.
-                  const dano = acao.dano
-                    ? resolverDanoArma({
-                        danoBase: acao.dano,
-                        danoBonus: armaLigada?.danoBonus ?? null,
-                        somaAtributo: false,
-                        atributoDano: null,
-                        atributos: atributosParaTeste,
-                        alcance: alcanceContexto,
-                        efeitosAgregados,
-                      })
-                    : null;
-                  const tituloDano = dano
-                    ? dano.partes.map((x) => `${x.rotulo}: ${x.texto}`).join(" · ")
-                    : "";
-                  const danoInner = dano ? (
-                    <>
-                      <i className="fas fa-burst" /> {dano.formula}
-                      {dano.partes.length > 1 && <i className="fas fa-link prof-fonte" />}
-                    </>
-                  ) : null;
+                  const comporDano = (danoBonus: string | null) =>
+                    acao.dano
+                      ? resolverDanoArma({
+                          danoBase: acao.dano,
+                          danoBonus,
+                          somaAtributo: false,
+                          atributoDano: null,
+                          atributos: atributosParaTeste,
+                          alcance: alcanceContexto,
+                          efeitosAgregados,
+                        })
+                      : null;
+                  // Um dano por arma equipada (cada uma soma o próprio bônus);
+                  // sem arma, um dano único da técnica.
+                  const danos =
+                    armasEquipadas.length > 0
+                      ? armasEquipadas.map((a) => ({
+                          rotulo: armasEquipadas.length > 1 ? a.nome : null,
+                          d: comporDano(a.danoBonus),
+                        }))
+                      : [{ rotulo: null, d: comporDano(null) }];
                   const cd = atributoCd
                     ? cdTecnica({
                         nivel,
@@ -495,56 +530,100 @@ export function AcoesTab({
                       </button>
                       <div>
                         <div className="card-title">{acao.nome}</div>
-                        {(bonusAtq != null || cd != null || atributoSalv || acao.dano || acao.alcance || acao.armaId || acao.itemId) && (
+                        {(bonusAtq != null || cd != null || atributoSalv || acao.dano || acao.alcance || armasDaAcao.length > 0 || acao.itemId) && (
                           <div className="acao-stats">
-                            {bonusAtq != null && (
-                              <button
-                                type="button"
-                                disabled={travadaPorItem}
-                                className={`acao-stat acao-rolar ${penD20 > 0 || desReduzAtq ? "valor-exausto" : ""}`}
-                                title={`Empilhar ataque no Rolador${
-                                  ataqueArma ? ` · usa ${armaLigada?.nome}` : ""
-                                }${
-                                  fontesAtaque.length
-                                    ? ` · inclui bônus de ${fontesAtaque.join(", ")}`
-                                    : ""
-                                }${desReduzAtq ? ` · −${Math.abs(penalidadeDesArmadura)} de DES (armadura)` : ""}${penD20 ? ` · −${penD20} de exaustão` : ""}`}
-                                onClick={() =>
-                                  empilharD20(bonusAtq - penD20, `Atacar ${acao.nome}`, {
-                                    tipo: "ataque",
-                                    alcance: alcanceContexto,
-                                  })
-                                }
-                              >
-                                <i className="fas fa-crosshairs" /> Acerto <strong>{formatarMod(bonusAtq - penD20)}</strong>
-                                {fontesAtaque.length > 0 && <i className="fas fa-link prof-fonte" />}
-                                {penD20 > 0 && <MarcaExausto titulo={`−${penD20} de exaustão`} />}
-                              </button>
-                            )}
-                            {dano &&
-                              (dano.rolavel && !travadaPorItem ? (
+                            {/* Com armas ligadas, um chip de acerto POR arma
+                                equipada (cada uma tem bônus e alcance próprios).
+                                Sem arma, o acerto é o cálculo manual da técnica. */}
+                            {golpes.length > 0
+                              ? golpes.map(({ arma, atq }) =>
+                                  atq ? (
+                                    <button
+                                      key={arma.id}
+                                      type="button"
+                                      disabled={travadaPorItem}
+                                      className={`acao-stat acao-rolar ${penD20 > 0 || (atq.atributo === "destreza" && desReduz) ? "valor-exausto" : ""}`}
+                                      title={`Empilhar ataque com ${arma.nome}${
+                                        atq.fontes.length
+                                          ? ` · inclui bônus de ${atq.fontes.join(", ")}`
+                                          : ""
+                                      }${penD20 ? ` · −${penD20} de exaustão` : ""}`}
+                                      onClick={() =>
+                                        empilharD20(
+                                          atq.bonus - penD20,
+                                          `Atacar ${acao.nome} (${arma.nome})`,
+                                          { tipo: "ataque", alcance: atq.alcance },
+                                        )
+                                      }
+                                    >
+                                      <i className="fas fa-crosshairs" /> {arma.nome}{" "}
+                                      <strong>{formatarMod(atq.bonus - penD20)}</strong>
+                                      {atq.fontes.length > 0 && <i className="fas fa-link prof-fonte" />}
+                                      {penD20 > 0 && <MarcaExausto titulo={`−${penD20} de exaustão`} />}
+                                    </button>
+                                  ) : null,
+                                )
+                              : bonusAtq != null && (
+                                  <button
+                                    type="button"
+                                    disabled={travadaPorItem}
+                                    className={`acao-stat acao-rolar ${penD20 > 0 || desReduzAtq ? "valor-exausto" : ""}`}
+                                    title={`Empilhar ataque no Rolador${
+                                      fontesAtaque.length
+                                        ? ` · inclui bônus de ${fontesAtaque.join(", ")}`
+                                        : ""
+                                    }${desReduzAtq ? ` · −${Math.abs(penalidadeDesArmadura)} de DES (armadura)` : ""}${penD20 ? ` · −${penD20} de exaustão` : ""}`}
+                                    onClick={() =>
+                                      empilharD20(bonusAtq - penD20, `Atacar ${acao.nome}`, {
+                                        tipo: "ataque",
+                                        alcance: alcanceContexto,
+                                      })
+                                    }
+                                  >
+                                    <i className="fas fa-crosshairs" /> Acerto{" "}
+                                    <strong>{formatarMod(bonusAtq - penD20)}</strong>
+                                    {fontesAtaque.length > 0 && <i className="fas fa-link prof-fonte" />}
+                                    {penD20 > 0 && <MarcaExausto titulo={`−${penD20} de exaustão`} />}
+                                  </button>
+                                )}
+                            {danos.map(({ rotulo, d }, i) => {
+                              if (!d) return null;
+                              const titulo = d.partes
+                                .map((x) => `${x.rotulo}: ${x.texto}`)
+                                .join(" · ");
+                              const miolo = (
+                                <>
+                                  <i className="fas fa-burst" />{" "}
+                                  {rotulo ? `${rotulo}: ` : ""}
+                                  {d.formula}
+                                  {d.partes.length > 1 && <i className="fas fa-link prof-fonte" />}
+                                </>
+                              );
+                              return d.rolavel && !travadaPorItem ? (
                                 <button
+                                  key={`d${i}`}
                                   type="button"
                                   className="acao-stat acao-rolar"
-                                  title={`Empilhar dano no Rolador · ${tituloDano}`}
+                                  title={`Empilhar dano no Rolador · ${titulo}`}
                                   onClick={() =>
                                     empilharRolagem({
-                                      dados: dano.dados,
-                                      modificador: dano.modificador,
-                                      nomePreset: `Dano ${acao.nome}`,
+                                      dados: d.dados,
+                                      modificador: d.modificador,
+                                      nomePreset: `Dano ${acao.nome}${rotulo ? ` (${rotulo})` : ""}`,
                                       // Contexto de dano casa dano_min/trocar_dano/
                                       // ignora no Rolador (etapa 3.5).
                                       contexto: { tipo: "dano", alcance: alcanceContexto },
                                     })
                                   }
                                 >
-                                  {danoInner}
+                                  {miolo}
                                 </button>
                               ) : (
-                                <span className="acao-stat" title={tituloDano || undefined}>
-                                  {danoInner}
+                                <span key={`d${i}`} className="acao-stat" title={titulo || undefined}>
+                                  {miolo}
                                 </span>
-                              ))}
+                              );
+                            })}
                             {cd != null && atributoSalv && (
                               <span
                                 className="acao-stat"
@@ -575,17 +654,22 @@ export function AcoesTab({
                                 {itemOrigem.nome}
                               </span>
                             )}
-                            {armaLigada ? (
-                              <span className="acao-stat" title="O acerto vem desta arma equipada">
-                                <i className="fas fa-khanda" /> {armaLigada.nome}
+                            {armasDaAcao.map((a) => (
+                              <span
+                                key={a.id}
+                                className="acao-stat"
+                                style={a.equipado ? undefined : { color: "var(--text-sec)" }}
+                                title={
+                                  a.equipado
+                                    ? "Desfere esta ação; o acerto acima é o dela"
+                                    : "Arma ligada, mas não equipada"
+                                }
+                              >
+                                <i className={`fas ${a.equipado ? "fa-khanda" : "fa-link-slash"}`} />{" "}
+                                {a.nome}
+                                {a.danoBonus && a.equipado ? ` +${a.danoBonus}` : ""}
                               </span>
-                            ) : (
-                              acao.armaId && (
-                                <span className="acao-stat" style={{ color: "var(--text-sec)" }} title="A arma ligada não está equipada — acerto pelo cálculo manual">
-                                  <i className="fas fa-link-slash" /> arma não equipada
-                                </span>
-                              )
-                            )}
+                            ))}
                           </div>
                         )}
                         {travadaPorItem && (
@@ -596,7 +680,7 @@ export function AcoesTab({
                         )}
                         <div className="card-desc">{acao.descricao}</div>
                       </div>
-                      {(custos.length > 0 || acao.tag || habDerivada) && (
+                      {(custos.length > 0 || acao.tag || habsDerivadas.length > 0) && (
                         <div className="card-tags">
                           {custos.map((c, i) => (
                             <TagChip
@@ -609,10 +693,15 @@ export function AcoesTab({
                           {acao.tag && (
                             <span className="tag tag-damage">{acao.tag}</span>
                           )}
-                          {habDerivada && (
-                            <span className="acao-deriva" title="Esta ação deriva de uma habilidade">
+                          {habsDerivadas.length > 0 && (
+                            <span className="acao-deriva" title="Esta ação deriva destas habilidades">
                               Deriva de{" "}
-                              <span className="acao-deriva-nome">{habDerivada.nome}</span>
+                              {habsDerivadas.map((h, i) => (
+                                <span key={h.id}>
+                                  {i > 0 && ", "}
+                                  <span className="acao-deriva-nome">{h.nome}</span>
+                                </span>
+                              ))}
                             </span>
                           )}
                         </div>
@@ -679,131 +768,114 @@ export function AcoesTab({
                 placeholder="Descreva o efeito..."
               />
 
-              <details className="modal-secao-detalhe" open={!!(form.dano || form.alcance || form.atributoAtaque || form.atributoSalv || form.atributoCd || form.tag || form.armaId || form.itemId || form.habilidadeId)}>
-                <summary><i className="fas fa-gears" /> Mecânica de combate</summary>
-                <div className="modal-secao-corpo">
-                  <label>Deriva de (habilidade)</label>
-                  <select
-                    value={form.habilidadeId}
-                    onChange={(e) => setF("habilidadeId", e.target.value)}
-                  >
-                    <option value="">— nenhuma —</option>
-                    {habilidades.map((h) => (
-                      <option key={h.id} value={h.id}>
-                        {h.nome}
-                      </option>
-                    ))}
-                  </select>
-                  {habilidades.length === 0 && (
-                    <p className="modal-hint" style={{ marginTop: 8 }}>
-                      <i className="fas fa-lightbulb" /> Cadastre uma habilidade na aba Habilidades pra atrelar esta ação a ela.
-                    </p>
-                  )}
+              <h3 className="modal-secao">
+                <i className="fas fa-link" /> De onde vem
+              </h3>
 
-                  <label>Vem do item</label>
-                  <select value={form.itemId} onChange={(e) => setF("itemId", e.target.value)}>
-                    <option value="">— nenhum —</option>
-                    {itens.map((i) => (
-                      <option key={i.id} value={i.id}>
-                        {i.nome}
-                        {i.equipado ? "" : " (desequipado)"}
-                      </option>
-                    ))}
-                  </select>
-                  <label style={{ marginTop: 10 }}>Acerto vem da arma</label>
-                  <select
-                    value={form.armaId}
-                    onChange={(e) => setF("armaId", e.target.value)}
-                  >
-                    <option value="">— cálculo manual —</option>
-                    {armas.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.nome}
-                        {a.equipado ? "" : " (desequipada)"}
-                      </option>
-                    ))}
-                  </select>
-                  {form.armaId ? (
-                    <p className="modal-hint" style={{ marginTop: 8 }}>
-                      <i className="fas fa-circle-info" /> Só o acerto vem desta arma (enquanto equipada); o dano é o desta ação. Sem arma equipada, o acerto cai no &quot;Ataque com&quot; abaixo.
-                    </p>
-                  ) : armas.length === 0 ? (
-                    <p className="modal-hint" style={{ marginTop: 8 }}>
-                      <i className="fas fa-lightbulb" /> Cadastre uma arma no Inventário pra poder usar o acerto dela nesta ação.
-                    </p>
-                  ) : null}
+              <label>Deriva das habilidades</label>
+              <SeletorMultiplo
+                opcoes={opcoesHabilidade}
+                marcados={form.habilidadeIds}
+                onChange={(ids) => setF("habilidadeIds", ids)}
+                vazio="Nenhuma habilidade cadastrada ainda — veja a aba Habilidades."
+              />
 
-                  <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10, marginTop: 10 }}>
-                    <div>
-                      <label>Dano</label>
-                      <input
-                        type="text"
-                        value={form.dano}
-                        onChange={(e) => setF("dano", e.target.value)}
-                        placeholder="Ex: 2d6 fogo"
-                      />
-                    </div>
-                    <div>
-                      <label>Alcance</label>
-                      <input
-                        type="text"
-                        value={form.alcance}
-                        onChange={(e) => setF("alcance", e.target.value)}
-                        placeholder="Ex: 9 m"
-                      />
-                    </div>
-                  </div>
+              <label style={{ marginTop: 14 }}>Concedida por um item</label>
+              <SeletorUnico
+                opcoes={opcoesItem}
+                marcado={form.itemId}
+                onChange={(id) => setF("itemId", id)}
+                vazio="Nenhum item no inventário."
+              />
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 10 }}>
-                    <div>
-                      <label>Ataque com</label>
-                      <select
-                        value={form.atributoAtaque}
-                        onChange={(e) => setF("atributoAtaque", e.target.value)}
-                      >
-                        <option value="">—</option>
-                        {ATRIBUTOS.map((a) => (
-                          <option key={a.slug} value={a.slug}>{a.sigla}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label>Alvo resiste</label>
-                      <select
-                        value={form.atributoSalv}
-                        onChange={(e) => setF("atributoSalv", e.target.value)}
-                      >
-                        <option value="">—</option>
-                        {ATRIBUTOS.map((a) => (
-                          <option key={a.slug} value={a.slug}>{a.sigla}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label>CD com</label>
-                      <select
-                        value={form.atributoCd}
-                        onChange={(e) => setF("atributoCd", e.target.value)}
-                      >
-                        <option value="">—</option>
-                        {ATRIBUTOS.map((a) => (
-                          <option key={a.slug} value={a.slug}>{a.sigla}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
+              <h3 className="modal-secao">
+                <i className="fas fa-khanda" /> Armas que desferem
+              </h3>
+              <SeletorMultiplo
+                opcoes={opcoesArma}
+                marcados={form.armaIds}
+                onChange={(ids) => setF("armaIds", ids)}
+                vazio="Nenhuma arma no inventário."
+              />
+              {form.armaIds.length > 0 && (
+                <p className="modal-hint" style={{ marginTop: 8 }}>
+                  <i className="fas fa-circle-info" /> Cada arma equipada vira um chip de
+                  acerto próprio no card, somando o dano bônus dela.
+                </p>
+              )}
 
-                  <div style={{ marginTop: 10 }}>
-                    <label>Tag livre</label>
-                    <input
-                      type="text"
-                      value={form.tag}
-                      onChange={(e) => setF("tag", e.target.value)}
-                      placeholder="Ex: Cortante, Empurrão, Ignição"
-                    />
-                  </div>
+              <h3 className="modal-secao">
+                <i className="fas fa-gears" /> Números
+              </h3>
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
+                <div>
+                  <label>Dano</label>
+                  <input
+                    type="text"
+                    value={form.dano}
+                    onChange={(e) => setF("dano", e.target.value)}
+                    placeholder="Ex: 2d6 fogo"
+                  />
                 </div>
-              </details>
+                <div>
+                  <label>Alcance</label>
+                  <input
+                    type="text"
+                    value={form.alcance}
+                    onChange={(e) => setF("alcance", e.target.value)}
+                    placeholder="Ex: 9 m"
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 10 }}>
+                <div>
+                  <label>Ataque com</label>
+                  <select
+                    value={form.atributoAtaque}
+                    onChange={(e) => setF("atributoAtaque", e.target.value)}
+                  >
+                    <option value="">—</option>
+                    {ATRIBUTOS.map((a) => (
+                      <option key={a.slug} value={a.slug}>{a.sigla}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label>Alvo resiste</label>
+                  <select
+                    value={form.atributoSalv}
+                    onChange={(e) => setF("atributoSalv", e.target.value)}
+                  >
+                    <option value="">—</option>
+                    {ATRIBUTOS.map((a) => (
+                      <option key={a.slug} value={a.slug}>{a.sigla}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label>CD com</label>
+                  <select
+                    value={form.atributoCd}
+                    onChange={(e) => setF("atributoCd", e.target.value)}
+                  >
+                    <option value="">—</option>
+                    {ATRIBUTOS.map((a) => (
+                      <option key={a.slug} value={a.slug}>{a.sigla}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ marginTop: 10 }}>
+                <label>Tag livre</label>
+                <input
+                  type="text"
+                  value={form.tag}
+                  onChange={(e) => setF("tag", e.target.value)}
+                  placeholder="Ex: Cortante, Empurrão, Ignição"
+                />
+              </div>
 
               <details
                 className="modal-secao-detalhe"

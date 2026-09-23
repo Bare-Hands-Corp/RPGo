@@ -3644,6 +3644,93 @@
   opacity: 0.7;
 }
 
+/* ─── Picker visual de vínculo (ação ↔ arma / habilidade / item) ───── */
+.vinculo-grade {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.vinculo-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s, transform 0.08s;
+}
+
+.vinculo-card:hover {
+  border-color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.vinculo-card.ativo {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 12%, var(--bg-surface));
+}
+
+.vinculo-card.inativo:not(.ativo) {
+  opacity: 0.6;
+}
+
+.vinculo-card-icone {
+  flex-shrink: 0;
+  font-size: 1rem;
+  color: var(--text-sec);
+}
+
+.vinculo-card.ativo .vinculo-card-icone {
+  color: var(--primary);
+}
+
+.vinculo-card-texto {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.vinculo-card-texto strong {
+  font-size: 0.86rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vinculo-card-texto span {
+  font-size: 0.72rem;
+  color: var(--text-sec);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vinculo-card-marca {
+  flex-shrink: 0;
+  font-size: 0.9rem;
+  color: var(--border);
+}
+
+.vinculo-card.ativo .vinculo-card-marca {
+  color: var(--primary);
+}
+
+.vinculo-vazio {
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  font-style: italic;
+  color: var(--text-sec);
+}
+
 /* ─── Picker de ícone ─────────────────────────────────────── */
 .icone-picker {
   position: relative;
