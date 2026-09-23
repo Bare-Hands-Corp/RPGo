@@ -710,12 +710,6 @@ export function AcoesTab({
                       </option>
                     ))}
                   </select>
-                  <p className="modal-hint" style={{ marginTop: 8 }}>
-                    <i className="fas fa-circle-info" /> Ação concedida por um item
-                    (Meito, engenhoca, luva). Fica travada enquanto o item não estiver
-                    equipado.
-                  </p>
-
                   <label style={{ marginTop: 10 }}>Acerto vem da arma</label>
                   <select
                     value={form.armaId}

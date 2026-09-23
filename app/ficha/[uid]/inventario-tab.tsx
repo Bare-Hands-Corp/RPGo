@@ -943,10 +943,6 @@ export function InventarioTab({
                       onChange={(e) => set("danoBonus", e.target.value)}
                       placeholder="Ex: 1d6 fogo"
                     />
-                    <p className="modal-hint" style={{ marginTop: 6 }}>
-                      <i className="fas fa-circle-info" /> Dano extra da arma. Soma no dano
-                      dela e no de qualquer Ação que puxe o acerto desta arma.
-                    </p>
                   </div>
 
                   <label
@@ -961,10 +957,7 @@ export function InventarioTab({
                       }
                     />
                     <span>
-                      Somar o <strong>modificador do atributo</strong> no dano{" "}
-                      <span style={{ color: "var(--text-sec)", fontSize: "0.8rem" }}>
-                        (regra do livro — deixe desligado se você já escreveu o bônus no dado de dano)
-                      </span>
+                      Somar o <strong>modificador do atributo</strong> no dano
                     </span>
                   </label>
 
@@ -1048,11 +1041,6 @@ export function InventarioTab({
                   <i className="fas fa-list-check" /> Efeitos ({form.efeitos.length})
                 </summary>
                 <div className="modal-secao-corpo">
-                  <p className="modal-hint" style={{ marginBottom: 10 }}>
-                    <i className="fas fa-lightbulb" /> Valem enquanto o item estiver
-                    equipado. É assim que mochila soma carga, luva soma ataque e roupa dá
-                    resistência.
-                  </p>
                   <EfeitosEditor
                     efeitos={form.efeitos}
                     onChange={(v) => set("efeitos", v)}

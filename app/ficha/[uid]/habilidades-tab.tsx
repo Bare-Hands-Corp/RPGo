@@ -861,13 +861,6 @@ function HabilidadeModal({
               </option>
             ))}
           </select>
-          {itemId && (
-            <p className="modal-hint" style={{ marginTop: 8 }}>
-              <i className="fas fa-circle-info" /> Os efeitos só contam enquanto esse
-              item estiver equipado.
-            </p>
-          )}
-
           <details
             className="modal-secao-detalhe"
             open={!!(custoPp || custoPa || custoRecursoId)}
