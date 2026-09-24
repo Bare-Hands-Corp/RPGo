@@ -4,6 +4,7 @@ import { useState } from "react";
 import Swal from "sweetalert2";
 import {
   type CalendarioConfig,
+  ANO_MAX,
   dataParaDias,
   diasParaData,
 } from "@/lib/calendario/engine";
@@ -47,6 +48,10 @@ export function ModalEvento({
   const [dia, setDia] = useState(ref.dia);
   const [tipoClimaId, setTipoClimaId] = useState(eventoInicial?.tipoClimaId || tiposClima[0]?.id || "");
 
+  // O calendário só existe do ano inicial em diante — fora disso o servidor recusa.
+  const anoInicial = config.anoEpoch ?? 1;
+  const diasDoMes = config.meses[mes - 1]?.dias ?? 1;
+
   function salvar() {
     if (!titulo.trim()) {
       Swal.fire({
@@ -58,7 +63,20 @@ export function ModalEvento({
       });
       return;
     }
-    const dataDias = diasParaData({ ano, mes, dia }, config);
+    if (!Number.isInteger(ano) || ano < anoInicial || ano > ANO_MAX) {
+      Swal.fire({
+        icon: "warning",
+        title: "Ano fora do calendário",
+        text: `O ano precisa estar entre ${anoInicial} e ${ANO_MAX}.`,
+        background: "var(--bg-card)",
+        color: "var(--text-main)",
+      });
+      return;
+    }
+    const dataDias = diasParaData(
+      { ano, mes, dia: Math.max(1, Math.min(dia, diasDoMes)) },
+      config,
+    );
     const payload: EventoPayload = {
       tipo,
       titulo: titulo.trim(),
@@ -134,30 +152,44 @@ export function ModalEvento({
 
           <div className="cal-field-row3">
             <div className="cal-field">
-              <label className="cal-field-label">Ano</label>
+              <label className="cal-field-label">
+                Ano{" "}
+                <span className="cal-field-hint">
+                  {anoInicial}–{ANO_MAX}
+                </span>
+              </label>
               <input
                 type="number"
                 className="cal-input"
+                min={anoInicial}
+                max={ANO_MAX}
                 value={ano}
                 onChange={(e) => setAno(Number(e.target.value))}
               />
             </div>
             <div className="cal-field">
               <label className="cal-field-label">Mês</label>
-              <input
-                type="number"
+              <select
                 className="cal-input"
-                min={1}
                 value={mes}
                 onChange={(e) => setMes(Number(e.target.value))}
-              />
+              >
+                {config.meses.map((m, i) => (
+                  <option key={i} value={i + 1}>
+                    {m.nome}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="cal-field">
-              <label className="cal-field-label">Dia</label>
+              <label className="cal-field-label">
+                Dia <span className="cal-field-hint">1–{diasDoMes}</span>
+              </label>
               <input
                 type="number"
                 className="cal-input"
                 min={1}
+                max={diasDoMes}
                 value={dia}
                 onChange={(e) => setDia(Number(e.target.value))}
               />

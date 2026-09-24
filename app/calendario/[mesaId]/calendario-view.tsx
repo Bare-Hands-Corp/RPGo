@@ -13,6 +13,7 @@ import {
   mesesNaEstacao,
   posicaoMesNaEstacao,
 } from "@/lib/calendario/engine";
+import type { Resultado } from "@/lib/acoes";
 import type { EventoCal, ObjetivoPrazo, TipoClima } from "./types";
 import {
   atualizarEvento,
@@ -93,14 +94,25 @@ export function CalendarioView({
   );
 
   // Helper centralizado pra erros de action — todos os handlers reportam igual.
-  function mostrarErro(e: unknown) {
+  function mostrarErro(mensagem: string) {
     Swal.fire({
       icon: "error",
       title: "Erro",
-      text: e instanceof Error ? e.message : "Erro inesperado.",
+      text: mensagem,
       background: "var(--bg-card)",
       color: "var(--text-main)",
     });
+  }
+
+  // Action não lança erro previsto — ele volta em `erro` (se lançasse, o Next
+  // trocaria a mensagem por um digest em produção). O catch aqui é só rede.
+  async function comErro(chamada: () => Promise<Resultado>) {
+    try {
+      const r = await chamada();
+      if (!r.ok) mostrarErro(r.erro);
+    } catch {
+      mostrarErro("Falha de conexão com o servidor. Tenta de novo.");
+    }
   }
 
   // ─── Handlers expostos pros modais e lista ────────────────────────────
@@ -117,19 +129,11 @@ export function CalendarioView({
     startTransition(async () => {
       if (id) {
         aplicarPatchEvento({ kind: "update", id, patch: payload });
-        try {
-          await atualizarEvento(mesaId, id, payload);
-        } catch (e) {
-          mostrarErro(e);
-        }
+        await comErro(() => atualizarEvento(mesaId, id, payload));
       } else {
         const tempId = "temp-" + Math.random().toString(36).slice(2);
         aplicarPatchEvento({ kind: "create", evento: { id: tempId, ...payload } });
-        try {
-          await criarEvento(mesaId, payload);
-        } catch (e) {
-          mostrarErro(e);
-        }
+        await comErro(() => criarEvento(mesaId, payload));
       }
     });
   }
@@ -137,11 +141,7 @@ export function CalendarioView({
   function onApagarEvento(id: string) {
     startTransition(async () => {
       aplicarPatchEvento({ kind: "delete", id });
-      try {
-        await deletarEvento(mesaId, id);
-      } catch (e) {
-        mostrarErro(e);
-      }
+      await comErro(() => deletarEvento(mesaId, id));
     });
   }
 
@@ -156,38 +156,28 @@ export function CalendarioView({
     startTransition(async () => {
       const tempId = "temp-" + Math.random().toString(36).slice(2);
       aplicarPatchTipoClima({ kind: "create", tipo: { id: tempId, ...payload } });
-      try {
-        await criarTipoClima(mesaId, payload);
-      } catch (e) {
-        mostrarErro(e);
-      }
+      await comErro(() => criarTipoClima(mesaId, payload));
     });
   }
 
   function onPatchTipoClima(id: string, patch: Partial<TipoClima>) {
     startTransition(async () => {
       aplicarPatchTipoClima({ kind: "update", id, patch });
-      try {
-        await atualizarTipoClima(mesaId, id, {
+      await comErro(() =>
+        atualizarTipoClima(mesaId, id, {
           nome: patch.nome,
           descricao: patch.descricao,
           icone: patch.icone,
           pesosPorEstacao: patch.pesosPorEstacao,
-        });
-      } catch (e) {
-        mostrarErro(e);
-      }
+        }),
+      );
     });
   }
 
   function onApagarTipoClima(id: string) {
     startTransition(async () => {
       aplicarPatchTipoClima({ kind: "delete", id });
-      try {
-        await deletarTipoClima(mesaId, id);
-      } catch (e) {
-        mostrarErro(e);
-      }
+      await comErro(() => deletarTipoClima(mesaId, id));
     });
   }
 
@@ -267,17 +257,7 @@ export function CalendarioView({
     if (alvo === dataAtualOtimista) return;
     startTransition(async () => {
       setDataAtualOtimista(alvo);
-      try {
-        await setarDataAtual(mesaId, alvo);
-      } catch (e) {
-        Swal.fire({
-          icon: "error",
-          title: "Erro",
-          text: e instanceof Error ? e.message : "Erro ao mudar a data.",
-          background: "var(--bg-card)",
-          color: "var(--text-main)",
-        });
-      }
+      await comErro(() => setarDataAtual(mesaId, alvo));
     });
   }
 
@@ -301,17 +281,7 @@ export function CalendarioView({
     );
     startTransition(async () => {
       setDataAtualOtimista(novosDias);
-      try {
-        await setarDataAtual(mesaId, novosDias);
-      } catch (e) {
-        Swal.fire({
-          icon: "error",
-          title: "Erro",
-          text: e instanceof Error ? e.message : "Erro ao salvar a data.",
-          background: "var(--bg-card)",
-          color: "var(--text-main)",
-        });
-      }
+      await comErro(() => setarDataAtual(mesaId, novosDias));
     });
   }
 
