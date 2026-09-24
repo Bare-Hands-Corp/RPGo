@@ -3021,9 +3021,17 @@
   color: var(--text-sec);
 }
 
+/* Critério agora é só um ícone com dica — o texto longo repetia o que as
+   travas das camadas já dizem. */
 .arvore-criterio {
-  font-weight: 700;
-  color: var(--text-main);
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-sec);
+  cursor: help;
+}
+
+.arvore-progresso strong {
+  font-size: 1.05em;
 }
 
 .arvore-metrica strong {
@@ -3295,11 +3303,16 @@
   border-radius: 9px;
   background: var(--bg-card);
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.28);
-  cursor: grab;
+  /* No modo jogar o card só é clicável; só vira "arrastável" ao montar. */
+  cursor: pointer;
   touch-action: none;
   user-select: none;
   z-index: 3;
   transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.arvore-no.montando {
+  cursor: grab;
 }
 
 .arvore-no:hover {
@@ -3416,9 +3429,10 @@
   position: absolute;
   top: -9px;
   right: -8px;
+  gap: 3px;
   min-width: 20px;
   height: 20px;
-  padding: 0 5px;
+  padding: 0 6px;
   border-radius: 999px;
   background: var(--bg-surface);
   border: 1px solid var(--primary);
@@ -3454,15 +3468,29 @@
   gap: 3px;
 }
 
+/* Rank precisa ser legível de relance: a vazia some, a cheia brilha. */
 .arvore-estrela {
-  font-size: 0.72rem;
-  color: color-mix(in oklch, var(--text-sec) 55%, transparent);
+  font-size: 0.85rem;
+  color: color-mix(in oklch, var(--text-sec) 32%, transparent);
   line-height: 1;
 }
 
 .arvore-estrela.cheia {
   color: var(--primary);
-  text-shadow: 0 0 6px color-mix(in oklch, var(--primary) 55%, transparent);
+  text-shadow: 0 0 7px color-mix(in oklch, var(--primary) 70%, transparent);
+}
+
+/* Contagem "1/3" ao lado das estrelas — as estrelas dão a forma, o número
+   tira a dúvida quando o card está esmaecido. */
+.arvore-no-rank {
+  margin-left: 3px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: var(--text-sec);
+}
+
+.arvore-no.comprado .arvore-no-rank {
+  color: var(--primary);
 }
 
 .arvore-no-cadeado {
@@ -3473,14 +3501,21 @@
 }
 
 /* ─── Painel do talento selecionado ───────────────────────── */
+/* Gruda no rodapé da tela enquanto um talento está selecionado: a ação fica
+   ligada ao clique mesmo com a árvore grande e a página rolada. */
 .arvore-painel {
+  position: sticky;
+  bottom: 12px;
+  z-index: 6;
   display: flex;
   flex-direction: column;
   gap: 9px;
   padding: 14px;
+  margin-top: 12px;
   border: 1px solid var(--primary);
   border-radius: 12px;
   background: var(--bg-surface);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
 }
 
 .arvore-painel-topo {

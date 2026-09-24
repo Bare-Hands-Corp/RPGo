@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useEffect,
   useLayoutEffect,
   useMemo,
   useOptimistic,
@@ -146,6 +147,10 @@ export function ArvoresTab({
     () => new Set(),
   );
   const [arvoreColapsada, setArvoreColapsada] = useState(false);
+  // Dois modos na mesma aba. JOGAR é o padrão — 90% do uso é gastar ponto, não
+  // montar a árvore. MONTAR revela as ferramentas de autoria (criar/editar/
+  // apagar/arrastar), que antes ficavam ligadas o tempo todo e afogavam a tela.
+  const [montando, setMontando] = useState(false);
   const [modalCopiar, setModalCopiar] = useState(false);
   const [, startTransition] = useTransition();
 
@@ -390,14 +395,6 @@ export function ArvoresTab({
     });
   }
 
-  const todasColapsadas =
-    camadas.length > 0 && camadas.every((c) => camadasColapsadas.has(c.id));
-
-  function alternarTodas() {
-    setCamadasColapsadas(
-      todasColapsadas ? new Set() : new Set(camadas.map((c) => c.id)),
-    );
-  }
   const noEmEdicao = modalNo && !("novo" in modalNo) ? modalNo : null;
 
   function criarNoAqui(camadaId: string, ramoId: string | null, offsetY: number) {
@@ -500,108 +497,111 @@ export function ArvoresTab({
                   className={`fas fa-chevron-${arvoreColapsada ? "right" : "down"}`}
                 />
               </button>
-              <span className="arvore-criterio" title={criterioMeta?.dica}>
-                <i className="fas fa-unlock-keyhole" /> {criterioMeta?.nome}
+              {/* Progresso primeiro: é o que o jogador quer saber ao abrir. */}
+              <span className="arvore-metrica arvore-progresso">
+                <strong>{arvore.nos.filter((n) => n.rankAtual > 0).length}</strong>
+                {" de "}
+                {arvore.nos.length} liberado(s)
               </span>
-              {ctx.criterio === "pontos" && (
-                <span className="arvore-metrica">
-                  <strong>{gastos}</strong> ponto(s) gasto(s)
-                </span>
-              )}
-              {ctx.criterio === "nivel" && (
-                <span className="arvore-metrica">
-                  nível <strong>{nivel}</strong>
-                </span>
-              )}
               {recursoCusto && (
                 <span className="arvore-metrica">
                   <i className="fas fa-coins" /> {recursoCusto.nome}:{" "}
                   <strong>{recursoCusto.valorAtual}</strong>/{recursoCusto.valorMax}
                 </span>
               )}
+              {/* O critério vira ícone com dica — era um texto longo que só
+                  repetia o que as travas das camadas já mostram. */}
+              <span
+                className="arvore-criterio"
+                title={`${criterioMeta?.nome}: ${criterioMeta?.dica}${
+                  ctx.criterio === "pontos" ? ` (${gastos} gasto(s) aqui)` : ""
+                }${ctx.criterio === "nivel" ? ` (nível ${nivel})` : ""}`}
+              >
+                <i className="fas fa-unlock-keyhole" />
+              </span>
               {!recursoCusto && arvore.recursoCustoId && (
                 <span className="arvore-metrica arvore-aviso">
                   <i className="fas fa-triangle-exclamation" /> recurso de custo
                   apagado — custos viraram informativos
                 </span>
               )}
-              {arvore.nos.length > 0 &&
-                (disponiveis > 0 ? (
-                  <button
-                    type="button"
-                    className={`arvore-metrica arvore-disponiveis ${focoAtivo ? "ativo" : ""}`}
-                    onClick={() => setFoco((v) => !v)}
-                    aria-pressed={focoAtivo}
-                    title={
-                      focoAtivo
-                        ? "Mostrar a árvore inteira"
-                        : "Destacar só o que dá pra comprar agora"
-                    }
-                  >
-                    <i className="fas fa-circle-check" /> <strong>{disponiveis}</strong>{" "}
-                    pra comprar
-                  </button>
-                ) : (
-                  <span className="arvore-metrica arvore-disponiveis vazio">
-                    <i className="fas fa-circle-check" /> nada pra comprar agora
-                  </span>
-                ))}
+              {arvore.nos.length > 0 && disponiveis > 0 && (
+                <button
+                  type="button"
+                  className={`arvore-metrica arvore-disponiveis ${focoAtivo ? "ativo" : ""}`}
+                  onClick={() => setFoco((v) => !v)}
+                  aria-pressed={focoAtivo}
+                  title={
+                    focoAtivo
+                      ? "Mostrar a árvore inteira"
+                      : "Destacar só o que dá pra comprar agora"
+                  }
+                >
+                  <i className="fas fa-circle-check" /> <strong>{disponiveis}</strong>{" "}
+                  pra comprar
+                </button>
+              )}
             </div>
             <div className="arvore-barra-acoes">
-              <button
-                type="button"
-                className="btn-rect outline"
-                onClick={() =>
-                  criarNoAqui(camadas[0]?.id ?? "", ramos[0]?.id ?? null, 50)
-                }
-              >
-                + Talento
-              </button>
-              <button
-                type="button"
-                className="btn-rect outline"
-                onClick={() => setModalCamada("nova")}
-              >
-                + Camada
-              </button>
-              <button type="button" className="btn-rect outline" onClick={novaRaia}>
-                + Raia
-              </button>
-              <button
-                type="button"
-                className="btn-rect outline"
-                onClick={alternarTodas}
-                title={
-                  todasColapsadas
-                    ? "Expandir todas as camadas"
-                    : "Recolher todas as camadas"
-                }
-              >
-                <i
-                  className={`fas fa-${todasColapsadas ? "expand" : "compress"}`}
-                />{" "}
-                {todasColapsadas ? "Expandir" : "Recolher"}
-              </button>
-              <button
-                type="button"
-                className="recurso-icon-btn"
-                title="Editar árvore"
-                onClick={() => setModalArvore(arvore)}
-              >
-                <i className="fas fa-edit" />
-              </button>
-              <button
-                type="button"
-                className="recurso-icon-btn"
-                title="Apagar árvore"
-                onClick={apagarArvore}
-              >
-                <i className="fas fa-trash" />
-              </button>
+              {!montando ? (
+                <button
+                  type="button"
+                  className="btn-rect outline"
+                  onClick={() => setMontando(true)}
+                  title="Criar e editar camadas, raias e talentos"
+                >
+                  <i className="fas fa-wrench" /> Montar
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="btn-rect outline"
+                    onClick={() =>
+                      criarNoAqui(camadas[0]?.id ?? "", ramos[0]?.id ?? null, 50)
+                    }
+                  >
+                    + Talento
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-rect outline"
+                    onClick={() => setModalCamada("nova")}
+                  >
+                    + Camada
+                  </button>
+                  <button type="button" className="btn-rect outline" onClick={novaRaia}>
+                    + Raia
+                  </button>
+                  <button
+                    type="button"
+                    className="recurso-icon-btn"
+                    title="Editar árvore"
+                    onClick={() => setModalArvore(arvore)}
+                  >
+                    <i className="fas fa-edit" />
+                  </button>
+                  <button
+                    type="button"
+                    className="recurso-icon-btn"
+                    title="Apagar árvore"
+                    onClick={apagarArvore}
+                  >
+                    <i className="fas fa-trash" />
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-rect primary"
+                    onClick={() => setMontando(false)}
+                  >
+                    <i className="fas fa-check" /> Concluir
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
-          {ramos.length > 0 && (
+          {montando && ramos.length > 0 && (
             <div className="arvore-raias-chips">
               {ramos.map((r) => (
                 <span key={r.id} className="tag">
@@ -636,6 +636,7 @@ export function ArvoresTab({
             colapsadas={camadasColapsadas}
             onAlternarCamada={alternarCamada}
             foco={focoAtivo}
+            montando={montando}
           />
           )}
 
@@ -928,6 +929,7 @@ function ArvoreCanvas({
   colapsadas,
   onAlternarCamada,
   foco,
+  montando,
 }: {
   arvore: Arvore;
   camadas: CamadaArvore[];
@@ -944,6 +946,8 @@ function ArvoreCanvas({
   colapsadas: Set<string>;
   onAlternarCamada: (id: string) => void;
   foco: boolean;
+  /** Modo autoria: revela criar/editar/apagar e habilita arrastar. */
+  montando: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const nosRef = useRef(new Map<string, HTMLElement>());
@@ -1150,6 +1154,7 @@ function ArvoreCanvas({
           arrastando={arrastando}
           raiaAlvo={raiaAlvo}
           selecionadoId={selecionadoId}
+          onSelecionar={onSelecionar}
           registrar={(id, el) => {
             if (el) nosRef.current.set(id, el);
             else nosRef.current.delete(id);
@@ -1158,6 +1163,7 @@ function ArvoreCanvas({
           onApagarCamada={onApagarCamada}
           onArrastar={iniciarArrasto}
           onCriarNoAqui={onCriarNoAqui}
+          montando={montando}
         />
       ))}
     </div>
@@ -1178,11 +1184,13 @@ function FaixaCamada({
   arrastando,
   raiaAlvo,
   selecionadoId,
+  onSelecionar,
   registrar,
   onEditarCamada,
   onApagarCamada,
   onArrastar,
   onCriarNoAqui,
+  montando,
 }: {
   camada: CamadaArvore;
   aberta: boolean;
@@ -1197,11 +1205,13 @@ function FaixaCamada({
   arrastando: string | null;
   raiaAlvo: string | null;
   selecionadoId: string | null;
+  onSelecionar: (id: string | null) => void;
   registrar: (id: string, el: HTMLElement | null) => void;
   onEditarCamada: (c: CamadaArvore) => void;
   onApagarCamada: (c: CamadaArvore) => void;
   onArrastar: (e: React.PointerEvent, no: NoArvore, faixa: HTMLElement | null) => void;
   onCriarNoAqui: (camadaId: string, ramoId: string | null, offsetY: number) => void;
+  montando: boolean;
 }) {
   const faixaRef = useRef<HTMLDivElement>(null);
   const raiaPadrao = colunas[0]?.id ?? null;
@@ -1223,24 +1233,26 @@ function FaixaCamada({
           <i className={`fas ${aberta ? "fa-lock-open" : "fa-lock"}`} />
           {criterio !== "manual" && <em title={rotuloLimiar}>{camada.limiar}</em>}
         </span>
-        <span className="arvore-trilho-acoes">
-          <button
-            type="button"
-            className="recurso-icon-btn"
-            title="Editar camada"
-            onClick={() => onEditarCamada(camada)}
-          >
-            <i className="fas fa-edit" />
-          </button>
-          <button
-            type="button"
-            className="recurso-icon-btn"
-            title="Apagar camada"
-            onClick={() => onApagarCamada(camada)}
-          >
-            <i className="fas fa-trash" />
-          </button>
-        </span>
+        {montando && (
+          <span className="arvore-trilho-acoes">
+            <button
+              type="button"
+              className="recurso-icon-btn"
+              title="Editar camada"
+              onClick={() => onEditarCamada(camada)}
+            >
+              <i className="fas fa-edit" />
+            </button>
+            <button
+              type="button"
+              className="recurso-icon-btn"
+              title="Apagar camada"
+              onClick={() => onApagarCamada(camada)}
+            >
+              <i className="fas fa-trash" />
+            </button>
+          </span>
+        )}
       </div>
 
       {colapsada ? (
@@ -1291,7 +1303,7 @@ function FaixaCamada({
               }`}
               data-raia={col?.id ?? ""}
               onClick={(e) => {
-                if (e.target !== e.currentTarget) return;
+                if (!montando || e.target !== e.currentTarget) return;
                 const r = e.currentTarget.getBoundingClientRect();
                 onCriarNoAqui(
                   camada.id,
@@ -1299,9 +1311,9 @@ function FaixaCamada({
                   clampOffsetY(((e.clientY - r.top) / r.height) * 100),
                 );
               }}
-              title="Clique pra criar um talento aqui"
+              title={montando ? "Clique pra criar um talento aqui" : undefined}
             >
-              {daColuna.length === 0 && (
+              {daColuna.length === 0 && montando && (
                 <span className="arvore-slot-vazio">
                   <i className="fas fa-plus" />
                   <em>clique pra criar</em>
@@ -1315,7 +1327,11 @@ function FaixaCamada({
                   arrastando={arrastando === no.id}
                   selecionado={selecionadoId === no.id}
                   registrar={(el) => registrar(no.id, el)}
-                  onPointerDown={(e) => onArrastar(e, no, faixaRef.current)}
+                  onPointerDown={
+                    montando ? (e) => onArrastar(e, no, faixaRef.current) : undefined
+                  }
+                  onSelecionar={() => onSelecionar(no.id)}
+                  montando={montando}
                 />
               ))}
             </div>
@@ -1334,13 +1350,17 @@ function NoCard({
   selecionado,
   registrar,
   onPointerDown,
+  onSelecionar,
+  montando,
 }: {
   no: NoArvore;
   estado: ReturnType<typeof estadoNo>;
   arrastando: boolean;
   selecionado: boolean;
   registrar: (el: HTMLElement | null) => void;
-  onPointerDown: (e: React.PointerEvent) => void;
+  onPointerDown?: (e: React.PointerEvent) => void;
+  onSelecionar: () => void;
+  montando: boolean;
 }) {
   const maxRanks = Math.max(1, no.maxRanks);
   const classe = estado.comprado
@@ -1354,14 +1374,32 @@ function NoCard({
       ref={registrar}
       className={`arvore-no ${classe}${arrastando ? " arrastando" : ""}${
         selecionado ? " selecionado" : ""
-      }`}
+      }${montando ? " montando" : ""}`}
       style={{ top: `${clampOffsetY(no.offsetY)}%` }}
       onPointerDown={onPointerDown}
+      onClick={montando ? undefined : onSelecionar}
+      role={montando ? undefined : "button"}
+      tabIndex={montando ? undefined : 0}
+      onKeyDown={
+        montando
+          ? undefined
+          : (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelecionar();
+              }
+            }
+      }
       title={
         estado.bloqueios.length > 0 ? estado.bloqueios.join(" · ") : no.descricao
       }
     >
-      {no.custo > 0 && <span className="arvore-no-selo">{no.custo}</span>}
+      {no.custo > 0 && (
+        <span className="arvore-no-selo" title={`Custa ${no.custo} por rank`}>
+          <i className="fas fa-coins" />
+          {no.custo}
+        </span>
+      )}
 
       <div className="arvore-no-linha">
         <i className={`fas ${no.icone} arvore-no-icone`} />
@@ -1378,6 +1416,11 @@ function NoCard({
             ★
           </span>
         ))}
+        {estado.rank > 0 && (
+          <span className="arvore-no-rank">
+            {estado.rank}/{maxRanks}
+          </span>
+        )}
         {!estado.comprado && estado.bloqueios.length > 0 && (
           <i className="fas fa-lock arvore-no-cadeado" />
         )}
@@ -1407,8 +1450,15 @@ function PainelNo({
   onDevolver: () => void;
   onEditar: () => void;
 }) {
+  // O painel nasce no fim da aba: sem isso, clicar num talento no topo da
+  // árvore respondia fora da tela — a ação parecia não ter efeito.
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [no.id]);
+
   return (
-    <div className="arvore-painel">
+    <div className="arvore-painel" ref={ref}>
       <div className="arvore-painel-topo">
         <span className="arvore-painel-titulo">
           <i className={`fas ${no.icone}`} /> {no.nome}
