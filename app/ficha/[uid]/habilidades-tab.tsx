@@ -28,6 +28,7 @@ import { SeletorUnico } from "./seletor-multiplo";
 import {
   AlvosCustomContext,
   ChipEfeito,
+  NomesRecursoContext,
   DatalistAlvos,
   EfeitosEditor,
   type RecursoMinimo,
@@ -330,90 +331,59 @@ export function HabilidadesTab({
 
   return (
     <AlvosCustomContext.Provider value={alvosCustom}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: 10,
-        }}
-      >
-        <h1>Habilidades</h1>
-        <button
-          type="button"
-          className="btn-rect primary"
-          onClick={abrirNova}
+      <NomesRecursoContext.Provider value={recursoNomePorId}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 10,
+          }}
         >
-          + Nova Habilidade
-        </button>
-      </div>
-      <p className="modal-intro">
-        Catalogue passivas, ativas e reativas vindas de Profissão, Estilo, Haki,
-        Espécie, Akuma no Mi ou Treinamento.
-      </p>
-
-      <div className="hab-filtros">
-        {(
-          [
-            ["todas", "Todas"],
-            ["disponiveis", "Disponíveis"],
-            ["sem_custo", "Sem custo"],
-          ] as const
-        ).map(([slug, label]) => (
+          <h1>Habilidades</h1>
           <button
-            key={slug}
             type="button"
-            className={`hab-filtro ${filtro === slug ? "ativo" : ""}`}
-            onClick={() => setFiltro(slug)}
+            className="btn-rect primary"
+            onClick={abrirNova}
           >
-            {label}
+            + Nova Habilidade
           </button>
-        ))}
-      </div>
+        </div>
+        <p className="modal-intro">
+          Catalogue passivas, ativas e reativas vindas de Profissão, Estilo, Haki,
+          Espécie, Akuma no Mi ou Treinamento.
+        </p>
 
-      {favoritas.length > 0 && (
-        <section>
-          <div className="section-header">
-            <i className="fas fa-star" style={{ color: "#d4af37" }} />
-            <h3>Destaques</h3>
-          </div>
-          <div className="action-grid">
-            {favoritas.map((h) => (
-              <CardHabilidade
-                key={`fav-${h.id}`}
-                habilidade={h}
-                travada={travadasSet.has(h.id)}
-                itemOrigem={h.itemId ? itemPorId.get(h.itemId) : undefined}
-                recursoNomePorId={recursoNomePorId}
-                atributos={atributos}
-                onEdit={() => abrirEdit(h)}
-                onApagar={() => apagar(h.id, h.nome)}
-                onUsar={() => acionar(h, null)}
-                onAlternar={() => acionar(h, !h.ligada)}
-                onFavorita={() => toggleFavorita(h)}
-              />
-            ))}
-          </div>
-        </section>
-      )}
+        <div className="hab-filtros">
+          {(
+            [
+              ["todas", "Todas"],
+              ["disponiveis", "Disponíveis"],
+              ["sem_custo", "Sem custo"],
+            ] as const
+          ).map(([slug, label]) => (
+            <button
+              key={slug}
+              type="button"
+              className={`hab-filtro ${filtro === slug ? "ativo" : ""}`}
+              onClick={() => setFiltro(slug)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
 
-      {ORIGENS_HABILIDADE.map((origem) => {
-        const lista = filtradas.filter((h) => h.origem === origem.slug);
-        if (lista.length === 0) return null;
-        return (
-          <section key={origem.slug}>
+        {favoritas.length > 0 && (
+          <section>
             <div className="section-header">
-              <i className={`fas ${origem.icone}`} style={{ color: origem.cor }} />
-              <h3>{origem.nome}</h3>
-              <span style={{ color: "var(--text-sec)", fontSize: "0.85rem" }}>
-                ({lista.length})
-              </span>
+              <i className="fas fa-star" style={{ color: "#d4af37" }} />
+              <h3>Destaques</h3>
             </div>
             <div className="action-grid">
-              {lista.map((h) => (
+              {favoritas.map((h) => (
                 <CardHabilidade
-                  key={h.id}
+                  key={`fav-${h.id}`}
                   habilidade={h}
                   travada={travadasSet.has(h.id)}
                   itemOrigem={h.itemId ? itemPorId.get(h.itemId) : undefined}
@@ -428,32 +398,65 @@ export function HabilidadesTab({
               ))}
             </div>
           </section>
-        );
-      })}
+        )}
 
-      {filtradas.length === 0 && (
-        <p
-          style={{
-            color: "var(--text-sec)",
-            fontSize: "0.9rem",
-            fontStyle: "italic",
-            textAlign: "center",
-            padding: "40px 0",
-          }}
-        >
-          Nenhuma habilidade cadastrada{filtro !== "todas" ? " com esse filtro" : ""}.
-        </p>
-      )}
+        {ORIGENS_HABILIDADE.map((origem) => {
+          const lista = filtradas.filter((h) => h.origem === origem.slug);
+          if (lista.length === 0) return null;
+          return (
+            <section key={origem.slug}>
+              <div className="section-header">
+                <i className={`fas ${origem.icone}`} style={{ color: origem.cor }} />
+                <h3>{origem.nome}</h3>
+                <span style={{ color: "var(--text-sec)", fontSize: "0.85rem" }}>
+                  ({lista.length})
+                </span>
+              </div>
+              <div className="action-grid">
+                {lista.map((h) => (
+                  <CardHabilidade
+                    key={h.id}
+                    habilidade={h}
+                    travada={travadasSet.has(h.id)}
+                    itemOrigem={h.itemId ? itemPorId.get(h.itemId) : undefined}
+                    recursoNomePorId={recursoNomePorId}
+                    atributos={atributos}
+                    onEdit={() => abrirEdit(h)}
+                    onApagar={() => apagar(h.id, h.nome)}
+                    onUsar={() => acionar(h, null)}
+                    onAlternar={() => acionar(h, !h.ligada)}
+                    onFavorita={() => toggleFavorita(h)}
+                  />
+                ))}
+              </div>
+            </section>
+          );
+        })}
 
-      {modalAberto && (
-        <HabilidadeModal
-          inicial={edit}
-          recursos={recursos}
-          itens={itens}
-          onCancelar={() => setModalAberto(false)}
-          onSalvar={salvarForm}
-        />
-      )}
+        {filtradas.length === 0 && (
+          <p
+            style={{
+              color: "var(--text-sec)",
+              fontSize: "0.9rem",
+              fontStyle: "italic",
+              textAlign: "center",
+              padding: "40px 0",
+            }}
+          >
+            Nenhuma habilidade cadastrada{filtro !== "todas" ? " com esse filtro" : ""}.
+          </p>
+        )}
+
+        {modalAberto && (
+          <HabilidadeModal
+            inicial={edit}
+            recursos={recursos}
+            itens={itens}
+            onCancelar={() => setModalAberto(false)}
+            onSalvar={salvarForm}
+          />
+        )}
+      </NomesRecursoContext.Provider>
     </AlvosCustomContext.Provider>
   );
 }
@@ -488,7 +491,9 @@ function CardHabilidade({
   const travadaPorItem = !!habilidade.itemId && !itemOrigem?.equipado;
   const bloqueada = travada || travadaPorItem;
   const tipoMeta = TIPOS_HABILIDADE.find((t) => t.slug === habilidade.tipo);
-  const ehAtivavel = habilidade.tipo === "ativa" || habilidade.tipo === "reativa";
+  // Tudo que não é passiva se ativa — "livre" é ação livre (espelho das Ações
+  // Livres), então também ganha Usar/toggle; sem isso os efeitos nunca contavam.
+  const ehAtivavel = habilidade.tipo !== "passiva";
   // Habilidade ativável com efeito sustentado ganha switch on/off (estado
   // `ligada`); sem efeito sustentado (cura pura etc.) mantém o "Usar" pontual.
   const mostrarToggle = ehAtivavel && temEfeitoSustentado(efeitos);

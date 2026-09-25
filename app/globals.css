@@ -307,11 +307,17 @@ a {
   box-shadow: 0 0 0 3px color-mix(in oklch, var(--primary) 28%, transparent);
 }
 
-.modal-box input[type="checkbox"],
 .modal-box input[type="radio"],
 .modal-box input[type="color"],
 .modal-box input[type="range"] {
   width: auto;
+  padding: 0;
+  box-shadow: none;
+}
+
+/* Checkbox é desenhada (appearance: none): com width auto ela encolhe até o ✓. */
+.modal-box input[type="checkbox"] {
+  width: 18px;
   padding: 0;
   box-shadow: none;
 }

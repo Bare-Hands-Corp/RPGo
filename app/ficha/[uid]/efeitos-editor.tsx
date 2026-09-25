@@ -28,6 +28,10 @@ export type AlvoEntry = { slug: string; nome: string; grupo: string };
 // a árvore do editor (EditorEfeito → renderCorpo → SelectAlvo).
 export const AlvosCustomContext = createContext<AlvoEntry[]>([]);
 
+// Nome dos recursos custom por id, pro chip de "Ganha/Gasta Recurso" não
+// mostrar o UUID cru. Mesmo motivo do contexto acima: evita drilar até o chip.
+export const NomesRecursoContext = createContext<Map<string, string>>(new Map());
+
 // Bloco completo "adicionar efeito + lista de editores". Quem usa decide o
 // invólucro (details, seção do modal…) e o texto da pergunta do picker.
 export function EfeitosEditor({
@@ -113,6 +117,7 @@ export function DatalistAlvos() {
 // ─── Chip de resumo (card) ─────────────────────────────────────────────
 export function ChipEfeito({ efeito }: { efeito: EfeitoHabilidade }) {
   const meta = META_EFEITOS[efeito.tipo];
+  const nomesRecurso = useContext(NomesRecursoContext);
   return (
     <span
       className="efeito-chip"
@@ -124,7 +129,9 @@ export function ChipEfeito({ efeito }: { efeito: EfeitoHabilidade }) {
     >
       <i className={`fas ${meta.icone}`} />
       <span className="efeito-chip-label">{meta.nome}</span>
-      <span className="efeito-chip-resumo">{resumoEfeito(efeito)}</span>
+      <span className="efeito-chip-resumo">
+        {resumoEfeito(efeito, (id) => nomesRecurso.get(id))}
+      </span>
     </span>
   );
 }
@@ -194,6 +201,12 @@ const ALVOS_MULTIPLICADOR_SLUGS = new Set([
 ]);
 const ALVOS_MULTIPLICADOR = ALVOS_AGREGAVEIS.filter((a) =>
   ALVOS_MULTIPLICADOR_SLUGS.has(a.slug),
+);
+
+// Proficiência só existe em perícia e salvaguarda — o resto do catálogo
+// (atributo, CR, dano…) seria aceito e ignorado em silêncio.
+const ALVOS_PROFICIENCIA = ALVOS_AGREGAVEIS.filter(
+  (a) => a.grupo === "Perícia" || a.grupo === "Salvaguarda",
 );
 
 // Select de alvo agrupado por categoria. Mostra "Outro…" no fim — escolher
@@ -312,25 +325,32 @@ function EditorEfeito({
   );
 }
 
+// Bloco de campos opcionais colapsável. Fica no módulo, não dentro de
+// `renderCorpo`: declarado lá, virava um componente novo a cada render e o
+// React remontava o campo — o input perdia o foco a cada tecla digitada.
+// `aberto` vale só na montagem (já preenchido → nasce aberto); depois quem
+// manda é o usuário, senão apagar o texto fechava a seção no meio da edição.
+function Detalhes({
+  children,
+  aberto,
+}: {
+  children: React.ReactNode;
+  aberto?: boolean;
+}) {
+  const [abertoInicial] = useState(aberto);
+  return (
+    <details className="efeito-detalhes" open={abertoInicial}>
+      <summary>Detalhes (opcional)</summary>
+      <div className="efeito-detalhes-corpo">{children}</div>
+    </details>
+  );
+}
+
 function renderCorpo(
   e: EfeitoHabilidade,
   recursos: RecursoMinimo[],
   onPatch: (p: Partial<EfeitoHabilidade>) => void,
 ): React.ReactNode {
-  // Helper: bloco de campos opcionais colapsável.
-  const Detalhes = ({
-    children,
-    aberto,
-  }: {
-    children: React.ReactNode;
-    aberto?: boolean;
-  }) => (
-    <details className="efeito-detalhes" open={aberto}>
-      <summary>Detalhes (opcional)</summary>
-      <div className="efeito-detalhes-corpo">{children}</div>
-    </details>
-  );
-
   switch (e.tipo) {
     case "modificador": {
       // Quando o alvo é canônico e estável (hp-temp, hp-max, pp-max, cr…),
@@ -408,64 +428,69 @@ function renderCorpo(
           </Detalhes>
         </>
       );
-    case "proficiencia":
+    case "proficiencia": {
+      // Salvaguarda não dobra: esconde o "Dobrada" e limpa ao trocar pra uma.
+      const ehSalv = e.alvo.startsWith("salv-");
       return (
         <>
           <div style={{ gridColumn: "1 / -1" }}>
             <label>Em qual?</label>
             <SelectAlvo
               valor={e.alvo}
-              onChange={(v) => onPatch({ alvo: v } as Partial<EfeitoHabilidade>)}
-            />
-          </div>
-          <label
-            className="checkbox-linha"
-            style={{ gridColumn: "1 / -1", marginTop: 4 }}
-          >
-            <input
-              type="checkbox"
-              checked={!!e.dobrada}
-              onChange={(ev) =>
+              onChange={(v) =>
                 onPatch({
-                  dobrada: ev.target.checked || undefined,
+                  alvo: v,
+                  ...(v.startsWith("salv-") ? { dobrada: undefined } : {}),
                 } as Partial<EfeitoHabilidade>)
               }
+              alvos={ALVOS_PROFICIENCIA}
             />
-            Dobrada (proficiência ×2)
-          </label>
+          </div>
+          {!ehSalv && (
+            <label
+              className="checkbox-linha"
+              style={{ gridColumn: "1 / -1", marginTop: 4 }}
+            >
+              <input
+                type="checkbox"
+                checked={!!e.dobrada}
+                onChange={(ev) =>
+                  onPatch({
+                    dobrada: ev.target.checked || undefined,
+                  } as Partial<EfeitoHabilidade>)
+                }
+              />
+              Dobrada (proficiência ×2)
+            </label>
+          )}
         </>
       );
-    case "recurso_delta":
+    }
+    case "recurso_delta": {
+      // PV Máx saiu daqui: era permanente a cada uso. Quem quer mexer no
+      // máximo usa o preset "PV Máximo" (sustentado, reverte ao desligar).
+      const orfao =
+        e.recurso !== "" && e.recurso !== "pp" && !recursos.some((r) => r.id === e.recurso);
       return (
         <>
-          {recursos.length > 0 ? (
-            <div>
-              <label>Recurso</label>
-              <select
-                // Normaliza grafia legada (hpMax) pro slug canônico no display.
-                value={e.recurso === "hpMax" ? "hp-max" : e.recurso}
-                onChange={(ev) =>
-                  onPatch({ recurso: ev.target.value } as Partial<EfeitoHabilidade>)
-                }
-              >
-                <option value="">—</option>
-                <option value="pp">PP</option>
-                <option value="hp-max">PV Máx</option>
-                {recursos.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.nome}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : (
-            <Campo
-              label="Recurso"
-              valor={e.recurso}
-              onChange={(v) => onPatch({ recurso: v } as Partial<EfeitoHabilidade>)}
-              placeholder="pp, hp-max ou id do recurso"
-            />
-          )}
+          <div>
+            <label>Recurso</label>
+            <select
+              value={e.recurso}
+              onChange={(ev) =>
+                onPatch({ recurso: ev.target.value } as Partial<EfeitoHabilidade>)
+              }
+            >
+              <option value="">—</option>
+              <option value="pp">PP</option>
+              {recursos.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.nome}
+                </option>
+              ))}
+              {orfao && <option value={e.recurso}>(recurso apagado)</option>}
+            </select>
+          </div>
           <CampoNum
             label="Quantidade"
             valor={e.valor}
@@ -473,6 +498,7 @@ function renderCorpo(
           />
         </>
       );
+    }
     case "cura":
       return (
         <>
@@ -903,8 +929,7 @@ function renderCorpo(
     case "crit_imune":
       return (
         <div style={{ gridColumn: "1 / -1", fontSize: "0.8rem", color: "var(--text-sec)" }}>
-          Não pode sofrer acerto crítico. Efeito defensivo — mostra no card; a
-          exibição na barra de defesas vem depois.
+          Não pode sofrer acerto crítico. Aparece nas defesas da barra lateral.
         </div>
       );
     case "margem_critico":

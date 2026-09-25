@@ -442,13 +442,18 @@ export function AcoesTab({
                   // A 1ª arma equipada define o alcance de contexto quando a
                   // ação não tem atributo de ataque próprio.
                   const ataqueArma = golpes[0]?.atq ?? null;
-                  // Ação não distingue CC vs Distância (modelo só tem texto
-                  // livre em alcance), então somamos os 3 buckets de ataque
-                  // num bônus único; idem pra dano.
+                  const alcanceContexto = ataqueArma
+                    ? ataqueArma.alcance
+                    : inferirAlcance(acao.alcance);
+                  // Técnica sem arma: o alcance vem do texto livre da ação
+                  // (`inferirAlcance`), então só o bônus daquele alcance soma —
+                  // igual ao dano, que já separa CC de distância.
+                  const bonusAtaqueAlcance =
+                    alcanceContexto === "corpo_a_corpo"
+                      ? efeitosAgregados.bonusAtaqueCC
+                      : efeitosAgregados.bonusAtaqueDistancia;
                   const extraAtaque =
-                    efeitosAgregados.bonusAtaque.valor +
-                    efeitosAgregados.bonusAtaqueCC.valor +
-                    efeitosAgregados.bonusAtaqueDistancia.valor;
+                    efeitosAgregados.bonusAtaque.valor + bonusAtaqueAlcance.valor;
                   const extraCd = efeitosAgregados.bonusCdTecnicas.valor;
                   const fontesCd = efeitosAgregados.bonusCdTecnicas.fontes;
                   // Item que concede a ação. Sem ele equipado, a ação fica
@@ -475,12 +480,8 @@ export function AcoesTab({
                     ? ataqueArma.fontes
                     : juntarFontes(
                         efeitosAgregados.bonusAtaque.fontes,
-                        efeitosAgregados.bonusAtaqueCC.fontes,
-                        efeitosAgregados.bonusAtaqueDistancia.fontes,
+                        bonusAtaqueAlcance.fontes,
                       );
-                  const alcanceContexto = ataqueArma
-                    ? ataqueArma.alcance
-                    : inferirAlcance(acao.alcance);
                   // O dado de dano é da própria técnica — sobe só com passo "nas
                   // técnicas" —, mas o `danoBonus` e a proficiência da arma
                   // ligada entram junto: é dano da arma, vale em todo golpe

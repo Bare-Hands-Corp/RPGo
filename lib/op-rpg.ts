@@ -800,7 +800,8 @@ export type EfeitoHabilidade =
   // crítico em 19 e 20. Padrão sem efeito = 20.
   | { tipo: "crit_range"; minimo: number }
   // Permite rerrolar o resultado de uma jogada. gatilho identifica o
-  // contexto (ataque, salvaguarda, teste); usos = vezes por descanso longo.
+  // contexto (ataque, salvaguarda, teste); usos = vezes por descanso longo,
+  // informativo (o chip nasce desligado no Rolador e vale 1 rerrolagem).
   | { tipo: "reroll"; gatilho: string; usos: number }
   // Floor no d20: resultados ≤ minimo são tratados como minimo.
   // Ex: minimo=10 ⇒ qualquer 1-10 vira 10.
@@ -812,7 +813,7 @@ export type EfeitoHabilidade =
   // gatilho descreve quando se aplica (ex: "no turno", "1× por descanso").
   | { tipo: "acao_extra"; acao: string; quantidade: number; gatilho?: string }
   // Sucesso automático numa categoria de teste. alvo é o tipo de jogada
-  // (ex: "concentracao", "intuicao", "salv-vontade"); quando descreve a
+  // (ex: "intuicao", "salv-vontade"); quando descreve a
   // condição opcional.
   | { tipo: "sucesso_auto"; alvo: string; quando?: string }
   // Piso de dano: garante metade do dano MÁXIMO da fórmula rolada (arredonda
@@ -1283,13 +1284,20 @@ export function normalizarEfeito(
         alvo: str(obj.alvo),
         ...(obj.dobrada ? { dobrada: true } : {}),
       };
-    case "recurso_delta":
+    case "recurso_delta": {
       if (!str(obj.recurso)) return null;
+      // Legado: "Recurso → PV Máx" subia o máximo pra sempre a cada uso. Vira o
+      // `modificador` de PV Máximo, que é bônus sustentado (reverte ao desligar).
+      const r = str(obj.recurso).trim().toLowerCase();
+      if (r === "hp-max" || r === "hpmax") {
+        return { tipo: "modificador", alvo: "hp-max", valor: Math.trunc(num(obj.valor)) };
+      }
       return {
         tipo,
         recurso: str(obj.recurso),
         valor: Math.trunc(num(obj.valor)),
       };
+    }
     case "cura":
       if (!str(obj.valor)) return null;
       return {
@@ -1463,8 +1471,7 @@ const ATRIBUTOS_SET = new Set<string>(ATRIBUTOS.map((a) => a.slug));
 //
 // Convenções:
 // - Perícia: slug direto (`atletismo`, `furtividade`…) — alinhado com agregador.
-// - Salvaguarda: `salv-<atrib>` (ex: `salv-vontade`). `concentracao` é um
-//   pseudo-slug de salvaguarda especial.
+// - Salvaguarda: `salv-<atrib>` (ex: `salv-vontade`).
 // - Teste puro de atributo: `teste-<atrib>` (ex: `teste-forca`) — distingue
 //   de modificador passivo de FOR.
 // - Combate: `ataque`, `ataque-cc`, `ataque-distancia`, `iniciativa`.
@@ -1483,7 +1490,6 @@ export const ALVOS_CONTEXTUAIS: { slug: string; nome: string; grupo: string }[] 
     nome: `Salv. ${a.nome}`,
     grupo: "Salvaguarda",
   })),
-  { slug: "concentracao", nome: "Salv. Concentração", grupo: "Salvaguarda" },
   { slug: "teste", nome: "Teste (qualquer)", grupo: "Teste de Atributo" },
   ...ATRIBUTOS.map((a) => ({
     slug: `teste-${a.slug}`,
@@ -1537,7 +1543,7 @@ export function rotuloAlvo(slug: string): string {
 // efeito daquele alvo se aplica.
 export type ContextoRolagem =
   | { tipo: "ataque"; alcance: "corpo_a_corpo" | "distancia" }
-  | { tipo: "salvaguarda"; atributo: Atributo; concentracao?: boolean }
+  | { tipo: "salvaguarda"; atributo: Atributo }
   // `pericia` é string livre: cobre as 18 canônicas e perícias customizadas
   // (slug por-personagem, fora do set canônico).
   | { tipo: "pericia"; pericia: string }
@@ -1569,9 +1575,7 @@ export function casaContexto(alvoRaw: string, ctx: ContextoRolagem): boolean {
     case "salvaguarda":
       if (!ALVOS_CONTEXTUAIS_SET.has(alvo)) return false;
       if (alvo === "salvaguarda") return true;
-      if (alvo === `salv-${ctx.atributo}`) return true;
-      if (alvo === "concentracao" && ctx.concentracao) return true;
-      return false;
+      return alvo === `salv-${ctx.atributo}`;
     case "pericia":
       // Casa por igualdade exata com o slug rolado — não exige presença no set
       // canônico, então perícias customizadas (slug por-personagem) também casam.
@@ -1612,6 +1616,9 @@ export function estadoDefesa(
   };
 }
 type FonteLista = { fontes: string[] };
+// Proficiência em perícia vinda de efeito. `dobrada` liga se QUALQUER fonte
+// dobra (Especialista) — a proficiência em si já vem das fontes.
+type FonteProficiencia = FonteLista & { dobrada: boolean };
 
 // Efeito que depende do contexto da rolagem (casa via `casaContexto`). Guardado
 // "cru" no agregado com alvo + fonte; quem rola decide se casa com o contexto
@@ -1637,7 +1644,7 @@ export type EfeitosAgregados = {
   // Aplicação fica a cargo da UI que controla AVA; aqui é só consolidação.
   // Campo segue `bonusTetoAtributo` / slug `teto-` (identificadores estáveis).
   bonusTetoAtributo: Partial<Record<Atributo, FonteValor>>;
-  proficienciasPericia: Partial<Record<string, FonteLista>>;
+  proficienciasPericia: Partial<Record<string, FonteProficiencia>>;
   proficienciasSalvaguarda: Partial<Record<Atributo, FonteLista>>;
   bonusCR: FonteValor;
   bonusIniciativa: FonteValor;
@@ -1854,8 +1861,8 @@ export function computarDeltasInstantaneos(
       const v = Math.trunc(e.valor);
       if (!v) continue;
       const k = e.recurso.trim(); // pode ser UUID de recurso custom (case-sensitive)
+      // PV Máx legado já chega convertido em `modificador` (ver normalizarEfeito).
       if (k === "pp") d.ppAtual += v;
-      else if (k === "hp-max" || k === "hpMax" || k === "hpmax") d.hpMax += v;
       else if (k === "pa") continue; // PA não é pool rastreável (legado)
       else d.recursos[k] = (d.recursos[k] ?? 0) + v;
     }
@@ -2006,8 +2013,9 @@ export function melhorDesconto(
 // reconhecidos são ignorados silenciosamente.
 // Gate único: um efeito sustentado entra no agregado quando a habilidade é
 // `passiva` (sempre ligada) OU está `ligada` (habilidade sustentada que o
-// usuário ativou via toggle). `ativa`/`reativa` DESLIGADA não agrega nada;
-// quando ligada, agrega exatamente como uma passiva (e some ao desligar).
+// usuário ativou via toggle). Não-passiva (ativa/reativa/livre) DESLIGADA não
+// agrega nada; quando ligada, agrega exatamente como uma passiva (e some ao
+// desligar).
 // Efeitos instantâneos (cura/PV-temp/recurso) não entram aqui — são consumidos
 // por `computarDeltasInstantaneos` no momento de ligar/usar.
 export function agregarEfeitos(
@@ -2049,7 +2057,7 @@ export function agregarEfeitos(
       if (e.tipo === "modificador") {
         aplicarModificador(out, e.alvo, e.valor, h.nome, slugsPericiaCustom);
       } else if (e.tipo === "proficiencia") {
-        aplicarProficiencia(out, e.alvo, h.nome, slugsPericiaCustom);
+        aplicarProficiencia(out, e.alvo, !!e.dobrada, h.nome, slugsPericiaCustom);
       } else if (e.tipo === "crit_range") {
         // Menor "minimo" vence (faixa mais ampla).
         if (e.minimo < out.critRangeMinimo.valor) out.critRangeMinimo.valor = e.minimo;
@@ -2172,7 +2180,7 @@ export type ChipContexto = {
     | "melhor_de";
   rotulo: string;
   fontes: string[];
-  // Parâmetro do efeito (minimo do crit/floor, usos do reroll, metros do alcance).
+  // Parâmetro do efeito (minimo do crit/floor, rerrolagens por jogada, metros do alcance).
   // Ignorado nos demais.
   valor?: number;
   // Começa desligado: é de uso limitado, o jogador liga quando quer gastar.
@@ -2256,17 +2264,26 @@ export function chipsDoContexto(
         valor: agg.floorD20.valor,
       });
     }
-    // Reroll: gatilho segue a mesma convenção de slug do casaContexto.
+    // Reroll: gatilho segue a mesma convenção de slug do casaContexto. Os usos
+    // são por descanso longo e a ficha não os conta — então o chip nasce
+    // desligado (o jogador liga quando gasta) e vale 1 rerrolagem por jogada.
+    let usosReroll = 0;
+    const fontesReroll: string[] = [];
     for (const [gatilho, fv] of Object.entries(agg.rerolls)) {
       if (fv && fv.valor > 0 && casaContexto(gatilho, ctx)) {
-        chips.push({
-          tipo: "reroll",
-          rotulo: `Rerrolar (${fv.valor}×)`,
-          fontes: fv.fontes,
-          valor: fv.valor,
-        });
-        break;
+        usosReroll += fv.valor;
+        fontesReroll.push(...fv.fontes);
       }
+    }
+    if (usosReroll > 0) {
+      chips.push({
+        tipo: "reroll",
+        rotulo: "Rerrolar",
+        fontes: dedup(fontesReroll),
+        valor: 1,
+        opcional: true,
+        detalhe: `${usosReroll} uso${usosReroll > 1 ? "s" : ""} por descanso longo`,
+      });
     }
   }
 
@@ -2400,15 +2417,20 @@ const BUCKETS_SIMPLES: Record<string, (o: EfeitosAgregados) => FonteValor> = {
 function aplicarProficiencia(
   out: EfeitosAgregados,
   alvoRaw: string,
+  dobrada: boolean,
   fonte: string,
   slugsPericiaCustom: Set<string> = new Set(),
 ) {
   const alvo = alvoRaw.trim().toLowerCase();
   if (!alvo) return;
   if (PERICIAS_SET.has(alvo) || slugsPericiaCustom.has(alvo)) {
-    adicionarFonteLista(out.proficienciasPericia, alvo, fonte);
+    const atual = out.proficienciasPericia[alvo] ?? { fontes: [], dobrada: false };
+    if (!atual.fontes.includes(fonte)) atual.fontes.push(fonte);
+    if (dobrada) atual.dobrada = true;
+    out.proficienciasPericia[alvo] = atual;
     return;
   }
+  // Salvaguarda não dobra — `dobrada` só vale pra perícia.
   if (alvo.startsWith("salv-")) {
     const at = alvo.slice(5);
     if (ATRIBUTOS_SET.has(at)) {
@@ -2417,8 +2439,12 @@ function aplicarProficiencia(
   }
 }
 
-// Resumo curto pra exibir dentro do chip do efeito na listagem.
-export function resumoEfeito(e: EfeitoHabilidade): string {
+// Resumo curto pra exibir dentro do chip do efeito na listagem. `nomeRecurso`
+// traduz o id (UUID) de recurso custom pro nome — sem ele o chip vazaria o id.
+export function resumoEfeito(
+  e: EfeitoHabilidade,
+  nomeRecurso?: (id: string) => string | undefined,
+): string {
   switch (e.tipo) {
     case "modificador":
       return `${formatarMod(e.valor)} ${rotuloAlvo(e.alvo)}`;
@@ -2428,12 +2454,7 @@ export function resumoEfeito(e: EfeitoHabilidade): string {
     case "proficiencia":
       return `${rotuloAlvo(e.alvo)}${e.dobrada ? " (2×)" : ""}`;
     case "recurso_delta": {
-      const lbl =
-        e.recurso === "pp"
-          ? "PP"
-          : e.recurso === "hp-max" || e.recurso === "hpMax"
-            ? "PV Máx"
-            : e.recurso;
+      const lbl = e.recurso === "pp" ? "PP" : (nomeRecurso?.(e.recurso) ?? "recurso");
       return `${formatarMod(e.valor)} ${lbl}`;
     }
     case "cura":
@@ -2461,7 +2482,7 @@ export function resumoEfeito(e: EfeitoHabilidade): string {
     case "crit_range":
       return `${e.minimo}-20`;
     case "reroll":
-      return `${e.usos}× ${e.gatilho}`;
+      return `${rotuloAlvo(e.gatilho)} · ${e.usos}×/descanso`;
     case "floor_d20":
       return `≤${e.minimo} ⇒ ${e.minimo}`;
     case "sentido":

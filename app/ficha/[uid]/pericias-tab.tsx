@@ -407,7 +407,8 @@ export function PericiasTab({
                   const profPorHab = efeitosAgregados.proficienciasPericia[p.slug];
                   const proficiente =
                     prof.pericias.includes(p.slug) || !!profPorHab;
-                  const dobrado = prof.periciasDobradas.includes(p.slug);
+                  const dobradoPorHab = !!profPorHab?.dobrada;
+                  const dobrado = prof.periciasDobradas.includes(p.slug) || dobradoPorHab;
                   const outros = prof.outrosPericias[p.slug] ?? 0;
                   const bonusHab = efeitosAgregados.bonusPericia[p.slug];
                   const outrosTotal = outros + (bonusHab?.valor ?? 0);
@@ -425,7 +426,8 @@ export function PericiasTab({
                   const tituloFontes = [
                     sub.substituido &&
                       `Usa ${sub.atributo.toUpperCase().slice(0, 3)} por ${sub.fontes.join(", ")}`,
-                    profPorHab && `Proficiência: ${profPorHab.fontes.join(", ")}`,
+                    profPorHab &&
+                      `Proficiência${dobradoPorHab ? " dobrada" : ""}: ${profPorHab.fontes.join(", ")}`,
                     bonusHab &&
                       `${formatarMod(bonusHab.valor)} de ${bonusHab.fontes.join(", ")}`,
                     desReduzEste && `−${Math.abs(penalidadeDesArmadura)} de DES (armadura)`,
@@ -471,6 +473,7 @@ export function PericiasTab({
                         <button
                           type="button"
                           className={`prof-dobro ${dobrado ? "ativo" : ""}`}
+                          disabled={dobradoPorHab}
                           onClick={(e) => {
                             e.preventDefault();
                             setDobrada(p.slug, !dobrado);
@@ -517,6 +520,8 @@ export function PericiasTab({
               const at = (c.atributo as Atributo) ?? "forca";
               const profPorHab = efeitosAgregados.proficienciasPericia[c.slug];
               const proficiente = c.proficiente || !!profPorHab;
+              const dobradoPorHab = !!profPorHab?.dobrada;
+              const dobrado = c.dobrada || dobradoPorHab;
               const bonusHab = efeitosAgregados.bonusPericia[c.slug];
               const outrosTotal = c.bonusOutros + (bonusHab?.valor ?? 0);
               const sub = atributoDeCalculo(c.slug, at, subs);
@@ -527,13 +532,14 @@ export function PericiasTab({
                   valorAtributo: atributosParaTeste[sub.atributo],
                   nivel,
                   proficiente,
-                  dobrado: c.dobrada,
+                  dobrado,
                   outros: outrosTotal,
                 }) - penD20;
               const tituloFontes = [
                 sub.substituido &&
                   `Usa ${sub.atributo.toUpperCase().slice(0, 3)} por ${sub.fontes.join(", ")}`,
-                profPorHab && `Proficiência: ${profPorHab.fontes.join(", ")}`,
+                profPorHab &&
+                  `Proficiência${dobradoPorHab ? " dobrada" : ""}: ${profPorHab.fontes.join(", ")}`,
                 bonusHab && `${formatarMod(bonusHab.valor)} de ${bonusHab.fontes.join(", ")}`,
                 desReduzEste && `−${Math.abs(penalidadeDesArmadura)} de DES (armadura)`,
                 penD20 > 0 && `−${penD20} de exaustão`,
@@ -576,7 +582,8 @@ export function PericiasTab({
                   {proficiente && (
                     <button
                       type="button"
-                      className={`prof-dobro ${c.dobrada ? "ativo" : ""}`}
+                      className={`prof-dobro ${dobrado ? "ativo" : ""}`}
+                      disabled={dobradoPorHab}
                       onClick={() => setDobroCustom(c, !c.dobrada)}
                     >
                       2×

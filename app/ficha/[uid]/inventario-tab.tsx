@@ -32,6 +32,7 @@ import { empilharD20, empilharRolagem } from "@/lib/empilhar-rolagem";
 import {
   AlvosCustomContext,
   ChipEfeito,
+  NomesRecursoContext,
   DatalistAlvos,
   EfeitosEditor,
   type RecursoMinimo,
@@ -641,6 +642,7 @@ export function InventarioTab({
 
   return (
     <AlvosCustomContext.Provider value={alvosPericiaCustom(periciasCustom)}>
+    <NomesRecursoContext.Provider value={new Map(recursos.map((r) => [r.id, r.nome]))}>
       <div>
       <div className="tab-topo">
         <h1 style={{ marginRight: "auto" }}>Inventário</h1>
@@ -1092,6 +1094,7 @@ export function InventarioTab({
         </div>
       )}
       </div>
+    </NomesRecursoContext.Provider>
     </AlvosCustomContext.Provider>
   );
 }

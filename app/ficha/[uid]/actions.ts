@@ -1093,7 +1093,7 @@ export async function usarHabilidade(personagemId: string, habilidadeId: string)
   await aplicarUsoHabilidade(personagemId, habilidadeId);
 }
 
-// Liga/desliga uma habilidade sustentada (ativa/reativa com efeito sustentado).
+// Liga/desliga uma habilidade sustentada (não-passiva com efeito sustentado).
 // LIGAR consome custos + aplica os instantâneos (cura/PV-temp/recurso; hp-max/
 // pp-max ficam no agregado, revertíveis) e marca `ligada=true`. DESLIGAR só
 // limpa `ligada` — sem reembolso de custo nem reversão de PV temp já concedido.

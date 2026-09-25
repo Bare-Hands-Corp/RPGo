@@ -1460,6 +1460,11 @@
   border-color: var(--color-power);
 }
 
+/* Dobro vindo de habilidade: travado, igual à checkbox de proficiência. */
+.prof-dobro:disabled {
+  cursor: not-allowed;
+}
+
 .prof-outros {
   border: 1px dashed var(--border);
   background: transparent;
