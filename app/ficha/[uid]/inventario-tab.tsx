@@ -9,10 +9,11 @@ import {
   ATRIBUTOS,
   CATEGORIAS_ARMA,
   PROPRIEDADES_ARMA,
-  RARIDADES_ITEM,
   alvosPericiaCustom,
+  bonusProficiencia,
+  efeitosComArma,
+  efeitosDoContexto,
   lerEfeitos,
-  lerRaridade,
   penalidadeD20Exaustao,
   resolverAtaqueArma,
   resolverDanoArma,
@@ -24,8 +25,8 @@ import {
   type DanoArmaResolvido,
   type EfeitoHabilidade,
   type EfeitosAgregados,
+  type EfeitosContexto,
   type PropriedadeArma,
-  type RaridadeItem,
 } from "@/lib/op-rpg";
 import { empilharD20, empilharRolagem } from "@/lib/empilhar-rolagem";
 import {
@@ -67,8 +68,8 @@ type Item = {
   proficienteArma: boolean;
   danoBonus: string | null;
   danoSomaAtributo: boolean;
+  danoSomaProficiencia: boolean;
   efeitos: unknown;
-  raridade: string;
   quantidade: number;
 };
 
@@ -245,8 +246,8 @@ type FormState = {
   proficienteArma: boolean;
   danoBonus: string;
   danoSomaAtributo: boolean;
+  danoSomaProficiencia: boolean;
   efeitos: EfeitoHabilidade[];
-  raridade: RaridadeItem;
   quantidade: string;
 };
 
@@ -270,8 +271,8 @@ const FORM_VAZIO: FormState = {
   proficienteArma: true,
   danoBonus: "",
   danoSomaAtributo: false,
+  danoSomaProficiencia: false,
   efeitos: [],
-  raridade: "comum",
   quantidade: "1",
 };
 
@@ -356,8 +357,8 @@ export function InventarioTab({
       proficienteArma: item.proficienteArma,
       danoBonus: item.danoBonus || "",
       danoSomaAtributo: item.danoSomaAtributo,
+      danoSomaProficiencia: item.danoSomaProficiencia,
       efeitos: lerEfeitos(item.efeitos),
-      raridade: lerRaridade(item.raridade),
       quantidade: String(item.quantidade || 1),
     });
     setModalAberto(true);
@@ -414,9 +415,10 @@ export function InventarioTab({
       proficienteArma: ehArma ? form.proficienteArma : true,
       danoBonus: ehArma ? form.danoBonus.trim() || null : null,
       danoSomaAtributo: ehArma ? form.danoSomaAtributo : false,
-      // Efeitos valem pra qualquer tipo — é o que faz mochila somar carga.
+      danoSomaProficiencia: ehArma ? form.danoSomaProficiencia : false,
+      // Efeitos valem pra qualquer tipo — é o que faz mochila somar carga. Na
+      // arma, os de rolagem (crítico, passos, desconto…) valem só pra ela.
       efeitos: form.efeitos,
-      raridade: form.raridade,
       quantidade: Math.max(1, Number(form.quantidade) || 1),
     };
 
@@ -454,8 +456,8 @@ export function InventarioTab({
           proficienteArma: payload.proficienteArma,
           danoBonus: payload.danoBonus,
           danoSomaAtributo: payload.danoSomaAtributo,
+          danoSomaProficiencia: payload.danoSomaProficiencia,
           efeitos: payload.efeitos,
-          raridade: payload.raridade,
           quantidade: payload.quantidade,
         };
         aplicarOtimista({ kind: "create", item: novoItem });
@@ -547,6 +549,8 @@ export function InventarioTab({
   // (quando `danoSomaAtributo` está ligado) depois que o acerto escolheu um.
   function calcArma(item: Item): ArmaResolvida {
     if (item.tipo !== "arma") return null;
+    // Efeitos da ficha + os de rolagem da própria arma (crítico, passos…).
+    const agg = efeitosComArma(efeitosAgregados, item);
     const r = resolverAtaqueArma({
       alcanceRaw: item.alcance,
       propriedadesRaw: item.propriedades,
@@ -555,17 +559,19 @@ export function InventarioTab({
       proficiente: item.proficienteArma,
       atributos: atributosParaTeste,
       nivel,
-      efeitosAgregados,
+      efeitosAgregados: agg,
     });
     if (!r) return null;
     const dano = resolverDanoArma({
       danoBase: item.dano,
       danoBonus: item.danoBonus,
+      passos: agg.passosDanoArma.valor,
       somaAtributo: item.danoSomaAtributo,
       atributoDano: r.atributo,
       atributos: atributosParaTeste,
+      proficiencia: item.danoSomaProficiencia ? bonusProficiencia(nivel) : 0,
       alcance: r.alcance,
-      efeitosAgregados,
+      efeitosAgregados: agg,
     });
     return {
       ataque: {
@@ -576,6 +582,7 @@ export function InventarioTab({
       },
       dano,
       alcance: r.alcance,
+      efeitos: efeitosDoContexto(agg),
     };
   }
 
@@ -835,24 +842,6 @@ export function InventarioTab({
                 </div>
               </div>
 
-              <label style={{ marginTop: 10 }}>Raridade</label>
-              <div className="categoria-pills">
-                {RARIDADES_ITEM.map((r) => (
-                  <button
-                    type="button"
-                    key={r.slug}
-                    className={`categoria-pill ${form.raridade === r.slug ? "ativo" : ""}`}
-                    aria-pressed={form.raridade === r.slug}
-                    title={r.descricao}
-                    onClick={() => set("raridade", r.slug)}
-                    style={form.raridade === r.slug ? { borderColor: r.cor, color: r.cor } : undefined}
-                  >
-                    <i className={`fas ${r.icone}`} />
-                    <span>{r.nome}</span>
-                  </button>
-                ))}
-              </div>
-
               {form.tipo === "arma" && (
                 <>
                   <h3 className="modal-secao"><i className="fas fa-khanda" /> Combate</h3>
@@ -900,25 +889,7 @@ export function InventarioTab({
                     }
                   />
 
-                  <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 2fr", gap: 10, marginTop: 12 }}>
-                    <div>
-                      <label>Dado de Dano</label>
-                      <input
-                        type="text"
-                        value={form.dano}
-                        onChange={(e) => set("dano", e.target.value)}
-                        placeholder="1d8"
-                      />
-                    </div>
-                    <div>
-                      <label>Bônus</label>
-                      <input
-                        type="number"
-                        value={form.modificador}
-                        onChange={(e) => set("modificador", e.target.value)}
-                        placeholder="0"
-                      />
-                    </div>
+                  <div className="campo-duo" style={{ marginTop: 12 }}>
                     <div>
                       <label>Atributo de Ataque</label>
                       <select
@@ -933,16 +904,55 @@ export function InventarioTab({
                         ))}
                       </select>
                     </div>
+                    <div>
+                      <label>Bônus de acerto</label>
+                      <input
+                        type="number"
+                        value={form.modificador}
+                        onChange={(e) => set("modificador", e.target.value)}
+                        placeholder="0"
+                      />
+                    </div>
                   </div>
 
-                  <div style={{ marginTop: 12 }}>
-                    <label>Dano bônus</label>
+                  <label
+                    className="checkbox-linha"
+                    style={{ marginTop: 12, padding: "8px 10px", background: "var(--bg-surface)", borderRadius: 6 }}
+                  >
                     <input
-                      type="text"
-                      value={form.danoBonus}
-                      onChange={(e) => set("danoBonus", e.target.value)}
-                      placeholder="Ex: 1d6 fogo"
+                      type="checkbox"
+                      checked={form.proficienteArma}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, proficienteArma: e.target.checked }))
+                      }
                     />
+                    <span>
+                      <strong>Proficiente</strong> nesta arma{" "}
+                      <span style={{ color: "var(--text-sec)", fontSize: "0.8rem" }}>
+                        (soma bônus de proficiência ao ataque)
+                      </span>
+                    </span>
+                  </label>
+
+                  <div className="campo-duo" style={{ marginTop: 12 }}>
+                    <div>
+                      <label>Dado de Dano</label>
+                      <input
+                        type="text"
+                        value={form.dano}
+                        onChange={(e) => set("dano", e.target.value)}
+                        placeholder="1d8"
+                      />
+                    </div>
+                    <div>
+                      <label>Dano bônus</label>
+                      <input
+                        type="text"
+                        value={form.danoBonus}
+                        onChange={(e) => set("danoBonus", e.target.value)}
+                        placeholder="Ex: 1d6 fogo"
+                      />
+                    </div>
                   </div>
 
                   <label
@@ -967,16 +977,13 @@ export function InventarioTab({
                   >
                     <input
                       type="checkbox"
-                      checked={form.proficienteArma}
+                      checked={form.danoSomaProficiencia}
                       onChange={(e) =>
-                        setForm((f) => ({ ...f, proficienteArma: e.target.checked }))
+                        setForm((f) => ({ ...f, danoSomaProficiencia: e.target.checked }))
                       }
                     />
                     <span>
-                      <strong>Proficiente</strong> nesta arma{" "}
-                      <span style={{ color: "var(--text-sec)", fontSize: "0.8rem" }}>
-                        (soma bônus de proficiência ao ataque)
-                      </span>
+                      Somar a <strong>proficiência</strong> no dano
                     </span>
                   </label>
 
@@ -1110,9 +1117,34 @@ type ArmaResolvida = {
   ataque: Ataque;
   dano: DanoArmaResolvido | null;
   alcance: "corpo_a_corpo" | "distancia";
+  // Efeitos que viajam com a rolagem até o Rolador (ficha + arma).
+  efeitos: EfeitosContexto;
 } | null;
 
 type Concedidos = { acoes: string[]; habilidades: string[] };
+
+type Traco = { icone: string; texto: string; titulo: string };
+
+// O que o dano da arma leva além do dado base. O resto da qualidade (crítico,
+// passos, desconto…) aparece nos chips de efeito do card.
+function tracosDaArma(item: Item): Traco[] {
+  const tracos: Traco[] = [];
+  if (item.danoBonus) {
+    tracos.push({
+      icone: "fa-fire",
+      texto: `${item.danoBonus} de dano bônus`,
+      titulo: "Dano extra desta arma — entra em todo ataque feito com ela",
+    });
+  }
+  if (item.danoSomaProficiencia) {
+    tracos.push({
+      icone: "fa-graduation-cap",
+      texto: "Proficiência no dano",
+      titulo: "Soma o bônus de proficiência no dano dela, inclusive nas técnicas",
+    });
+  }
+  return tracos;
+}
 
 function SecaoItens({
   titulo,
@@ -1185,11 +1217,10 @@ function CardItem({
   // Efeitos e concessões só valem equipados; desequipado o card mostra apagado.
   const inativo = equipavel && !item.equipado && (efeitos.length > 0 || nConcedido > 0);
   const estilosTag = lerEstilosTag(item.tagsEstilo);
-  const raridade =
-    RARIDADES_ITEM.find((r) => r.slug === lerRaridade(item.raridade)) ?? RARIDADES_ITEM[0];
   const qtd = Math.max(1, item.quantidade || 1);
   const ataque = arma?.ataque ?? null;
   const dano = arma?.dano ?? null;
+  const tracos = item.tipo === "arma" ? tracosDaArma(item) : [];
   return (
     <div
       className={`action-card type-comum ${item.equipado ? "item-equipado" : ""} ${item.favorito ? "item-favorito" : ""}`}
@@ -1215,16 +1246,6 @@ function CardItem({
         </div>
       </div>
 
-      {raridade.slug !== "comum" && (
-        <div
-          className="item-raridade"
-          style={{ color: raridade.cor, borderColor: raridade.cor }}
-          title={raridade.descricao}
-        >
-          <i className={`fas ${raridade.icone}`} /> {raridade.nome}
-        </div>
-      )}
-
       {item.tipo === "arma" && (ataque || dano) && (
         <div className="acao-stats" style={{ marginTop: 8 }}>
           {ataque && (
@@ -1241,10 +1262,12 @@ function CardItem({
                   .join(" · ")
               }
               onClick={() =>
-                empilharD20(ataque.bonus, `Atacar ${item.nome}`, {
-                  tipo: "ataque",
-                  alcance: arma?.alcance ?? "corpo_a_corpo",
-                })
+                empilharD20(
+                  ataque.bonus,
+                  `Atacar ${item.nome}`,
+                  { tipo: "ataque", alcance: arma?.alcance ?? "corpo_a_corpo" },
+                  arma?.efeitos,
+                )
               }
             >
               <i className="fas fa-crosshairs" /> Acerto{" "}
@@ -1268,6 +1291,7 @@ function CardItem({
                     modificador: dano.modificador,
                     nomePreset: `Dano ${item.nome}`,
                     contexto: { tipo: "dano", alcance: arma?.alcance ?? "corpo_a_corpo" },
+                    efeitos: arma?.efeitos,
                   })
                 }
               >
@@ -1286,9 +1310,13 @@ function CardItem({
           )}
         </div>
       )}
-      {item.tipo === "arma" && item.danoBonus && (
-        <div className="item-dano-bonus" title="Dano extra desta arma — entra em todo ataque feito com ela">
-          <i className="fas fa-fire" /> {item.danoBonus} de dano bônus
+      {tracos.length > 0 && (
+        <div className="item-tracos">
+          {tracos.map((t) => (
+            <span key={t.icone} className="item-traco" title={t.titulo}>
+              <i className={`fas ${t.icone}`} /> {t.texto}
+            </span>
+          ))}
         </div>
       )}
       {item.tipo === "armadura" && (item.ca > 0 || item.penalidadeDes !== 0) && (

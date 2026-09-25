@@ -3620,32 +3620,25 @@
   color: #e0a000;
 }
 
-/* ─── Item: raridade, pilha, dano bônus e concessões ───────── */
+/* ─── Item: pilha, traços da arma e concessões ─────────────── */
 .item-qtd {
   font-size: 0.8rem;
   font-weight: 700;
   color: var(--text-sec);
 }
 
-.item-raridade {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+/* Dano bônus + proficiência no dano: o que o dano da arma leva além do dado. */
+.item-tracos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
   margin-top: 6px;
-  padding: 2px 8px;
-  border: 1px solid;
-  border-radius: 999px;
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
 }
 
-.item-dano-bonus {
+.item-traco {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  margin-top: 6px;
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--color-power);
@@ -4213,6 +4206,18 @@
 
 @media (max-width: 560px) {
   .campo-trio {
+    grid-template-columns: 1fr;
+  }
+}
+
+.campo-duo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 560px) {
+  .campo-duo {
     grid-template-columns: 1fr;
   }
 }

@@ -8,7 +8,6 @@ import {
   ATRIBUTOS,
   META_EFEITOS,
   PERICIAS,
-  RARIDADES_ITEM,
   computarDeltasInstantaneos,
   lerEfeitos,
   modificador,
@@ -287,14 +286,12 @@ const ALLOWED_ITEM = [
   "proficienteArma",
   "danoBonus",
   "danoSomaAtributo",
+  "danoSomaProficiencia",
   "efeitos",
-  "raridade",
   "quantidade",
 ] as const;
 
 type ItemInput = Partial<Record<(typeof ALLOWED_ITEM)[number], unknown>>;
-
-const RARIDADES_VALIDAS_ITEM = new Set(RARIDADES_ITEM.map((r) => r.slug));
 
 const CATEGORIAS_VALIDAS = new Set(["cortante", "fogo", "especial", "marcial"]);
 const ALCANCES_VALIDOS = new Set(["corpo_a_corpo", "distancia"]);
@@ -376,14 +373,10 @@ function normalizarItemInput(input: ItemInput) {
   if (input.danoSomaAtributo !== undefined) {
     data.danoSomaAtributo = Boolean(input.danoSomaAtributo);
   }
-  if (input.efeitos !== undefined) data.efeitos = normalizarEfeitosInput(input.efeitos);
-  if (input.raridade !== undefined) {
-    const v = String(input.raridade);
-    if (!RARIDADES_VALIDAS_ITEM.has(v as (typeof RARIDADES_ITEM)[number]["slug"])) {
-      throw new Error("Raridade inválida.");
-    }
-    data.raridade = v;
+  if (input.danoSomaProficiencia !== undefined) {
+    data.danoSomaProficiencia = Boolean(input.danoSomaProficiencia);
   }
+  if (input.efeitos !== undefined) data.efeitos = normalizarEfeitosInput(input.efeitos);
   if (input.quantidade !== undefined) {
     data.quantidade = Math.max(1, Math.trunc(Number(input.quantidade) || 1));
   }
@@ -419,8 +412,8 @@ export async function criarItem(personagemId: string, input: ItemInput) {
         data.proficienteArma === undefined ? true : (data.proficienteArma as boolean),
       danoBonus: (data.danoBonus as string | null) ?? null,
       danoSomaAtributo: (data.danoSomaAtributo as boolean) ?? false,
+      danoSomaProficiencia: (data.danoSomaProficiencia as boolean) ?? false,
       efeitos: (data.efeitos as EfeitoHabilidade[]) ?? [],
-      raridade: (data.raridade as string) ?? "comum",
       quantidade: (data.quantidade as number) ?? 1,
     },
   });

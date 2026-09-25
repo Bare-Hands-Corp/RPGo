@@ -6,11 +6,17 @@ import { atualizarAcao, criarAcao, deletarAcao } from "./actions";
 import {
   ATRIBUTOS,
   bonusAtaqueTecnica,
+  bonusProficiencia,
   cdTecnica,
+  custoComDesconto,
+  efeitosComArma,
+  efeitosDoContexto,
   formatarMod,
+  melhorDesconto,
   penalidadeD20Exaustao,
   resolverAtaqueArma,
   resolverDanoArma,
+  subirPassosDano,
   type Atributo,
   type EfeitosAgregados,
 } from "@/lib/op-rpg";
@@ -78,6 +84,8 @@ type ItemArma = {
   propriedades: unknown;
   atributoAtaque: string | null;
   proficienteArma: boolean;
+  danoSomaProficiencia: boolean;
+  efeitos: unknown;
 };
 
 type Props = {
@@ -168,6 +176,11 @@ function juntarFontes(...listas: string[][]): string[] {
   return out;
 }
 
+// Dano bônus com um sinal só: "+2" fica "+2", "1d6 fogo" vira "+1d6 fogo".
+function comSinal(bonus: string): string {
+  return /^[+-]/.test(bonus.trim()) ? bonus.trim() : `+${bonus.trim()}`;
+}
+
 function mostrarErro(err: unknown) {
   Swal.fire({
     icon: "error",
@@ -203,13 +216,20 @@ export function AcoesTab({
   };
   const desReduz = penalidadeDesArmadura < 0;
   const armas = itens.filter((i) => i.tipo === "arma");
+  // Efeitos de cada arma somados aos da ficha — valem nos golpes com ela.
+  const efeitosPorArma = new Map(armas.map((a) => [a.id, efeitosComArma(efeitosAgregados, a)]));
+  const efeitosDa = (a: ItemArma) => efeitosPorArma.get(a.id) ?? efeitosAgregados;
 
   // Opções dos pickers visuais do modal.
   const opcoesArma: OpcaoVinculo[] = armas.map((a) => ({
     id: a.id,
     nome: a.nome,
     icone: "fa-khanda",
-    detalhe: [a.dano, a.danoBonus ? `+${a.danoBonus}` : null, a.equipado ? null : "desequipada"]
+    detalhe: [
+      a.dano ? subirPassosDano(a.dano, efeitosDa(a).passosDanoArma.valor) : null,
+      a.danoBonus ? comSinal(a.danoBonus) : null,
+      a.equipado ? null : "desequipada",
+    ]
       .filter(Boolean)
       .join(" · "),
     inativo: !a.equipado,
@@ -404,7 +424,8 @@ export function AcoesTab({
                   const habsDerivadas = lerIds(acao.habilidadeIds)
                     .map((id) => habilidades.find((h) => h.id === id))
                     .filter((h): h is HabilidadeRef => !!h);
-                  // Um acerto (e um dano) por arma equipada.
+                  // Um acerto (e um dano) por arma equipada, cada um com os
+                  // efeitos da própria arma somados aos da ficha.
                   const golpes = armasEquipadas.map((arma) => {
                     const atq = resolverAtaqueArma({
                       alcanceRaw: arma.alcance,
@@ -414,7 +435,7 @@ export function AcoesTab({
                       proficiente: arma.proficienteArma,
                       atributos: atributosParaTeste,
                       nivel,
-                      efeitosAgregados,
+                      efeitosAgregados: efeitosDa(arma),
                     });
                     return { arma, atq };
                   });
@@ -460,31 +481,39 @@ export function AcoesTab({
                   const alcanceContexto = ataqueArma
                     ? ataqueArma.alcance
                     : inferirAlcance(acao.alcance);
-                  // O dado de dano é da própria técnica, mas o `danoBonus` da
-                  // arma ligada entra junto: é dano da arma, vale em todo golpe
+                  // O dado de dano é da própria técnica — sobe só com passo "nas
+                  // técnicas" —, mas o `danoBonus` e a proficiência da arma
+                  // ligada entram junto: é dano da arma, vale em todo golpe
                   // desferido com ela. Bônus de habilidade (dano/dano-cc/
                   // dano-distancia) também são compostos aqui.
-                  const comporDano = (danoBonus: string | null) =>
-                    acao.dano
+                  const comporDano = (arma: ItemArma | null) => {
+                    const agg = arma ? efeitosDa(arma) : efeitosAgregados;
+                    const d = acao.dano
                       ? resolverDanoArma({
                           danoBase: acao.dano,
-                          danoBonus,
+                          danoBonus: arma?.danoBonus ?? null,
+                          passos: agg.passosDanoTecnica.valor,
                           somaAtributo: false,
                           atributoDano: null,
                           atributos: atributosParaTeste,
+                          proficiencia: arma?.danoSomaProficiencia
+                            ? bonusProficiencia(nivel)
+                            : 0,
                           alcance: alcanceContexto,
-                          efeitosAgregados,
+                          efeitosAgregados: agg,
                         })
                       : null;
+                    return { d, efeitos: efeitosDoContexto(agg) };
+                  };
                   // Um dano por arma equipada (cada uma soma o próprio bônus);
                   // sem arma, um dano único da técnica.
                   const danos =
                     armasEquipadas.length > 0
                       ? armasEquipadas.map((a) => ({
                           rotulo: armasEquipadas.length > 1 ? a.nome : null,
-                          d: comporDano(a.danoBonus),
+                          ...comporDano(a),
                         }))
-                      : [{ rotulo: null, d: comporDano(null) }];
+                      : [{ rotulo: null, ...comporDano(null) }];
                   const cd = atributoCd
                     ? cdTecnica({
                         nivel,
@@ -494,9 +523,32 @@ export function AcoesTab({
                   const atributoSalv = acao.atributoSalv as Atributo | null;
                   // Cada custo carrega cor opcional pra colorir o chip.
                   // Recurso customizado usa a cor configurada; PP/PA usam padrão.
-                  const custos: { texto: string; estilo?: EstiloCor }[] = [];
-                  if (acao.custoPp > 0) custos.push({ texto: `${acao.custoPp} PP` });
-                  if (acao.custoPa > 0) custos.push({ texto: `${acao.custoPa} PA` });
+                  const custos: { texto: string; estilo?: EstiloCor; titulo?: string }[] = [];
+                  // Desconto em técnica: o da ficha somado ao da arma que desfere
+                  // (ou que concede) a ação. Com várias armas, vale a melhor.
+                  const armasDoCusto = [
+                    ...armasEquipadas,
+                    ...(itemOrigem?.tipo === "arma" && itemOrigem.equipado ? [itemOrigem] : []),
+                  ];
+                  const aggsDoCusto = armasDoCusto.length
+                    ? armasDoCusto.map(efeitosDa)
+                    : [efeitosAgregados];
+                  for (const [custo, valor, sigla] of [
+                    ["pp", acao.custoPp, "PP"],
+                    ["pa", acao.custoPa, "PA"],
+                  ] as const) {
+                    if (valor <= 0) continue;
+                    const desconto = melhorDesconto(aggsDoCusto, custo);
+                    const final = custoComDesconto(valor, desconto.valor);
+                    custos.push(
+                      final < valor
+                        ? {
+                            texto: `${valor}→${final} ${sigla}`,
+                            titulo: `−${valor - final} ${sigla} de ${desconto.fontes.join(", ")} (nunca abaixo da metade)`,
+                          }
+                        : { texto: `${valor} ${sigla}` },
+                    );
+                  }
                   if (recursoCusto && acao.custoRecursoValor > 0) {
                     custos.push({
                       texto: `${acao.custoRecursoValor} ${recursoCusto.nome}`,
@@ -553,6 +605,7 @@ export function AcoesTab({
                                           atq.bonus - penD20,
                                           `Atacar ${acao.nome} (${arma.nome})`,
                                           { tipo: "ataque", alcance: atq.alcance },
+                                          efeitosDoContexto(efeitosDa(arma)),
                                         )
                                       }
                                     >
@@ -586,7 +639,7 @@ export function AcoesTab({
                                     {penD20 > 0 && <MarcaExausto titulo={`−${penD20} de exaustão`} />}
                                   </button>
                                 )}
-                            {danos.map(({ rotulo, d }, i) => {
+                            {danos.map(({ rotulo, d, efeitos }, i) => {
                               if (!d) return null;
                               const titulo = d.partes
                                 .map((x) => `${x.rotulo}: ${x.texto}`)
@@ -611,8 +664,9 @@ export function AcoesTab({
                                       modificador: d.modificador,
                                       nomePreset: `Dano ${acao.nome}${rotulo ? ` (${rotulo})` : ""}`,
                                       // Contexto de dano casa dano_min/trocar_dano/
-                                      // ignora no Rolador (etapa 3.5).
+                                      // ignora/melhor de N no Rolador (etapa 3.5).
                                       contexto: { tipo: "dano", alcance: alcanceContexto },
+                                      efeitos,
                                     })
                                   }
                                 >
@@ -667,7 +721,7 @@ export function AcoesTab({
                               >
                                 <i className={`fas ${a.equipado ? "fa-khanda" : "fa-link-slash"}`} />{" "}
                                 {a.nome}
-                                {a.danoBonus && a.equipado ? ` +${a.danoBonus}` : ""}
+                                {a.danoBonus && a.equipado ? ` ${comSinal(a.danoBonus)}` : ""}
                               </span>
                             ))}
                           </div>
@@ -688,6 +742,7 @@ export function AcoesTab({
                               nome={c.texto}
                               estilo={c.estilo}
                               classePadrao="tag tag-custo"
+                              title={c.titulo}
                             />
                           ))}
                           {acao.tag && (

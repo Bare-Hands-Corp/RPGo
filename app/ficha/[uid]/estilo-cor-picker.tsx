@@ -64,10 +64,12 @@ export function TagChip({
   nome,
   estilo,
   classePadrao = "tag",
+  title,
 }: {
   nome: string;
   estilo: EstiloCor | null | undefined;
   classePadrao?: string;
+  title?: string;
 }) {
   const semCor = !estilo?.cor;
   return (
@@ -76,6 +78,7 @@ export function TagChip({
       estilo={estilo}
       familia="chip"
       className={semCor ? classePadrao : "tag"}
+      title={title}
     />
   );
 }

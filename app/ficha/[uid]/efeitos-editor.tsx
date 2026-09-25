@@ -907,6 +907,91 @@ function renderCorpo(
           exibição na barra de defesas vem depois.
         </div>
       );
+    case "margem_critico":
+      return (
+        <div style={{ gridColumn: "1 / -1" }}>
+          <CampoNum
+            label="Números a mais na margem"
+            valor={e.valor}
+            onChange={(v) =>
+              onPatch({ valor: Math.min(18, Math.max(1, v)) } as Partial<EfeitoHabilidade>)
+            }
+          />
+        </div>
+      );
+    case "passo_dano":
+      return (
+        <>
+          <div>
+            <label>Qual dado</label>
+            <select
+              value={e.alvo}
+              onChange={(ev) =>
+                onPatch({ alvo: ev.target.value } as Partial<EfeitoHabilidade>)
+              }
+            >
+              <option value="arma">Da arma</option>
+              <option value="tecnica">Das técnicas</option>
+            </select>
+          </div>
+          <CampoNum
+            label="Passos"
+            valor={e.passos}
+            onChange={(v) =>
+              onPatch({ passos: Math.min(6, Math.max(1, v)) } as Partial<EfeitoHabilidade>)
+            }
+          />
+        </>
+      );
+    case "desconto_tecnica":
+      return (
+        <>
+          <CampoNum
+            label="Quanto a menos"
+            valor={e.valor}
+            onChange={(v) => onPatch({ valor: Math.max(1, v) } as Partial<EfeitoHabilidade>)}
+          />
+          <div>
+            <label>De qual custo</label>
+            <select
+              value={e.custo}
+              onChange={(ev) =>
+                onPatch({ custo: ev.target.value } as Partial<EfeitoHabilidade>)
+              }
+            >
+              <option value="pp">PP</option>
+              <option value="pa">PA</option>
+            </select>
+          </div>
+        </>
+      );
+    case "dano_melhor_de":
+      return (
+        <>
+          <CampoNum
+            label="Rola quantas vezes"
+            valor={e.vezes}
+            onChange={(v) =>
+              onPatch({ vezes: Math.min(5, Math.max(2, v)) } as Partial<EfeitoHabilidade>)
+            }
+          />
+          <CampoNum
+            label="Usos / descanso longo"
+            valor={e.usos}
+            onChange={(v) => onPatch({ usos: Math.max(0, v) } as Partial<EfeitoHabilidade>)}
+          />
+          <Detalhes aberto={!!e.quando}>
+            <Campo
+              label="Quando se aplica"
+              valor={e.quando ?? ""}
+              onChange={(v) =>
+                onPatch({ quando: v || undefined } as Partial<EfeitoHabilidade>)
+              }
+              placeholder="em técnica, 1× por turno…"
+            />
+          </Detalhes>
+        </>
+      );
     case "livre":
       return (
         <div style={{ gridColumn: "1 / -1" }}>

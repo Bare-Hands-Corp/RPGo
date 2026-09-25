@@ -261,9 +261,6 @@ model Item {
   // Quantas unidades do item o personagem tem (munição, rações, frascos).
   // Peso de carga = peso × quantidade.
   quantidade    Int        @default(1)
-  // Raridade do livro (cap. 8): "comum" | "incomum" | "raro" | "mercadoNegro".
-  // Só exibição/organização — não entra em cálculo.
-  raridade      String     @default("comum")
   tags          String?
   // Estilo visual por tag: { "<nome da tag>": { cor, efeito } } (lib/estilos-cor.ts).
   tagsEstilo    Json?      @map("tags_estilo")
@@ -291,13 +288,18 @@ model Item {
   atributoAtaque   String? @map("atributo_ataque")
   proficienteArma  Boolean @default(true) @map("proficiente_arma")
   // Dano EXTRA da arma, somado ao dano base sempre que ela é usada — inclui as
-  // Ações que puxam o acerto dela via `Acao.armaId` (ex: Meito com "+1d6 fogo").
+  // Ações que puxam o acerto dela via `Acao.armaIds` (ex: Meito com "+1d6 fogo").
   // Texto livre no mesmo formato de `dano` ("1d6 fogo", "+2").
   danoBonus        String? @map("dano_bonus")
   // Soma o modificador do atributo de ataque no dano (regra do livro). Default
   // `false` porque fichas antigas já escreveram o modificador dentro de `dano`
   // na mão — ligar é opt-in, pra não dobrar o bônus de quem já tinha arma.
   danoSomaAtributo Boolean @default(false) @map("dano_soma_atributo")
+
+  // Soma o bônus de proficiência no dano dela — inclusive nas técnicas (Oo e
+  // Saijou Wazamono). O resto da Meito são efeitos da arma (margem de crítico,
+  // passos, desconto em técnica, melhor de N no dano).
+  danoSomaProficiencia Boolean @default(false) @map("dano_soma_proficiencia")
 
   // Efeitos estruturados do item (mesmo vocabulário de Habilidade.efeitos —
   // ver lib/op-rpg.ts EfeitoHabilidade). Entram no agregador ENQUANTO o item

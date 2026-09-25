@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { listarMensagensSessao } from "@/lib/mensagens";
 import { carregarCalendario } from "@/lib/calendario/carregar";
-import { agregarEfeitos, fontesDeEfeitoDeItens } from "@/lib/op-rpg";
+import { agregarEfeitos, efeitosDoContexto, fontesDeEfeitoDeItens } from "@/lib/op-rpg";
 import { habilidadesTravadas } from "@/lib/arvore";
 import { PerfilSidebar } from "./perfil-sidebar";
 import { FichaTabs } from "./ficha-tabs";
@@ -250,16 +250,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
         sessionId={sessionId}
         personagemId={personagem.id}
         mensagensIniciais={mensagensIniciais}
-        efeitosContexto={{
-          contextuais: efeitosAgregados.contextuais,
-          critRangeMinimo: efeitosAgregados.critRangeMinimo,
-          floorD20: efeitosAgregados.floorD20,
-          rerolls: efeitosAgregados.rerolls,
-          danoMinMetade: efeitosAgregados.danoMinMetade,
-          trocaDano: efeitosAgregados.trocaDano,
-          ignora: efeitosAgregados.ignora,
-          bonusAlcance: efeitosAgregados.bonusAlcance,
-        }}
+        efeitosContexto={efeitosDoContexto(efeitosAgregados)}
       />
     </div>
   );

@@ -5,7 +5,7 @@
 // ajusta e confirma com "ROLAR!". Mesmo padrão dos eventos `rpgo:patch-*`.
 
 import type { Dado } from "@/lib/dice";
-import type { ContextoRolagem } from "@/lib/op-rpg";
+import type { ContextoRolagem, EfeitosContexto } from "@/lib/op-rpg";
 
 export const EVENTO_EMPILHAR = "rpgo:empilhar-rolagem";
 
@@ -16,6 +16,9 @@ export type EmpilharRolagemDetail = {
   nomePreset?: string;
   // Marca o tipo de rolagem pra Bandeja casar efeitos contextuais (etapa 3.3).
   contexto?: ContextoRolagem;
+  // Efeitos que valem nesta rolagem: os da ficha + os da arma que desfere
+  // (`efeitosComArma`). Ausente = só os da ficha, que a Bandeja já tem.
+  efeitos?: EfeitosContexto;
   // Abre + expande a Bandeja na tab Rolador. Default: true.
   abrirAuto?: boolean;
 };
@@ -34,6 +37,7 @@ export function empilharD20(
   modificador: number,
   nomePreset: string,
   contexto: ContextoRolagem,
+  efeitos?: EfeitosContexto,
 ) {
-  empilharRolagem({ dados: [D20], modificador, nomePreset, contexto });
+  empilharRolagem({ dados: [D20], modificador, nomePreset, contexto, efeitos });
 }
