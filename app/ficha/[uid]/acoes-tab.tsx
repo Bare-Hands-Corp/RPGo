@@ -393,9 +393,6 @@ export function AcoesTab({
           + Nova Ação
         </button>
       </div>
-      <p className="modal-intro">
-        Gerencie suas técnicas e ataques aqui.
-      </p>
 
       {GRUPOS.map((grupo) => {
         const lista = acoesOtimistas.filter((a) => a.tipo === grupo.tipo);
@@ -856,12 +853,6 @@ export function AcoesTab({
                 rotulo="arma"
                 vazio="Nenhuma arma no inventário."
               />
-              {form.armaIds.length > 0 && (
-                <p className="modal-hint" style={{ marginTop: 8 }}>
-                  <i className="fas fa-circle-info" /> Cada arma equipada vira um chip de
-                  acerto próprio no card, somando o dano bônus dela.
-                </p>
-              )}
 
               <h3 className="modal-secao">
                 <i className="fas fa-gears" /> Números
@@ -965,7 +956,7 @@ export function AcoesTab({
                     </div>
                   </div>
 
-                  {recursos.length > 0 ? (
+                  {recursos.length > 0 && (
                     <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10, marginTop: 10 }}>
                       <div>
                         <label>Recurso customizado</label>
@@ -990,10 +981,6 @@ export function AcoesTab({
                         />
                       </div>
                     </div>
-                  ) : (
-                    <p className="modal-hint" style={{ marginTop: 8 }}>
-                      <i className="fas fa-lightbulb" /> Crie um Recurso na sidebar (ex: Pontos de Carateca) pra poder atrelar a esta ação.
-                    </p>
                   )}
                 </div>
               </details>

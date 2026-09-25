@@ -584,13 +584,6 @@ a {
   padding: 0 14px 14px;
 }
 
-.modal-intro {
-  font-size: 0.84rem;
-  line-height: 1.45;
-  color: var(--text-sec);
-  margin: 0 0 15px;
-}
-
 /* ─── BOTÃO PADRÃO ───────────────────────────────── */
 .btn-rect {
   padding: 10px 20px;

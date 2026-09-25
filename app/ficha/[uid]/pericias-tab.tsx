@@ -308,9 +308,6 @@ export function PericiasTab({
   return (
     <div>
       <h1>Perícias & Salvaguardas</h1>
-      <p className="modal-intro">
-        Marque as proficiências. O modificador final já inclui o bônus de proficiência.
-      </p>
 
       <section>
         <div className="section-header">
@@ -510,11 +507,7 @@ export function PericiasTab({
             + Nova perícia
           </button>
         </div>
-        {custom.length === 0 ? (
-          <p style={{ color: "var(--text-sec)", fontSize: "0.85rem" }}>
-            Perícias fora do set padrão — vindas de Profissão, treinamento ou homebrew.
-          </p>
-        ) : (
+        {custom.length > 0 && (
           <div className="prof-grid prof-grid-custom">
             {custom.map((c) => {
               const at = (c.atributo as Atributo) ?? "forca";
@@ -724,9 +717,6 @@ function ModalPericiaCustom({
           <i className="fas fa-times" />
         </button>
         <h2>{inicial ? "Editar perícia" : "Nova perícia"}</h2>
-        <p className="modal-intro">
-          Perícias fora do set padrão (Profissão, treinamento, homebrew).
-        </p>
         <form onSubmit={submeter}>
           <label>Nome</label>
           <input

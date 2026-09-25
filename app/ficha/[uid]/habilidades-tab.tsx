@@ -350,10 +350,6 @@ export function HabilidadesTab({
             + Nova Habilidade
           </button>
         </div>
-        <p className="modal-intro">
-          Catalogue passivas, ativas e reativas vindas de Profissão, Estilo, Haki,
-          Espécie, Akuma no Mi ou Treinamento.
-        </p>
 
         <div className="hab-filtros">
           {(

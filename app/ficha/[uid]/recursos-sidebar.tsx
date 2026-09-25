@@ -332,9 +332,6 @@ export function RecursosSidebar({
               <i className="fas fa-times" />
             </button>
             <h2>{form.id ? "Editar Recurso" : "Novo Recurso"}</h2>
-            <p className="modal-intro">
-              Pool numérico (ex: Pontos de Carateca, PA, Pontos de Okama).
-            </p>
             <form onSubmit={salvar}>
               <label>Nome</label>
               <input

@@ -929,10 +929,7 @@ export function InventarioTab({
                       }
                     />
                     <span>
-                      <strong>Proficiente</strong> nesta arma{" "}
-                      <span style={{ color: "var(--text-sec)", fontSize: "0.8rem" }}>
-                        (soma bônus de proficiência ao ataque)
-                      </span>
+                      <strong>Proficiente</strong> nesta arma
                     </span>
                   </label>
 
@@ -1038,10 +1035,6 @@ export function InventarioTab({
                       />
                     </div>
                   </div>
-                  <p className="modal-hint">
-                    <i className="fas fa-lightbulb" /> Quando equipada, o bônus de CA é somado automaticamente na sua CR.
-                    A penalidade DES (geralmente negativa) também entra no cálculo.
-                  </p>
                 </>
               )}
 

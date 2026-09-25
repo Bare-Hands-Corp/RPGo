@@ -1633,17 +1633,6 @@
   }
 }
 
-.modal-hint {
-  margin-top: 8px;
-  padding: 8px 10px;
-  font-size: 0.8rem;
-  color: var(--text-sec);
-  background: color-mix(in oklch, var(--primary) 6%, var(--bg-surface));
-  border-left: 3px solid var(--primary);
-  border-radius: 4px;
-  line-height: 1.4;
-}
-
 /* ─── PILLS DE CATEGORIA (modal de arma) ──────────────────── */
 .categoria-pills {
   display: grid;
@@ -2886,12 +2875,6 @@
 .tags-editor-chips .tag.selecionada {
   outline: 2px solid var(--primary);
   outline-offset: 1px;
-}
-
-.tags-editor-vazio {
-  font-size: 0.78rem;
-  color: var(--text-sec);
-  font-style: italic;
 }
 
 .tags-editor-painel {
@@ -4155,12 +4138,6 @@
 
 .arvore-slot-vazio i {
   font-size: 1.1rem;
-}
-
-.arvore-slot-vazio em {
-  font-style: normal;
-  font-size: 0.72rem;
-  letter-spacing: 0.03em;
 }
 
 /* ─── Modal de talento: prévia e campos ───────────────────── */

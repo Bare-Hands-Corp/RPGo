@@ -87,9 +87,6 @@ export function EditFichaModal({
               <i className="fas fa-times" />
             </button>
             <h2>Editar Atributos</h2>
-            <p className="modal-intro">
-              Ajuste seus limites e atributos base.
-            </p>
 
             <form onSubmit={salvar}>
               <div style={{ display: "flex", gap: 10 }}>

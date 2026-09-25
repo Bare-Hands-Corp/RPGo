@@ -120,8 +120,7 @@ export function NivelModal({
         {!proposta.peAlcancado && (
           <p className="nivel-aviso">
             <i className="fas fa-triangle-exclamation" /> Faltam{" "}
-            <strong>{proposta.peFaltando} PE</strong> pro limiar. Dá pra subir
-            assim mesmo — mesa por marco narrativo não usa PE.
+            <strong>{proposta.peFaltando} PE</strong> pro limiar.
           </p>
         )}
 
@@ -188,9 +187,7 @@ export function NivelModal({
         </h3>
         {!proposta.pedeAprimoramento && (
           <p className="campo-dica">
-            O nível {proposta.nivelNovo} normalmente não dá aprimoramento — os
-            níveis-chave dependem do Estilo de Combate. Distribua mesmo assim se
-            a tua mesa mandar.
+            O nível {proposta.nivelNovo} normalmente não dá aprimoramento.
           </p>
         )}
         <div className="nivel-apr">
@@ -231,7 +228,7 @@ export function NivelModal({
         </div>
         <p className="campo-dica">
           {restantes > 0
-            ? `${restantes} ponto(s) por distribuir — +2 num atributo ou +1 em dois. Pode pular.`
+            ? `${restantes} ponto(s) por distribuir — +2 num atributo ou +1 em dois.`
             : "Pontos distribuídos."}
         </p>
 

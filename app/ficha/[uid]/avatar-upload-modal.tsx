@@ -135,9 +135,6 @@ export function AvatarUploadModal({ personagemId, avatarAtual }: Props) {
             style={{ width: 420, maxWidth: "90vw" }}
           >
             <h2>Alterar Avatar</h2>
-            <p className="modal-intro">
-              Cole (Ctrl+V), arraste uma imagem ou clique pra selecionar.
-            </p>
 
             {!imgSrc && (
               <div

@@ -217,9 +217,7 @@ export function ObjetivosTab({ personagemId, objetivos, calendario }: Props) {
           onClick={() => setModal("novo")}
         >
           <i className="fas fa-scroll" />
-          <span>
-            Nenhum objetivo ainda — clique pra anotar a primeira meta do personagem.
-          </span>
+          <span>Nenhum objetivo ainda</span>
         </button>
       ) : (
         <ul className="obj-lista">
@@ -548,18 +546,14 @@ function ObjetivoModal({
                         const d = dataParaDias(prazoCalculado, calendario.config);
                         return `${d.dia} de ${d.nomeMes}, ano ${d.ano}`;
                       })()}
-                      . Aparece no calendário da mesa como prazo de objetivo (só
-                      você e o narrador veem) — não vira evento.
+                      .
                     </p>
                   )}
                 </>
               )}
             </>
           ) : (
-            <p className="campo-dica">
-              Prazo precisa de uma mesa com calendário. Sem mesa, o objetivo fica só
-              como anotação.
-            </p>
+            <p className="campo-dica">Prazo precisa de uma mesa com calendário.</p>
           )}
         </div>
 

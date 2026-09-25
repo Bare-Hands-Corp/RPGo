@@ -80,12 +80,6 @@ export function EfeitosEditor({
         />
       )}
 
-      {efeitos.length === 0 && !pickerAberto && (
-        <p className="modal-hint" style={{ marginTop: 10 }}>
-          Nenhum efeito ainda. Clique no botão acima e escolha o que faz, em
-          linguagem natural.
-        </p>
-      )}
       {efeitos.map((e, i) => (
         <EditorEfeito
           key={i}
@@ -306,6 +300,8 @@ function EditorEfeito({
   onRemover: () => void;
 }) {
   const meta = META_EFEITOS[efeito.tipo];
+  // Efeito sem parâmetro (Imune a Crítico) não tem corpo — o nome já diz tudo.
+  const corpo = renderCorpo(efeito, recursos, onPatch);
   return (
     <div className="efeito-editor" style={{ borderColor: meta.cor }}>
       <div className="efeito-editor-topo" style={{ color: meta.cor }}>
@@ -320,7 +316,7 @@ function EditorEfeito({
           <i className="fas fa-xmark" />
         </button>
       </div>
-      <div className="efeito-editor-corpo">{renderCorpo(efeito, recursos, onPatch)}</div>
+      {corpo && <div className="efeito-editor-corpo">{corpo}</div>}
     </div>
   );
 }
@@ -460,7 +456,7 @@ function renderCorpo(
                   } as Partial<EfeitoHabilidade>)
                 }
               />
-              Dobrada (proficiência ×2)
+              Dobrada
             </label>
           )}
         </>
@@ -628,7 +624,7 @@ function renderCorpo(
             />
           </div>
           <CampoNum
-            label="Fator (ex: 2 = dobra)"
+            label="Fator"
             valor={e.fator}
             onChange={(v) => onPatch({ fator: v } as Partial<EfeitoHabilidade>)}
             step={0.1}
@@ -786,7 +782,7 @@ function renderCorpo(
             </datalist>
           </div>
           <CampoNum
-            label="Alcance (m, 0 = passivo)"
+            label="Alcance (m)"
             valor={e.alcance}
             onChange={(v) => onPatch({ alcance: Math.max(0, v) } as Partial<EfeitoHabilidade>)}
           />
@@ -856,8 +852,7 @@ function renderCorpo(
       return (
         <>
           <div style={{ gridColumn: "1 / -1", fontSize: "0.8rem", color: "var(--text-sec)" }}>
-            Garante <strong>metade do dano máximo</strong> da rolagem (arredonda pra
-            cima). Aparece como chip ao empilhar o dano no Rolador.
+            Metade do dano máximo, arredondado pra cima.
           </div>
           <Detalhes aberto={!!e.quando}>
             <Campo
@@ -879,9 +874,6 @@ function renderCorpo(
             valor={e.valor}
             onChange={(v) => onPatch({ valor: v } as Partial<EfeitoHabilidade>)}
           />
-          <div style={{ gridColumn: "1 / -1", fontSize: "0.75rem", color: "var(--text-sec)" }}>
-            Descritivo — anota a fonte no chip de ataque (não soma no valor da arma).
-          </div>
           <Detalhes aberto={!!e.quando}>
             <Campo
               label="Quando se aplica"
@@ -927,11 +919,7 @@ function renderCorpo(
         </div>
       );
     case "crit_imune":
-      return (
-        <div style={{ gridColumn: "1 / -1", fontSize: "0.8rem", color: "var(--text-sec)" }}>
-          Não pode sofrer acerto crítico. Aparece nas defesas da barra lateral.
-        </div>
-      );
+      return null;
     case "margem_critico":
       return (
         <div style={{ gridColumn: "1 / -1" }}>

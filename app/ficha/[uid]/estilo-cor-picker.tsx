@@ -203,11 +203,6 @@ export function EstiloPicker({
               </button>
             </div>
           </div>
-          {!cor2 && (
-            <p className="campo-dica">
-              Automática: matiz vizinha da Cor 1. Escolha uma pra fechar o par.
-            </p>
-          )}
         </div>
       )}
     </div>
@@ -259,44 +254,36 @@ export function TagsEditor({
         placeholder={placeholder}
       />
 
-      {lista.length === 0 ? (
-        <div className="tags-editor-vazio">
-          Escreva as tags acima pra poder estilizar cada uma.
+      {lista.length > 0 && (
+        <div className="tags-editor-chips">
+          {lista.map((t) => {
+            const estilo = estilos[t];
+            const semCor = !estilo?.cor;
+            const { className: fx, style } = estiloAplicado(estilo, "chip");
+            // <span> e não <button>: dentro de <form> o botão herda estilo do agente.
+            return (
+              <span
+                key={t}
+                role="button"
+                tabIndex={0}
+                title="Escolher cor e brilho"
+                className={`tag ${semCor ? classePadraoChip : ""} ${fx} ${
+                  alvo === t ? "selecionada" : ""
+                }`.replace(/\s+/g, " ").trim()}
+                style={style}
+                onClick={() => setSelecionada(alvo === t ? null : t)}
+                onKeyDown={(ev) => {
+                  if (ev.key === "Enter" || ev.key === " ") {
+                    ev.preventDefault();
+                    setSelecionada(alvo === t ? null : t);
+                  }
+                }}
+              >
+                <span className="fx-texto">{t}</span>
+              </span>
+            );
+          })}
         </div>
-      ) : (
-        <>
-          <div className="tags-editor-vazio">
-            Clique numa tag pra escolher cor e brilho dela.
-          </div>
-          <div className="tags-editor-chips">
-            {lista.map((t) => {
-              const estilo = estilos[t];
-              const semCor = !estilo?.cor;
-              const { className: fx, style } = estiloAplicado(estilo, "chip");
-              // <span> e não <button>: dentro de <form> o botão herda estilo do agente.
-              return (
-                <span
-                  key={t}
-                  role="button"
-                  tabIndex={0}
-                  className={`tag ${semCor ? classePadraoChip : ""} ${fx} ${
-                    alvo === t ? "selecionada" : ""
-                  }`.replace(/\s+/g, " ").trim()}
-                  style={style}
-                  onClick={() => setSelecionada(alvo === t ? null : t)}
-                  onKeyDown={(ev) => {
-                    if (ev.key === "Enter" || ev.key === " ") {
-                      ev.preventDefault();
-                      setSelecionada(alvo === t ? null : t);
-                    }
-                  }}
-                >
-                  <span className="fx-texto">{t}</span>
-                </span>
-              );
-            })}
-          </div>
-        </>
       )}
 
       {alvo && (

@@ -840,9 +840,7 @@ function CopiarModal({
         </button>
         <h2>Copiar Árvore</h2>
         <p className="campo-dica" style={{ marginBottom: 12 }}>
-          Vem a estrutura inteira — camadas, raias, talentos e requisitos. O{" "}
-          <strong>progresso não vem junto</strong>: todos os talentos chegam
-          travados.
+          O progresso não vem junto: todos os talentos chegam travados.
         </p>
 
         {opcoes.length > 6 && (
@@ -1316,7 +1314,6 @@ function FaixaCamada({
               {daColuna.length === 0 && montando && (
                 <span className="arvore-slot-vazio">
                   <i className="fas fa-plus" />
-                  <em>clique pra criar</em>
                 </span>
               )}
               {daColuna.map((no) => (
@@ -1607,8 +1604,6 @@ function ArvoreModal({
     });
   }
 
-  const meta = CRITERIOS_ARVORE.find((c) => c.slug === criterio);
-
   return (
     <div className="modal-overlay" onClick={onCancelar}>
       <div className="modal-box" onClick={(e) => e.stopPropagation()}>
@@ -1670,7 +1665,6 @@ function ArvoreModal({
               </option>
             ))}
           </select>
-          {meta && <p className="campo-dica">{meta.dica}</p>}
 
           <label style={{ marginTop: 10 }}>Recurso que paga os talentos</label>
           <select
@@ -1684,10 +1678,6 @@ function ArvoreModal({
               </option>
             ))}
           </select>
-          <p className="campo-dica">
-            Pontos de Ambição não têm campo próprio na ficha — crie um Recurso
-            &quot;PA&quot; na sidebar e aponte aqui pra debitar de verdade.
-          </p>
 
           <h3 className="modal-secao">
             <i className="fas fa-palette" /> Aparência
@@ -1699,10 +1689,6 @@ function ArvoreModal({
             onChange={(e) => setFundoUrl(e.target.value)}
             placeholder="https://... (opcional)"
           />
-          <p className="campo-dica">
-            Só http(s). Um véu escuro é aplicado por cima pra manter os cards
-            legíveis.
-          </p>
 
           <label style={{ marginTop: 10 }}>Cor e brilho</label>
           <EstiloPicker
@@ -1774,8 +1760,7 @@ function CamadaModal({
 
           {criterio === "manual" ? (
             <p style={{ fontSize: "0.8rem", color: "var(--text-sec)", marginTop: 10 }}>
-              Esta árvore está como &quot;sempre aberta&quot; — a camada não tem
-              limiar. Mude o critério da árvore pra usar trava.
+              Árvore sempre aberta — a camada não tem limiar.
             </p>
           ) : (
             <>
@@ -1786,7 +1771,6 @@ function CamadaModal({
                 value={limiar}
                 onChange={(e) => setLimiar(e.target.value)}
               />
-              <p className="campo-dica">{meta?.dica}</p>
             </>
           )}
 
@@ -1975,10 +1959,6 @@ function NoModal({
               </option>
             ))}
           </select>
-          <p className="campo-dica">
-            A raia e a altura vêm de onde tu clicou no canvas — dá pra
-            reposicionar arrastando o nó depois.
-          </p>
 
           <h3 className="modal-secao">
             <i className="fas fa-arrow-up-right-dots" /> Progressão
@@ -2021,18 +2001,18 @@ function NoModal({
               />
             </div>
           </div>
-          <p className="campo-dica">
-            {Number(maxRanks) > 1
-              ? "Cada rank extra exige a camada seguinte — regra do livro: Forma Dominada (✩) pede o 2º estágio, Avançada (★) pede o 3º."
-              : "Ranks = quantas vezes o talento pode ser comprado. Use 3 pra talento de Haki com Forma Dominada e Avançada."}
-            {!temRecurso && Number(custo) > 0 && (
-              <>
-                {" "}
-                O custo é <strong>informativo</strong> enquanto a árvore não
-                apontar um recurso.
-              </>
-            )}
-          </p>
+          {(Number(maxRanks) > 1 || (!temRecurso && Number(custo) > 0)) && (
+            <p className="campo-dica">
+              {Number(maxRanks) > 1 && "Cada rank extra exige a camada seguinte."}
+              {!temRecurso && Number(custo) > 0 && (
+                <>
+                  {" "}
+                  O custo é <strong>informativo</strong> enquanto a árvore não
+                  apontar um recurso.
+                </>
+              )}
+            </p>
+          )}
 
           <h3 className="modal-secao">
             <i className="fas fa-link" /> Ligações
@@ -2049,20 +2029,12 @@ function NoModal({
               </option>
             ))}
           </select>
-          <p className="campo-dica">
-            Enquanto o talento estiver travado, os efeitos dessa habilidade não
-            entram nos cálculos da ficha.
-          </p>
 
           <label style={{ marginTop: 12 }}>Requisitos</label>
-          <p className="campo-dica">
-            O talento só libera depois que os marcados estiverem no rank pedido.
-            É o que desenha as linhas da árvore.
-          </p>
           {candidatos.length === 0 ? (
             <p className="req-vazio">
               <i className="fas fa-circle-info" /> Nenhum outro talento nesta
-              árvore ainda — crie os pré-requisitos primeiro.
+              árvore.
             </p>
           ) : (
             <>
