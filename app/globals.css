@@ -611,6 +611,10 @@ a {
   transform: none;
 }
 
+.item-pendente {
+  opacity: 0.55;
+}
+
 .btn-rect.primary {
   background: var(--primary);
   color: white;

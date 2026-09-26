@@ -13,7 +13,7 @@ import {
   mesesNaEstacao,
   posicaoMesNaEstacao,
 } from "@/lib/calendario/engine";
-import type { Resultado } from "@/lib/acoes";
+import { idTemporario, type Resultado } from "@/lib/acoes";
 import type { EventoCal, ObjetivoPrazo, TipoClima } from "./types";
 import {
   atualizarEvento,
@@ -131,7 +131,7 @@ export function CalendarioView({
         aplicarPatchEvento({ kind: "update", id, patch: payload });
         await comErro(() => atualizarEvento(mesaId, id, payload));
       } else {
-        const tempId = "temp-" + Math.random().toString(36).slice(2);
+        const tempId = idTemporario();
         aplicarPatchEvento({ kind: "create", evento: { id: tempId, ...payload } });
         await comErro(() => criarEvento(mesaId, payload));
       }
@@ -154,7 +154,7 @@ export function CalendarioView({
 
   function onCriarTipoClima(payload: TipoClimaPayload) {
     startTransition(async () => {
-      const tempId = "temp-" + Math.random().toString(36).slice(2);
+      const tempId = idTemporario();
       aplicarPatchTipoClima({ kind: "create", tipo: { id: tempId, ...payload } });
       await comErro(() => criarTipoClima(mesaId, payload));
     });

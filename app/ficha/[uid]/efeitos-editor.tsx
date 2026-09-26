@@ -217,7 +217,7 @@ function SelectAlvo({
   alvos?: typeof ALVOS_AGREGAVEIS;
 }) {
   // Perícias customizadas entram nas listas que já oferecem perícias (modificador,
-  // proficiência, vantagem, substituição) — não no multiplicador (Derivado/Pool).
+  // proficiência, vantagem, substituição) — não no multiplicador (Geral / PV e PP).
   const periciasCustom = useContext(AlvosCustomContext);
   const alvosFinais =
     periciasCustom.length > 0 && alvos.some((a) => a.grupo === "Perícia")
@@ -1012,7 +1012,7 @@ function renderCorpo(
             label="Descrição"
             valor={e.texto}
             onChange={(v) => onPatch({ texto: v } as Partial<EfeitoHabilidade>)}
-            placeholder="mecânica não automatizável"
+            placeholder="Descreva o efeito..."
             textarea
           />
         </div>

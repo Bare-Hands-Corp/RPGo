@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioDaRequest } from "@/lib/supabase/server";
 import { listarMensagensSessao } from "@/lib/mensagens";
 import {
   carregarCalendario,
@@ -16,10 +16,7 @@ type Params = { params: Promise<{ mesaId: string }> };
 export default async function NarradorPage({ params }: Params) {
   const { mesaId } = await params;
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await usuarioDaRequest();
   if (!user) redirect("/login");
 
   // Mesa + mensagens + calendário pré-carregados em paralelo.

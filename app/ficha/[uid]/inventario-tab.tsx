@@ -2,6 +2,7 @@
 
 import { useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
+import { ehTemporario, exigir, idTemporario } from "@/lib/acoes";
 import { EditableStat } from "./editable-stat";
 import { atualizarItem, criarItem, deletarItem, patchPersonagem } from "./actions";
 import {
@@ -141,7 +142,7 @@ function BerriesControle({
     startTransition(async () => {
       definirValor(novo);
       try {
-        await patchPersonagem(personagemId, { berries: novo });
+        exigir(await patchPersonagem(personagemId, { berries: novo }));
       } catch (err) {
         Swal.fire({
           icon: "error",
@@ -430,13 +431,13 @@ export function InventarioTab({
       if (editandoId) {
         aplicarOtimista({ kind: "update", id: editandoId, patch: payload });
         try {
-          await atualizarItem(personagemId, editandoId, payload);
+          exigir(await atualizarItem(personagemId, editandoId, payload));
         } catch (err) {
           mostrarErro(err);
         }
       } else {
         const novoItem: Item = {
-          id: "temp-" + Math.random().toString(36).slice(2),
+          id: idTemporario(),
           nome: payload.nome,
           peso: payload.peso,
           tipo: payload.tipo,
@@ -463,7 +464,7 @@ export function InventarioTab({
         };
         aplicarOtimista({ kind: "create", item: novoItem });
         try {
-          await criarItem(personagemId, payload);
+          exigir(await criarItem(personagemId, payload));
         } catch (err) {
           mostrarErro(err);
         }
@@ -476,9 +477,9 @@ export function InventarioTab({
     startTransition(async () => {
       aplicarOtimista({ kind: "update", id: item.id, patch: { favorito: novo } });
       try {
-        await atualizarItem(personagemId, item.id, { favorito: novo });
+        exigir(await atualizarItem(personagemId, item.id, { favorito: novo }));
       } catch (err) {
-        console.error(err);
+        mostrarErro(err);
       }
     });
   }
@@ -511,12 +512,14 @@ export function InventarioTab({
       try {
         if (outras.length > 0) {
           await Promise.all(
-            outras.map((i) => atualizarItem(personagemId, i.id, { equipado: false })),
+            outras.map(async (i) =>
+              exigir(await atualizarItem(personagemId, i.id, { equipado: false })),
+            ),
           );
         }
-        await atualizarItem(personagemId, item.id, { equipado: novo });
+        exigir(await atualizarItem(personagemId, item.id, { equipado: novo }));
       } catch (err) {
-        console.error(err);
+        mostrarErro(err);
       }
     });
   }
@@ -539,7 +542,7 @@ export function InventarioTab({
     startTransition(async () => {
       aplicarOtimista({ kind: "delete", id: itemId });
       try {
-        await deletarItem(personagemId, itemId);
+        exigir(await deletarItem(personagemId, itemId));
       } catch (err) {
         mostrarErro(err);
       }
@@ -1219,7 +1222,8 @@ function CardItem({
   const tracos = item.tipo === "arma" ? tracosDaArma(item) : [];
   return (
     <div
-      className={`action-card type-comum ${item.equipado ? "item-equipado" : ""} ${item.favorito ? "item-favorito" : ""}`}
+      className={`action-card type-comum ${item.equipado ? "item-equipado" : ""} ${item.favorito ? "item-favorito" : ""} ${ehTemporario(item.id) ? "item-pendente" : ""}`}
+      inert={ehTemporario(item.id)}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
         <div className="card-title">
@@ -1350,12 +1354,12 @@ function CardItem({
           {nConcedido > 0 && (
             <div className="card-tags">
               {concedidos?.acoes.map((n) => (
-                <span key={`a-${n}`} className="tag tag-custo" title="Ação concedida por este item">
+                <span key={`a-${n}`} className="tag tag-custo" title="Ação deste item">
                   <i className="fas fa-gavel" /> {n}
                 </span>
               ))}
               {concedidos?.habilidades.map((n) => (
-                <span key={`h-${n}`} className="tag tag-custo" title="Habilidade concedida por este item">
+                <span key={`h-${n}`} className="tag tag-custo" title="Habilidade deste item">
                   <i className="fas fa-star" /> {n}
                 </span>
               ))}

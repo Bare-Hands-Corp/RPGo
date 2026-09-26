@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioDaRequest } from "@/lib/supabase/server";
 
 type NovaFicha = {
   nome: string;
@@ -20,10 +20,7 @@ type NovaFicha = {
 };
 
 export async function criarPersonagem(input: NovaFicha) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await usuarioDaRequest();
   if (!user) throw new Error("Não autenticado.");
 
   const nome = input.nome.trim();

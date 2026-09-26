@@ -1,6 +1,7 @@
 "use client";
 
 import Swal from "sweetalert2";
+import { ehTemporario } from "@/lib/acoes";
 import {
   type CalendarioConfig,
   dataParaDias,
@@ -125,9 +126,11 @@ export function ListaEventos({
             const rowClasses = ["cal-evento-row", tipoClass];
             if (futuro) rowClasses.push("cal-evento-futuro");
             if (ev.oculto) rowClasses.push("cal-evento-oculto-row");
+            const pendente = ehTemporario(ev.id);
+            if (pendente) rowClasses.push("item-pendente");
 
             return (
-              <div className={rowClasses.join(" ")} key={ev.id}>
+              <div className={rowClasses.join(" ")} key={ev.id} inert={pendente}>
                 <div className="cal-evento-dia">
                   <span className="cal-evento-dia-num">{String(data.dia).padStart(2, "0")}</span>
                   <span className="cal-evento-dia-rel">{rel}</span>

@@ -2,36 +2,18 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
-import { ErroDeUso, type Resultado } from "@/lib/acoes";
+import { usuarioDaRequest } from "@/lib/supabase/server";
+import { ErroDeUso, executar as executarEm, type Resultado } from "@/lib/acoes";
 import { ANO_MAX, dataParaDias, diasMaximos, estacaoDoMes, sortearTipoClima, validarConfig, type CalendarioConfig } from "@/lib/calendario/engine";
 import { TEMPLATES, TIPOS_CLIMA_DEFAULT } from "@/lib/calendario/templates";
 
-// Envelopa o corpo da action: `ErroDeUso` chega legível no cliente, o resto
-// vira mensagem genérica + log no servidor.
-async function executar<T extends object = object>(
-  corpo: () => Promise<T | void>,
-): Promise<Resultado<T>> {
-  try {
-    const dados = await corpo();
-    return { ok: true, ...(dados ?? ({} as T)) } as Resultado<T>;
-  } catch (e) {
-    if (e instanceof ErroDeUso) return { ok: false, erro: e.message };
-    console.error("[calendario] action falhou:", e);
-    return { ok: false, erro: "Erro inesperado no servidor. Tenta de novo." };
-  }
-}
+const executar = <T extends object = object>(corpo: () => Promise<T | void>) =>
+  executarEm("calendario", corpo);
 
 // ─── Auth helpers internos ─────────────────────────────────────
 async function autorizarNarrador(mesaId: string) {
-  const supabase = await createClient();
-  const [
-    {
-      data: { user },
-    },
-    mesa,
-  ] = await Promise.all([
-    supabase.auth.getUser(),
+  const [user, mesa] = await Promise.all([
+    usuarioDaRequest(),
     prisma.mesa.findUnique({ where: { id: mesaId } }),
   ]);
   if (!user) throw new ErroDeUso("Não autenticado.");
@@ -74,15 +56,8 @@ export async function setarDataAtual(
     if (!Number.isInteger(dataAtualDias)) throw new ErroDeUso("Data inválida.");
 
     // Auth + mesa + config do calendário em 1 round-trip paralelo (antes eram 3 seriais).
-    const supabase = await createClient();
-    const [
-      {
-        data: { user },
-      },
-      mesa,
-      calendario,
-    ] = await Promise.all([
-      supabase.auth.getUser(),
+    const [user, mesa, calendario] = await Promise.all([
+      usuarioDaRequest(),
       prisma.mesa.findUnique({ where: { id: mesaId }, select: { userId: true } }),
       prisma.calendario.findUnique({ where: { mesaId }, select: { config: true } }),
     ]);

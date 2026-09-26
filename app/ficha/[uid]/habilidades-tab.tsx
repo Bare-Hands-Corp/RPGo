@@ -2,6 +2,7 @@
 
 import { useMemo, useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
+import { ehTemporario, exigir, idTemporario } from "@/lib/acoes";
 import {
   alternarHabilidade,
   atualizarHabilidade,
@@ -184,7 +185,7 @@ export function HabilidadesTab({
     startTransition(async () => {
       aplicar({ kind: "delete", id });
       try {
-        await deletarHabilidade(personagemId, id);
+        exigir(await deletarHabilidade(personagemId, id));
       } catch (err) {
         mostrarErro(err);
       }
@@ -195,7 +196,7 @@ export function HabilidadesTab({
     startTransition(async () => {
       aplicar({ kind: "update", id: h.id, patch: { favorita: !h.favorita } });
       try {
-        await atualizarHabilidade(personagemId, h.id, { favorita: !h.favorita });
+        exigir(await atualizarHabilidade(personagemId, h.id, { favorita: !h.favorita }));
       } catch (err) {
         mostrarErro(err);
       }
@@ -215,7 +216,7 @@ export function HabilidadesTab({
       startTransition(async () => {
         aplicar({ kind: "update", id: h.id, patch: { ligada: false } });
         try {
-          await alternarHabilidade(personagemId, h.id, false);
+          exigir(await alternarHabilidade(personagemId, h.id, false));
         } catch (err) {
           mostrarErro(err);
         }
@@ -291,8 +292,8 @@ export function HabilidadesTab({
       aplicar({ kind: "usar", id: h.id });
       if (ligar) aplicar({ kind: "update", id: h.id, patch: { ligada: true } });
       try {
-        if (ligar) await alternarHabilidade(personagemId, h.id, true);
-        else await usarHabilidade(personagemId, h.id);
+        if (ligar) exigir(await alternarHabilidade(personagemId, h.id, true));
+        else exigir(await usarHabilidade(personagemId, h.id));
       } catch (err) {
         mostrarErro(err);
       }
@@ -306,13 +307,13 @@ export function HabilidadesTab({
       if (editandoId) {
         aplicar({ kind: "update", id: editandoId, patch: dados as Partial<Habilidade> });
         try {
-          await atualizarHabilidade(personagemId, editandoId, dados);
+          exigir(await atualizarHabilidade(personagemId, editandoId, dados));
         } catch (err) {
           mostrarErro(err);
         }
       } else {
         const nova: Habilidade = {
-          id: "temp-" + Math.random().toString(36).slice(2),
+          id: idTemporario(),
           favorita: false,
           ordem: 0,
           ligada: false,
@@ -321,7 +322,7 @@ export function HabilidadesTab({
         };
         aplicar({ kind: "create", habilidade: nova });
         try {
-          await criarHabilidade(personagemId, dados);
+          exigir(await criarHabilidade(personagemId, dados));
         } catch (err) {
           mostrarErro(err);
         }
@@ -545,12 +546,14 @@ function CardHabilidade({
       : "type-comum";
 
   const ligadaAtiva = mostrarToggle && habilidade.ligada;
+  const pendente = ehTemporario(habilidade.id);
 
   return (
     <div
       className={`action-card ${tipoClass}${ligadaAtiva ? " hab-card-ligada" : ""}${
         bloqueada ? " hab-travada" : ""
-      }`}
+      }${pendente ? " item-pendente" : ""}`}
+      inert={pendente}
     >
       <button
         type="button"
@@ -610,7 +613,7 @@ function CardHabilidade({
               title={
                 travadaPorItem
                   ? "Vem de um item que não está equipado"
-                  : "Habilidade concedida por este item"
+                  : "Vem deste item"
               }
             >
               <i className={`fas ${travadaPorItem ? "fa-lock" : "fa-sack-dollar"}`} />{" "}
@@ -853,7 +856,7 @@ function HabilidadeModal({
             placeholder="Como funciona, quando se aplica, regras especiais..."
           />
 
-          <label>Vem do item (opcional)</label>
+          <label>Vem do item</label>
           <SeletorUnico
             opcoes={itens.map((i) => ({
               id: i.id,

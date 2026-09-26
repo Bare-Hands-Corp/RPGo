@@ -3,6 +3,7 @@
 import { useOptimistic, useState, useTransition } from "react";
 import { crBase, formatarMod } from "@/lib/op-rpg";
 import { patchPersonagem } from "./actions";
+import { exigir } from "@/lib/acoes";
 
 type Props = {
   personagemId: string;
@@ -57,7 +58,7 @@ export function CrEditavel({
     startTransition(async () => {
       aplicar(novo);
       try {
-        await patchPersonagem(personagemId, { crOutros: novo });
+        exigir(await patchPersonagem(personagemId, { crOutros: novo }));
       } catch {
         aplicar(crOutros);
       }

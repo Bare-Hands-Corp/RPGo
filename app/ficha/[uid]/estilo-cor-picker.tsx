@@ -196,7 +196,7 @@ export function EstiloPicker({
                 type="button"
                 className={`cor-swatch cor-swatch-limpar ${!cor2 ? "ativo" : ""}`}
                 onClick={() => onChange({ cor2: "" })}
-                title="Automática (derivada da Cor 1)"
+                title="Automática (combina com a Cor 1)"
                 aria-label="Segunda cor automática"
               >
                 <i className="fas fa-wand-magic-sparkles" />

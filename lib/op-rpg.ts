@@ -903,7 +903,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   {
     id: "pv_temp",
     nome: "PV Temporário",
-    descricao: "Concede pontos de vida temporários",
+    descricao: "Dá pontos de vida temporários",
     icone: "fa-shield-heart",
     cor: "var(--color-bonus)",
     grupo: "ajuste",
@@ -1032,7 +1032,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   {
     id: "condicao_aplicar",
     nome: "Aplica Condição",
-    descricao: "Impõe condição (com CD de salvaguarda)",
+    descricao: "Causa uma condição, com CD de salvaguarda",
     icone: "fa-bolt",
     cor: "var(--color-power)",
     grupo: "condicao",
@@ -1444,14 +1444,14 @@ export const ALVOS_AGREGAVEIS: { slug: string; nome: string; grupo: string }[] =
     nome: `Limite ${a.nome}`,
     grupo: "Limite de Atributo",
   })),
-  { slug: "cr", nome: "Classe de Resistência", grupo: "Derivado" },
-  { slug: "iniciativa", nome: "Iniciativa", grupo: "Derivado" },
-  { slug: "percepcao-passiva", nome: "Percepção Passiva", grupo: "Derivado" },
-  { slug: "deslocamento", nome: "Deslocamento", grupo: "Derivado" },
-  { slug: "carga", nome: "Capacidade de Carga", grupo: "Derivado" },
-  { slug: "hp-max", nome: "PV Máximo", grupo: "Pool" },
-  { slug: "hp-temp", nome: "PV Temporário", grupo: "Pool" },
-  { slug: "pp-max", nome: "PP Máximo", grupo: "Pool" },
+  { slug: "cr", nome: "Classe de Resistência", grupo: "Geral" },
+  { slug: "iniciativa", nome: "Iniciativa", grupo: "Geral" },
+  { slug: "percepcao-passiva", nome: "Percepção Passiva", grupo: "Geral" },
+  { slug: "deslocamento", nome: "Deslocamento", grupo: "Geral" },
+  { slug: "carga", nome: "Capacidade de Carga", grupo: "Geral" },
+  { slug: "hp-max", nome: "PV Máximo", grupo: "PV e PP" },
+  { slug: "hp-temp", nome: "PV Temporário", grupo: "PV e PP" },
+  { slug: "pp-max", nome: "PP Máximo", grupo: "PV e PP" },
   { slug: "ataque", nome: "Ataque (geral)", grupo: "Combate" },
   { slug: "ataque-cc", nome: "Ataque CC", grupo: "Combate" },
   { slug: "ataque-distancia", nome: "Ataque à Distância", grupo: "Combate" },
@@ -1505,8 +1505,8 @@ const ALVOS_CONTEXTUAIS_SET = new Set(ALVOS_CONTEXTUAIS.map((a) => a.slug));
 // Só os derivados que usam um atributo fixo (CR/iniciativa via DES) ou testes
 // (salvaguardas, perícias). Ataque/CD já têm seletor de atributo na própria Ação.
 export const ALVOS_SUBSTITUIVEIS: { slug: string; nome: string; grupo: string }[] = [
-  { slug: "cr", nome: "Classe de Resistência", grupo: "Derivado" },
-  { slug: "iniciativa", nome: "Iniciativa", grupo: "Derivado" },
+  { slug: "cr", nome: "Classe de Resistência", grupo: "Geral" },
+  { slug: "iniciativa", nome: "Iniciativa", grupo: "Geral" },
   ...ATRIBUTOS.map((a) => ({
     slug: `salv-${a.slug}`,
     nome: `Salv. ${a.nome}`,

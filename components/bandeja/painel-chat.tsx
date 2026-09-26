@@ -431,8 +431,6 @@ function TesteMensagemView({
           solicitacaoTesteId: msg.id,
           alvoNome: userName,
         },
-        personagemId,
-        personagemId ? `[${resultado.total}] = 1d20 ${modificador >= 0 ? "+" : "-"} ${Math.abs(modificador)}` : null,
       );
       onMensagemAtualizada(mensagem);
     } catch (error) {

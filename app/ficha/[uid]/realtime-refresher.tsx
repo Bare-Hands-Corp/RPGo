@@ -1,9 +1,21 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import { useRefreshAgrupado } from "@/lib/use-refresh-agrupado";
 import { useRefreshOnFocus } from "@/lib/use-refresh-on-focus";
+
+// O que a aba Tripulação mostra de um colega.
+const CAMPOS_TRIPULANTE = ["nome", "foto_url", "nivel", "mesa_id"];
+
+function mudouTripulante(
+  payload: RealtimePostgresChangesPayload<Record<string, unknown>>,
+): boolean {
+  if (payload.eventType !== "UPDATE") return true;
+  const { new: novo, old: velho } = payload;
+  return CAMPOS_TRIPULANTE.some((c) => novo[c] !== velho[c]);
+}
 
 // Escuta mudanças em personagens (este uid), acoes (deste uid) e itens (deste uid).
 // Cada evento dispara router.refresh() — a página re-renderiza no servidor com
@@ -17,7 +29,7 @@ export function FichaRealtime({
   personagemId: string;
   mesaId?: string | null;
 }) {
-  const router = useRouter();
+  const refresh = useRefreshAgrupado();
   useRefreshOnFocus();
 
   useEffect(() => {
@@ -32,7 +44,7 @@ export function FichaRealtime({
           table: "personagens",
           filter: `id=eq.${personagemId}`,
         },
-        () => router.refresh(),
+        refresh,
       )
       .on(
         "postgres_changes",
@@ -42,7 +54,7 @@ export function FichaRealtime({
           table: "acoes",
           filter: `personagem_id=eq.${personagemId}`,
         },
-        () => router.refresh(),
+        refresh,
       )
       .on(
         "postgres_changes",
@@ -52,7 +64,7 @@ export function FichaRealtime({
           table: "itens",
           filter: `personagem_id=eq.${personagemId}`,
         },
-        () => router.refresh(),
+        refresh,
       )
       .on(
         "postgres_changes",
@@ -62,7 +74,7 @@ export function FichaRealtime({
           table: "recursos",
           filter: `personagem_id=eq.${personagemId}`,
         },
-        () => router.refresh(),
+        refresh,
       )
       .on(
         "postgres_changes",
@@ -72,7 +84,7 @@ export function FichaRealtime({
           table: "habilidades",
           filter: `personagem_id=eq.${personagemId}`,
         },
-        () => router.refresh(),
+        refresh,
       )
       .on(
         "postgres_changes",
@@ -82,7 +94,7 @@ export function FichaRealtime({
           table: "pericias_custom",
           filter: `personagem_id=eq.${personagemId}`,
         },
-        () => router.refresh(),
+        refresh,
       )
       // Só `arvores` é assinada: camadas e nós não têm personagem_id pra filtrar.
       .on(
@@ -93,7 +105,7 @@ export function FichaRealtime({
           table: "arvores",
           filter: `personagem_id=eq.${personagemId}`,
         },
-        () => router.refresh(),
+        refresh,
       )
       // Narrador também edita objetivos.
       .on(
@@ -104,7 +116,7 @@ export function FichaRealtime({
           table: "objetivos",
           filter: `personagem_id=eq.${personagemId}`,
         },
-        () => router.refresh(),
+        refresh,
       );
 
     // Tripulação: navio da mesa + demais personagens dela (roster ao vivo).
@@ -118,7 +130,7 @@ export function FichaRealtime({
             table: "navios",
             filter: `mesa_id=eq.${mesaId}`,
           },
-          () => router.refresh(),
+          refresh,
         )
         .on(
           "postgres_changes",
@@ -128,7 +140,11 @@ export function FichaRealtime({
             table: "personagens",
             filter: `mesa_id=eq.${mesaId}`,
           },
-          () => router.refresh(),
+          // O próprio personagem já vem pela assinatura por id.
+          (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => {
+            const linha = payload.eventType === "DELETE" ? payload.old : payload.new;
+            if (linha.id !== personagemId && mudouTripulante(payload)) refresh();
+          },
         );
     }
 
@@ -137,7 +153,7 @@ export function FichaRealtime({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [personagemId, mesaId, router]);
+  }, [personagemId, mesaId, refresh]);
 
   return null;
 }

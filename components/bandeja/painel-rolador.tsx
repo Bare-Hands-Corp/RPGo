@@ -27,7 +27,6 @@ type Props = {
   userId: string;
   userName: string;
   sessionId: string;
-  personagemId: string | null;
   onMensagemCriada: (msg: MensagemSerializada) => void;
   efeitosContexto?: EfeitosContexto;
 };
@@ -191,7 +190,6 @@ export function PainelRolador({
   userId,
   userName,
   sessionId,
-  personagemId,
   onMensagemCriada,
   efeitosContexto,
 }: Props) {
@@ -354,7 +352,7 @@ export function PainelRolador({
     setResultado({ tipo: "preview" });
   }
 
-  // Persiste a rolagem (chat + ultimaRolagem) e atualiza o display local.
+  // Persiste a rolagem no chat e atualiza o display local.
   // `stringFinal` é a fração HTML após "[total] = "; persistimos como `texto`
   // pro chat renderizar igual ao Rolador (sem reconstruir dos rolls).
   function finalizar(
@@ -367,27 +365,15 @@ export function PainelRolador({
     const detalhesHtml = `[${total}] = ${stringFinal}`;
     setResultado({ tipo: "rolado", total: String(total), detalhesHtml });
 
-    const textoLimpo = stringFinal.replace(/<[^>]*>?/gm, "");
-    const prefixo = nomePreset ? `[${nomePreset}] ` : "";
-    const ultimaRolagemTexto = personagemId
-      ? `${prefixo}[${total}] = ${textoLimpo}`
-      : null;
-
-    registrarRolagem(
-      sessionId,
-      userName,
-      {
-        tipo: "rolagem",
-        total,
-        detalhes: rolls,
-        modificador: modUsar,
-        modo: "normal",
-        nomePreset: nomePreset || null,
-        texto: detalhesHtml,
-      },
-      personagemId,
-      ultimaRolagemTexto,
-    )
+    registrarRolagem(sessionId, userName, {
+      tipo: "rolagem",
+      total,
+      detalhes: rolls,
+      modificador: modUsar,
+      modo: "normal",
+      nomePreset: nomePreset || null,
+      texto: detalhesHtml,
+    })
       .then((msg) => onMensagemCriada(msg))
       .catch((err) => console.error(err));
   }
@@ -400,7 +386,6 @@ export function PainelRolador({
     modoUsar: ModoRolagem,
   ) {
     if (dadosUsar.length === 0 && modUsar === 0) return;
-    const prefixo = nomePreset ? `[${nomePreset}] ` : "";
 
     if (quantidadeUsar > 1) {
       const lote = rolarLote(dadosUsar, modUsar, quantidadeUsar, modoUsar);
@@ -418,28 +403,20 @@ export function PainelRolador({
         detalhesHtml: `[${resumo}] ${formulaTexto(dadosUsar, modUsar)}${modUsar !== 0 ? ` ${modUsar >= 0 ? "+" : "-"} ${Math.abs(modUsar)}` : ""}<div class="roll-batch-list">${linhas}</div>`,
       });
 
-      const ultimaRolagemTexto = personagemId ? `${prefixo}[${resumo}] ${formulaTexto(dadosUsar, modUsar)}` : null;
-
-      registrarRolagem(
-        sessionId,
-        userName,
-        {
-          tipo: "lote",
-          total: null,
-          quantidade: lote.quantidade,
-          modificador: modUsar,
-          modo: modoUsar,
-          execucoes: lote.execucoes.map((execucao) => ({
-            total: execucao.total,
-            modificador: execucao.modificador,
-            modo: execucao.modo,
-            detalhes: execucao.detalhes,
-          })),
-          nomePreset: nomePreset || null,
-        },
-        personagemId,
-        ultimaRolagemTexto,
-      )
+      registrarRolagem(sessionId, userName, {
+        tipo: "lote",
+        total: null,
+        quantidade: lote.quantidade,
+        modificador: modUsar,
+        modo: modoUsar,
+        execucoes: lote.execucoes.map((execucao) => ({
+          total: execucao.total,
+          modificador: execucao.modificador,
+          modo: execucao.modo,
+          detalhes: execucao.detalhes,
+        })),
+        nomePreset: nomePreset || null,
+      })
         .then((msg) => onMensagemCriada(msg))
         .catch((err) => console.error(err));
       return;
@@ -454,25 +431,14 @@ export function PainelRolador({
       detalhesHtml: `[${r.total}] = ${stringFinal}`,
     });
 
-    // Uma única chamada: registra a mensagem no chat E salva ultimaRolagem no
-    // personagem (em paralelo no servidor). Retorna a mensagem pra append local.
-    const textoLimpo = stringFinal.replace(/<[^>]*>?/gm, "");
-    const ultimaRolagemTexto = personagemId ? `${prefixo}[${r.total}] = ${textoLimpo}` : null;
-
-    registrarRolagem(
-      sessionId,
-      userName,
-      {
-        tipo: "rolagem",
-        total: r.total,
-        detalhes: r.detalhes,
-        modificador: modUsar,
-        modo: modoUsar,
-        nomePreset: nomePreset || null,
-      },
-      personagemId,
-      ultimaRolagemTexto,
-    )
+    registrarRolagem(sessionId, userName, {
+      tipo: "rolagem",
+      total: r.total,
+      detalhes: r.detalhes,
+      modificador: modUsar,
+      modo: modoUsar,
+      nomePreset: nomePreset || null,
+    })
       .then((msg) => onMensagemCriada(msg))
       .catch((err) => console.error(err));
   }
@@ -593,32 +559,21 @@ export function PainelRolador({
       detalhesHtml: `[${resumo}] ${formulaTexto(dadosUsar, modUsar)}${notasHtml}<div class="roll-batch-list">${linhas}</div>`,
     });
 
-    const prefixo = nomePreset ? `[${nomePreset}] ` : "";
-    const ultimaRolagemTexto = personagemId
-      ? `${prefixo}[${resumo}] ${formulaTexto(dadosUsar, modUsar)}`
-      : null;
-
-    registrarRolagem(
-      sessionId,
-      userName,
-      {
-        tipo: "lote",
-        total: null,
-        quantidade,
+    registrarRolagem(sessionId, userName, {
+      tipo: "lote",
+      total: null,
+      quantidade,
+      modificador: modUsar,
+      modo: modoEfetivo,
+      execucoes: execucoes.map((e) => ({
+        total: e.total,
         modificador: modUsar,
         modo: modoEfetivo,
-        execucoes: execucoes.map((e) => ({
-          total: e.total,
-          modificador: modUsar,
-          modo: modoEfetivo,
-          detalhes: e.rolls,
-          texto: e.stringDados,
-        })),
-        nomePreset: nomePreset || null,
-      },
-      personagemId,
-      ultimaRolagemTexto,
-    )
+        detalhes: e.rolls,
+        texto: e.stringDados,
+      })),
+      nomePreset: nomePreset || null,
+    })
       .then((msg) => onMensagemCriada(msg))
       .catch((err) => console.error(err));
   }
@@ -821,7 +776,7 @@ export function PainelRolador({
       {(contexto || nomeContexto) && (
         <div className="rolador-contexto" title="Rolagem empilhada da ficha">
           <i className="fas fa-crosshairs" />
-          <span>{nomeContexto ?? "Rolagem contextual"}</span>
+          <span>{nomeContexto ?? "Rolagem da ficha"}</span>
         </div>
       )}
 

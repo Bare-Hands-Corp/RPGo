@@ -2,6 +2,7 @@
 
 import { useOptimistic, useTransition } from "react";
 import { patchPersonagem } from "./actions";
+import { exigir } from "@/lib/acoes";
 
 type Props = {
   personagemId: string;
@@ -26,7 +27,7 @@ export function ExaustaoControle({ personagemId, exaustao }: Props) {
         new CustomEvent("rpgo:patch-personagem", { detail: { exaustao: clamped } }),
       );
       try {
-        await patchPersonagem(personagemId, { exaustao: clamped });
+        exigir(await patchPersonagem(personagemId, { exaustao: clamped }));
       } catch {
         aplicar(exaustao);
         window.dispatchEvent(

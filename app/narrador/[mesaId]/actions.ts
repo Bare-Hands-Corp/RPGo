@@ -2,18 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioDaRequest } from "@/lib/supabase/server";
 
 export async function removerPersonagemDaMesa(mesaId: string, personagemId: string) {
-  const supabase = await createClient();
-  const [
-    {
-      data: { user },
-    },
-    mesa,
-    personagem,
-  ] = await Promise.all([
-    supabase.auth.getUser(),
+  const [user, mesa, personagem] = await Promise.all([
+    usuarioDaRequest(),
     prisma.mesa.findUnique({
       where: { id: mesaId },
       select: { userId: true },
@@ -49,14 +42,8 @@ export async function criarSolicitacaoTeste(
     alvosNomes?: string[];
   },
 ) {
-  const supabase = await createClient();
-  const [
-    {
-      data: { user },
-    },
-    mesa,
-  ] = await Promise.all([
-    supabase.auth.getUser(),
+  const [user, mesa] = await Promise.all([
+    usuarioDaRequest(),
     prisma.mesa.findUnique({ where: { id: mesaId }, select: { userId: true } }),
   ]);
 

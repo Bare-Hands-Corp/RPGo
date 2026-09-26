@@ -1,5 +1,5 @@
 // Singleton do PrismaClient com driver adapter (Prisma 7+ exige adapter).
-// Cache no globalThis evita esgotar o pool em dev (Next re-avalia módulos por request).
+// Cache no globalThis também em produção, pra não abrir mais de um pool.
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 
@@ -17,7 +17,4 @@ function createPrismaClient() {
 }
 
 export const prisma = globalForPrisma.prisma ?? createPrismaClient();
-
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
-}
+globalForPrisma.prisma = prisma;

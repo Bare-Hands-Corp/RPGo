@@ -157,11 +157,8 @@ function SeletorBase({
       {!aberto ? (
         <button type="button" className="vinculo-abrir" onClick={abrir}>
           <i className="fas fa-plus" />
-          {escolhidos.length === 0
-            ? `Escolher ${rotulo}`
-            : unico
-              ? `Trocar ${rotulo}`
-              : `Adicionar ${rotulo}`}
+          {/* Mesmo verbo em todo estado: os seletores lado a lado ficam iguais. */}
+          Escolher {rotulo}
           <span className="vinculo-abrir-qtd">{opcoes.length}</span>
         </button>
       ) : (

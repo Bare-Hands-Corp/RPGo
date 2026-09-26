@@ -6,6 +6,7 @@ import Swal from "sweetalert2";
 import { createClient } from "@/lib/supabase/client";
 import { recortarParaBlob } from "@/lib/crop-image";
 import { patchPersonagem } from "./actions";
+import { exigir } from "@/lib/acoes";
 
 type Props = {
   personagemId: string;
@@ -88,7 +89,7 @@ export function AvatarUploadModal({ personagemId, avatarAtual }: Props) {
           .from("avatars")
           .getPublicUrl(fileName);
 
-        await patchPersonagem(personagemId, { fotoUrl: publicData.publicUrl });
+        exigir(await patchPersonagem(personagemId, { fotoUrl: publicData.publicUrl }));
 
         Swal.fire({
           icon: "success",

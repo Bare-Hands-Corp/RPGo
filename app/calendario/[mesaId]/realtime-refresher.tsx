@@ -1,8 +1,8 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useRefreshAgrupado } from "@/lib/use-refresh-agrupado";
 import { useRefreshOnFocus } from "@/lib/use-refresh-on-focus";
 
 // Realtime do calendário: ouve mudanças em calendarios (dataAtualDias, config),
@@ -15,7 +15,7 @@ export function CalendarioRealtime({
   mesaId: string;
   calendarioId: string;
 }) {
-  const router = useRouter();
+  const refresh = useRefreshAgrupado();
   useRefreshOnFocus();
 
   useEffect(() => {
@@ -30,7 +30,7 @@ export function CalendarioRealtime({
           table: "calendarios",
           filter: `mesa_id=eq.${mesaId}`,
         },
-        () => router.refresh(),
+        refresh,
       )
       .on(
         "postgres_changes",
@@ -40,7 +40,7 @@ export function CalendarioRealtime({
           table: "eventos_calendario",
           filter: `calendario_id=eq.${calendarioId}`,
         },
-        () => router.refresh(),
+        refresh,
       )
       .on(
         "postgres_changes",
@@ -50,14 +50,14 @@ export function CalendarioRealtime({
           table: "tipos_clima",
           filter: `calendario_id=eq.${calendarioId}`,
         },
-        () => router.refresh(),
+        refresh,
       )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [mesaId, calendarioId, router]);
+  }, [mesaId, calendarioId, refresh]);
 
   return null;
 }

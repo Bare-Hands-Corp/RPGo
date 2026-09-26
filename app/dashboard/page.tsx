@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioDaRequest } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
 import { CardPersonagem } from "./card-personagem";
 import { CardMesa } from "./card-mesa";
@@ -12,10 +12,7 @@ import { ThemeButton } from "@/components/temas/theme-button";
 import "./dashboard.css";
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await usuarioDaRequest();
   if (!user) redirect("/login");
 
   // Duas queries em paralelo. Personagens inclui a mesa pro footer do card.
@@ -33,7 +30,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="dashboard-container">
-      <RealtimeRefresher />
+      <RealtimeRefresher userId={user.id} />
 
       <header className="dashboard-header">
         <h1>

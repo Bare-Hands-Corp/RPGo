@@ -2,6 +2,7 @@
 
 import { useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
+import { ehTemporario, exigir, idTemporario } from "@/lib/acoes";
 import { atualizarAcao, criarAcao, deletarAcao } from "./actions";
 import {
   ATRIBUTOS,
@@ -336,19 +337,19 @@ export function AcoesTab({
       if (editandoId) {
         aplicarPatch({ kind: "update", id: editandoId, patch: dados });
         try {
-          await atualizarAcao(personagemId, editandoId, dados);
+          exigir(await atualizarAcao(personagemId, editandoId, dados));
         } catch (err) {
           mostrarErro(err);
         }
       } else {
         const novaAcao: Acao = {
-          id: "temp-" + Math.random().toString(36).slice(2),
+          id: idTemporario(),
           ...dados,
           tag: dados.tag || null,
         };
         aplicarPatch({ kind: "create", acao: novaAcao });
         try {
-          await criarAcao(personagemId, dados);
+          exigir(await criarAcao(personagemId, dados));
         } catch (err) {
           mostrarErro(err);
         }
@@ -374,7 +375,7 @@ export function AcoesTab({
     startTransition(async () => {
       aplicarPatch({ kind: "delete", id: acaoId });
       try {
-        await deletarAcao(personagemId, acaoId);
+        exigir(await deletarAcao(personagemId, acaoId));
       } catch (err) {
         mostrarErro(err);
       }
@@ -560,7 +561,10 @@ export function AcoesTab({
                   return (
                     <div
                       key={acao.id}
-                      className={`action-card type-${acao.tipo}${travadaPorItem ? " hab-travada" : ""}`}
+                      className={`action-card type-${acao.tipo}${travadaPorItem ? " hab-travada" : ""}${
+                        ehTemporario(acao.id) ? " item-pendente" : ""
+                      }`}
+                      inert={ehTemporario(acao.id)}
                     >
                       <button
                         type="button"
@@ -698,8 +702,8 @@ export function AcoesTab({
                                 style={travadaPorItem ? { color: "var(--text-sec)" } : undefined}
                                 title={
                                   travadaPorItem
-                                    ? "Esta ação vem de um item que não está equipado"
-                                    : "Ação concedida por este item"
+                                    ? "Vem de um item que não está equipado"
+                                    : "Vem deste item"
                                 }
                               >
                                 <i className={`fas ${travadaPorItem ? "fa-lock" : "fa-sack-dollar"}`} />{" "}
@@ -713,8 +717,8 @@ export function AcoesTab({
                                 style={a.equipado ? undefined : { color: "var(--text-sec)" }}
                                 title={
                                   a.equipado
-                                    ? "Desfere esta ação; o acerto acima é o dela"
-                                    : "Arma ligada, mas não equipada"
+                                    ? "Arma desta ação"
+                                    : "Arma não equipada"
                                 }
                               >
                                 <i className={`fas ${a.equipado ? "fa-khanda" : "fa-link-slash"}`} />{" "}
@@ -747,8 +751,8 @@ export function AcoesTab({
                             <span className="tag tag-damage">{acao.tag}</span>
                           )}
                           {habsDerivadas.length > 0 && (
-                            <span className="acao-deriva" title="Esta ação deriva destas habilidades">
-                              Deriva de{" "}
+                            <span className="acao-deriva">
+                              Vem de{" "}
                               {habsDerivadas.map((h, i) => (
                                 <span key={h.id}>
                                   {i > 0 && ", "}
@@ -825,16 +829,16 @@ export function AcoesTab({
                 <i className="fas fa-link" /> De onde vem
               </h3>
 
-              <label>Deriva das habilidades</label>
+              <label>Habilidades</label>
               <SeletorMultiplo
                 opcoes={opcoesHabilidade}
                 marcados={form.habilidadeIds}
                 onChange={(ids) => setF("habilidadeIds", ids)}
                 rotulo="habilidade"
-                vazio="Nenhuma habilidade cadastrada ainda — veja a aba Habilidades."
+                vazio="Nenhuma habilidade na ficha."
               />
 
-              <label style={{ marginTop: 14 }}>Concedida por um item</label>
+              <label style={{ marginTop: 14 }}>Item</label>
               <SeletorUnico
                 opcoes={opcoesItem}
                 marcado={form.itemId}
@@ -843,9 +847,7 @@ export function AcoesTab({
                 vazio="Nenhum item no inventário."
               />
 
-              <h3 className="modal-secao">
-                <i className="fas fa-khanda" /> Armas que desferem
-              </h3>
+              <label style={{ marginTop: 14 }}>Armas</label>
               <SeletorMultiplo
                 opcoes={opcoesArma}
                 marcados={form.armaIds}
@@ -935,7 +937,7 @@ export function AcoesTab({
                 <div className="modal-secao-corpo">
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                     <div>
-                      <label>PP (Pontos de Poder)</label>
+                      <label>PP</label>
                       <input
                         type="number"
                         min={0}
@@ -945,7 +947,7 @@ export function AcoesTab({
                       />
                     </div>
                     <div>
-                      <label>PA (Pontos de Ambição)</label>
+                      <label>PA</label>
                       <input
                         type="number"
                         min={0}

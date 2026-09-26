@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Swal from "sweetalert2";
+import { ehTemporario } from "@/lib/acoes";
 import type { CalendarioConfig } from "@/lib/calendario/engine";
 import type { TipoClima } from "./types";
 import { ICONES_CLIMA_FA, IconeCal } from "./icones";
@@ -361,8 +362,10 @@ function TipoCard({
     onPatch({ pesosPorEstacao: { ...tipo.pesosPorEstacao, [estacao]: v } });
   }
 
+  const pendente = ehTemporario(tipo.id);
+
   return (
-    <div className="cal-tipo-item">
+    <div className={`cal-tipo-item${pendente ? " item-pendente" : ""}`} inert={pendente}>
       <div className="cal-tipo-cabecalho">
         <IconePickerClima
           valor={tipo.icone || ""}

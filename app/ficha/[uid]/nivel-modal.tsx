@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { subirDeNivel } from "./actions";
+import { exigir } from "@/lib/acoes";
 import {
   PONTOS_APRIMORAMENTO,
   clampGanhoPv,
@@ -91,7 +92,7 @@ export function NivelModal({
     setSalvando(true);
     startTransition(async () => {
       try {
-        await subirDeNivel(personagemId, { pvGanho, aprimoramento: apr });
+        exigir(await subirDeNivel(personagemId, { pvGanho, aprimoramento: apr }));
         onFechar();
       } catch (err) {
         Swal.fire({
@@ -120,7 +121,7 @@ export function NivelModal({
         {!proposta.peAlcancado && (
           <p className="nivel-aviso">
             <i className="fas fa-triangle-exclamation" /> Faltam{" "}
-            <strong>{proposta.peFaltando} PE</strong> pro limiar.
+            <strong>{proposta.peFaltando} PE</strong> pro nível {proposta.nivelNovo}.
           </p>
         )}
 

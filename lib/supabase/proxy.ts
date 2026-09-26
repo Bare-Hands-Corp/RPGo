@@ -2,10 +2,11 @@
 // propaga cookies atualizados e aplica redirects baseados em sessão.
 //
 // IMPORTANTE: NÃO logar/await nada entre `createServerClient` e
-// `supabase.auth.getUser()` — qualquer trabalho no meio pode causar logouts
-// aleatórios (race em refresh tokens single-use).
+// `supabase.auth.getClaims()` — qualquer trabalho no meio pode causar logouts
+// aleatórios (race em refresh tokens single-use). Por isso o JWKS vem antes.
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { carregarJwks } from "./jwks";
 
 // Rotas acessíveis sem login. Tudo mais exige sessão válida.
 const ROTAS_PUBLICAS = ["/login", "/auth/callback"];
@@ -15,6 +16,7 @@ function isRotaPublica(pathname: string): boolean {
 }
 
 export async function updateSession(request: NextRequest) {
+  const jwks = await carregarJwks();
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -38,9 +40,8 @@ export async function updateSession(request: NextRequest) {
     },
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data } = await supabase.auth.getClaims(undefined, jwks ? { jwks } : undefined);
+  const user = data?.claims?.sub ?? null;
 
   const { pathname } = request.nextUrl;
 

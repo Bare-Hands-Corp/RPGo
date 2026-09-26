@@ -571,7 +571,12 @@ model ArvoreNo {
   // Raia onde o nó aparece. null = primeira raia (ou a raia única).
   ramoId      String?      @map("ramo_id")
   ramo        ArvoreRamo?  @relation(fields: [ramoId], references: [id], onDelete: SetNull)
-  // Altura dentro da faixa da camada, 0–100 (%).
+  // Célula na grade: coluna dentro da raia e linha dentro da camada (0 = a
+  // primeira). Aplicadas com ALTER TABLE aditivo em 2026-09-26.
+  coluna      Int          @default(0)
+  linha       Int          @default(0)
+  // Legado: altura (%) do layout antigo, antes da grade. Só serviu pra
+  // semear a `linha` dos nós que já existiam; nada mais lê.
   offsetY     Int          @default(50) @map("offset_y")
 
   nome        String

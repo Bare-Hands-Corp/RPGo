@@ -2,6 +2,7 @@
 
 import { useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
+import { ehTemporario, exigir, idTemporario } from "@/lib/acoes";
 import {
   ATRIBUTOS,
   PERICIAS,
@@ -159,7 +160,7 @@ export function PericiasTab({
     startTransition(async () => {
       aplicarPatch({ kind: "pericia", slug, ligado });
       try {
-        await togglePericia(personagemId, slug, ligado);
+        exigir(await togglePericia(personagemId, slug, ligado));
       } catch (err) {
         mostrarErro(err);
       }
@@ -170,7 +171,7 @@ export function PericiasTab({
     startTransition(async () => {
       aplicarPatch({ kind: "pericia-outros", slug, valor });
       try {
-        await setPericiaOutros(personagemId, slug, valor);
+        exigir(await setPericiaOutros(personagemId, slug, valor));
       } catch (err) {
         mostrarErro(err);
       }
@@ -181,7 +182,7 @@ export function PericiasTab({
     startTransition(async () => {
       aplicarPatch({ kind: "pericia-dobrada", slug, ligado });
       try {
-        await togglePericiaDobrada(personagemId, slug, ligado);
+        exigir(await togglePericiaDobrada(personagemId, slug, ligado));
       } catch (err) {
         mostrarErro(err);
       }
@@ -192,7 +193,7 @@ export function PericiasTab({
     startTransition(async () => {
       aplicarPatch({ kind: "salvaguarda", atributo, ligado });
       try {
-        await toggleSalvaguarda(personagemId, atributo, ligado);
+        exigir(await toggleSalvaguarda(personagemId, atributo, ligado));
       } catch (err) {
         mostrarErro(err);
       }
@@ -203,7 +204,7 @@ export function PericiasTab({
     startTransition(async () => {
       aplicarPatch({ kind: "salvaguarda-outros", atributo, valor });
       try {
-        await setSalvaguardaOutros(personagemId, atributo, valor);
+        exigir(await setSalvaguardaOutros(personagemId, atributo, valor));
       } catch (err) {
         mostrarErro(err);
       }
@@ -220,7 +221,7 @@ export function PericiasTab({
         patch: { proficiente, dobrada: proficiente ? c.dobrada : false },
       });
       try {
-        await patchPericiaCustom(personagemId, c.id, { proficiente });
+        exigir(await patchPericiaCustom(personagemId, c.id, { proficiente }));
       } catch (err) {
         mostrarErro(err);
       }
@@ -231,7 +232,7 @@ export function PericiasTab({
     startTransition(async () => {
       aplicarCustomPatch({ kind: "update", id: c.id, patch: { dobrada } });
       try {
-        await patchPericiaCustom(personagemId, c.id, { dobrada });
+        exigir(await patchPericiaCustom(personagemId, c.id, { dobrada }));
       } catch (err) {
         mostrarErro(err);
       }
@@ -242,7 +243,7 @@ export function PericiasTab({
     startTransition(async () => {
       aplicarCustomPatch({ kind: "update", id: c.id, patch: { bonusOutros: valor } });
       try {
-        await patchPericiaCustom(personagemId, c.id, { bonusOutros: valor });
+        exigir(await patchPericiaCustom(personagemId, c.id, { bonusOutros: valor }));
       } catch (err) {
         mostrarErro(err);
       }
@@ -265,7 +266,7 @@ export function PericiasTab({
     startTransition(async () => {
       aplicarCustomPatch({ kind: "delete", id: c.id });
       try {
-        await deletarPericiaCustom(personagemId, c.id);
+        exigir(await deletarPericiaCustom(personagemId, c.id));
       } catch (err) {
         mostrarErro(err);
       }
@@ -280,14 +281,14 @@ export function PericiasTab({
       if (alvo) {
         aplicarCustomPatch({ kind: "update", id: alvo.id, patch: dados });
         try {
-          await patchPericiaCustom(personagemId, alvo.id, dados);
+          exigir(await patchPericiaCustom(personagemId, alvo.id, dados));
         } catch (err) {
           mostrarErro(err);
         }
       } else {
         const slugsUsados = new Set(custom.map((c) => c.slug));
         const nova: PericiaCustomRow = {
-          id: "temp-" + Math.random().toString(36).slice(2),
+          id: idTemporario(),
           slug: slugPericiaCustom(dados.nome, slugsUsados),
           proficiente: false,
           dobrada: false,
@@ -297,7 +298,7 @@ export function PericiasTab({
         };
         aplicarCustomPatch({ kind: "create", pericia: nova });
         try {
-          await criarPericiaCustom(personagemId, dados);
+          exigir(await criarPericiaCustom(personagemId, dados));
         } catch (err) {
           mostrarErro(err);
         }
@@ -542,8 +543,9 @@ export function PericiasTab({
               return (
                 <div
                   key={c.id}
-                  className={`prof-row ${proficiente ? "prof-on" : ""}`}
+                  className={`prof-row ${proficiente ? "prof-on" : ""} ${ehTemporario(c.id) ? "item-pendente" : ""}`}
                   title={tituloFontes || undefined}
+                  inert={ehTemporario(c.id)}
                 >
                   <input
                     type="checkbox"

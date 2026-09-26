@@ -3036,38 +3036,251 @@
   align-items: center;
 }
 
-.arvore-raias-chips {
+/* Filtro do palco: um ramo e/ou uma camada por vez, ou todos. */
+.arvore-filtros {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px 12px;
   align-items: center;
 }
 
-.arvore-raia-x {
+.arvore-filtro {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-surface);
+}
+
+.arvore-filtro-item {
+  display: inline-flex;
+  align-items: center;
+}
+
+.arvore-filtro-opcao {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: var(--text-sec);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.arvore-filtro-opcao i {
+  font-size: 0.85em;
+  opacity: 0.8;
+}
+
+.arvore-filtro-opcao:hover {
+  color: var(--text-main);
+  background: color-mix(in oklch, var(--primary) 10%, transparent);
+}
+
+.arvore-filtro-opcao:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.arvore-filtro-opcao.ativo {
+  background: var(--primary);
+  color: white;
+}
+
+.arvore-filtro-x {
   background: none;
   border: none;
-  color: inherit;
+  color: var(--text-sec);
   cursor: pointer;
-  padding: 0 0 0 6px;
-  font-size: 0.7em;
+  padding: 4px 6px 4px 2px;
+  font-size: 0.7rem;
   opacity: 0.7;
 }
 
-.arvore-raia-x:hover {
+.arvore-filtro-x:hover {
+  color: #d33;
   opacity: 1;
 }
 
-/* ─── Canvas ──────────────────────────────────────────────── */
+/* ─── Palco da árvore: arrastar move, roda ou pinça dá zoom ─── */
+.arvore-palco {
+  position: relative;
+}
+
+/* Tela cheia: palco + painel ocupam a tela (no celular é o jeito bom de jogar). */
+.arvore-palco.tela-cheia {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--bg-page);
+}
+
+.arvore-palco.tela-cheia .arvore-canvas {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+
+.arvore-palco.tela-cheia .arvore-painel {
+  position: static;
+  margin-top: 0;
+  max-height: 42vh;
+  overflow-y: auto;
+}
+
 .arvore-canvas {
   position: relative;
+  height: clamp(420px, 70vh, 780px);
   border: 1px solid var(--border);
   border-radius: 14px;
-  overflow: hidden;
+  /* clip, não hidden: focar um talento não pode rolar o palco por baixo do zoom. */
+  overflow: clip;
   background-color: var(--bg-card);
   background-size: cover;
   background-position: center;
-  padding: 0;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  /* Camada própria: os botões de zoom não passam por cima do painel do talento. */
+  isolation: isolate;
 }
+
+.arvore-canvas.movendo {
+  cursor: grabbing;
+}
+
+.arvore-mundo {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+/* Fundo de cada camada; a fechada ganha listras. Fica atrás das linhas. */
+.arvore-mundo-faixa {
+  position: absolute;
+  border-radius: 20px;
+  border: 1px solid color-mix(in oklch, var(--border) 45%, transparent);
+  background: color-mix(in oklch, var(--bg-surface) 30%, transparent);
+}
+
+.arvore-mundo-faixa.fechada {
+  background: repeating-linear-gradient(
+    135deg,
+    transparent 0 14px,
+    color-mix(in oklch, var(--text-sec) 6%, transparent) 14px 28px
+  );
+}
+
+.arvore-mundo-divisa {
+  position: absolute;
+  width: 0;
+  border-left: 1px dashed color-mix(in oklch, var(--border) 70%, transparent);
+}
+
+.arvore-mundo-raia {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  color: var(--text-main);
+}
+
+.arvore-mundo-camada {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.arvore-mundo-camada-nome {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--text-sec);
+}
+
+.arvore-mundo-camada.fechada .arvore-mundo-camada-nome {
+  opacity: 0.6;
+}
+
+.arvore-mundo-camada-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.72rem;
+  color: var(--text-sec);
+}
+
+.arvore-mundo-camada-meta em {
+  font-style: normal;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.arvore-mundo-camada-acoes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Zoom, enquadrar e tela cheia: fora do mundo, não crescem com o zoom. */
+.arvore-controles {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.arvore-controles button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-size: 0.8rem;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.arvore-controles button:hover,
+.arvore-controles button:focus-visible {
+  border-color: var(--primary);
+  color: var(--primary);
+  outline: none;
+}
+
 
 .arvore-canvas-veu {
   position: absolute;
@@ -3129,17 +3342,28 @@
   animation: arvore-fio-corre 2.8s linear infinite;
 }
 
-.arvore-fio.livre .arvore-fio-halo {
-  stroke-width: 7;
-}
-
-.arvore-fio.livre .arvore-fio-traco {
-  stroke-width: 2.5;
-  opacity: 0.8;
-}
-
 .arvore-canvas.foco .arvore-fio {
   opacity: 0.3;
+}
+
+/* Talento selecionado: as linhas dele acendem, as outras recuam. */
+.arvore-conectores.com-selecao .arvore-conector:not(.ligada),
+.arvore-conectores.com-selecao .arvore-fio:not(.ligada) {
+  opacity: 0.3;
+}
+
+.arvore-conector.ligada {
+  stroke: color-mix(in oklch, var(--text-main) 80%, transparent);
+  stroke-width: 2.5;
+}
+
+.arvore-conector.ativo.ligada {
+  stroke: color-mix(in oklch, var(--primary) 70%, white);
+  stroke-width: 3.5;
+}
+
+.arvore-fio.ligada .arvore-fio-halo {
+  stroke-width: 12;
 }
 
 @keyframes arvore-fio-corre {
@@ -3158,198 +3382,221 @@
 }
 
 
-/* ─── Cabeçalho das raias ─────────────────────────────────── */
-.arvore-raias-head {
-  position: relative;
-  z-index: 2;
-  display: grid;
-  grid-template-columns: 58px 1fr;
-  padding: 12px 14px 6px;
-}
-
-.arvore-raias-cols {
-  display: grid;
-}
-
-.arvore-raia-nome {
-  text-align: center;
-  font-weight: 700;
-  font-size: 0.9rem;
-  color: var(--text-main);
-  letter-spacing: 0.02em;
-}
-
-.arvore-trilho-vazio {
-  display: block;
-}
-
-/* ─── Faixa (uma por camada) ──────────────────────────────── */
-.arvore-faixa-linha {
-  position: relative;
-  z-index: 2;
-  display: grid;
-  grid-template-columns: 58px 1fr;
-  border-top: 1px solid color-mix(in oklch, var(--border) 80%, transparent);
-}
-
-.arvore-faixa-linha:first-of-type {
-  border-top: none;
-}
-
-.arvore-faixa-linha.fechada {
-  opacity: 0.5;
-}
-
-.arvore-trilho {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 10px 0;
-  border-right: 1px solid color-mix(in oklch, var(--border) 80%, transparent);
-  background: color-mix(in oklch, var(--bg-surface) 55%, transparent);
-}
-
-.arvore-trilho-nome {
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-  font-weight: 800;
-  font-size: 0.72rem;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: var(--text-sec);
-  white-space: nowrap;
-}
-
-.arvore-trilho-meta {
+/* ─── Nó: círculo com ícone, estrelas e nome ──────────────── */
+/* Posição absoluta no mundo (vem da célula da grade). Só o círculo tem fundo —
+   e ele é sólido, pra linha de trás nunca aparecer. */
+.arvore-no {
+  position: absolute;
+  z-index: 3;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 3px;
-  font-size: 0.66rem;
-  color: var(--text-sec);
-}
-
-.arvore-trilho-meta em {
-  font-style: normal;
-  font-weight: 700;
-  color: var(--text-main);
-}
-
-.arvore-trilho-acoes {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-
-.arvore-faixa-linha:hover .arvore-trilho-acoes {
-  opacity: 1;
-}
-
-.arvore-faixa {
-  position: relative;
-  display: grid;
-  padding: 8px 0;
-}
-
-.arvore-raia {
-  position: relative;
-  border-left: 1px dashed color-mix(in oklch, var(--border) 55%, transparent);
-}
-
-.arvore-raia:first-child {
-  border-left: none;
-}
-
-.arvore-faixa-vazia {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.8rem;
-  font-style: italic;
-  color: var(--text-sec);
-  pointer-events: none;
-}
-
-/* ─── Nó (card compacto do canvas) ────────────────────────── */
-.arvore-no {
-  position: absolute;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: min(180px, 86%);
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 9px 11px 8px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--bg-card);
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.28);
-  /* No modo jogar o card só é clicável; só vira "arrastável" ao montar. */
+  padding-top: 6px;
   cursor: pointer;
   touch-action: none;
   user-select: none;
-  z-index: 3;
-  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.arvore-no:focus-visible {
+  outline: none;
 }
 
 .arvore-no.montando {
   cursor: grab;
 }
 
-.arvore-no:hover {
-  border-color: color-mix(in oklch, var(--primary) 55%, var(--border));
-}
-
 .arvore-no.arrastando {
   cursor: grabbing;
-  z-index: 5;
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+  z-index: 6;
 }
 
-.arvore-no.selecionado {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 2px color-mix(in oklch, var(--primary) 45%, transparent);
+.arvore-no-circulo {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid color-mix(in oklch, var(--border) 85%, var(--text-sec));
+  background: var(--bg-surface);
+  color: var(--text-sec);
+  font-size: 1.25rem;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s, background 0.15s;
 }
 
-.arvore-no.comprado {
-  border-color: color-mix(in oklch, var(--arvore-fio-cor, var(--primary)) 70%, transparent);
-  background: color-mix(in oklch, var(--arvore-fio-cor, var(--primary)) 10%, var(--bg-card));
+.arvore-no:hover .arvore-no-circulo,
+.arvore-no:focus-visible .arvore-no-circulo {
+  transform: scale(1.06);
+  border-color: color-mix(in oklch, var(--primary) 60%, var(--border));
 }
 
-.arvore-no.disponivel {
-  border-color: color-mix(in oklch, var(--color-react) 65%, var(--border));
+.arvore-no.arrastando .arvore-no-circulo {
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+}
+
+.arvore-no.travado .arvore-no-circulo i {
+  opacity: 0.55;
+}
+
+.arvore-no.disponivel .arvore-no-circulo {
+  border-color: var(--color-react);
+  color: var(--text-main);
   box-shadow:
-    0 3px 10px rgba(0, 0, 0, 0.28),
-    0 0 0 2px color-mix(in oklch, var(--color-react) 35%, transparent);
+    0 3px 10px rgba(0, 0, 0, 0.25),
+    0 0 0 3px color-mix(in oklch, var(--color-react) 28%, transparent);
 }
 
-.arvore-canvas.foco .arvore-no:not(.disponivel) {
-  opacity: 0.28;
-  filter: grayscale(0.5);
+.arvore-no.comprado .arvore-no-circulo {
+  border-color: var(--arvore-fio-cor, var(--primary));
+  background: color-mix(in oklch, var(--arvore-fio-cor, var(--primary)) 85%, var(--bg-card));
+  color: var(--bg-card);
+  box-shadow: 0 3px 12px color-mix(in oklch, var(--arvore-fio-cor, var(--primary)) 45%, transparent);
 }
 
-.arvore-canvas.foco .arvore-no.disponivel {
+.arvore-no.selecionado .arvore-no-circulo {
+  box-shadow:
+    0 0 0 3px var(--bg-card),
+    0 0 0 5px var(--primary);
+}
+
+.arvore-canvas.foco .arvore-no:not(.disponivel) .arvore-no-circulo {
+  filter: grayscale(0.7) brightness(0.7);
+}
+
+.arvore-canvas.foco .arvore-no:not(.disponivel) .arvore-no-nome,
+.arvore-canvas.foco .arvore-no:not(.disponivel) .arvore-no-estrelas {
+  opacity: 0.35;
+}
+
+.arvore-canvas.foco .arvore-no.disponivel .arvore-no-circulo {
   animation: arvore-no-pulsa 1.6s ease-in-out infinite;
 }
 
 @keyframes arvore-no-pulsa {
   0%, 100% {
     box-shadow:
-      0 3px 10px rgba(0, 0, 0, 0.28),
-      0 0 0 2px color-mix(in oklch, var(--color-react) 35%, transparent);
+      0 3px 10px rgba(0, 0, 0, 0.25),
+      0 0 0 3px color-mix(in oklch, var(--color-react) 28%, transparent);
   }
   50% {
     box-shadow:
-      0 3px 10px rgba(0, 0, 0, 0.28),
-      0 0 0 6px color-mix(in oklch, var(--color-react) 20%, transparent);
+      0 3px 10px rgba(0, 0, 0, 0.25),
+      0 0 0 7px color-mix(in oklch, var(--color-react) 16%, transparent);
   }
+}
+
+/* Custo no canto do círculo. */
+.arvore-no-selo {
+  position: absolute;
+  top: -6px;
+  right: -14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklch, var(--primary) 70%, var(--border));
+  background: var(--bg-card);
+  color: var(--primary);
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.arvore-no-selo i {
+  font-size: 0.52rem;
+}
+
+.arvore-no-cadeado {
+  position: absolute;
+  bottom: -4px;
+  right: -6px;
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-sec);
+  font-size: 0.5rem;
+}
+
+.arvore-no-estrelas {
+  display: flex;
+  gap: 1px;
+  min-height: 11px;
+  margin-top: 2px;
+  line-height: 1;
+}
+
+/* Rank legível de relance: a vazia some, a cheia brilha. */
+.arvore-estrela {
+  font-size: 0.66rem;
+  color: color-mix(in oklch, var(--text-sec) 38%, transparent);
+}
+
+.arvore-estrela.cheia {
+  color: var(--primary);
+  text-shadow: 0 0 6px color-mix(in oklch, var(--primary) 70%, transparent);
+}
+
+.arvore-no-nome {
+  display: -webkit-box;
+  max-width: 100%;
+  padding: 0 1px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: center;
+  overflow-wrap: break-word;
+  hyphens: auto;
+  color: var(--text-main);
+}
+
+.arvore-no.travado .arvore-no-nome {
+  color: var(--text-sec);
+}
+
+/* Montando: célula vazia vira um "+" pra criar ali. */
+.arvore-celula-vazia {
+  position: absolute;
+  z-index: 2;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 1px dashed color-mix(in oklch, var(--border) 90%, transparent);
+  background: transparent;
+  color: var(--text-sec);
+  font-size: 0.8rem;
+  opacity: 0.35;
+  cursor: pointer;
+  transition: opacity 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.arvore-celula-vazia:hover,
+.arvore-celula-vazia:focus-visible {
+  opacity: 1;
+  border-color: var(--primary);
+  color: var(--primary);
+  outline: none;
+}
+
+/* Onde o talento arrastado vai cair (ou com quem troca de lugar). */
+.arvore-celula-alvo {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  border: 2px dashed var(--primary);
+  border-radius: 12px;
+  background: color-mix(in oklch, var(--primary) 10%, transparent);
 }
 
 .arvore-disponiveis {
@@ -3392,100 +3639,16 @@
   color: var(--text-sec);
 }
 
-.arvore-tira-disp,
 .arvore-resumo-disp {
   font-style: normal;
   color: var(--color-react);
   font-weight: 700;
 }
 
-.arvore-tira-disp {
-  margin-left: 10px;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .arvore-canvas.foco .arvore-no.disponivel {
+  .arvore-canvas.foco .arvore-no.disponivel .arvore-no-circulo {
     animation: none;
   }
-}
-
-.arvore-no.travado {
-  opacity: 0.72;
-}
-
-.arvore-no-selo {
-  position: absolute;
-  top: -9px;
-  right: -8px;
-  gap: 3px;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--bg-surface);
-  border: 1px solid var(--primary);
-  color: var(--primary);
-  font-size: 0.68rem;
-  font-weight: 800;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.arvore-no-linha {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.arvore-no-icone {
-  font-size: 0.75rem;
-  color: var(--primary);
-  flex-shrink: 0;
-}
-
-.arvore-no-nome {
-  font-weight: 700;
-  font-size: 0.76rem;
-  line-height: 1.15;
-}
-
-.arvore-no-estrelas {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-}
-
-/* Rank precisa ser legível de relance: a vazia some, a cheia brilha. */
-.arvore-estrela {
-  font-size: 0.85rem;
-  color: color-mix(in oklch, var(--text-sec) 32%, transparent);
-  line-height: 1;
-}
-
-.arvore-estrela.cheia {
-  color: var(--primary);
-  text-shadow: 0 0 7px color-mix(in oklch, var(--primary) 70%, transparent);
-}
-
-/* Contagem "1/3" ao lado das estrelas — as estrelas dão a forma, o número
-   tira a dúvida quando o card está esmaecido. */
-.arvore-no-rank {
-  margin-left: 3px;
-  font-size: 0.66rem;
-  font-weight: 700;
-  color: var(--text-sec);
-}
-
-.arvore-no.comprado .arvore-no-rank {
-  color: var(--primary);
-}
-
-.arvore-no-cadeado {
-  margin-left: auto;
-  font-size: 0.62rem;
-  color: var(--text-sec);
-  opacity: 0.8;
 }
 
 /* ─── Painel do talento selecionado ───────────────────────── */
@@ -3580,18 +3743,8 @@
 
 
 @media (max-width: 640px) {
-  .arvore-raias-head,
-  .arvore-faixa-linha {
-    grid-template-columns: 34px 1fr;
-  }
-
-  .arvore-trilho-nome {
-    font-size: 0.62rem;
-    letter-spacing: 0.14em;
-  }
-
-  .arvore-no {
-    width: min(150px, 92%);
+  .arvore-canvas {
+    height: 62vh;
   }
 }
 
@@ -4025,16 +4178,7 @@
   color: var(--text-sec);
 }
 
-.arvore-raia.alvo {
-  background: color-mix(in oklch, var(--primary) 9%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--primary) 35%, transparent);
-}
-
-.arvore-raia:hover {
-  background: color-mix(in oklch, var(--primary) 4%, transparent);
-}
-
-/* ─── Colapso de camada / árvore ──────────────────────────── */
+/* ─── Colapso da árvore ───────────────────────────────────── */
 .arvore-colapsar-arvore {
   background: none;
   border: 1px solid var(--border);
@@ -4050,39 +4194,6 @@
 .arvore-colapsar-arvore:hover {
   color: var(--text-main);
   border-color: var(--primary);
-}
-
-.arvore-trilho-toggle {
-  background: none;
-  border: none;
-  color: var(--text-sec);
-  cursor: pointer;
-  font-size: 0.72rem;
-  padding: 2px 4px;
-}
-
-.arvore-trilho-toggle:hover {
-  color: var(--primary);
-}
-
-.arvore-faixa-tira {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
-  padding: 10px;
-  border: none;
-  background: none;
-  color: var(--text-sec);
-  font-size: 0.76rem;
-  font-style: italic;
-  cursor: pointer;
-}
-
-.arvore-faixa-tira:hover {
-  color: var(--text-main);
-  background: color-mix(in oklch, var(--primary) 6%, transparent);
 }
 
 .arvore-resumo {
@@ -4110,34 +4221,6 @@
 
 .arvore-resumo > i:last-child {
   margin-left: auto;
-}
-
-.arvore-slot-vazio {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 5px;
-  padding: 16px 22px;
-  border: 1px dashed color-mix(in oklch, var(--border) 90%, transparent);
-  border-radius: 10px;
-  color: var(--text-sec);
-  opacity: 0.5;
-  pointer-events: none;
-  transition: opacity 0.15s, border-color 0.15s;
-}
-
-.arvore-raia:hover .arvore-slot-vazio {
-  opacity: 1;
-  border-color: color-mix(in oklch, var(--primary) 55%, transparent);
-  color: var(--primary);
-}
-
-.arvore-slot-vazio i {
-  font-size: 1.1rem;
 }
 
 /* ─── Modal de talento: prévia e campos ───────────────────── */
@@ -4172,12 +4255,10 @@
     );
 }
 
-/* .arvore-no é absoluto no canvas; na prévia vira estático. */
-.no-previa-card {
-  position: static;
-  transform: none;
+.no-previa-no {
+  width: 110px;
+  padding-bottom: 6px;
   cursor: default;
-  width: 190px;
 }
 
 .campo-trio {
@@ -4253,6 +4334,8 @@
   border-radius: 9px;
   background: var(--bg-surface);
   overflow: hidden;
+  /* Sem isto a lista longa espreme os itens até virarem risco. */
+  flex-shrink: 0;
   transition: border-color 0.15s;
 }
 

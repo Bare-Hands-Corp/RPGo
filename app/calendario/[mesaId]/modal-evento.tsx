@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Swal from "sweetalert2";
+import { ehTemporario } from "@/lib/acoes";
 import {
   type CalendarioConfig,
   ANO_MAX,
@@ -46,7 +47,8 @@ export function ModalEvento({
   const [ano, setAno] = useState(ref.ano);
   const [mes, setMes] = useState(ref.mes);
   const [dia, setDia] = useState(ref.dia);
-  const [tipoClimaId, setTipoClimaId] = useState(eventoInicial?.tipoClimaId || tiposClima[0]?.id || "");
+  const tiposProntos = tiposClima.filter((t) => !ehTemporario(t.id));
+  const [tipoClimaId, setTipoClimaId] = useState(eventoInicial?.tipoClimaId || tiposProntos[0]?.id || "");
 
   // O calendário só existe do ano inicial em diante — fora disso o servidor recusa.
   const anoInicial = config.anoEpoch ?? 1;
@@ -119,7 +121,7 @@ export function ModalEvento({
                 onChange={(e) => setTipoClimaId(e.target.value)}
                 className="cal-input"
               >
-                {tiposClima.map((t) => (
+                {tiposProntos.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.nome}
                   </option>

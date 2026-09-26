@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { patchPersonagem } from "./actions";
+import { exigir } from "@/lib/acoes";
 import { tetoAtributo, type Atributo, type EfeitosAgregados } from "@/lib/op-rpg";
 
 type Atributos = {
@@ -56,7 +57,7 @@ export function EditFichaModal({
     startTransition(async () => {
       onOtimista?.(patch);
       try {
-        await patchPersonagem(personagemId, patch);
+        exigir(await patchPersonagem(personagemId, patch));
       } catch (err) {
         Swal.fire({
           icon: "error",

@@ -56,8 +56,10 @@ export type NoArvore = {
   camadaId: string;
   /** null = primeira raia. */
   ramoId: string | null;
-  /** Altura dentro da faixa da camada, 0–100 (%). */
-  offsetY: number;
+  /** Coluna dentro da raia (0 = a primeira). */
+  coluna: number;
+  /** Linha dentro da camada (0 = a primeira). */
+  linha: number;
   nome: string;
   descricao: string;
   icone: string;
@@ -278,81 +280,9 @@ export function habilidadesTravadas(nos: NoArvore[]): Set<string> {
   return travadas;
 }
 
-// ─── Fio de progresso ──────────────────────────────────────
-// Liga os talentos comprados: segue o requisito quando existe, senão o comprado
-// mais próximo antes dele na leitura.
-
-export type PontoCanvas = { x: number; y: number };
-
-export type LigacaoFio = {
-  deId: string;
-  paraId: string;
-  /** true = segue uma linha de requisito; false = ligação só visual. */
-  porRequisito: boolean;
-};
-
-/** Nó sem posição (camada recolhida) fica fora do fio. */
-export function fioDeProgresso(
-  nos: NoArvore[],
-  camadas: CamadaArvore[],
-  posicoes: Map<string, PontoCanvas>,
-): LigacaoFio[] {
-  const ordemCamada = new Map(
-    [...camadas].sort((a, b) => a.ordem - b.ordem).map((c, i) => [c.id, i]),
-  );
-  const comprados = nos
-    .filter((n) => n.rankAtual > 0 && posicoes.has(n.id))
-    .sort(
-      (a, b) =>
-        (ordemCamada.get(a.camadaId) ?? 0) - (ordemCamada.get(b.camadaId) ?? 0) ||
-        a.offsetY - b.offsetY ||
-        posicoes.get(a.id)!.x - posicoes.get(b.id)!.x,
-    );
-  const idsComprados = new Set(comprados.map((n) => n.id));
-
-  // Union-find garante fio conexo mesmo com requisito apontando pra baixo.
-  const pai = new Map(comprados.map((n) => [n.id, n.id]));
-  const raiz = (id: string): string => {
-    let r = id;
-    while (pai.get(r) !== r) r = pai.get(r)!;
-    pai.set(id, r);
-    return r;
-  };
-  const unir = (a: string, b: string) => pai.set(raiz(a), raiz(b));
-
-  const out: LigacaoFio[] = [];
-  for (const no of comprados) {
-    for (const r of lerRequisitos(no.requisitos)) {
-      if (!idsComprados.has(r.noId)) continue;
-      out.push({ deId: r.noId, paraId: no.id, porRequisito: true });
-      unir(r.noId, no.id);
-    }
-  }
-
-  const anteriores: NoArvore[] = [];
-  for (const no of comprados) {
-    const p = posicoes.get(no.id)!;
-    let melhor: NoArvore | null = null;
-    let melhorDist = Infinity;
-    for (const a of anteriores) {
-      if (raiz(a.id) === raiz(no.id)) continue;
-      const q = posicoes.get(a.id)!;
-      const d = Math.hypot(q.x - p.x, q.y - p.y);
-      if (d < melhorDist) {
-        melhorDist = d;
-        melhor = a;
-      }
-    }
-    if (melhor) {
-      out.push({ deId: melhor.id, paraId: no.id, porRequisito: false });
-      unir(melhor.id, no.id);
-    }
-    anteriores.push(no);
-  }
-  return out;
-}
-
 // ─── Presets de árvore ─────────────────────────────────────
+// Só metadados (vão pro cliente). Os talentos que um molde já traz ficam em
+// lib/moldes-arvore.ts, que só o servidor importa.
 
 export type PresetArvore = {
   slug: string;
@@ -364,11 +294,13 @@ export type PresetArvore = {
   ramos: string[];
 };
 
+export const PRESET_VAZIO = "vazia";
+
 export const PRESETS_ARVORE: PresetArvore[] = [
   {
     slug: "haki",
     nome: "Haki",
-    dica: "Estágios por PA gasto (1–10 / 11–30 / 31+) e raias Ofensivo/Defensivo, como a Árvore de Talentos do livro.",
+    dica: "Todos os talentos do livro: Observação, Armamento e Rei, com estágios pelo PA gasto.",
     icone: "fa-eye",
     criterio: "pontos",
     camadas: [
@@ -376,7 +308,8 @@ export const PRESETS_ARVORE: PresetArvore[] = [
       { nome: "Treinado", limiar: 11 },
       { nome: "Perito", limiar: 31 },
     ],
-    ramos: ["Ofensivo", "Defensivo"],
+    // A ordem casa com os índices de raia em TALENTOS_POR_MOLDE.haki.
+    ramos: ["Observação", "Armamento", "Rei"],
   },
   {
     slug: "estilo",
@@ -395,9 +328,9 @@ export const PRESETS_ARVORE: PresetArvore[] = [
     ramos: [],
   },
   {
-    slug: "vazia",
+    slug: PRESET_VAZIO,
     nome: "Em branco",
-    dica: "Uma camada só, sem raia e sem trava. Monte do zero.",
+    dica: "Uma camada só, sem ramo e sem trava. Monte do zero.",
     icone: "fa-sitemap",
     criterio: "manual",
     camadas: [{ nome: "Camada 1", limiar: 0 }],
@@ -407,38 +340,103 @@ export const PRESETS_ARVORE: PresetArvore[] = [
 
 export function acharPreset(slug: unknown): PresetArvore {
   const achado = PRESETS_ARVORE.find((p) => p.slug === slug);
-  return achado ?? PRESETS_ARVORE[PRESETS_ARVORE.length - 1];
+  return achado ?? PRESETS_ARVORE.find((p) => p.slug === PRESET_VAZIO)!;
 }
 
-// Margem pro card (ancorado no centro) não invadir as faixas vizinhas.
-export const OFFSET_MIN = 12;
-export const OFFSET_MAX = 88;
+// ─── Grade ──────────────────────────────────────────────────
+// Cada nó ocupa uma célula: camada × raia × coluna × linha. As colunas são por
+// raia e as linhas por camada, então a árvore cresce com o conteúdo.
 
-export function clampOffsetY(y: number): number {
-  if (!Number.isFinite(y)) return 50;
-  return Math.round(Math.max(OFFSET_MIN, Math.min(OFFSET_MAX, y)));
+export const MAX_COLUNAS_RAIA = 8;
+export const MAX_LINHAS_CAMADA = 12;
+
+export function clampColuna(n: unknown): number {
+  return Math.max(0, Math.min(MAX_COLUNAS_RAIA - 1, Math.trunc(Number(n) || 0)));
 }
 
-/** Empurra o nó pra baixo quando cai em cima de outro na mesma raia. */
-export function evitarSobreposicao(
-  noId: string,
-  camadaId: string,
-  ramoId: string | null,
-  offsetY: number,
+export function clampLinha(n: unknown): number {
+  return Math.max(0, Math.min(MAX_LINHAS_CAMADA - 1, Math.trunc(Number(n) || 0)));
+}
+
+/** Nó sem raia (ou de raia apagada) aparece na primeira. */
+export function raiaEfetiva(ramoId: string | null, ramos: { id: string }[]): string | null {
+  if (ramoId && ramos.some((r) => r.id === ramoId)) return ramoId;
+  return ramos[0]?.id ?? null;
+}
+
+export type CelulaNo = {
+  camadaId: string;
+  ramoId: string | null;
+  coluna: number;
+  linha: number;
+};
+
+function chaveCelula(c: CelulaNo): string {
+  return `${c.camadaId}|${c.ramoId ?? ""}|${c.coluna}|${c.linha}`;
+}
+
+/**
+ * Célula onde cada nó é desenhado. Dois nós na mesma célula (dado antigo,
+ * corrida entre abas) não se sobrepõem: o que vem depois na `ordem` desce pra
+ * próxima linha livre da coluna.
+ */
+export function celulasDosNos(
   nos: NoArvore[],
-  ramoPadrao: string | null,
-): number {
-  const vizinhos = nos.filter(
-    (n) =>
-      n.id !== noId &&
-      n.camadaId === camadaId &&
-      (n.ramoId ?? ramoPadrao) === (ramoId ?? ramoPadrao),
-  );
-  let y = clampOffsetY(offsetY);
-  for (let i = 0; i < 8; i++) {
-    const colide = vizinhos.some((n) => Math.abs(n.offsetY - y) < 9);
-    if (!colide) break;
-    y = y + 10 > OFFSET_MAX ? Math.max(OFFSET_MIN, y - 10) : y + 10;
+  ramos: { id: string }[],
+): Map<string, CelulaNo> {
+  const ocupadas = new Set<string>();
+  const out = new Map<string, CelulaNo>();
+  for (const n of [...nos].sort((a, b) => a.ordem - b.ordem)) {
+    // Inteiro garantido: com Prisma Client antigo em memória o nó chega sem
+    // coluna/linha, e NaN + 1 = NaN prendia o laço abaixo pra sempre.
+    const cel: CelulaNo = {
+      camadaId: n.camadaId,
+      ramoId: raiaEfetiva(n.ramoId, ramos),
+      coluna: inteiroNaoNegativo(n.coluna),
+      linha: inteiroNaoNegativo(n.linha),
+    };
+    while (ocupadas.has(chaveCelula(cel))) cel.linha++;
+    ocupadas.add(chaveCelula(cel));
+    out.set(n.id, cel);
   }
-  return clampOffsetY(y);
+  return out;
+}
+
+function inteiroNaoNegativo(v: unknown): number {
+  const n = Math.trunc(Number(v));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** Nó guardado naquela célula (fora `ignorarId`), ou null. */
+export function noNaCelula(
+  alvo: CelulaNo,
+  nos: NoArvore[],
+  ramos: { id: string }[],
+  ignorarId?: string,
+): NoArvore | null {
+  return (
+    nos.find(
+      (n) =>
+        n.id !== ignorarId &&
+        n.camadaId === alvo.camadaId &&
+        raiaEfetiva(n.ramoId, ramos) === alvo.ramoId &&
+        n.coluna === alvo.coluna &&
+        n.linha === alvo.linha,
+    ) ?? null
+  );
+}
+
+/** Primeira linha livre de uma coluna — pra criar ou mover sem cair em cima de outro. */
+export function primeiraLinhaLivre(
+  alvo: Omit<CelulaNo, "linha">,
+  nos: NoArvore[],
+  ramos: { id: string }[],
+  ignorarId?: string,
+): number {
+  let linha = 0;
+  // Teto: coluna lotada não trava — volta a última linha e a grade resolve.
+  while (linha < MAX_LINHAS_CAMADA - 1 && noNaCelula({ ...alvo, linha }, nos, ramos, ignorarId)) {
+    linha++;
+  }
+  return linha;
 }

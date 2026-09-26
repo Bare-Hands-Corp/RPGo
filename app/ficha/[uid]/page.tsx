@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioDaRequest } from "@/lib/supabase/server";
 import { listarMensagensSessao } from "@/lib/mensagens";
 import { carregarCalendario } from "@/lib/calendario/carregar";
 import { agregarEfeitos, efeitosDoContexto, fontesDeEfeitoDeItens } from "@/lib/op-rpg";
@@ -21,16 +21,9 @@ type Params = {
 export default async function FichaPage({ params, searchParams }: Params) {
   const [{ uid }, { aba }] = await Promise.all([params, searchParams]);
 
-  const supabase = await createClient();
-
-  // Auth (rede pro Supabase) e personagem (Postgres) são independentes — paralelo.
-  const [
-    {
-      data: { user },
-    },
-    personagem,
-  ] = await Promise.all([
-    supabase.auth.getUser(),
+  // Auth e personagem (Postgres) são independentes — paralelo.
+  const [user, personagem] = await Promise.all([
+    usuarioDaRequest(),
     prisma.personagem.findUnique({
       where: { id: uid },
       include: {

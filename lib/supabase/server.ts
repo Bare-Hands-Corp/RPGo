@@ -1,8 +1,10 @@
 // Cliente Supabase para Server Components, Server Actions e Route Handlers.
 // Lê cookies via next/headers — sempre criar um novo cliente por request
 // (não compartilhar entre requests).
+import { cache } from "react";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { carregarJwks } from "./jwks";
 
 export async function createClient() {
   const cookieStore = await cookies();
@@ -28,3 +30,16 @@ export async function createClient() {
     },
   );
 }
+
+// Usuário logado, com o JWT validado localmente (sem ida ao servidor de Auth).
+// Sessão revogada continua valendo até o token expirar.
+export const usuarioDaRequest = cache(async (): Promise<{ id: string } | null> => {
+  const [supabase, jwks] = await Promise.all([createClient(), carregarJwks()]);
+  const { data, error } = await supabase.auth.getClaims(
+    undefined,
+    jwks ? { jwks } : undefined,
+  );
+  const id = data?.claims?.sub;
+  if (error || !id) return null;
+  return { id };
+});
