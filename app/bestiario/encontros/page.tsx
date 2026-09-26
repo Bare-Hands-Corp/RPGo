@@ -1,17 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioDaRequest } from "@/lib/supabase/server";
 import { ThemeButton } from "@/components/temas/theme-button";
 import { serializarEncontro, serializarEsquadrao } from "../utils";
 import { EncontrosManager } from "./encontros-manager";
 import "../bestiario.css";
 
 export default async function EncontrosPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await usuarioDaRequest();
   if (!user) redirect("/login");
 
   const [criaturas, esquadroes, encontros] = await Promise.all([
