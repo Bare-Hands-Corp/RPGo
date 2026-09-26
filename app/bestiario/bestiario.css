@@ -1,0 +1,521 @@
+/* ─── Página do Bestiário ─────────────────────────── */
+
+.bestiario-page-wrapper {
+  width: 100%;
+  max-width: none;
+  margin: 20px 0 0;
+  padding: 22px 24px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 8px 24px -16px rgba(0, 0, 0, 0.25);
+}
+
+.bestiario-page-topbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.bestiario-voltar {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-sec);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.bestiario-voltar:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.bestiario-page-titulo {
+  flex: 1;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.bestiario-page-kicker {
+  font-family: monospace;
+  font-size: 0.65rem;
+  color: var(--text-sec);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.bestiario-page-titulo h1 {
+  margin: 2px 0 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.bestiario-page-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--text-sec);
+}
+
+.bestiario-page-chip i {
+  color: var(--primary);
+}
+
+/* ─── Visão de lista (padrão) ─────────────────────────── */
+
+.bestiario-lista-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.bestiario-lista-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.bestiario-lista-busca {
+  flex: 1 1 260px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-sec);
+}
+
+.bestiario-lista-busca input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text-main);
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.bestiario-lista-toolbar select {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-main);
+}
+
+.bestiario-btn-nova {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--primary);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bestiario-grade-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.bestiario-card-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.bestiario-card-item:hover {
+  border-color: var(--primary);
+}
+
+.bestiario-card-nome {
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.bestiario-card-meta {
+  font-size: 0.78rem;
+  color: var(--text-sec);
+}
+
+.bestiario-card-tags {
+  font-size: 0.72rem;
+  color: var(--text-sec);
+  font-style: italic;
+}
+
+.bestiario-vazio {
+  color: var(--text-sec);
+  font-size: 0.85rem;
+  padding: 8px;
+}
+
+/* ─── Abas (esquadrões/encontros) ────────────────────────────── */
+
+.bestiario-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bestiario-tab {
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-sec);
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.bestiario-tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+/* ─── Biblioteca de traits (lado a lado — formulário curto) ────── */
+
+.biblioteca-shell {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  min-width: 0;
+}
+
+.biblioteca-lista {
+  flex: 0 0 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.bestiario-btn-biblioteca {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-sec);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.bestiario-btn-biblioteca:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.bestiario-componente-header-acoes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bestiario-select-biblioteca {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-size: 0.8rem;
+}
+
+@media (max-width: 860px) {
+  .biblioteca-shell {
+    flex-direction: column;
+  }
+  .biblioteca-lista {
+    flex: 1 1 auto;
+    width: 100%;
+    max-height: none;
+  }
+}
+
+/* ─── Visão de editor (ficha aberta) ─────────────────────────── */
+
+.bestiario-editor-view {
+  display: flex;
+}
+
+.bestiario-editor {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.bestiario-voltar-lista {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-sec);
+  cursor: pointer;
+}
+
+.bestiario-voltar-lista:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.bestiario-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.bestiario-editor-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--text-main);
+}
+
+.bestiario-editor-acoes {
+  display: flex;
+  gap: 10px;
+}
+
+.bestiario-btn-salvar {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.bestiario-btn-remover {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: #e05555;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.bestiario-secao {
+  padding: 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bestiario-secao h3 {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-sec);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.bestiario-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.bestiario-grid--atributos {
+  grid-template-columns: repeat(6, minmax(70px, 1fr));
+}
+
+.bestiario-span-2 {
+  grid-column: span 2;
+}
+
+.bestiario-grid label,
+.bestiario-secao label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--text-sec);
+  text-transform: capitalize;
+}
+
+.bestiario-grid input,
+.bestiario-grid select,
+.bestiario-secao input,
+.bestiario-secao select,
+.bestiario-secao textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-size: 0.85rem;
+}
+
+.bestiario-secao textarea {
+  min-height: 60px;
+  resize: vertical;
+}
+
+.bestiario-textarea-descricao {
+  min-height: 160px;
+}
+
+.bestiario-sublabel {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-sec);
+  line-height: 1.4;
+}
+
+.bestiario-linha-dano {
+  display: grid;
+  grid-template-columns: 1fr 2fr 32px;
+  gap: 8px;
+}
+
+.bestiario-linha-dano input {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+}
+
+.bestiario-linha-dano button {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-sec);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.bestiario-lista-linhas {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bestiario-linha-bonus {
+  display: grid;
+  grid-template-columns: 1fr 80px 32px;
+  gap: 8px;
+}
+
+.bestiario-linha-bonus input {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+}
+
+.bestiario-linha-bonus button {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-sec);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.bestiario-btn-add {
+  align-self: flex-start;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--primary);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.bestiario-componente-grupo {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bestiario-componente-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.bestiario-componente-header strong {
+  color: var(--text-main);
+}
+
+.bestiario-componente-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+
+.bestiario-btn-remover-item {
+  align-self: flex-start;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: #e05555;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+

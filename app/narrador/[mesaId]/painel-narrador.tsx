@@ -81,11 +81,11 @@ const ACOES_PROTOTIPO: AcaoNarrador[] = [
     descricao: "Banner, nome, acesso e ajustes gerais da mesa.",
   },
   {
-    id: "ameacas",
-    titulo: "Fichas de Ameaças",
-    icone: "fa-skull",
-    descricao: "Registro de inimigos, bosses e NPCs relevantes.",
-    href: (mesaId: string) => `/narrador/${mesaId}/ameacas`,
+    id: "bestiario",
+    titulo: "Bestiário",
+    icone: "fa-paw",
+    descricao: "Sua biblioteca de criaturas, reutilizável entre mesas.",
+    href: () => `/bestiario`,
   },
 ] as const;
 
