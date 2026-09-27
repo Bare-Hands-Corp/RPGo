@@ -2,6 +2,7 @@
 
 import { useEffect, useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
+import { ehTemporario, exigir, idTemporario } from "@/lib/acoes";
 import { atualizarRecurso, criarRecurso, deletarRecurso } from "./actions";
 import { EstiloPicker } from "./estilo-cor-picker";
 import {
@@ -135,7 +136,7 @@ export function RecursosSidebar({
     startTransition(async () => {
       aplicarPatch({ kind: "update", id: r.id, patch: { valorAtual: novo } });
       try {
-        await atualizarRecurso(personagemId, r.id, { valorAtual: novo });
+        exigir(await atualizarRecurso(personagemId, r.id, { valorAtual: novo }));
       } catch (err) {
         mostrarErro(err);
       }
@@ -165,20 +166,20 @@ export function RecursosSidebar({
           patch: { nome, valorMax, cor, cor2, efeito, resetEm },
         });
         try {
-          await atualizarRecurso(personagemId, editandoId, {
+          exigir(await atualizarRecurso(personagemId, editandoId, {
             nome,
             valorMax,
             cor: cor ?? "",
             cor2: cor2 ?? "",
             efeito,
             resetEm,
-          });
+          }));
         } catch (err) {
           mostrarErro(err);
         }
       } else {
         const temp: Recurso = {
-          id: "temp-" + Math.random().toString(36).slice(2),
+          id: idTemporario(),
           nome,
           valorAtual: valorMax,
           valorMax,
@@ -190,7 +191,7 @@ export function RecursosSidebar({
         };
         aplicarPatch({ kind: "create", recurso: temp });
         try {
-          await criarRecurso(personagemId, {
+          exigir(await criarRecurso(personagemId, {
             nome,
             valorAtual: valorMax,
             valorMax,
@@ -199,7 +200,7 @@ export function RecursosSidebar({
             cor2: cor2 ?? "",
             efeito,
             resetEm,
-          });
+          }));
         } catch (err) {
           mostrarErro(err);
         }
@@ -224,7 +225,7 @@ export function RecursosSidebar({
     startTransition(async () => {
       aplicarPatch({ kind: "delete", id: r.id });
       try {
-        await deletarRecurso(personagemId, r.id);
+        exigir(await deletarRecurso(personagemId, r.id));
       } catch (err) {
         mostrarErro(err);
       }
@@ -261,7 +262,11 @@ export function RecursosSidebar({
         const fxNome = estiloAplicado(estilo, "texto");
         const fxBarra = estiloAplicado(estilo, "barra");
         return (
-          <div key={r.id} className="recurso-card">
+          <div
+            key={r.id}
+            className={`recurso-card${ehTemporario(r.id) ? " item-pendente" : ""}`}
+            inert={ehTemporario(r.id)}
+          >
             <div className="recurso-card-topo">
               <span
                 className={`recurso-card-nome ${fxNome.className}`.trim()}
@@ -332,9 +337,6 @@ export function RecursosSidebar({
               <i className="fas fa-times" />
             </button>
             <h2>{form.id ? "Editar Recurso" : "Novo Recurso"}</h2>
-            <p className="modal-intro">
-              Pool numérico (ex: Pontos de Carateca, PA, Pontos de Okama).
-            </p>
             <form onSubmit={salvar}>
               <label>Nome</label>
               <input

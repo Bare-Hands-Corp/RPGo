@@ -4,6 +4,7 @@ import { useMemo, useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { IconePicker } from "@/components/icone-picker";
 import { atualizarObjetivo, criarObjetivo, deletarObjetivo } from "./actions";
+import { exigir } from "@/lib/acoes";
 import {
   dataParaDias,
   dataRelativa,
@@ -121,7 +122,7 @@ export function ObjetivosTab({ personagemId, objetivos, calendario }: Props) {
       if (id) {
         aplicar({ kind: "patch", id, patch: dados });
         try {
-          await atualizarObjetivo(personagemId, id, dados);
+          exigir(await atualizarObjetivo(personagemId, id, dados));
         } catch (err) {
           mostrarErro(err);
         }
@@ -134,7 +135,7 @@ export function ObjetivosTab({ personagemId, objetivos, calendario }: Props) {
         objetivo: { ...dados, id: temporario, ordem, estado: "aberto" },
       });
       try {
-        const real = await criarObjetivo(personagemId, { ...dados, ordem });
+        const real = exigir(await criarObjetivo(personagemId, { ...dados, ordem }));
         aplicar({ kind: "trocarId", temporario, real });
       } catch (err) {
         aplicar({ kind: "apagar", id: temporario });
@@ -147,7 +148,7 @@ export function ObjetivosTab({ personagemId, objetivos, calendario }: Props) {
     startTransition(async () => {
       aplicar({ kind: "patch", id: o.id, patch: { estado } });
       try {
-        await atualizarObjetivo(personagemId, o.id, { estado });
+        exigir(await atualizarObjetivo(personagemId, o.id, { estado }));
       } catch (err) {
         mostrarErro(err);
       }
@@ -169,7 +170,7 @@ export function ObjetivosTab({ personagemId, objetivos, calendario }: Props) {
     startTransition(async () => {
       aplicar({ kind: "apagar", id: o.id });
       try {
-        await deletarObjetivo(personagemId, o.id);
+        exigir(await deletarObjetivo(personagemId, o.id));
       } catch (err) {
         mostrarErro(err);
       }
@@ -217,9 +218,7 @@ export function ObjetivosTab({ personagemId, objetivos, calendario }: Props) {
           onClick={() => setModal("novo")}
         >
           <i className="fas fa-scroll" />
-          <span>
-            Nenhum objetivo ainda — clique pra anotar a primeira meta do personagem.
-          </span>
+          <span>Nenhum objetivo ainda</span>
         </button>
       ) : (
         <ul className="obj-lista">
@@ -548,18 +547,14 @@ function ObjetivoModal({
                         const d = dataParaDias(prazoCalculado, calendario.config);
                         return `${d.dia} de ${d.nomeMes}, ano ${d.ano}`;
                       })()}
-                      . Aparece no calendário da mesa como prazo de objetivo (só
-                      você e o narrador veem) — não vira evento.
+                      .
                     </p>
                   )}
                 </>
               )}
             </>
           ) : (
-            <p className="campo-dica">
-              Prazo precisa de uma mesa com calendário. Sem mesa, o objetivo fica só
-              como anotação.
-            </p>
+            <p className="campo-dica">Prazo precisa de uma mesa com calendário.</p>
           )}
         </div>
 

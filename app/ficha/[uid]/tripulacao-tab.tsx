@@ -12,6 +12,7 @@ import {
   type TamanhoNavio,
 } from "@/lib/navio";
 import { criarNavio, deletarNavio, patchNavio } from "./actions";
+import { exigir } from "@/lib/acoes";
 
 export type Tripulante = {
   id: string;
@@ -103,7 +104,7 @@ export function TripulacaoTab({
         },
       });
       try {
-        await criarNavio(personagemId);
+        exigir(await criarNavio(personagemId));
       } catch (err) {
         mostrarErro(err);
       }
@@ -115,7 +116,7 @@ export function TripulacaoTab({
     startTransition(async () => {
       aplicarNavio({ kind: "patch", patch: dados });
       try {
-        await patchNavio(personagemId, dados);
+        exigir(await patchNavio(personagemId, dados));
       } catch (err) {
         mostrarErro(err);
       }
@@ -127,7 +128,7 @@ export function TripulacaoTab({
     startTransition(async () => {
       aplicarNavio({ kind: "patch", patch: { pvAtual } });
       try {
-        await patchNavio(personagemId, { pvAtual });
+        exigir(await patchNavio(personagemId, { pvAtual }));
       } catch (err) {
         mostrarErro(err);
       }
@@ -149,7 +150,7 @@ export function TripulacaoTab({
     startTransition(async () => {
       aplicarNavio({ kind: "clear" });
       try {
-        await deletarNavio(personagemId);
+        exigir(await deletarNavio(personagemId));
       } catch (err) {
         mostrarErro(err);
       }

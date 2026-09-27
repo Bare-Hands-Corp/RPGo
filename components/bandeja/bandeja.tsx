@@ -263,7 +263,6 @@ export function Bandeja({
             userId={userId}
             userName={userName}
             sessionId={sessionId}
-            personagemId={personagemId || null}
             onMensagemCriada={onMensagemCriadaLocal}
             efeitosContexto={efeitosContexto}
           />

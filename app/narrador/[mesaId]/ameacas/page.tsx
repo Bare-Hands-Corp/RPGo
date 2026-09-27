@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioDaRequest } from "@/lib/supabase/server";
 import { ThemeButton } from "@/components/temas/theme-button";
 import { AmeacasManager } from "./ameacas-manager";
 import { serializarAmeaca } from "./utils";
@@ -12,10 +12,7 @@ type Params = { params: Promise<{ mesaId: string }> };
 export default async function AmeacasPage({ params }: Params) {
   const { mesaId } = await params;
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await usuarioDaRequest();
   if (!user) redirect("/login");
 
   const mesa = await prisma.mesa.findUnique({ where: { id: mesaId } });

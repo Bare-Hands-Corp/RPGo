@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  useCallback,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useOptimistic,
@@ -26,6 +28,7 @@ import {
   moverNo,
   duplicarArvore,
 } from "./actions";
+import { exigir } from "@/lib/acoes";
 import { EstiloPicker } from "./estilo-cor-picker";
 import { IconePicker } from "@/components/icone-picker";
 import {
@@ -37,23 +40,27 @@ import {
 } from "@/lib/estilos-cor";
 import {
   CRITERIOS_ARVORE,
+  MAX_COLUNAS_RAIA,
+  MAX_LINHAS_CAMADA,
   MAX_RANKS_TETO,
   PRESETS_ARVORE,
+  PRESET_VAZIO,
   bloqueiosDevolver,
   camadasAbertas,
-  clampOffsetY,
-  evitarSobreposicao,
-  fioDeProgresso,
+  celulasDosNos,
   marcaRank,
   estadoNo,
   lerRequisitos,
+  noNaCelula,
   normalizarCriterio,
   pontosGastos,
+  primeiraLinhaLivre,
+  raiaEfetiva,
   rotuloRank,
   type CamadaArvore,
+  type CelulaNo,
   type CriterioArvore,
   type NoArvore,
-  type PontoCanvas,
   type RamoArvore,
   type RequisitoNo,
 } from "@/lib/arvore";
@@ -139,24 +146,55 @@ export function ArvoresTab({
   const [selecionadaId, setSelecionadaId] = useState<string | null>(null);
   const [modalArvore, setModalArvore] = useState<Arvore | "nova" | null>(null);
   const [modalCamada, setModalCamada] = useState<CamadaArvore | "nova" | null>(null);
-  type NovoNo = { novo: true; camadaId: string; ramoId: string | null; offsetY: number };
+  type NovoNo = { novo: true } & CelulaNo;
   const [modalNo, setModalNo] = useState<NoArvore | NovoNo | null>(null);
   const [noSelecionadoId, setNoSelecionado] = useState<string | null>(null);
-  const [camadasColapsadas, setCamadasColapsadas] = useState<Set<string>>(
-    () => new Set(),
-  );
   const [arvoreColapsada, setArvoreColapsada] = useState(false);
+  const [telaCheia, setTelaCheia] = useState(false);
+  // Filtro do palco por ramo e camada.
+  const [filtro, setFiltro] = useState<{
+    arvoreId: string;
+    ramoId: string | null;
+    camadaId: string | null;
+  } | null>(null);
+  // Modos da aba: jogar (padrão) e montar.
+  const [montando, setMontando] = useState(false);
   const [modalCopiar, setModalCopiar] = useState(false);
   const [, startTransition] = useTransition();
 
   type Patch =
     | { kind: "rank"; noId: string; rank: number }
     | { kind: "patchNo"; noId: string; patch: Partial<NoArvore> }
+    | { kind: "mover"; noId: string; destino: CelulaNo }
     | { kind: "patchArvore"; arvoreId: string; patch: Partial<Arvore> };
 
   const [lista, aplicar] = useOptimistic(arvores, (state, p: Patch) => {
     if (p.kind === "patchArvore") {
       return state.map((a) => (a.id === p.arvoreId ? { ...a, ...p.patch } : a));
+    }
+    if (p.kind === "mover") {
+      // Célula ocupada: os dois trocam de lugar.
+      return state.map((a) => {
+        const no = a.nos.find((n) => n.id === p.noId);
+        if (!no) return a;
+        const origem: CelulaNo = {
+          camadaId: no.camadaId,
+          ramoId: raiaEfetiva(no.ramoId, a.ramos),
+          coluna: no.coluna,
+          linha: no.linha,
+        };
+        const ocupante = noNaCelula(p.destino, a.nos, a.ramos, no.id);
+        return {
+          ...a,
+          nos: a.nos.map((n) =>
+            n.id === no.id
+              ? { ...n, ...p.destino }
+              : ocupante && n.id === ocupante.id
+                ? { ...n, ...origem }
+                : n,
+          ),
+        };
+      });
     }
     return state.map((a) => ({
       ...a,
@@ -200,6 +238,20 @@ export function ArvoresTab({
     [arvore],
   );
 
+  // Filtro inválido vale como "todos".
+  const doFiltro = filtro && filtro.arvoreId === arvore?.id ? filtro : null;
+  const ramoFiltro =
+    doFiltro?.ramoId && ramos.some((r) => r.id === doFiltro.ramoId) ? doFiltro.ramoId : null;
+  const camadaFiltro =
+    doFiltro?.camadaId && camadas.some((c) => c.id === doFiltro.camadaId)
+      ? doFiltro.camadaId
+      : null;
+  function filtrar(mudanca: { ramoId?: string | null; camadaId?: string | null }) {
+    if (!arvore) return;
+    setNoSelecionado(null);
+    setFiltro({ arvoreId: arvore.id, ramoId: ramoFiltro, camadaId: camadaFiltro, ...mudanca });
+  }
+
   const ctx = useMemo(
     () => ({
       criterio: normalizarCriterio(arvore?.criterio),
@@ -239,7 +291,7 @@ export function ArvoresTab({
       aplicar({ kind: "rank", noId: no.id, rank: no.rankAtual + 1 });
       const desfazer = moverSaldo(no, -1);
       try {
-        await comprarNo(personagemId, arvore.id, no.id);
+        exigir(await comprarNo(personagemId, arvore.id, no.id));
       } catch (err) {
         desfazer();
         mostrarErro(err);
@@ -253,7 +305,7 @@ export function ArvoresTab({
       aplicar({ kind: "rank", noId: no.id, rank: no.rankAtual - 1 });
       const desfazer = moverSaldo(no, 1);
       try {
-        await devolverNo(personagemId, arvore.id, no.id);
+        exigir(await devolverNo(personagemId, arvore.id, no.id));
       } catch (err) {
         desfazer();
         mostrarErro(err);
@@ -261,36 +313,22 @@ export function ArvoresTab({
     });
   }
 
-  function mover(noId: string, bruto: { ramoId: string | null; offsetY: number }) {
+  function mover(noId: string, destino: CelulaNo) {
     if (!arvore) return;
-    const no = arvore.nos.find((n) => n.id === noId);
-    const destino = {
-      ramoId: bruto.ramoId,
-      offsetY: no
-        ? evitarSobreposicao(
-            noId,
-            no.camadaId,
-            bruto.ramoId,
-            bruto.offsetY,
-            arvore.nos,
-            ramos[0]?.id ?? null,
-          )
-        : bruto.offsetY,
-    };
     startTransition(async () => {
-      aplicar({ kind: "patchNo", noId, patch: destino });
+      aplicar({ kind: "mover", noId, destino });
       try {
-        await moverNo(personagemId, arvore.id, noId, destino);
+        exigir(await moverNo(personagemId, arvore.id, noId, destino));
       } catch (err) {
         mostrarErro(err);
       }
     });
   }
 
-  async function novaRaia() {
+  async function novoRamo() {
     if (!arvore) return;
     const r = await Swal.fire({
-      title: "Nova raia",
+      title: "Novo ramo",
       input: "text",
       inputPlaceholder: "Ex: Ofensivo",
       showCancelButton: true,
@@ -302,25 +340,25 @@ export function ArvoresTab({
     if (!r.isConfirmed || !r.value?.trim()) return;
     startTransition(async () => {
       try {
-        await criarRamo(personagemId, arvore.id, r.value.trim());
+        exigir(await criarRamo(personagemId, arvore.id, r.value.trim()));
       } catch (err) {
         mostrarErro(err);
       }
     });
   }
 
-  async function apagarRaia(ramo: RamoArvore) {
+  async function apagarRamo(ramo: RamoArvore) {
     if (!arvore) return;
     if (
       !(await confirmar(
-        "Apagar raia",
-        `Apagar "${ramo.nome}"? Os talentos dela voltam pra primeira raia — nada é perdido.`,
+        "Apagar ramo",
+        `Apagar "${ramo.nome}"? Os talentos dele voltam pro primeiro ramo — nada é perdido.`,
       ))
     )
       return;
     startTransition(async () => {
       try {
-        await deletarRamo(personagemId, arvore.id, ramo.id);
+        exigir(await deletarRamo(personagemId, arvore.id, ramo.id));
       } catch (err) {
         mostrarErro(err);
       }
@@ -331,7 +369,7 @@ export function ArvoresTab({
     setModalCopiar(false);
     startTransition(async () => {
       try {
-        const r = await duplicarArvore(personagemId, origem.id);
+        const r = exigir(await duplicarArvore(personagemId, origem.id));
         setSelecionadaId(r.id);
       } catch (err) {
         mostrarErro(err);
@@ -350,7 +388,7 @@ export function ArvoresTab({
       return;
     startTransition(async () => {
       try {
-        await deletarArvore(personagemId, arvore.id);
+        exigir(await deletarArvore(personagemId, arvore.id));
         setSelecionadaId(null);
       } catch (err) {
         mostrarErro(err);
@@ -372,7 +410,7 @@ export function ArvoresTab({
       return;
     startTransition(async () => {
       try {
-        await deletarCamada(personagemId, arvore.id, camada.id);
+        exigir(await deletarCamada(personagemId, arvore.id, camada.id));
       } catch (err) {
         mostrarErro(err);
       }
@@ -381,40 +419,21 @@ export function ArvoresTab({
 
   const criterioMeta = CRITERIOS_ARVORE.find((c) => c.slug === ctx.criterio);
 
-  function alternarCamada(id: string) {
-    setCamadasColapsadas((curr) => {
-      const proximo = new Set(curr);
-      if (proximo.has(id)) proximo.delete(id);
-      else proximo.add(id);
-      return proximo;
-    });
-  }
+  // Tela cheia sai no Esc.
+  useEffect(() => {
+    if (!telaCheia) return;
+    function tecla(e: KeyboardEvent) {
+      if (e.key === "Escape") setTelaCheia(false);
+    }
+    window.addEventListener("keydown", tecla);
+    return () => window.removeEventListener("keydown", tecla);
+  }, [telaCheia]);
 
-  const todasColapsadas =
-    camadas.length > 0 && camadas.every((c) => camadasColapsadas.has(c.id));
-
-  function alternarTodas() {
-    setCamadasColapsadas(
-      todasColapsadas ? new Set() : new Set(camadas.map((c) => c.id)),
-    );
-  }
   const noEmEdicao = modalNo && !("novo" in modalNo) ? modalNo : null;
 
-  function criarNoAqui(camadaId: string, ramoId: string | null, offsetY: number) {
+  function criarNoAqui(celula: CelulaNo) {
     if (!arvore) return;
-    setModalNo({
-      novo: true,
-      camadaId,
-      ramoId,
-      offsetY: evitarSobreposicao(
-        "",
-        camadaId,
-        ramoId,
-        offsetY,
-        arvore.nos,
-        ramos[0]?.id ?? null,
-      ),
-    });
+    setModalNo({ novo: true, ...celula });
   }
 
   return (
@@ -500,143 +519,227 @@ export function ArvoresTab({
                   className={`fas fa-chevron-${arvoreColapsada ? "right" : "down"}`}
                 />
               </button>
-              <span className="arvore-criterio" title={criterioMeta?.dica}>
-                <i className="fas fa-unlock-keyhole" /> {criterioMeta?.nome}
+              <span className="arvore-metrica arvore-progresso">
+                <strong>{arvore.nos.filter((n) => n.rankAtual > 0).length}</strong>
+                {" de "}
+                {arvore.nos.length} liberado(s)
               </span>
-              {ctx.criterio === "pontos" && (
-                <span className="arvore-metrica">
-                  <strong>{gastos}</strong> ponto(s) gasto(s)
-                </span>
-              )}
-              {ctx.criterio === "nivel" && (
-                <span className="arvore-metrica">
-                  nível <strong>{nivel}</strong>
-                </span>
-              )}
               {recursoCusto && (
                 <span className="arvore-metrica">
                   <i className="fas fa-coins" /> {recursoCusto.nome}:{" "}
                   <strong>{recursoCusto.valorAtual}</strong>/{recursoCusto.valorMax}
                 </span>
               )}
+              <span
+                className="arvore-criterio"
+                title={`${criterioMeta?.nome}: ${criterioMeta?.dica}${
+                  ctx.criterio === "pontos" ? ` (${gastos} gasto(s) aqui)` : ""
+                }${ctx.criterio === "nivel" ? ` (nível ${nivel})` : ""}`}
+              >
+                <i className="fas fa-unlock-keyhole" />
+              </span>
               {!recursoCusto && arvore.recursoCustoId && (
                 <span className="arvore-metrica arvore-aviso">
                   <i className="fas fa-triangle-exclamation" /> recurso de custo
-                  apagado — custos viraram informativos
+                  apagado — os custos não descontam mais
                 </span>
               )}
-              {arvore.nos.length > 0 &&
-                (disponiveis > 0 ? (
-                  <button
-                    type="button"
-                    className={`arvore-metrica arvore-disponiveis ${focoAtivo ? "ativo" : ""}`}
-                    onClick={() => setFoco((v) => !v)}
-                    aria-pressed={focoAtivo}
-                    title={
-                      focoAtivo
-                        ? "Mostrar a árvore inteira"
-                        : "Destacar só o que dá pra comprar agora"
-                    }
-                  >
-                    <i className="fas fa-circle-check" /> <strong>{disponiveis}</strong>{" "}
-                    pra comprar
-                  </button>
-                ) : (
-                  <span className="arvore-metrica arvore-disponiveis vazio">
-                    <i className="fas fa-circle-check" /> nada pra comprar agora
-                  </span>
-                ))}
+              {arvore.nos.length > 0 && disponiveis > 0 && (
+                <button
+                  type="button"
+                  className={`arvore-metrica arvore-disponiveis ${focoAtivo ? "ativo" : ""}`}
+                  onClick={() => setFoco((v) => !v)}
+                  aria-pressed={focoAtivo}
+                  title={
+                    focoAtivo
+                      ? "Mostrar a árvore inteira"
+                      : "Destacar só o que dá pra comprar agora"
+                  }
+                >
+                  <i className="fas fa-circle-check" /> <strong>{disponiveis}</strong>{" "}
+                  pra comprar
+                </button>
+              )}
             </div>
             <div className="arvore-barra-acoes">
-              <button
-                type="button"
-                className="btn-rect outline"
-                onClick={() =>
-                  criarNoAqui(camadas[0]?.id ?? "", ramos[0]?.id ?? null, 50)
-                }
-              >
-                + Talento
-              </button>
-              <button
-                type="button"
-                className="btn-rect outline"
-                onClick={() => setModalCamada("nova")}
-              >
-                + Camada
-              </button>
-              <button type="button" className="btn-rect outline" onClick={novaRaia}>
-                + Raia
-              </button>
-              <button
-                type="button"
-                className="btn-rect outline"
-                onClick={alternarTodas}
-                title={
-                  todasColapsadas
-                    ? "Expandir todas as camadas"
-                    : "Recolher todas as camadas"
-                }
-              >
-                <i
-                  className={`fas fa-${todasColapsadas ? "expand" : "compress"}`}
-                />{" "}
-                {todasColapsadas ? "Expandir" : "Recolher"}
-              </button>
-              <button
-                type="button"
-                className="recurso-icon-btn"
-                title="Editar árvore"
-                onClick={() => setModalArvore(arvore)}
-              >
-                <i className="fas fa-edit" />
-              </button>
-              <button
-                type="button"
-                className="recurso-icon-btn"
-                title="Apagar árvore"
-                onClick={apagarArvore}
-              >
-                <i className="fas fa-trash" />
-              </button>
+              {!montando ? (
+                <button
+                  type="button"
+                  className="btn-rect outline"
+                  onClick={() => setMontando(true)}
+                  title="Criar e editar camadas, ramos e talentos"
+                >
+                  <i className="fas fa-wrench" /> Montar
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="btn-rect outline"
+                    onClick={() => {
+                      // Com filtro, cria na célula visível.
+                      const celula = {
+                        camadaId: camadaFiltro ?? camadas[0]?.id ?? "",
+                        ramoId: ramoFiltro ?? ramos[0]?.id ?? null,
+                        coluna: 0,
+                      };
+                      criarNoAqui({
+                        ...celula,
+                        linha: primeiraLinhaLivre(celula, arvore.nos, ramos),
+                      });
+                    }}
+                  >
+                    + Talento
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-rect outline"
+                    onClick={() => setModalCamada("nova")}
+                  >
+                    + Camada
+                  </button>
+                  <button type="button" className="btn-rect outline" onClick={novoRamo}>
+                    + Ramo
+                  </button>
+                  <button
+                    type="button"
+                    className="recurso-icon-btn"
+                    title="Editar árvore"
+                    onClick={() => setModalArvore(arvore)}
+                  >
+                    <i className="fas fa-edit" />
+                  </button>
+                  <button
+                    type="button"
+                    className="recurso-icon-btn"
+                    title="Apagar árvore"
+                    onClick={apagarArvore}
+                  >
+                    <i className="fas fa-trash" />
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-rect primary"
+                    onClick={() => setMontando(false)}
+                  >
+                    <i className="fas fa-check" /> Concluir
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
-          {ramos.length > 0 && (
-            <div className="arvore-raias-chips">
-              {ramos.map((r) => (
-                <span key={r.id} className="tag">
-                  {r.nome}
-                  <button
-                    type="button"
-                    className="arvore-raia-x"
-                    title="Apagar raia"
-                    onClick={() => apagarRaia(r)}
-                  >
-                    <i className="fas fa-times" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
+          {!arvoreColapsada &&
+            (ramos.length > 1 || camadas.length > 1 || (montando && ramos.length > 0)) && (
+              <div className="arvore-filtros">
+                {(ramos.length > 1 || montando) && ramos.length > 0 && (
+                  <div className="arvore-filtro" role="group" aria-label="Ramos">
+                    {ramos.length > 1 && (
+                      <button
+                        type="button"
+                        className={`arvore-filtro-opcao${ramoFiltro ? "" : " ativo"}`}
+                        aria-pressed={!ramoFiltro}
+                        onClick={() => filtrar({ ramoId: null })}
+                      >
+                        Todos os ramos
+                      </button>
+                    )}
+                    {ramos.map((r) => (
+                      <span key={r.id} className="arvore-filtro-item">
+                        <button
+                          type="button"
+                          className={`arvore-filtro-opcao${ramoFiltro === r.id ? " ativo" : ""}`}
+                          aria-pressed={ramoFiltro === r.id}
+                          onClick={() => filtrar({ ramoId: r.id })}
+                        >
+                          {r.nome}
+                        </button>
+                        {montando && (
+                          <button
+                            type="button"
+                            className="arvore-filtro-x"
+                            title={`Apagar ramo ${r.nome}`}
+                            aria-label={`Apagar ramo ${r.nome}`}
+                            onClick={() => apagarRamo(r)}
+                          >
+                            <i className="fas fa-times" />
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {camadas.length > 1 && (
+                  <div className="arvore-filtro" role="group" aria-label="Camadas">
+                    <button
+                      type="button"
+                      className={`arvore-filtro-opcao${camadaFiltro ? "" : " ativo"}`}
+                      aria-pressed={!camadaFiltro}
+                      onClick={() => filtrar({ camadaId: null })}
+                    >
+                      Todas as camadas
+                    </button>
+                    {camadas.map((c) => (
+                      <button
+                        type="button"
+                        key={c.id}
+                        className={`arvore-filtro-opcao${camadaFiltro === c.id ? " ativo" : ""}`}
+                        aria-pressed={camadaFiltro === c.id}
+                        onClick={() => filtrar({ camadaId: c.id })}
+                      >
+                        {!abertas.has(c.id) && <i className="fas fa-lock" />}
+                        {c.nome}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
           {!arvoreColapsada && (
-          <ArvoreCanvas
-            arvore={arvore}
-            camadas={camadas}
-            ramos={ramos}
-            abertas={abertas}
-            ctx={ctx}
-            criterio={ctx.criterio}
-            selecionadoId={noSelecionadoId}
-            onSelecionar={setNoSelecionado}
-            onEditarCamada={(c) => setModalCamada(c)}
-            onApagarCamada={apagarCamada}
-            onMover={mover}
-            onCriarNoAqui={criarNoAqui}
-            colapsadas={camadasColapsadas}
-            onAlternarCamada={alternarCamada}
-            foco={focoAtivo}
-          />
+            <div className={`arvore-palco${telaCheia ? " tela-cheia" : ""}`}>
+              <ArvoreCanvas
+                arvore={arvore}
+                camadas={camadas}
+                ramos={ramos}
+                ramoFiltro={ramoFiltro}
+                camadaFiltro={camadaFiltro}
+                abertas={abertas}
+                ctx={ctx}
+                criterio={ctx.criterio}
+                selecionadoId={noSelecionadoId}
+                onSelecionar={setNoSelecionado}
+                onEditarCamada={(c) => setModalCamada(c)}
+                onApagarCamada={apagarCamada}
+                onMover={mover}
+                onCriarNoAqui={criarNoAqui}
+                foco={focoAtivo}
+                montando={montando}
+                telaCheia={telaCheia}
+                onTelaCheia={() => setTelaCheia((v) => !v)}
+              />
+              {(() => {
+                const sel = arvore.nos.find((n) => n.id === noSelecionadoId);
+                if (!sel) return null;
+                return (
+                  <PainelNo
+                    no={sel}
+                    estado={estadoNo(sel, camadas, ctx)}
+                    bloqueiosDevolver={
+                      sel.rankAtual > 0 ? bloqueiosDevolver(sel.id, camadas, ctx) : []
+                    }
+                    camadaNome={camadas.find((c) => c.id === sel.camadaId)?.nome ?? "—"}
+                    habilidadeNome={
+                      habilidades.find((h) => h.id === sel.habilidadeId)?.nome ?? null
+                    }
+                    onFechar={() => setNoSelecionado(null)}
+                    onComprar={() => comprar(sel)}
+                    onDevolver={() => devolver(sel)}
+                    onEditar={() => setModalNo(sel)}
+                  />
+                );
+              })()}
+            </div>
           )}
 
           {arvoreColapsada && (
@@ -661,30 +764,6 @@ export function ArvoresTab({
             </button>
           )}
 
-          {(() => {
-            if (arvoreColapsada) return null;
-            const sel = arvore.nos.find((n) => n.id === noSelecionadoId);
-            if (!sel) return null;
-            return (
-              <PainelNo
-                no={sel}
-                estado={estadoNo(sel, camadas, ctx)}
-                bloqueiosDevolver={
-                  sel.rankAtual > 0 ? bloqueiosDevolver(sel.id, camadas, ctx) : []
-                }
-                camadaNome={
-                  camadas.find((c) => c.id === sel.camadaId)?.nome ?? "—"
-                }
-                habilidadeNome={
-                  habilidades.find((h) => h.id === sel.habilidadeId)?.nome ?? null
-                }
-                onFechar={() => setNoSelecionado(null)}
-                onComprar={() => comprar(sel)}
-                onDevolver={() => devolver(sel)}
-                onEditar={() => setModalNo(sel)}
-              />
-            );
-          })()}
         </>
       )}
 
@@ -712,9 +791,9 @@ export function ArvoresTab({
                     arvoreId: editandoId,
                     patch: dados as Partial<Arvore>,
                   });
-                  await atualizarArvore(personagemId, editandoId, dados);
+                  exigir(await atualizarArvore(personagemId, editandoId, dados));
                 } else {
-                  const r = await criarArvore(personagemId, dados);
+                  const r = exigir(await criarArvore(personagemId, dados));
                   setSelecionadaId(r.id);
                 }
               } catch (err) {
@@ -736,12 +815,12 @@ export function ArvoresTab({
             startTransition(async () => {
               try {
                 if (editandoId) {
-                  await atualizarCamada(personagemId, arvore.id, editandoId, dados);
+                  exigir(await atualizarCamada(personagemId, arvore.id, editandoId, dados));
                 } else {
-                  await criarCamada(personagemId, arvore.id, {
+                  exigir(await criarCamada(personagemId, arvore.id, {
                     ...dados,
                     ordem: camadas.length,
-                  });
+                  }));
                 }
               } catch (err) {
                 mostrarErro(err);
@@ -760,7 +839,8 @@ export function ArvoresTab({
               : {
                   camadaId: (modalNo as NovoNo).camadaId,
                   ramoId: (modalNo as NovoNo).ramoId,
-                  offsetY: (modalNo as NovoNo).offsetY,
+                  coluna: (modalNo as NovoNo).coluna,
+                  linha: (modalNo as NovoNo).linha,
                 }
           }
           camadas={camadas}
@@ -779,7 +859,7 @@ export function ArvoresTab({
                   setNoSelecionado(null);
                   startTransition(async () => {
                     try {
-                      await deletarNo(personagemId, arvore.id, alvo.id);
+                      exigir(await deletarNo(personagemId, arvore.id, alvo.id));
                     } catch (err) {
                       mostrarErro(err);
                     }
@@ -797,9 +877,9 @@ export function ArvoresTab({
                     noId: editandoId,
                     patch: dados as Partial<NoArvore>,
                   });
-                  await atualizarNo(personagemId, arvore.id, editandoId, dados);
+                  exigir(await atualizarNo(personagemId, arvore.id, editandoId, dados));
                 } else {
-                  await criarNo(personagemId, arvore.id, dados);
+                  exigir(await criarNo(personagemId, arvore.id, dados));
                 }
               } catch (err) {
                 mostrarErro(err);
@@ -839,9 +919,7 @@ function CopiarModal({
         </button>
         <h2>Copiar Árvore</h2>
         <p className="campo-dica" style={{ marginBottom: 12 }}>
-          Vem a estrutura inteira — camadas, raias, talentos e requisitos. O{" "}
-          <strong>progresso não vem junto</strong>: todos os talentos chegam
-          travados.
+          O progresso não vem junto: todos os talentos chegam travados.
         </p>
 
         {opcoes.length > 6 && (
@@ -887,35 +965,279 @@ function CopiarModal({
   );
 }
 
-// ─── Canvas: faixas contínuas, raias e conectores ───────────
+// ─── Palco navegável ─────────────────────────────────────────────
 
-const ALTURA_FAIXA = 250;
+// Dimensões do mundo em px (zoom 1).
+const NO_L = 112; // largura do bloco do nó
+const NO_A = 110; // altura: círculo + estrelas + nome em 2 linhas
+const PASSO_X = 172; // largura da célula
+const PASSO_Y = 164; // altura da célula
+const FOLGA_X = PASSO_X - NO_L; // vão entre nós lado a lado
+const FOLGA_Y = PASSO_Y - NO_A; // vão entre linhas
+const VAO_RAIA = 56; // espaço a mais entre raias
+const VAO_CAMADA = 56; // espaço a mais entre camadas
+const MARGEM = 32;
+const ROTULO_CAMADA = 72; // coluna da esquerda com o nome da camada
+const TITULO_RAIAS = 44;
+const ZOOM_MIN = 0.3;
+const ZOOM_MAX = 1.6;
+const TRILHO = 10; // distância entre linhas que dividem o mesmo vão
+const SEMPRE_VISIVEL = 140; // quanto do mundo fica na tela mesmo arrastando pra longe
+
+type Ponto = [number, number];
 
 type LinhaCanvas = {
   d: string;
   /** req = requisito pendente · req-ativo = cumprido · fio = trilha do que já foi comprado */
-  tipo: "req" | "req-ativo" | "fio" | "fio-livre";
+  tipo: "req" | "req-ativo" | "fio";
+  paiId: string;
+  filhoId: string;
 };
 
-/** Curva em S que sai e entra na vertical, como a árvore do livro. */
-function curvaVertical(a: PontoCanvas, b: PontoCanvas): string {
-  const dy = Math.max(40, Math.abs(b.y - a.y) * 0.55);
-  return `M ${a.x} ${a.y} C ${a.x} ${a.y + dy}, ${b.x} ${b.y - dy}, ${b.x} ${b.y}`;
+/** Caixa de um nó no mundo. */
+type CaixaNo = {
+  cx: number;
+  /** Topo do círculo: onde a linha entra. */
+  circTopo: number;
+  topo: number;
+  base: number;
+  esq: number;
+  dir: number;
+};
+
+type RaiaMundo = { id: string | null; nome: string | null; x: number; largura: number; colunas: number };
+type FaixaMundo = { camada: CamadaArvore; y: number; altura: number; linhas: number };
+type Mundo = {
+  largura: number;
+  altura: number;
+  raias: RaiaMundo[];
+  faixas: FaixaMundo[];
+  celulas: Map<string, CelulaNo>;
+  caixas: Map<string, CaixaNo>;
+};
+
+/** Canto de cima à esquerda da célula no mundo. */
+function origemCelula(
+  c: CelulaNo,
+  raias: RaiaMundo[],
+  faixas: FaixaMundo[],
+): { x: number; y: number } | null {
+  const raia = raias.find((r) => r.id === c.ramoId);
+  const faixa = faixas.find((f) => f.camada.id === c.camadaId);
+  if (!raia || !faixa) return null;
+  return { x: raia.x + c.coluna * PASSO_X, y: faixa.y + c.linha * PASSO_Y };
 }
 
-/** Escolhe o eixo dominante: nós lado a lado ganham S horizontal. */
-function curvaLivre(a: PontoCanvas, b: PontoCanvas): string {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  if (Math.abs(dy) >= Math.abs(dx) * 0.6) return curvaVertical(a, b);
-  const k = dx * 0.5;
-  return `M ${a.x} ${a.y} C ${a.x + k} ${a.y}, ${b.x - k} ${b.y}, ${b.x} ${b.y}`;
+/** Posiciona os nós na grade: colunas por raia, linhas por camada. */
+function montarMundo(
+  nos: NoArvore[],
+  todasCamadas: CamadaArvore[],
+  ramos: RamoArvore[],
+  montando: boolean,
+  ramoFiltro: string | null,
+  camadaFiltro: string | null,
+): Mundo {
+  // Talento sem ramo cai no primeiro.
+  const celulas = celulasDosNos(nos, ramos);
+  const visiveis = ramoFiltro ? ramos.filter((r) => r.id === ramoFiltro) : ramos;
+  const colunas: (RamoArvore | null)[] = visiveis.length > 0 ? visiveis : [null];
+  const camadas = camadaFiltro ? todasCamadas.filter((c) => c.id === camadaFiltro) : todasCamadas;
+  const extra = montando ? 1 : 0;
+
+  let x = MARGEM + ROTULO_CAMADA;
+  const raias: RaiaMundo[] = colunas.map((r) => {
+    let maior = -1;
+    for (const c of celulas.values()) {
+      if (c.ramoId === (r?.id ?? null) && (!camadaFiltro || c.camadaId === camadaFiltro)) {
+        maior = Math.max(maior, c.coluna);
+      }
+    }
+    const k = Math.max(1, Math.min(MAX_COLUNAS_RAIA, maior + 1 + extra));
+    const raia = { id: r?.id ?? null, nome: r?.nome ?? null, x, largura: k * PASSO_X, colunas: k };
+    x += raia.largura + VAO_RAIA;
+    return raia;
+  });
+
+  let y = MARGEM + (ramos.length > 0 ? TITULO_RAIAS : 0);
+  const faixas: FaixaMundo[] = camadas.map((camada) => {
+    let maior = -1;
+    for (const c of celulas.values()) {
+      if (c.camadaId === camada.id && (!ramoFiltro || c.ramoId === ramoFiltro)) {
+        maior = Math.max(maior, c.linha);
+      }
+    }
+    const n = Math.max(1, Math.min(MAX_LINHAS_CAMADA, maior + 1 + extra));
+    const faixa = { camada, y, altura: n * PASSO_Y, linhas: n };
+    y += faixa.altura + VAO_CAMADA;
+    return faixa;
+  });
+
+  const caixas = new Map<string, CaixaNo>();
+  for (const [id, c] of celulas) {
+    const o = origemCelula(c, raias, faixas);
+    if (!o) continue;
+    const esq = o.x + FOLGA_X / 2;
+    const topo = o.y + FOLGA_Y / 2;
+    caixas.set(id, { cx: esq + NO_L / 2, circTopo: topo + 6, topo, base: topo + NO_A, esq, dir: esq + NO_L });
+  }
+
+  return {
+    largura: x - VAO_RAIA + MARGEM,
+    altura: Math.max(y - VAO_CAMADA, MARGEM + TITULO_RAIAS + PASSO_Y) + MARGEM,
+    raias,
+    faixas,
+    celulas,
+    caixas,
+  };
+}
+
+/** Rota em ângulo reto do pai ao filho, sem atravessar outros nós. */
+function rotaPontos(a: CaixaNo, b: CaixaNo, todas: CaixaNo[], filhosDoPai: Set<CaixaNo>): Ponto[] {
+  const sx = a.cx;
+  const sy = a.base;
+  const ex = b.cx;
+  // Filho na mesma linha (ou acima): contorna por baixo e entra pela base.
+  if (b.topo < a.base - 1) {
+    const y = Math.max(a.base, b.base) + FOLGA_Y / 2;
+    return [[sx, sy], [sx, y], [ex, y], [ex, b.base]];
+  }
+  const yAlvo = b.topo - FOLGA_Y / 2;
+  const bate = todas.some(
+    (c) => c !== a && c !== b && sx > c.esq && sx < c.dir && c.base > sy && c.topo < yAlvo,
+  );
+  const engana =
+    Math.abs(ex - sx) > 0.5 &&
+    todas.some(
+      (c) =>
+        c !== b &&
+        !filhosDoPai.has(c) &&
+        Math.abs(c.cx - sx) < 0.5 &&
+        c.topo > yAlvo &&
+        c.topo < b.topo + 1,
+    );
+  if (!bate && !engana) return [[sx, sy], [sx, yAlvo], [ex, yAlvo], [ex, b.circTopo]];
+  const yVao = a.base + FOLGA_Y / 2;
+  // Mesma coluna: desce pelo lado onde o pai tem mais filhos.
+  let aEsquerda = 0;
+  let aDireita = 0;
+  for (const c of filhosDoPai) {
+    if (c.cx < sx - 0.5) aEsquerda++;
+    else if (c.cx > sx + 0.5) aDireita++;
+  }
+  const pelaEsquerda = ex < sx - 0.5 || (ex <= sx + 0.5 && aEsquerda > aDireita);
+  const xVao = pelaEsquerda ? a.esq - FOLGA_X / 2 : a.dir + FOLGA_X / 2;
+  return [[sx, sy], [sx, yVao], [xVao, yVao], [xVao, yAlvo], [ex, yAlvo], [ex, b.circTopo]];
+}
+
+function alinhados(a: Ponto, b: Ponto, c: Ponto): boolean {
+  const mesmoX = Math.abs(a[0] - b[0]) < 0.5 && Math.abs(b[0] - c[0]) < 0.5;
+  const mesmoY = Math.abs(a[1] - b[1]) < 0.5 && Math.abs(b[1] - c[1]) < 0.5;
+  return mesmoX || mesmoY;
+}
+
+/** Tira ponto repetido e ponto no meio de uma reta. */
+function limparRota(bruto: Ponto[]): Ponto[] {
+  const pts: Ponto[] = [];
+  for (const p of bruto) {
+    const u = pts[pts.length - 1];
+    if (u && Math.abs(u[0] - p[0]) < 0.5 && Math.abs(u[1] - p[1]) < 0.5) continue;
+    const pu = pts[pts.length - 2];
+    if (u && pu && alinhados(pu, u, p)) pts.pop();
+    pts.push([p[0], p[1]]);
+  }
+  return pts;
+}
+
+/** Separa em trilhos paralelos as linhas de pais diferentes no mesmo vão. */
+function separarTrilhos(rotas: { pts: Ponto[]; dono: string }[]): Ponto[][] {
+  type Trecho = { r: number; i: number; vertical: boolean; de: number; ate: number };
+  const grupos = new Map<string, Trecho[]>();
+  rotas.forEach(({ pts }, r) => {
+    for (let i = 1; i < pts.length - 2; i++) {
+      const [x1, y1] = pts[i];
+      const [x2, y2] = pts[i + 1];
+      const vertical = Math.abs(x1 - x2) < 0.5;
+      if (!vertical && Math.abs(y1 - y2) >= 0.5) continue;
+      const t: Trecho = vertical
+        ? { r, i, vertical, de: Math.min(y1, y2), ate: Math.max(y1, y2) }
+        : { r, i, vertical, de: Math.min(x1, x2), ate: Math.max(x1, x2) };
+      const chave = `${vertical ? "v" : "h"}|${Math.round(vertical ? x1 : y1)}`;
+      const lista = grupos.get(chave) ?? [];
+      lista.push(t);
+      grupos.set(chave, lista);
+    }
+  });
+
+  const out = rotas.map(({ pts }) => pts.map((p) => [p[0], p[1]] as Ponto));
+  for (const lista of grupos.values()) {
+    type Bloco = { de: number; ate: number; trechos: Trecho[] };
+    const porDono = new Map<string, Bloco>();
+    for (const t of lista) {
+      const dono = rotas[t.r].dono;
+      const b = porDono.get(dono);
+      if (b) {
+        b.de = Math.min(b.de, t.de);
+        b.ate = Math.max(b.ate, t.ate);
+        b.trechos.push(t);
+      } else {
+        porDono.set(dono, { de: t.de, ate: t.ate, trechos: [t] });
+      }
+    }
+    if (porDono.size < 2) continue;
+    // Blocos que se sobrepõem vão pra trilhos diferentes (coloração de intervalo).
+    const blocos = [...porDono.values()].sort((p, q) => p.de - q.de);
+    const fimDoTrilho: number[] = [];
+    const trilho = new Map<Bloco, number>();
+    for (const b of blocos) {
+      let k = fimDoTrilho.findIndex((fim) => fim < b.de - 1);
+      if (k < 0) {
+        k = fimDoTrilho.length;
+        fimDoTrilho.push(b.ate);
+      } else {
+        fimDoTrilho[k] = b.ate;
+      }
+      trilho.set(b, k);
+    }
+    const n = fimDoTrilho.length;
+    if (n < 2) continue;
+    for (const b of blocos) {
+      const desvio = (trilho.get(b)! - (n - 1) / 2) * TRILHO;
+      for (const t of b.trechos) {
+        const pts = out[t.r];
+        const eixo = t.vertical ? 0 : 1;
+        pts[t.i][eixo] += desvio;
+        pts[t.i + 1][eixo] += desvio;
+      }
+    }
+  }
+  return out;
+}
+
+/** Traço em ângulo reto com cantos arredondados. */
+function caminhoArredondado(pts: Ponto[], raio = 12): string {
+  if (pts.length === 0) return "";
+  let d = `M ${pts[0][0]} ${pts[0][1]}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const [px, py] = pts[i - 1];
+    const [cx, cy] = pts[i];
+    const [nx, ny] = pts[i + 1];
+    const d1 = Math.hypot(cx - px, cy - py);
+    const d2 = Math.hypot(nx - cx, ny - cy);
+    if (d1 < 0.5 || d2 < 0.5) continue;
+    const r = Math.min(raio, d1 / 2, d2 / 2);
+    d += ` L ${cx - ((cx - px) / d1) * r} ${cy - ((cy - py) / d1) * r}`;
+    d += ` Q ${cx} ${cy} ${cx + ((nx - cx) / d2) * r} ${cy + ((ny - cy) / d2) * r}`;
+  }
+  const [lx, ly] = pts[pts.length - 1];
+  return `${d} L ${lx} ${ly}`;
 }
 
 function ArvoreCanvas({
   arvore,
   camadas,
   ramos,
+  ramoFiltro,
+  camadaFiltro,
   abertas,
   ctx,
   criterio,
@@ -925,13 +1247,16 @@ function ArvoreCanvas({
   onApagarCamada,
   onMover,
   onCriarNoAqui,
-  colapsadas,
-  onAlternarCamada,
   foco,
+  montando,
+  telaCheia,
+  onTelaCheia,
 }: {
   arvore: Arvore;
   camadas: CamadaArvore[];
   ramos: RamoArvore[];
+  ramoFiltro: string | null;
+  camadaFiltro: string | null;
   abertas: Set<string>;
   ctx: Parameters<typeof estadoNo>[2];
   criterio: CriterioArvore;
@@ -939,152 +1264,368 @@ function ArvoreCanvas({
   onSelecionar: (id: string | null) => void;
   onEditarCamada: (c: CamadaArvore) => void;
   onApagarCamada: (c: CamadaArvore) => void;
-  onMover: (noId: string, destino: { ramoId: string | null; offsetY: number }) => void;
-  onCriarNoAqui: (camadaId: string, ramoId: string | null, offsetY: number) => void;
-  colapsadas: Set<string>;
-  onAlternarCamada: (id: string) => void;
+  onMover: (noId: string, destino: CelulaNo) => void;
+  onCriarNoAqui: (celula: CelulaNo) => void;
   foco: boolean;
+  /** Modo montar: edição e arrasto de talentos. */
+  montando: boolean;
+  telaCheia: boolean;
+  onTelaCheia: () => void;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const nosRef = useRef(new Map<string, HTMLElement>());
-  const [linhas, setLinhas] = useState<LinhaCanvas[]>([]);
-  const [fio, setFio] = useState<LinhaCanvas[]>([]);
-  const [tamanho, setTamanho] = useState({ w: 0, h: 0 });
+  const palcoRef = useRef<HTMLDivElement>(null);
+  const mundoRef = useRef<HTMLDivElement>(null);
+  // Vista (translação + zoom) aplicada direto no DOM.
+  const vista = useRef({ x: 0, y: 0, z: 1 });
+  const ponteiros = useRef(new Map<number, { x: number; y: number }>());
+  const gesto = useRef<
+    | { tipo: "pan"; x0: number; y0: number; vx: number; vy: number; moveu: boolean }
+    | { tipo: "pinca"; d0: number; z0: number; mx: number; my: number; vx: number; vy: number }
+    | null
+  >(null);
+  const enquadrada = useRef<string | null>(null);
   const [arrastando, setArrastando] = useState<string | null>(null);
-  const [raiaAlvo, setRaiaAlvo] = useState<string | null>(null);
+  const [alvoArrasto, setAlvoArrasto] = useState<CelulaNo | null>(null);
 
   const criterioLimiar = CRITERIOS_ARVORE.find((c) => c.slug === criterio);
   const corFio = corValida(arvore.cor);
-  const colunas: (RamoArvore | null)[] = ramos.length > 0 ? ramos : [null];
+  const mundo = useMemo(
+    () => montarMundo(arvore.nos, camadas, ramos, montando, ramoFiltro, camadaFiltro),
+    [arvore.nos, camadas, ramos, montando, ramoFiltro, camadaFiltro],
+  );
 
-  // Conectores medidos do DOM (raias refluem, altura em %).
-  useLayoutEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    function medir() {
-      const cont = containerRef.current;
-      if (!cont) return;
-      const base = cont.getBoundingClientRect();
-      if (base.width === 0) return; // aba escondida — remede quando aparecer
-
-      const centros = new Map<string, PontoCanvas>();
-      for (const no of arvore.nos) {
-        const el = nosRef.current.get(no.id);
-        if (!el || !el.isConnected) continue;
-        const r = el.getBoundingClientRect();
-        centros.set(no.id, {
-          x: r.left - base.left + r.width / 2,
-          y: r.top - base.top + r.height / 2,
+  const { linhas, fio } = useMemo(() => {
+    const todas = [...mundo.caixas.values()];
+    const filhos = new Map<string, Set<CaixaNo>>();
+    for (const no of arvore.nos) {
+      const b = mundo.caixas.get(no.id);
+      if (!b) continue;
+      for (const req of lerRequisitos(no.requisitos)) {
+        const set = filhos.get(req.noId) ?? new Set<CaixaNo>();
+        set.add(b);
+        filhos.set(req.noId, set);
+      }
+    }
+    const rotas: { pts: Ponto[]; dono: string; tipo: LinhaCanvas["tipo"]; filhoId: string }[] = [];
+    for (const no of arvore.nos) {
+      const b = mundo.caixas.get(no.id);
+      if (!b) continue;
+      for (const req of lerRequisitos(no.requisitos)) {
+        const a = mundo.caixas.get(req.noId);
+        if (!a) continue;
+        const rankPai = arvore.nos.find((n) => n.id === req.noId)?.rankAtual ?? 0;
+        rotas.push({
+          pts: limparRota(rotaPontos(a, b, todas, filhos.get(req.noId)!)),
+          dono: req.noId,
+          // Fio = caminho já andado: pai e filho comprados.
+          tipo: no.rankAtual > 0 && rankPai > 0 ? "fio" : rankPai >= req.rank ? "req-ativo" : "req",
+          filhoId: no.id,
         });
       }
-
-      const fio = fioDeProgresso(arvore.nos, camadas, centros);
-      const noFio = new Set(
-        fio.filter((l) => l.porRequisito).map((l) => `${l.deId}>${l.paraId}`),
-      );
-
-      const novas: LinhaCanvas[] = [];
-      for (const no of arvore.nos) {
-        const b = centros.get(no.id);
-        if (!b) continue;
-        for (const req of lerRequisitos(no.requisitos)) {
-          const a = centros.get(req.noId);
-          if (!a || noFio.has(`${req.noId}>${no.id}`)) continue;
-          const paiNo = arvore.nos.find((n) => n.id === req.noId);
-          novas.push({
-            d: curvaVertical(a, b),
-            tipo: (paiNo?.rankAtual ?? 0) >= req.rank ? "req-ativo" : "req",
-          });
-        }
-      }
-      const caminho: LinhaCanvas[] = fio.map((l) => {
-        const a = centros.get(l.deId)!;
-        const b = centros.get(l.paraId)!;
-        return l.porRequisito
-          ? { d: curvaVertical(a, b), tipo: "fio" }
-          : { d: curvaLivre(a, b), tipo: "fio-livre" };
-      });
-
-      setTamanho({ w: base.width, h: base.height });
-      setLinhas(novas);
-      setFio(caminho);
     }
+    const separadas = separarTrilhos(rotas);
+    const todasLinhas: LinhaCanvas[] = rotas.map((r, i) => ({
+      d: caminhoArredondado(separadas[i]),
+      tipo: r.tipo,
+      paiId: r.dono,
+      filhoId: r.filhoId,
+    }));
+    return {
+      linhas: todasLinhas.filter((l) => l.tipo !== "fio"),
+      fio: todasLinhas.filter((l) => l.tipo === "fio"),
+    };
+  }, [mundo, arvore.nos]);
 
-    medir();
-    const ro = new ResizeObserver(medir);
-    ro.observe(container);
+  const aplicar = useCallback(() => {
+    const m = mundoRef.current;
+    const v = vista.current;
+    if (m) m.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.z})`;
+  }, []);
+
+  // Mantém parte do mundo sempre visível.
+  const limitar = useCallback(() => {
+    const palco = palcoRef.current;
+    if (!palco) return;
+    const v = vista.current;
+    const folga = Math.min(SEMPRE_VISIVEL, palco.clientWidth / 2, palco.clientHeight / 2);
+    v.x = Math.min(palco.clientWidth - folga, Math.max(folga - mundo.largura * v.z, v.x));
+    v.y = Math.min(palco.clientHeight - folga, Math.max(folga - mundo.altura * v.z, v.y));
+  }, [mundo]);
+
+  /** Zoom mantendo parado o ponto (px, py) do palco. */
+  const zoomEm = useCallback(
+    (px: number, py: number, zNovo: number) => {
+      const v = vista.current;
+      const z = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zNovo));
+      const wx = (px - v.x) / v.z;
+      const wy = (py - v.y) / v.z;
+      v.x = px - wx * z;
+      v.y = py - wy * z;
+      v.z = z;
+      limitar();
+      aplicar();
+    },
+    [limitar, aplicar],
+  );
+
+  /** Enquadra a árvore: "inteira" cabe tudo, "inicio" prioriza o começo. */
+  const ajustar = useCallback(
+    (modo: "inicio" | "inteira") => {
+      const palco = palcoRef.current;
+      if (!palco || palco.clientWidth === 0) return;
+      const v = vista.current;
+      const encaixe = Math.min(palco.clientWidth / mundo.largura, palco.clientHeight / mundo.altura);
+      if (modo === "inteira" || encaixe >= 0.8) {
+        v.z = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.min(1, encaixe)));
+        v.x = (palco.clientWidth - mundo.largura * v.z) / 2;
+        v.y = (palco.clientHeight - mundo.altura * v.z) / 2;
+      } else {
+        v.z = palco.clientWidth < 640 ? 0.7 : 0.85;
+        // Centraliza se couber na largura.
+        v.x = Math.max(0, (palco.clientWidth - mundo.largura * v.z) / 2);
+        v.y = 0;
+      }
+      limitar();
+      aplicar();
+    },
+    [mundo, limitar, aplicar],
+  );
+
+  // Reenquadra só ao trocar de árvore ou filtro.
+  const vistaId = `${arvore.id}|${ramoFiltro ?? ""}|${camadaFiltro ?? ""}`;
+  useLayoutEffect(() => {
+    if (enquadrada.current === vistaId) {
+      limitar();
+      aplicar();
+      return;
+    }
+    enquadrada.current = vistaId;
+    ajustar("inicio");
+  }, [vistaId, ajustar, limitar, aplicar]);
+
+  // Zoom na roda (listener nativo pra poder cancelar a rolagem).
+  useEffect(() => {
+    const palco = palcoRef.current;
+    if (!palco) return;
+    function roda(e: WheelEvent) {
+      e.preventDefault();
+      const r = palco!.getBoundingClientRect();
+      // Pinça do trackpad chega como roda + ctrl.
+      const passo = e.ctrlKey ? 0.01 : 0.0015;
+      zoomEm(e.clientX - r.left, e.clientY - r.top, vista.current.z * Math.exp(-e.deltaY * passo));
+    }
+    palco.addEventListener("wheel", roda, { passive: false });
+    return () => palco.removeEventListener("wheel", roda);
+  }, [zoomEm]);
+
+  // Ajusta os limites quando o palco muda de tamanho.
+  useEffect(() => {
+    const palco = palcoRef.current;
+    if (!palco) return;
+    const ro = new ResizeObserver(() => {
+      limitar();
+      aplicar();
+    });
+    ro.observe(palco);
     return () => ro.disconnect();
-  }, [arvore.nos, camadas, ramos, colapsadas]);
+  }, [limitar, aplicar]);
+
+  // ─ Arrastar o palco e pinça ─
+  // Só captura o ponteiro depois que ele se move, pra não engolir cliques.
+  function apertou(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    ponteiros.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const v = vista.current;
+    if (ponteiros.current.size === 1) {
+      gesto.current = { tipo: "pan", x0: e.clientX, y0: e.clientY, vx: v.x, vy: v.y, moveu: false };
+    } else if (ponteiros.current.size === 2) {
+      const [a, b] = [...ponteiros.current.values()];
+      gesto.current = {
+        tipo: "pinca",
+        d0: Math.hypot(b.x - a.x, b.y - a.y) || 1,
+        z0: v.z,
+        mx: (a.x + b.x) / 2,
+        my: (a.y + b.y) / 2,
+        vx: v.x,
+        vy: v.y,
+      };
+      for (const id of ponteiros.current.keys()) {
+        if (!e.currentTarget.hasPointerCapture(id)) e.currentTarget.setPointerCapture(id);
+      }
+    }
+  }
+
+  function moveu(e: React.PointerEvent<HTMLDivElement>) {
+    if (!ponteiros.current.has(e.pointerId)) return;
+    ponteiros.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const g = gesto.current;
+    const v = vista.current;
+    const palco = e.currentTarget;
+    if (g?.tipo === "pan") {
+      const dx = e.clientX - g.x0;
+      const dy = e.clientY - g.y0;
+      if (!g.moveu) {
+        if (Math.hypot(dx, dy) < 5) return;
+        g.moveu = true;
+        palco.setPointerCapture(e.pointerId);
+        palco.classList.add("movendo");
+      }
+      v.x = g.vx + dx;
+      v.y = g.vy + dy;
+      limitar();
+      aplicar();
+    } else if (g?.tipo === "pinca") {
+      const [a, b] = [...ponteiros.current.values()];
+      const r = palco.getBoundingClientRect();
+      const z = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, g.z0 * (Math.hypot(b.x - a.x, b.y - a.y) / g.d0)));
+      // Zoom ancorado no centro da pinça.
+      const wx = (g.mx - r.left - g.vx) / g.z0;
+      const wy = (g.my - r.top - g.vy) / g.z0;
+      v.z = z;
+      v.x = (a.x + b.x) / 2 - r.left - wx * z;
+      v.y = (a.y + b.y) / 2 - r.top - wy * z;
+      limitar();
+      aplicar();
+    }
+  }
+
+  function soltou(e: React.PointerEvent<HTMLDivElement>) {
+    if (!ponteiros.current.delete(e.pointerId)) return;
+    if (ponteiros.current.size === 0) {
+      const g = gesto.current;
+      gesto.current = null;
+      e.currentTarget.classList.remove("movendo");
+      // Toque parado no vazio fecha o talento aberto.
+      const alvo = e.target as Element;
+      if (
+        e.type === "pointerup" &&
+        g?.tipo === "pan" &&
+        !g.moveu &&
+        !alvo.closest(".arvore-no, button, a, input, select, textarea")
+      ) {
+        onSelecionar(null);
+      }
+      return;
+    }
+    // Sobrou um dedo: volta a arrastar.
+    const [p] = [...ponteiros.current.values()];
+    const v = vista.current;
+    gesto.current = { tipo: "pan", x0: p.x, y0: p.y, vx: v.x, vy: v.y, moveu: true };
+  }
+
+  function zoomCentro(fator: number) {
+    const palco = palcoRef.current;
+    if (palco) zoomEm(palco.clientWidth / 2, palco.clientHeight / 2, vista.current.z * fator);
+  }
+
+  /** Foco pelo teclado num talento fora da tela: traz ele pro meio. */
+  function mostrarNo(id: string) {
+    const palco = palcoRef.current;
+    const c = mundo.caixas.get(id);
+    if (!palco || !c) return;
+    const v = vista.current;
+    const cy = (c.topo + c.base) / 2;
+    const sx = c.cx * v.z + v.x;
+    const sy = cy * v.z + v.y;
+    if (sx > 40 && sx < palco.clientWidth - 40 && sy > 40 && sy < palco.clientHeight - 40) return;
+    v.x = palco.clientWidth / 2 - c.cx * v.z;
+    v.y = palco.clientHeight / 2 - cy * v.z;
+    limitar();
+    aplicar();
+  }
+
+  // ─ Arrastar talento (modo montar) ─
+  function celulaNoPonto(clientX: number, clientY: number): CelulaNo | null {
+    const palco = palcoRef.current;
+    if (!palco) return null;
+    const r = palco.getBoundingClientRect();
+    const v = vista.current;
+    const wx = (clientX - r.left - v.x) / v.z;
+    const wy = (clientY - r.top - v.y) / v.z;
+    const raia = mundo.raias.find(
+      (l) => wx >= l.x - VAO_RAIA / 2 && wx < l.x + l.largura + VAO_RAIA / 2,
+    );
+    const faixa = mundo.faixas.find(
+      (f) => wy >= f.y - VAO_CAMADA / 2 && wy < f.y + f.altura + VAO_CAMADA / 2,
+    );
+    if (!raia || !faixa) return null;
+    return {
+      camadaId: faixa.camada.id,
+      ramoId: raia.id,
+      coluna: Math.max(0, Math.min(raia.colunas - 1, Math.floor((wx - raia.x) / PASSO_X))),
+      linha: Math.max(0, Math.min(faixa.linhas - 1, Math.floor((wy - faixa.y) / PASSO_Y))),
+    };
+  }
 
   /** Movimento < 4px conta como clique e abre o painel. */
-  function iniciarArrasto(
-    e: React.PointerEvent,
-    no: NoArvore,
-    faixaEl: HTMLElement | null,
-  ) {
-    if (e.button !== 0 || !faixaEl) return;
-    const card = e.currentTarget as HTMLElement;
+  function iniciarArrasto(e: React.PointerEvent, no: NoArvore) {
+    if (e.button !== 0) return;
+    e.stopPropagation(); // o palco não anda junto
     e.preventDefault();
-    card.setPointerCapture(e.pointerId);
-
-    const inicioX = e.clientX;
-    const inicioY = e.clientY;
-    let moveu = false;
-    let pendenteY = no.offsetY;
-    let pendenteRamo = no.ramoId;
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    let moveuNo = false;
+    let alvo: CelulaNo | null = null;
 
     function mover(ev: PointerEvent) {
-      if (
-        !moveu &&
-        Math.hypot(ev.clientX - inicioX, ev.clientY - inicioY) < 4
-      ) {
-        return;
-      }
-      if (!moveu) {
-        moveu = true;
+      if (!moveuNo && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 4) return;
+      if (!moveuNo) {
+        moveuNo = true;
         setArrastando(no.id);
       }
-      const r = faixaEl!.getBoundingClientRect();
-      pendenteY = clampOffsetY(((ev.clientY - r.top) / r.height) * 100);
-      const sob = Array.from(
-        faixaEl!.querySelectorAll<HTMLElement>("[data-raia]"),
-      ).find((c) => {
-        const rc = c.getBoundingClientRect();
-        return ev.clientX >= rc.left && ev.clientX <= rc.right;
-      });
-      pendenteRamo = sob?.dataset.raia || null;
-      setRaiaAlvo(pendenteRamo);
-      card.style.top = `${pendenteY}%`;
+      const z = vista.current.z;
+      el.style.transform = `translate(${(ev.clientX - x0) / z}px, ${(ev.clientY - y0) / z}px)`;
+      alvo = celulaNoPonto(ev.clientX, ev.clientY);
+      setAlvoArrasto(alvo);
     }
 
     function soltar(ev: PointerEvent) {
-      card.releasePointerCapture(ev.pointerId);
-      card.removeEventListener("pointermove", mover);
-      card.removeEventListener("pointerup", soltar);
-      card.removeEventListener("pointercancel", soltar);
-      // Repõe o valor em vez de limpar: no clique simples o React não re-renderiza o `top`.
-      card.style.top = `${moveu ? pendenteY : no.offsetY}%`;
-      setRaiaAlvo(null);
-      if (!moveu) {
+      el.releasePointerCapture(ev.pointerId);
+      el.removeEventListener("pointermove", mover);
+      el.removeEventListener("pointerup", soltar);
+      el.removeEventListener("pointercancel", soltar);
+      el.style.transform = "";
+      setAlvoArrasto(null);
+      if (!moveuNo) {
         onSelecionar(no.id);
         return;
       }
       setArrastando(null);
-      if (pendenteY !== no.offsetY || pendenteRamo !== no.ramoId) {
-        onMover(no.id, { ramoId: pendenteRamo, offsetY: pendenteY });
+      const atual = mundo.celulas.get(no.id);
+      if (
+        ev.type === "pointerup" &&
+        alvo &&
+        atual &&
+        (alvo.camadaId !== atual.camadaId ||
+          alvo.ramoId !== atual.ramoId ||
+          alvo.coluna !== atual.coluna ||
+          alvo.linha !== atual.linha)
+      ) {
+        onMover(no.id, alvo);
       }
     }
 
-    card.addEventListener("pointermove", mover);
-    card.addEventListener("pointerup", soltar);
-    card.addEventListener("pointercancel", soltar);
+    el.addEventListener("pointermove", mover);
+    el.addEventListener("pointerup", soltar);
+    el.addEventListener("pointercancel", soltar);
   }
+
+  const ligada = (l: LinhaCanvas) =>
+    selecionadoId !== null && (l.paiId === selecionadoId || l.filhoId === selecionadoId);
+  const ocupadas = new Set(
+    [...mundo.celulas.values()].map((c) => `${c.camadaId}|${c.ramoId ?? ""}|${c.coluna}|${c.linha}`),
+  );
+  const origemAlvo = alvoArrasto ? origemCelula(alvoArrasto, mundo.raias, mundo.faixas) : null;
 
   return (
     <div
-      className={`arvore-canvas${foco ? " foco" : ""}`}
-      ref={containerRef}
+      ref={palcoRef}
+      className={`arvore-canvas${foco ? " foco" : ""}${montando ? " montando" : ""}`}
+      onPointerDown={apertou}
+      onPointerMove={moveu}
+      onPointerUp={soltou}
+      onPointerCancel={soltou}
       style={
         {
           ...(corFio ? { "--arvore-fio-cor": corFio } : {}),
@@ -1096,251 +1637,222 @@ function ArvoreCanvas({
     >
       <div className="arvore-canvas-veu" />
 
-      <svg
-        className="arvore-conectores"
-        width={tamanho.w}
-        height={tamanho.h}
-        aria-hidden="true"
+      <div
+        ref={mundoRef}
+        className="arvore-mundo"
+        style={{ width: mundo.largura, height: mundo.altura }}
       >
-        {linhas.map((l, i) => (
-          <path
-            key={i}
-            d={l.d}
-            className={`arvore-conector ${l.tipo === "req-ativo" ? "ativo" : ""}`}
+        {mundo.faixas.map((f) => (
+          <div
+            key={`faixa-${f.camada.id}`}
+            className={`arvore-mundo-faixa${abertas.has(f.camada.id) ? "" : " fechada"}`}
+            style={{
+              left: MARGEM,
+              top: f.y - VAO_CAMADA / 2 + 6,
+              width: mundo.largura - 2 * MARGEM,
+              height: f.altura + VAO_CAMADA - 12,
+            }}
           />
         ))}
-        {fio.map((l, i) => (
-          <g key={i} className={`arvore-fio ${l.tipo === "fio-livre" ? "livre" : ""}`}>
-            <path d={l.d} className="arvore-fio-halo" />
-            <path d={l.d} className="arvore-fio-traco" />
-            <path d={l.d} className="arvore-fio-brilho" pathLength={100} />
-          </g>
-        ))}
-      </svg>
-
-      {ramos.length > 0 && (
-        <div className="arvore-raias-head">
-          <span className="arvore-trilho-vazio" />
+        {mundo.raias.slice(1).map((r) => (
           <div
-            className="arvore-raias-cols"
-            style={{ gridTemplateColumns: `repeat(${colunas.length}, 1fr)` }}
-          >
-            {ramos.map((r) => (
-              <span key={r.id} className="arvore-raia-nome">
-                {r.nome}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {camadas.map((camada) => (
-        <FaixaCamada
-          key={camada.id}
-          camada={camada}
-          aberta={abertas.has(camada.id)}
-          colunas={colunas}
-          nos={arvore.nos.filter((n) => n.camadaId === camada.id)}
-          colapsada={colapsadas.has(camada.id)}
-          onAlternar={() => onAlternarCamada(camada.id)}
-          camadas={camadas}
-          ctx={ctx}
-          criterio={criterio}
-          rotuloLimiar={criterioLimiar?.rotuloLimiar}
-          arrastando={arrastando}
-          raiaAlvo={raiaAlvo}
-          selecionadoId={selecionadoId}
-          registrar={(id, el) => {
-            if (el) nosRef.current.set(id, el);
-            else nosRef.current.delete(id);
-          }}
-          onEditarCamada={onEditarCamada}
-          onApagarCamada={onApagarCamada}
-          onArrastar={iniciarArrasto}
-          onCriarNoAqui={onCriarNoAqui}
-        />
-      ))}
-    </div>
-  );
-}
-
-function FaixaCamada({
-  camada,
-  aberta,
-  colapsada,
-  onAlternar,
-  colunas,
-  nos,
-  camadas,
-  ctx,
-  criterio,
-  rotuloLimiar,
-  arrastando,
-  raiaAlvo,
-  selecionadoId,
-  registrar,
-  onEditarCamada,
-  onApagarCamada,
-  onArrastar,
-  onCriarNoAqui,
-}: {
-  camada: CamadaArvore;
-  aberta: boolean;
-  colapsada: boolean;
-  onAlternar: () => void;
-  colunas: (RamoArvore | null)[];
-  nos: NoArvore[];
-  camadas: CamadaArvore[];
-  ctx: Parameters<typeof estadoNo>[2];
-  criterio: CriterioArvore;
-  rotuloLimiar?: string;
-  arrastando: string | null;
-  raiaAlvo: string | null;
-  selecionadoId: string | null;
-  registrar: (id: string, el: HTMLElement | null) => void;
-  onEditarCamada: (c: CamadaArvore) => void;
-  onApagarCamada: (c: CamadaArvore) => void;
-  onArrastar: (e: React.PointerEvent, no: NoArvore, faixa: HTMLElement | null) => void;
-  onCriarNoAqui: (camadaId: string, ramoId: string | null, offsetY: number) => void;
-}) {
-  const faixaRef = useRef<HTMLDivElement>(null);
-  const raiaPadrao = colunas[0]?.id ?? null;
-
-  return (
-    <div className={`arvore-faixa-linha ${aberta ? "" : "fechada"}`}>
-      <div className="arvore-trilho">
-        <button
-          type="button"
-          className="arvore-trilho-toggle"
-          onClick={onAlternar}
-          title={colapsada ? "Expandir camada" : "Recolher camada"}
-          aria-expanded={!colapsada}
-        >
-          <i className={`fas fa-chevron-${colapsada ? "right" : "down"}`} />
-        </button>
-        <span className="arvore-trilho-nome">{camada.nome}</span>
-        <span className="arvore-trilho-meta">
-          <i className={`fas ${aberta ? "fa-lock-open" : "fa-lock"}`} />
-          {criterio !== "manual" && <em title={rotuloLimiar}>{camada.limiar}</em>}
-        </span>
-        <span className="arvore-trilho-acoes">
-          <button
-            type="button"
-            className="recurso-icon-btn"
-            title="Editar camada"
-            onClick={() => onEditarCamada(camada)}
-          >
-            <i className="fas fa-edit" />
-          </button>
-          <button
-            type="button"
-            className="recurso-icon-btn"
-            title="Apagar camada"
-            onClick={() => onApagarCamada(camada)}
-          >
-            <i className="fas fa-trash" />
-          </button>
-        </span>
-      </div>
-
-      {colapsada ? (
-        <button
-          type="button"
-          className="arvore-faixa-tira"
-          onClick={onAlternar}
-          title="Expandir camada"
-        >
-          {nos.length === 0
-            ? "sem talentos"
-            : `${nos.filter((n) => n.rankAtual > 0).length} de ${nos.length} liberado(s)`}
-          {(() => {
-            const disp = nos.filter((n) => estadoNo(n, camadas, ctx).podeComprar).length;
-            return disp > 0 ? (
-              <em className="arvore-tira-disp">
-                <i className="fas fa-circle-check" /> {disp} pra comprar
-              </em>
-            ) : null;
-          })()}
-          <i className="fas fa-chevron-down" />
-        </button>
-      ) : (
-      <div
-        className="arvore-faixa"
-        ref={faixaRef}
-        style={{
-          gridTemplateColumns: `repeat(${colunas.length}, 1fr)`,
-          minHeight: ALTURA_FAIXA,
-        }}
-      >
-        {colunas.map((col, i) => {
-          // Nó sem raia (ou de raia apagada) cai na primeira.
-          const daColuna =
-            colunas.length === 1 && !col
-              ? nos
-              : nos.filter((n) => {
-                  const alvo = colunas.some((c) => c?.id === n.ramoId)
-                    ? n.ramoId
-                    : raiaPadrao;
-                  return alvo === col?.id;
-                });
+            key={`divisa-${r.id}`}
+            className="arvore-mundo-divisa"
+            style={{ left: r.x - VAO_RAIA / 2, top: MARGEM, height: mundo.altura - 2 * MARGEM }}
+          />
+        ))}
+        {ramos.length > 0 &&
+          mundo.raias.map((r) => (
+            <div
+              key={`titulo-${r.id}`}
+              className="arvore-mundo-raia"
+              style={{ left: r.x, top: MARGEM, width: r.largura, height: TITULO_RAIAS }}
+            >
+              {r.nome}
+            </div>
+          ))}
+        {mundo.faixas.map((f) => {
+          const aberta = abertas.has(f.camada.id);
           return (
             <div
-              key={col?.id ?? `raia-${i}`}
-              className={`arvore-raia${
-                arrastando && raiaAlvo === (col?.id ?? null) ? " alvo" : ""
-              }`}
-              data-raia={col?.id ?? ""}
-              onClick={(e) => {
-                if (e.target !== e.currentTarget) return;
-                const r = e.currentTarget.getBoundingClientRect();
-                onCriarNoAqui(
-                  camada.id,
-                  col?.id ?? null,
-                  clampOffsetY(((e.clientY - r.top) / r.height) * 100),
-                );
-              }}
-              title="Clique pra criar um talento aqui"
+              key={`rotulo-${f.camada.id}`}
+              className={`arvore-mundo-camada${aberta ? "" : " fechada"}`}
+              style={{ left: MARGEM, top: f.y, width: ROTULO_CAMADA - 12, height: f.altura }}
             >
-              {daColuna.length === 0 && (
-                <span className="arvore-slot-vazio">
-                  <i className="fas fa-plus" />
-                  <em>clique pra criar</em>
+              <span className="arvore-mundo-camada-nome">{f.camada.nome}</span>
+              <span className="arvore-mundo-camada-meta">
+                <i className={`fas ${aberta ? "fa-lock-open" : "fa-lock"}`} />
+                {criterio !== "manual" && (
+                  <em title={criterioLimiar?.rotuloLimiar}>{f.camada.limiar}</em>
+                )}
+              </span>
+              {montando && (
+                <span className="arvore-mundo-camada-acoes">
+                  <button
+                    type="button"
+                    className="recurso-icon-btn"
+                    title="Editar camada"
+                    onClick={() => onEditarCamada(f.camada)}
+                  >
+                    <i className="fas fa-edit" />
+                  </button>
+                  <button
+                    type="button"
+                    className="recurso-icon-btn"
+                    title="Apagar camada"
+                    onClick={() => onApagarCamada(f.camada)}
+                  >
+                    <i className="fas fa-trash" />
+                  </button>
                 </span>
               )}
-              {daColuna.map((no) => (
-                <NoCard
-                  key={no.id}
-                  no={no}
-                  estado={estadoNo(no, camadas, ctx)}
-                  arrastando={arrastando === no.id}
-                  selecionado={selecionadoId === no.id}
-                  registrar={(el) => registrar(no.id, el)}
-                  onPointerDown={(e) => onArrastar(e, no, faixaRef.current)}
-                />
-              ))}
             </div>
           );
         })}
+
+        <svg
+          className={`arvore-conectores${selecionadoId ? " com-selecao" : ""}`}
+          width={mundo.largura}
+          height={mundo.altura}
+          aria-hidden="true"
+        >
+          {/* Linhas do talento selecionado por cima. */}
+          {[false, true].flatMap((daVez) => [
+            ...linhas
+              .filter((l) => ligada(l) === daVez)
+              .map((l, i) => (
+                <path
+                  key={`l${daVez}${i}`}
+                  d={l.d}
+                  className={`arvore-conector${l.tipo === "req-ativo" ? " ativo" : ""}${
+                    daVez ? " ligada" : ""
+                  }`}
+                />
+              )),
+            ...fio
+              .filter((l) => ligada(l) === daVez)
+              .map((l, i) => (
+                <g key={`f${daVez}${i}`} className={`arvore-fio${daVez ? " ligada" : ""}`}>
+                  <path d={l.d} className="arvore-fio-halo" />
+                  <path d={l.d} className="arvore-fio-traco" />
+                  <path d={l.d} className="arvore-fio-brilho" pathLength={100} />
+                </g>
+              )),
+          ])}
+        </svg>
+
+        {montando &&
+          mundo.faixas.flatMap((f) =>
+            mundo.raias.flatMap((r) =>
+              Array.from({ length: r.colunas * f.linhas }, (_, idx) => {
+                const celula: CelulaNo = {
+                  camadaId: f.camada.id,
+                  ramoId: r.id,
+                  coluna: idx % r.colunas,
+                  linha: Math.floor(idx / r.colunas),
+                };
+                const chave = `${celula.camadaId}|${celula.ramoId ?? ""}|${celula.coluna}|${celula.linha}`;
+                if (ocupadas.has(chave)) return null;
+                return (
+                  <button
+                    key={`vazia-${chave}`}
+                    type="button"
+                    className="arvore-celula-vazia"
+                    style={{
+                      left: r.x + celula.coluna * PASSO_X + (PASSO_X - 56) / 2,
+                      top: f.y + celula.linha * PASSO_Y + FOLGA_Y / 2 + 6,
+                    }}
+                    onClick={() => onCriarNoAqui(celula)}
+                    title="Criar talento aqui"
+                    aria-label="Criar talento aqui"
+                  >
+                    <i className="fas fa-plus" />
+                  </button>
+                );
+              }),
+            ),
+          )}
+        {origemAlvo && (
+          <span
+            className="arvore-celula-alvo"
+            style={{
+              left: origemAlvo.x + 6,
+              top: origemAlvo.y + 6,
+              width: PASSO_X - 12,
+              height: PASSO_Y - 12,
+            }}
+          />
+        )}
+
+        {arvore.nos.map((no) => {
+          const caixa = mundo.caixas.get(no.id);
+          if (!caixa) return null;
+          return (
+            <NoCard
+              key={no.id}
+              no={no}
+              caixa={caixa}
+              estado={estadoNo(no, camadas, ctx)}
+              arrastando={arrastando === no.id}
+              selecionado={selecionadoId === no.id}
+              onPointerDown={montando ? (e) => iniciarArrasto(e, no) : undefined}
+              onSelecionar={() => onSelecionar(no.id)}
+              onFoco={() => mostrarNo(no.id)}
+              montando={montando}
+            />
+          );
+        })}
       </div>
-      )}
+
+      <div className="arvore-controles" onPointerDown={(e) => e.stopPropagation()}>
+        <button type="button" title="Aproximar" aria-label="Aproximar" onClick={() => zoomCentro(1.25)}>
+          <i className="fas fa-plus" />
+        </button>
+        <button type="button" title="Afastar" aria-label="Afastar" onClick={() => zoomCentro(0.8)}>
+          <i className="fas fa-minus" />
+        </button>
+        <button
+          type="button"
+          title="Ver a árvore inteira"
+          aria-label="Ver a árvore inteira"
+          onClick={() => ajustar("inteira")}
+        >
+          <i className="fas fa-expand" />
+        </button>
+        <button
+          type="button"
+          title={telaCheia ? "Sair da tela cheia" : "Tela cheia"}
+          aria-label={telaCheia ? "Sair da tela cheia" : "Tela cheia"}
+          aria-pressed={telaCheia}
+          onClick={onTelaCheia}
+        >
+          <i className={`fas ${telaCheia ? "fa-minimize" : "fa-maximize"}`} />
+        </button>
+      </div>
     </div>
   );
 }
 
 function NoCard({
   no,
+  caixa,
   estado,
   arrastando,
   selecionado,
-  registrar,
   onPointerDown,
+  onSelecionar,
+  onFoco,
+  montando,
 }: {
   no: NoArvore;
+  caixa: CaixaNo;
   estado: ReturnType<typeof estadoNo>;
   arrastando: boolean;
   selecionado: boolean;
-  registrar: (el: HTMLElement | null) => void;
-  onPointerDown: (e: React.PointerEvent) => void;
+  onPointerDown?: (e: React.PointerEvent) => void;
+  onSelecionar: () => void;
+  onFoco: () => void;
+  montando: boolean;
 }) {
   const maxRanks = Math.max(1, no.maxRanks);
   const classe = estado.comprado
@@ -1351,24 +1863,45 @@ function NoCard({
 
   return (
     <article
-      ref={registrar}
       className={`arvore-no ${classe}${arrastando ? " arrastando" : ""}${
         selecionado ? " selecionado" : ""
-      }`}
-      style={{ top: `${clampOffsetY(no.offsetY)}%` }}
+      }${montando ? " montando" : ""}`}
+      style={{ left: caixa.esq, top: caixa.topo, width: NO_L, height: NO_A }}
       onPointerDown={onPointerDown}
+      onClick={montando ? undefined : onSelecionar}
+      onFocus={(e) => {
+        if (e.currentTarget.matches(":focus-visible")) onFoco();
+      }}
+      role={montando ? undefined : "button"}
+      tabIndex={montando ? undefined : 0}
+      onKeyDown={
+        montando
+          ? undefined
+          : (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelecionar();
+              }
+            }
+      }
       title={
         estado.bloqueios.length > 0 ? estado.bloqueios.join(" · ") : no.descricao
       }
     >
-      {no.custo > 0 && <span className="arvore-no-selo">{no.custo}</span>}
-
-      <div className="arvore-no-linha">
-        <i className={`fas ${no.icone} arvore-no-icone`} />
-        <span className="arvore-no-nome">{no.nome}</span>
-      </div>
-
-      <div className="arvore-no-estrelas">
+      <span className="arvore-no-circulo">
+        <i className={`fas ${no.icone}`} />
+        {no.custo > 0 && (
+          <span className="arvore-no-selo" title={`Custa ${no.custo} por rank`}>
+            {no.custo}
+          </span>
+        )}
+        {!estado.comprado && estado.bloqueios.length > 0 && (
+          <span className="arvore-no-cadeado">
+            <i className="fas fa-lock" />
+          </span>
+        )}
+      </span>
+      <span className="arvore-no-estrelas" aria-label={`Rank ${estado.rank} de ${maxRanks}`}>
         {Array.from({ length: maxRanks }, (_, i) => (
           <span
             key={i}
@@ -1378,10 +1911,8 @@ function NoCard({
             ★
           </span>
         ))}
-        {!estado.comprado && estado.bloqueios.length > 0 && (
-          <i className="fas fa-lock arvore-no-cadeado" />
-        )}
-      </div>
+      </span>
+      <span className="arvore-no-nome">{no.nome}</span>
     </article>
   );
 }
@@ -1407,8 +1938,14 @@ function PainelNo({
   onDevolver: () => void;
   onEditar: () => void;
 }) {
+  // Rola até o painel ao abrir.
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [no.id]);
+
   return (
-    <div className="arvore-painel">
+    <div className="arvore-painel" ref={ref}>
       <div className="arvore-painel-topo">
         <span className="arvore-painel-titulo">
           <i className={`fas ${no.icone}`} /> {no.nome}
@@ -1535,8 +2072,8 @@ function ArvoreModal({
   );
   const [recursoCustoId, setRecursoCustoId] = useState(inicial?.recursoCustoId ?? "");
   const [fundoUrl, setFundoUrl] = useState(inicial?.fundoUrl ?? "");
-  // Molde só vale na criação.
-  const [preset, setPreset] = useState(PRESETS_ARVORE[0].slug);
+  // Molde só na criação; começa em branco.
+  const [preset, setPreset] = useState(PRESET_VAZIO);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -1557,8 +2094,6 @@ function ArvoreModal({
     });
   }
 
-  const meta = CRITERIOS_ARVORE.find((c) => c.slug === criterio);
-
   return (
     <div className="modal-overlay" onClick={onCancelar}>
       <div className="modal-box" onClick={(e) => e.stopPropagation()}>
@@ -1575,7 +2110,7 @@ function ArvoreModal({
             type="text"
             value={nome}
             onChange={(e) => setNome(e.target.value)}
-            placeholder="Ex: Haki da Observação"
+            placeholder="Ex: Haki"
             autoFocus
           />
 
@@ -1595,6 +2130,7 @@ function ArvoreModal({
                       setPreset(pr.slug);
                       setCriterio(pr.criterio);
                       setIcone(pr.icone);
+                      if (!nome.trim() && pr.slug !== PRESET_VAZIO) setNome(pr.nome);
                     }}
                   >
                     <i className={`fas ${pr.icone}`} />
@@ -1620,24 +2156,19 @@ function ArvoreModal({
               </option>
             ))}
           </select>
-          {meta && <p className="campo-dica">{meta.dica}</p>}
 
           <label style={{ marginTop: 10 }}>Recurso que paga os talentos</label>
           <select
             value={recursoCustoId}
             onChange={(e) => setRecursoCustoId(e.target.value)}
           >
-            <option value="">Nenhum — custo só informativo</option>
+            <option value="">Nenhum</option>
             {recursos.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.nome} ({r.valorAtual}/{r.valorMax})
               </option>
             ))}
           </select>
-          <p className="campo-dica">
-            Pontos de Ambição não têm campo próprio na ficha — crie um Recurso
-            &quot;PA&quot; na sidebar e aponte aqui pra debitar de verdade.
-          </p>
 
           <h3 className="modal-secao">
             <i className="fas fa-palette" /> Aparência
@@ -1649,10 +2180,6 @@ function ArvoreModal({
             onChange={(e) => setFundoUrl(e.target.value)}
             placeholder="https://... (opcional)"
           />
-          <p className="campo-dica">
-            Só http(s). Um véu escuro é aplicado por cima pra manter os cards
-            legíveis.
-          </p>
 
           <label style={{ marginTop: 10 }}>Cor e brilho</label>
           <EstiloPicker
@@ -1724,8 +2251,7 @@ function CamadaModal({
 
           {criterio === "manual" ? (
             <p style={{ fontSize: "0.8rem", color: "var(--text-sec)", marginTop: 10 }}>
-              Esta árvore está como &quot;sempre aberta&quot; — a camada não tem
-              limiar. Mude o critério da árvore pra usar trava.
+              Árvore sempre aberta — a camada não tem trava.
             </p>
           ) : (
             <>
@@ -1736,7 +2262,6 @@ function CamadaModal({
                 value={limiar}
                 onChange={(e) => setLimiar(e.target.value)}
               />
-              <p className="campo-dica">{meta?.dica}</p>
             </>
           )}
 
@@ -1764,8 +2289,10 @@ type NoFormDados = {
   nivelMinimo: number;
   habilidadeId: string | null;
   requisitos: RequisitoNo[];
-  ramoId: string | null;
-  offsetY: number;
+  // Célula: só na criação.
+  ramoId?: string | null;
+  coluna?: number;
+  linha?: number;
 };
 
 function NoModal({
@@ -1780,7 +2307,7 @@ function NoModal({
   onApagar,
 }: {
   inicial: NoArvore | null;
-  posicaoInicial: { camadaId: string; ramoId: string | null; offsetY: number } | null;
+  posicaoInicial: CelulaNo | null;
   camadas: CamadaArvore[];
   nos: NoArvore[];
   habilidades: HabilidadeRef[];
@@ -1854,25 +2381,27 @@ function NoModal({
               nivelMinimo: Math.max(0, Number(nivelMinimo) || 0),
               habilidadeId: habilidadeId || null,
               requisitos,
-              ramoId: inicial?.ramoId ?? posicaoInicial?.ramoId ?? null,
-              offsetY: inicial?.offsetY ?? posicaoInicial?.offsetY ?? 50,
+              ...(posicaoInicial && !inicial
+                ? {
+                    ramoId: posicaoInicial.ramoId,
+                    coluna: posicaoInicial.coluna,
+                    linha: posicaoInicial.linha,
+                  }
+                : {}),
             });
           }}
         >
           <div className="no-previa">
             <span className="no-previa-rotulo">Prévia</span>
             <div className="no-previa-palco">
-              <article className="arvore-no disponivel no-previa-card">
-                {Number(custo) > 0 && (
-                  <span className="arvore-no-selo">{Number(custo)}</span>
-                )}
-                <div className="arvore-no-linha">
-                  <i className={`fas ${icone} arvore-no-icone`} />
-                  <span className="arvore-no-nome">
-                    {nome.trim() || "Nome do talento"}
-                  </span>
-                </div>
-                <div className="arvore-no-estrelas">
+              <article className="arvore-no disponivel no-previa-no">
+                <span className="arvore-no-circulo">
+                  <i className={`fas ${icone}`} />
+                  {Number(custo) > 0 && (
+                    <span className="arvore-no-selo">{Number(custo)}</span>
+                  )}
+                </span>
+                <span className="arvore-no-estrelas">
                   {Array.from(
                     {
                       length: Math.max(
@@ -1886,7 +2415,8 @@ function NoModal({
                       </span>
                     ),
                   )}
-                </div>
+                </span>
+                <span className="arvore-no-nome">{nome.trim() || "Nome do talento"}</span>
               </article>
             </div>
           </div>
@@ -1925,10 +2455,6 @@ function NoModal({
               </option>
             ))}
           </select>
-          <p className="campo-dica">
-            A raia e a altura vêm de onde tu clicou no canvas — dá pra
-            reposicionar arrastando o nó depois.
-          </p>
 
           <h3 className="modal-secao">
             <i className="fas fa-arrow-up-right-dots" /> Progressão
@@ -1971,18 +2497,17 @@ function NoModal({
               />
             </div>
           </div>
-          <p className="campo-dica">
-            {Number(maxRanks) > 1
-              ? "Cada rank extra exige a camada seguinte — regra do livro: Forma Dominada (✩) pede o 2º estágio, Avançada (★) pede o 3º."
-              : "Ranks = quantas vezes o talento pode ser comprado. Use 3 pra talento de Haki com Forma Dominada e Avançada."}
-            {!temRecurso && Number(custo) > 0 && (
-              <>
-                {" "}
-                O custo é <strong>informativo</strong> enquanto a árvore não
-                apontar um recurso.
-              </>
-            )}
-          </p>
+          {(Number(maxRanks) > 1 || (!temRecurso && Number(custo) > 0)) && (
+            <p className="campo-dica">
+              {Number(maxRanks) > 1 && "Cada rank extra exige a camada seguinte."}
+              {!temRecurso && Number(custo) > 0 && (
+                <>
+                  {" "}
+                  O custo só desconta se a árvore tiver um recurso.
+                </>
+              )}
+            </p>
+          )}
 
           <h3 className="modal-secao">
             <i className="fas fa-link" /> Ligações
@@ -1992,27 +2517,19 @@ function NoModal({
             value={habilidadeId}
             onChange={(e) => setHabilidadeId(e.target.value)}
           >
-            <option value="">Nenhuma — o talento é só descritivo</option>
+            <option value="">Nenhuma</option>
             {habilidades.map((h) => (
               <option key={h.id} value={h.id}>
                 {h.nome}
               </option>
             ))}
           </select>
-          <p className="campo-dica">
-            Enquanto o talento estiver travado, os efeitos dessa habilidade não
-            entram nos cálculos da ficha.
-          </p>
 
           <label style={{ marginTop: 12 }}>Requisitos</label>
-          <p className="campo-dica">
-            O talento só libera depois que os marcados estiverem no rank pedido.
-            É o que desenha as linhas da árvore.
-          </p>
           {candidatos.length === 0 ? (
             <p className="req-vazio">
               <i className="fas fa-circle-info" /> Nenhum outro talento nesta
-              árvore ainda — crie os pré-requisitos primeiro.
+              árvore.
             </p>
           ) : (
             <>

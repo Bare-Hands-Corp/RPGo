@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioDaRequest } from "@/lib/supabase/server";
 import {
   carregarCalendario,
   carregarObjetivosComPrazo,
@@ -16,10 +16,7 @@ type Params = { params: Promise<{ mesaId: string }> };
 export default async function CalendarioPage({ params }: Params) {
   const { mesaId } = await params;
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await usuarioDaRequest();
   if (!user) redirect("/login");
 
   const mesa = await prisma.mesa.findUnique({ where: { id: mesaId } });

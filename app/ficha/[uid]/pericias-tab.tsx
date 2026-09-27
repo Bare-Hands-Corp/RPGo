@@ -2,6 +2,7 @@
 
 import { useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
+import { ehTemporario, exigir, idTemporario } from "@/lib/acoes";
 import {
   ATRIBUTOS,
   PERICIAS,
@@ -159,7 +160,7 @@ export function PericiasTab({
     startTransition(async () => {
       aplicarPatch({ kind: "pericia", slug, ligado });
       try {
-        await togglePericia(personagemId, slug, ligado);
+        exigir(await togglePericia(personagemId, slug, ligado));
       } catch (err) {
         mostrarErro(err);
       }
@@ -170,7 +171,7 @@ export function PericiasTab({
     startTransition(async () => {
       aplicarPatch({ kind: "pericia-outros", slug, valor });
       try {
-        await setPericiaOutros(personagemId, slug, valor);
+        exigir(await setPericiaOutros(personagemId, slug, valor));
       } catch (err) {
         mostrarErro(err);
       }
@@ -181,7 +182,7 @@ export function PericiasTab({
     startTransition(async () => {
       aplicarPatch({ kind: "pericia-dobrada", slug, ligado });
       try {
-        await togglePericiaDobrada(personagemId, slug, ligado);
+        exigir(await togglePericiaDobrada(personagemId, slug, ligado));
       } catch (err) {
         mostrarErro(err);
       }
@@ -192,7 +193,7 @@ export function PericiasTab({
     startTransition(async () => {
       aplicarPatch({ kind: "salvaguarda", atributo, ligado });
       try {
-        await toggleSalvaguarda(personagemId, atributo, ligado);
+        exigir(await toggleSalvaguarda(personagemId, atributo, ligado));
       } catch (err) {
         mostrarErro(err);
       }
@@ -203,7 +204,7 @@ export function PericiasTab({
     startTransition(async () => {
       aplicarPatch({ kind: "salvaguarda-outros", atributo, valor });
       try {
-        await setSalvaguardaOutros(personagemId, atributo, valor);
+        exigir(await setSalvaguardaOutros(personagemId, atributo, valor));
       } catch (err) {
         mostrarErro(err);
       }
@@ -220,7 +221,7 @@ export function PericiasTab({
         patch: { proficiente, dobrada: proficiente ? c.dobrada : false },
       });
       try {
-        await patchPericiaCustom(personagemId, c.id, { proficiente });
+        exigir(await patchPericiaCustom(personagemId, c.id, { proficiente }));
       } catch (err) {
         mostrarErro(err);
       }
@@ -231,7 +232,7 @@ export function PericiasTab({
     startTransition(async () => {
       aplicarCustomPatch({ kind: "update", id: c.id, patch: { dobrada } });
       try {
-        await patchPericiaCustom(personagemId, c.id, { dobrada });
+        exigir(await patchPericiaCustom(personagemId, c.id, { dobrada }));
       } catch (err) {
         mostrarErro(err);
       }
@@ -242,7 +243,7 @@ export function PericiasTab({
     startTransition(async () => {
       aplicarCustomPatch({ kind: "update", id: c.id, patch: { bonusOutros: valor } });
       try {
-        await patchPericiaCustom(personagemId, c.id, { bonusOutros: valor });
+        exigir(await patchPericiaCustom(personagemId, c.id, { bonusOutros: valor }));
       } catch (err) {
         mostrarErro(err);
       }
@@ -265,7 +266,7 @@ export function PericiasTab({
     startTransition(async () => {
       aplicarCustomPatch({ kind: "delete", id: c.id });
       try {
-        await deletarPericiaCustom(personagemId, c.id);
+        exigir(await deletarPericiaCustom(personagemId, c.id));
       } catch (err) {
         mostrarErro(err);
       }
@@ -280,14 +281,14 @@ export function PericiasTab({
       if (alvo) {
         aplicarCustomPatch({ kind: "update", id: alvo.id, patch: dados });
         try {
-          await patchPericiaCustom(personagemId, alvo.id, dados);
+          exigir(await patchPericiaCustom(personagemId, alvo.id, dados));
         } catch (err) {
           mostrarErro(err);
         }
       } else {
         const slugsUsados = new Set(custom.map((c) => c.slug));
         const nova: PericiaCustomRow = {
-          id: "temp-" + Math.random().toString(36).slice(2),
+          id: idTemporario(),
           slug: slugPericiaCustom(dados.nome, slugsUsados),
           proficiente: false,
           dobrada: false,
@@ -297,7 +298,7 @@ export function PericiasTab({
         };
         aplicarCustomPatch({ kind: "create", pericia: nova });
         try {
-          await criarPericiaCustom(personagemId, dados);
+          exigir(await criarPericiaCustom(personagemId, dados));
         } catch (err) {
           mostrarErro(err);
         }
@@ -308,9 +309,6 @@ export function PericiasTab({
   return (
     <div>
       <h1>Perícias & Salvaguardas</h1>
-      <p className="modal-intro">
-        Marque as proficiências. O modificador final já inclui o bônus de proficiência.
-      </p>
 
       <section>
         <div className="section-header">
@@ -407,7 +405,8 @@ export function PericiasTab({
                   const profPorHab = efeitosAgregados.proficienciasPericia[p.slug];
                   const proficiente =
                     prof.pericias.includes(p.slug) || !!profPorHab;
-                  const dobrado = prof.periciasDobradas.includes(p.slug);
+                  const dobradoPorHab = !!profPorHab?.dobrada;
+                  const dobrado = prof.periciasDobradas.includes(p.slug) || dobradoPorHab;
                   const outros = prof.outrosPericias[p.slug] ?? 0;
                   const bonusHab = efeitosAgregados.bonusPericia[p.slug];
                   const outrosTotal = outros + (bonusHab?.valor ?? 0);
@@ -425,7 +424,8 @@ export function PericiasTab({
                   const tituloFontes = [
                     sub.substituido &&
                       `Usa ${sub.atributo.toUpperCase().slice(0, 3)} por ${sub.fontes.join(", ")}`,
-                    profPorHab && `Proficiência: ${profPorHab.fontes.join(", ")}`,
+                    profPorHab &&
+                      `Proficiência${dobradoPorHab ? " dobrada" : ""}: ${profPorHab.fontes.join(", ")}`,
                     bonusHab &&
                       `${formatarMod(bonusHab.valor)} de ${bonusHab.fontes.join(", ")}`,
                     desReduzEste && `−${Math.abs(penalidadeDesArmadura)} de DES (armadura)`,
@@ -471,6 +471,7 @@ export function PericiasTab({
                         <button
                           type="button"
                           className={`prof-dobro ${dobrado ? "ativo" : ""}`}
+                          disabled={dobradoPorHab}
                           onClick={(e) => {
                             e.preventDefault();
                             setDobrada(p.slug, !dobrado);
@@ -507,16 +508,14 @@ export function PericiasTab({
             + Nova perícia
           </button>
         </div>
-        {custom.length === 0 ? (
-          <p style={{ color: "var(--text-sec)", fontSize: "0.85rem" }}>
-            Perícias fora do set padrão — vindas de Profissão, treinamento ou homebrew.
-          </p>
-        ) : (
+        {custom.length > 0 && (
           <div className="prof-grid prof-grid-custom">
             {custom.map((c) => {
               const at = (c.atributo as Atributo) ?? "forca";
               const profPorHab = efeitosAgregados.proficienciasPericia[c.slug];
               const proficiente = c.proficiente || !!profPorHab;
+              const dobradoPorHab = !!profPorHab?.dobrada;
+              const dobrado = c.dobrada || dobradoPorHab;
               const bonusHab = efeitosAgregados.bonusPericia[c.slug];
               const outrosTotal = c.bonusOutros + (bonusHab?.valor ?? 0);
               const sub = atributoDeCalculo(c.slug, at, subs);
@@ -527,13 +526,14 @@ export function PericiasTab({
                   valorAtributo: atributosParaTeste[sub.atributo],
                   nivel,
                   proficiente,
-                  dobrado: c.dobrada,
+                  dobrado,
                   outros: outrosTotal,
                 }) - penD20;
               const tituloFontes = [
                 sub.substituido &&
                   `Usa ${sub.atributo.toUpperCase().slice(0, 3)} por ${sub.fontes.join(", ")}`,
-                profPorHab && `Proficiência: ${profPorHab.fontes.join(", ")}`,
+                profPorHab &&
+                  `Proficiência${dobradoPorHab ? " dobrada" : ""}: ${profPorHab.fontes.join(", ")}`,
                 bonusHab && `${formatarMod(bonusHab.valor)} de ${bonusHab.fontes.join(", ")}`,
                 desReduzEste && `−${Math.abs(penalidadeDesArmadura)} de DES (armadura)`,
                 penD20 > 0 && `−${penD20} de exaustão`,
@@ -543,8 +543,9 @@ export function PericiasTab({
               return (
                 <div
                   key={c.id}
-                  className={`prof-row ${proficiente ? "prof-on" : ""}`}
+                  className={`prof-row ${proficiente ? "prof-on" : ""} ${ehTemporario(c.id) ? "item-pendente" : ""}`}
                   title={tituloFontes || undefined}
+                  inert={ehTemporario(c.id)}
                 >
                   <input
                     type="checkbox"
@@ -576,7 +577,8 @@ export function PericiasTab({
                   {proficiente && (
                     <button
                       type="button"
-                      className={`prof-dobro ${c.dobrada ? "ativo" : ""}`}
+                      className={`prof-dobro ${dobrado ? "ativo" : ""}`}
+                      disabled={dobradoPorHab}
                       onClick={() => setDobroCustom(c, !c.dobrada)}
                     >
                       2×
@@ -717,9 +719,6 @@ function ModalPericiaCustom({
           <i className="fas fa-times" />
         </button>
         <h2>{inicial ? "Editar perícia" : "Nova perícia"}</h2>
-        <p className="modal-intro">
-          Perícias fora do set padrão (Profissão, treinamento, homebrew).
-        </p>
         <form onSubmit={submeter}>
           <label>Nome</label>
           <input

@@ -41,9 +41,43 @@ model Mesa {
   bannerUrl    String?      @map("banner_url")
   personagens  Personagem[]
   calendario   Calendario?
+  ameacas      Ameaca[]
   navio        Navio?
 
   @@map("mesas")
+}
+
+model Ameaca {
+  id     String @id @default(uuid())
+  mesaId String @map("mesa_id")
+  mesa   Mesa   @relation(fields: [mesaId], references: [id], onDelete: Cascade)
+
+  nome              String
+  classeResistencia Int    @default(0) @map("classe_resistencia")
+  pontosVida        Int    @default(0) @map("pontos_vida")
+  classeDificuldade Int    @default(0) @map("classe_dificuldade")
+  nivelDesafio      Int    @default(0) @map("nivel_desafio")
+  deslocamento      Int    @default(0)
+  deslocamentoNado  Int?   @map("deslocamento_nado")
+  pontosPoder       Int    @default(0) @map("pontos_poder")
+  bonusProficiencia Int    @default(0) @map("bonus_proficiencia")
+
+  forca        Int @default(0)
+  destreza     Int @default(0)
+  constituicao Int @default(0)
+  sabedoria    Int @default(0)
+  presenca     Int @default(0)
+  vontade      Int @default(0)
+
+  caracteristicas Json
+  aspectos        Json
+  acoes           Json
+
+  criadoEm     DateTime @default(now()) @map("criado_em")
+  atualizadoEm DateTime @updatedAt @map("atualizado_em")
+
+  @@index([mesaId, nome])
+  @@map("ameacas")
 }
 
 // Navio da tripulação — 1:1 com a Mesa (a tripulação humana é a própria Mesa:
@@ -146,21 +180,21 @@ model Personagem {
 
 // Objetivo do personagem. `prazoDias` usa o eixo absoluto do calendário da mesa.
 model Objetivo {
-  id            String     @id @default(uuid())
-  personagemId  String     @map("personagem_id")
-  personagem    Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
+  id           String     @id @default(uuid())
+  personagemId String     @map("personagem_id")
+  personagem   Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
 
-  titulo        String
-  descricao     String     @default("")
+  titulo    String
+  descricao String @default("")
   // "aberto" | "feito" | "abandonado"
-  estado        String     @default("aberto")
-  icone         String     @default("fa-scroll")
+  estado    String @default("aberto")
+  icone     String @default("fa-scroll")
 
   // Data-alvo no calendário da mesa (dias absolutos). null = sem prazo.
-  prazoDias     Int?       @map("prazo_dias")
-  ordem         Int        @default(0)
+  prazoDias Int? @map("prazo_dias")
+  ordem     Int  @default(0)
 
-  criadoEm      DateTime   @default(now()) @map("criado_em")
+  criadoEm DateTime @default(now()) @map("criado_em")
 
   @@index([personagemId, ordem])
   @@map("objetivos")
@@ -199,20 +233,20 @@ model PericiaCustom {
 // Pontos de Okama). Modelagem genérica porque o livro tem dezenas de pools
 // específicos por estilo/profissão e novos surgem em homebrews.
 model Recurso {
-  id            String     @id @default(uuid())
-  personagemId  String     @map("personagem_id")
-  personagem    Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
+  id           String     @id @default(uuid())
+  personagemId String     @map("personagem_id")
+  personagem   Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
 
-  nome          String
-  valorAtual    Int        @default(0) @map("valor_atual")
-  valorMax      Int        @default(0) @map("valor_max")
-  ordem         Int        @default(0)
-  cor           String?    // hex (#ffaa00) ou nome de variável CSS; opcional
+  nome       String
+  valorAtual Int     @default(0) @map("valor_atual")
+  valorMax   Int     @default(0) @map("valor_max")
+  ordem      Int     @default(0)
+  cor        String? // hex (#ffaa00) ou nome de variável CSS; opcional
   // 2ª cor do gradiente. null = derivada da `cor` (matiz +38°).
-  cor2          String?    @map("cor_2")
+  cor2       String? @map("cor_2")
   // Efeito visual aplicado a cor: "solido" | "gradiente" | "neon" | "metalico"
   // | "contorno" | "holo" | "pulse" (ver lib/estilos-cor.ts).
-  efeito        String     @default("solido")
+  efeito     String  @default("solido")
   // Quando o recurso recupera: "encontro" | "descansoCurto" | "descansoLongo" | "manual"
   resetEm    String  @default("manual") @map("reset_em")
 
@@ -228,9 +262,11 @@ model Item {
   nome          String
   peso          Float   @default(0)
   tipo          String  @default("comum")
+  // Unidades do item; carga = peso × quantidade.
+  quantidade    Int     @default(1)
   tags          String?
   // Estilo visual por tag: { "<nome da tag>": { cor, efeito } } (lib/estilos-cor.ts).
-  tagsEstilo    Json?      @map("tags_estilo")
+  tagsEstilo    Json?   @map("tags_estilo")
   descricao     String?
   dano          String?
   modificador   Int     @default(0)
@@ -241,19 +277,31 @@ model Item {
 
   // Arma — categoria oficial do OP RPG (livro do jogador, cap. 8).
   // "cortante" | "fogo" | "especial" | "marcial"
-  categoria       String  @default("cortante")
+  categoria        String  @default("cortante")
   // Alcance: define o cálculo padrão do atributo de ataque (FOR/DES).
   // "corpo_a_corpo" | "distancia"
-  alcance         String  @default("corpo_a_corpo")
+  alcance          String  @default("corpo_a_corpo")
   // Alcance real em metros — texto livre, descritivo (ex: "1,5 m", "9/15 m",
   // "cone 3 m"). Complementa a categoria `alcance` com o número exibido no card.
-  alcanceMetros   String? @map("alcance_metros")
+  alcanceMetros    String? @map("alcance_metros")
   // Propriedades canônicas (Acuidade, Arremesso, etc) — array de slugs.
-  propriedades    Json    @default("[]")
+  propriedades     Json    @default("[]")
   // Override manual do atributo de ataque ("forca", "destreza", "sabedoria", …).
   // Quando null, é derivado da categoria + propriedades.
-  atributoAtaque  String? @map("atributo_ataque")
-  proficienteArma Boolean @default(true) @map("proficiente_arma")
+  atributoAtaque   String? @map("atributo_ataque")
+  proficienteArma  Boolean @default(true) @map("proficiente_arma")
+  // Dano extra da arma, somado ao dano base ("1d6 fogo", "+2").
+  danoBonus        String? @map("dano_bonus")
+  // Soma o modificador de atributo no dano (opt-in).
+  danoSomaAtributo Boolean @default(false) @map("dano_soma_atributo")
+
+  // Soma a proficiência no dano da arma e das técnicas com ela.
+  danoSomaProficiencia Boolean @default(false) @map("dano_soma_proficiencia")
+
+  // Efeitos do item (formato de Habilidade.efeitos), valem enquanto equipado.
+  efeitos Json @default("[]")
+
+  // Concessões: ver Acao.itemId / Habilidade.itemId.
 
   @@map("itens")
 }
@@ -280,15 +328,14 @@ model Acao {
   atributoCd     String? @map("atributo_cd") // atributo primário do usuário pra CD (8+prof+mod)
   dano           String? // "1d8 cortante", "2d6 fogo"
   alcance        String? // "cc 1,5 m", "9 m", "linha 18 m"
-  // Quando setado, acerto/dano vêm da arma equipada (Item.id) em vez do cálculo
-  // manual — ex: Seiken usando a arma marcial equipada. Referência solta (sem FK):
-  // se a arma sumir/desequipar, a UI cai no cálculo manual (atributoAtaque/dano).
-  armaId         String? @map("arma_id")
+  // Armas que desferem esta ação (Item.id[], sem FK).
+  armaIds        Json    @default("[]") @map("arma_ids")
 
-  // Vínculo opcional a uma Habilidade do personagem — a ação "deriva de" uma
-  // técnica catalogada em Habilidades. Referência solta (sem FK): se a
-  // habilidade sumir, a UI só ignora o vínculo.
-  habilidadeId String? @map("habilidade_id")
+  // Item que concede esta ação (sem FK); travada se não estiver equipado.
+  itemId String? @map("item_id")
+
+  // Habilidades de onde a ação deriva (Habilidade.id[], sem FK).
+  habilidadeIds Json @default("[]") @map("habilidade_ids")
 
   @@map("acoes")
 }
@@ -303,7 +350,7 @@ model Habilidade {
   personagem   Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
 
   nome      String
-  // "profissao" | "estilo" | "haki" | "especie" | "akumaNoMi" | "treinamento" | "livre"
+  // "profissao" | "estilo" | "haki" | "especie" | "akumaNoMi" | "treinamento" | "item" | "livre"
   origem    String @default("livre")
   // "passiva" | "ativa" | "reativa" | "livre"
   tipo      String @default("passiva")
@@ -321,16 +368,19 @@ model Habilidade {
   // "descansoCurto" | "descansoLongo" | "encontro" | "manual"
   recarga   String?
 
-  tags              String?    // texto livre, separado por vírgula
+  tags       String? // texto livre, separado por vírgula
   // Estilo visual por tag: { "<nome da tag>": { cor, efeito } } (lib/estilos-cor.ts).
-  tagsEstilo        Json?      @map("tags_estilo")
-  favorita          Boolean    @default(false)
-  ordem             Int        @default(0)
+  tagsEstilo Json?   @map("tags_estilo")
+  favorita   Boolean @default(false)
+  ordem      Int     @default(0)
 
   // Estado "ligada" de habilidade sustentada (ativa/reativa com efeito sustentado).
   // Enquanto true, os efeitos sustentados entram no agregador como uma passiva.
   // Habilidade só-instantânea (cura pura) não usa esse campo (continua no "Usar").
   ligada Boolean @default(false)
+
+  // Item que concede esta habilidade (sem FK); travada se não estiver equipado.
+  itemId String? @map("item_id")
 
   // Lista de efeitos estruturados (ver lib/op-rpg.ts EfeitoHabilidade).
   efeitos Json @default("[]")
@@ -426,52 +476,52 @@ model EventoCalendario {
 // ─── Árvores de talento ────────────────────────────────────
 
 model Arvore {
-  id            String     @id @default(uuid())
-  personagemId  String     @map("personagem_id")
-  personagem    Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
+  id           String     @id @default(uuid())
+  personagemId String     @map("personagem_id")
+  personagem   Personagem @relation(fields: [personagemId], references: [id], onDelete: Cascade)
 
-  nome          String
-  icone         String     @default("fa-sitemap")
-  cor           String?
+  nome   String
+  icone  String  @default("fa-sitemap")
+  cor    String?
   // 2ª cor do gradiente. null = derivada da `cor`.
-  cor2          String?    @map("cor_2")
+  cor2   String? @map("cor_2")
   // Efeito de brilho aplicado à cor (ver lib/estilos-cor.ts).
-  efeito        String     @default("solido")
-  ordem         Int        @default(0)
+  efeito String  @default("solido")
+  ordem  Int     @default(0)
 
   // Como as camadas destravam:
   // "manual"  → todas abertas (a árvore é só organização visual);
   // "nivel"   → limiar da camada é o nível do personagem (níveis de Estilo);
   // "pontos"  → limiar é o total de pontos gastos NA PRÓPRIA árvore. É o
   //             Estágio do Haki (1–10 Inexperiente, 11–30 Treinado, 31+ Perito).
-  criterio       String    @default("manual")
+  criterio String @default("manual")
 
   // Recurso que paga os nós (ex: um Recurso custom "PA"). null = o custo é só
   // informativo e nada é debitado. Ref solta a Recurso.id — sem FK.
-  recursoCustoId String?   @map("recurso_custo_id")
+  recursoCustoId String? @map("recurso_custo_id")
 
-  fundoUrl      String?    @map("fundo_url")
+  fundoUrl String? @map("fundo_url")
 
-  camadas       ArvoreCamada[]
-  ramos         ArvoreRamo[]
-  nos           ArvoreNo[]
+  camadas ArvoreCamada[]
+  ramos   ArvoreRamo[]
+  nos     ArvoreNo[]
 
   @@index([personagemId, ordem])
   @@map("arvores")
 }
 
 model ArvoreCamada {
-  id        String @id @default(uuid())
-  arvoreId  String @map("arvore_id")
-  arvore    Arvore @relation(fields: [arvoreId], references: [id], onDelete: Cascade)
+  id       String @id @default(uuid())
+  arvoreId String @map("arvore_id")
+  arvore   Arvore @relation(fields: [arvoreId], references: [id], onDelete: Cascade)
 
-  nome      String
-  ordem     Int    @default(0)
+  nome   String
+  ordem  Int    @default(0)
   // Valor mínimo pra camada abrir, lido conforme o `criterio` da árvore.
   // Ignorado quando criterio = "manual".
-  limiar    Int    @default(0)
+  limiar Int    @default(0)
 
-  nos       ArvoreNo[]
+  nos ArvoreNo[]
 
   @@index([arvoreId, ordem])
   @@map("arvore_camadas")
@@ -479,51 +529,54 @@ model ArvoreCamada {
 
 // Raia vertical do canvas, só visual. Árvore sem ramo usa uma raia única.
 model ArvoreRamo {
-  id        String @id @default(uuid())
-  arvoreId  String @map("arvore_id")
-  arvore    Arvore @relation(fields: [arvoreId], references: [id], onDelete: Cascade)
+  id       String @id @default(uuid())
+  arvoreId String @map("arvore_id")
+  arvore   Arvore @relation(fields: [arvoreId], references: [id], onDelete: Cascade)
 
-  nome      String
-  ordem     Int    @default(0)
+  nome  String
+  ordem Int    @default(0)
 
-  nos       ArvoreNo[]
+  nos ArvoreNo[]
 
   @@index([arvoreId, ordem])
   @@map("arvore_ramos")
 }
 
 model ArvoreNo {
-  id          String       @id @default(uuid())
-  arvoreId    String       @map("arvore_id")
-  arvore      Arvore       @relation(fields: [arvoreId], references: [id], onDelete: Cascade)
-  camadaId    String       @map("camada_id")
-  camada      ArvoreCamada @relation(fields: [camadaId], references: [id], onDelete: Cascade)
+  id       String       @id @default(uuid())
+  arvoreId String       @map("arvore_id")
+  arvore   Arvore       @relation(fields: [arvoreId], references: [id], onDelete: Cascade)
+  camadaId String       @map("camada_id")
+  camada   ArvoreCamada @relation(fields: [camadaId], references: [id], onDelete: Cascade)
   // Raia onde o nó aparece. null = primeira raia (ou a raia única).
-  ramoId      String?      @map("ramo_id")
-  ramo        ArvoreRamo?  @relation(fields: [ramoId], references: [id], onDelete: SetNull)
-  // Altura dentro da faixa da camada, 0–100 (%).
-  offsetY     Int          @default(50) @map("offset_y")
+  ramoId   String?      @map("ramo_id")
+  ramo     ArvoreRamo?  @relation(fields: [ramoId], references: [id], onDelete: SetNull)
+  // Célula na grade: coluna na raia, linha na camada.
+  coluna   Int          @default(0)
+  linha    Int          @default(0)
+  // Legado (layout antigo), não é mais lido.
+  offsetY  Int          @default(50) @map("offset_y")
 
-  nome        String
-  descricao   String       @default("")
-  icone       String       @default("fa-circle-nodes")
+  nome      String
+  descricao String @default("")
+  icone     String @default("fa-circle-nodes")
 
   // Custo POR rank (no Haki, comprar de novo custa o mesmo).
-  custo       Int          @default(0)
+  custo       Int @default(0)
   // Quantas vezes o nó pode ser comprado. 3 = base + Dominada (✩) + Avançada (★).
-  maxRanks    Int          @default(1) @map("max_ranks")
+  maxRanks    Int @default(1) @map("max_ranks")
   // Progresso: 0 = não comprado; 1..maxRanks = rank atual.
-  rankAtual   Int          @default(0) @map("rank_atual")
+  rankAtual   Int @default(0) @map("rank_atual")
   // Nível mínimo do personagem pra liberar o nó. 0 = sem trava de nível.
-  nivelMinimo Int          @default(0) @map("nivel_minimo")
+  nivelMinimo Int @default(0) @map("nivel_minimo")
 
   // Habilidade liberada pelo nó. Ref solta a Habilidade.id, sem FK.
-  habilidadeId String?     @map("habilidade_id")
+  habilidadeId String? @map("habilidade_id")
 
   // Requisitos: [{ noId, rank }] — exige aquele nó no rank >= rank.
   // No livro, "Clarividência (★)" vira { noId: <clarividência>, rank: 3 }.
-  requisitos  Json         @default("[]")
-  ordem       Int          @default(0)
+  requisitos Json @default("[]")
+  ordem      Int  @default(0)
 
   @@index([arvoreId])
   @@index([camadaId, ordem])

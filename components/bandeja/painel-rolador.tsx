@@ -27,7 +27,6 @@ type Props = {
   userId: string;
   userName: string;
   sessionId: string;
-  personagemId: string | null;
   onMensagemCriada: (msg: MensagemSerializada) => void;
   efeitosContexto?: EfeitosContexto;
 };
@@ -50,6 +49,7 @@ const ICONE_CHIP: Record<ChipContexto["tipo"], string> = {
   trocar_dano: "fa-fire",
   ignora: "fa-bolt-lightning",
   alcance: "fa-ruler-horizontal",
+  melhor_de: "fa-dice",
 };
 
 const FACES = [4, 6, 8, 10, 12, 20, 100] as const;
@@ -77,6 +77,8 @@ type OpcoesContextuais = {
   // Piso de dano (etapa 3.5): eleva o TOTAL ao mínimo garantido. 0 = sem piso.
   // Vale só em rolagem de dano — calculado a partir da fórmula (metade do máx).
   danoMinFloor: number;
+  // Rola o lance inteiro N× e fica com o maior total. 1 = normal.
+  melhorDe: number;
 };
 
 // Snapshot de uma rolagem contextual que ofereceu rerroll — fica "pendente" até
@@ -94,6 +96,8 @@ type Pendente = {
   rerollsUsados: number;
 };
 
+type Lance = { total: number; rolls: DadoRolado[]; stringDados: string };
+
 // Rola o d20 primário (1d20 positivo) com vant/desv/floor/crit e os demais dados
 // normalmente. Retorna total, rolls crus e a string HTML da parte dos dados —
 // sem as anotações de fonte (montadas à parte, pra reroll reaproveitar).
@@ -101,7 +105,23 @@ function montarDadosContextuais(
   dadosUsar: Dado[],
   modUsar: number,
   opc: OpcoesContextuais,
-): { total: number; rolls: DadoRolado[]; stringDados: string } {
+): Lance {
+  const vezes = Math.max(1, opc.melhorDe);
+  const lances = Array.from({ length: vezes }, () => montarUmLance(dadosUsar, modUsar, opc));
+  if (vezes === 1) return lances[0];
+  // Melhor de N: os totais descartados aparecem riscados depois do que ficou.
+  const fica = lances.reduce((a, b) => (b.total > a.total ? b : a));
+  const descartados = lances
+    .filter((l) => l !== fica)
+    .map(
+      (l) =>
+        `<span class="dado-descartado" title="rolou ${vezes}× e ficou com o maior">${l.total}</span>`,
+    )
+    .join(" ");
+  return { ...fica, stringDados: `${fica.stringDados} ${descartados}` };
+}
+
+function montarUmLance(dadosUsar: Dado[], modUsar: number, opc: OpcoesContextuais): Lance {
   const idxPrimario = dadosUsar.findIndex((d) => d.faces === 20 && d.sinal === 1);
   let total = modUsar;
   let stringDados = "";
@@ -170,7 +190,6 @@ export function PainelRolador({
   userId,
   userName,
   sessionId,
-  personagemId,
   onMensagemCriada,
   efeitosContexto,
 }: Props) {
@@ -189,10 +208,10 @@ export function PainelRolador({
   // Rolador (3.3) e prefixa a mensagem no chat. Null = rolagem manual avulsa.
   const [contexto, setContexto] = useState<ContextoRolagem | null>(null);
   const [nomeContexto, setNomeContexto] = useState<string | null>(null);
-  // Chips contextuais começam todos ligados; guardamos só os que o usuário
-  // desligou manualmente (override). Reseta a cada novo empilhar. Evitamos
-  // set-state-in-effect derivando "ligado" daqui em vez de um Set de ativos.
-  const [chipsDesativados, setChipsDesativados] = useState<
+  // Efeitos da rolagem empilhada (ficha + arma que desfere). Null = os da ficha.
+  const [efeitosRolagem, setEfeitosRolagem] = useState<EfeitosContexto | null>(null);
+  // Chips que o usuário alternou; o resto segue o padrão do tipo.
+  const [chipsAlternados, setChipsAlternados] = useState<
     Set<ChipContexto["tipo"]>
   >(new Set());
   // Rolagem contextual que ofereceu rerroll — segura a persistência no chat até
@@ -200,12 +219,11 @@ export function PainelRolador({
   const [pendente, setPendente] = useState<Pendente | null>(null);
 
   // Chips que casam com o contexto atual (vantagem, crit expandido…).
-  const chips = useMemo<ChipContexto[]>(
-    () =>
-      contexto && efeitosContexto ? chipsDoContexto(efeitosContexto, contexto) : [],
-    [contexto, efeitosContexto],
-  );
-  const chipLigado = (t: ChipContexto["tipo"]) => !chipsDesativados.has(t);
+  const chips = useMemo<ChipContexto[]>(() => {
+    const efeitos = efeitosRolagem ?? efeitosContexto;
+    return contexto && efeitos ? chipsDoContexto(efeitos, contexto) : [];
+  }, [contexto, efeitosContexto, efeitosRolagem]);
+  const chipLigado = (c: ChipContexto) => !c.opcional !== chipsAlternados.has(c.tipo);
 
   useEffect(() => {
     setPresets(getPresets(userId));
@@ -222,7 +240,8 @@ export function PainelRolador({
       setNegativo(false);
       setContexto(det.contexto ?? null);
       setNomeContexto(det.nomePreset ?? null);
-      setChipsDesativados(new Set());
+      setEfeitosRolagem(det.efeitos ?? null);
+      setChipsAlternados(new Set());
       setPendente(null);
       setModoGravacao(false);
       setResultado({ tipo: "preview" });
@@ -314,13 +333,14 @@ export function PainelRolador({
     setQuantidadeTexto("1");
     setContexto(null);
     setNomeContexto(null);
-    setChipsDesativados(new Set());
+    setEfeitosRolagem(null);
+    setChipsAlternados(new Set());
     setPendente(null);
     setResultado({ tipo: "preview" });
   }
 
   function alternarChip(t: ChipContexto["tipo"]) {
-    setChipsDesativados((s) => {
+    setChipsAlternados((s) => {
       const next = new Set(s);
       if (next.has(t)) next.delete(t);
       else next.add(t);
@@ -329,9 +349,7 @@ export function PainelRolador({
     setResultado({ tipo: "preview" });
   }
 
-  // Persiste a rolagem (chat + ultimaRolagem) e atualiza o display local.
-  // `stringFinal` é a fração HTML após "[total] = "; persistimos como `texto`
-  // pro chat renderizar igual ao Rolador (sem reconstruir dos rolls).
+  // Grava a rolagem no chat (com o HTML do Rolador) e atualiza o display.
   function finalizar(
     total: number,
     rolls: DadoRolado[],
@@ -342,27 +360,15 @@ export function PainelRolador({
     const detalhesHtml = `[${total}] = ${stringFinal}`;
     setResultado({ tipo: "rolado", total: String(total), detalhesHtml });
 
-    const textoLimpo = stringFinal.replace(/<[^>]*>?/gm, "");
-    const prefixo = nomePreset ? `[${nomePreset}] ` : "";
-    const ultimaRolagemTexto = personagemId
-      ? `${prefixo}[${total}] = ${textoLimpo}`
-      : null;
-
-    registrarRolagem(
-      sessionId,
-      userName,
-      {
-        tipo: "rolagem",
-        total,
-        detalhes: rolls,
-        modificador: modUsar,
-        modo: "normal",
-        nomePreset: nomePreset || null,
-        texto: detalhesHtml,
-      },
-      personagemId,
-      ultimaRolagemTexto,
-    )
+    registrarRolagem(sessionId, userName, {
+      tipo: "rolagem",
+      total,
+      detalhes: rolls,
+      modificador: modUsar,
+      modo: "normal",
+      nomePreset: nomePreset || null,
+      texto: detalhesHtml,
+    })
       .then((msg) => onMensagemCriada(msg))
       .catch((err) => console.error(err));
   }
@@ -375,7 +381,6 @@ export function PainelRolador({
     modoUsar: ModoRolagem,
   ) {
     if (dadosUsar.length === 0 && modUsar === 0) return;
-    const prefixo = nomePreset ? `[${nomePreset}] ` : "";
 
     if (quantidadeUsar > 1) {
       const lote = rolarLote(dadosUsar, modUsar, quantidadeUsar, modoUsar);
@@ -393,28 +398,20 @@ export function PainelRolador({
         detalhesHtml: `[${resumo}] ${formulaTexto(dadosUsar, modUsar)}${modUsar !== 0 ? ` ${modUsar >= 0 ? "+" : "-"} ${Math.abs(modUsar)}` : ""}<div class="roll-batch-list">${linhas}</div>`,
       });
 
-      const ultimaRolagemTexto = personagemId ? `${prefixo}[${resumo}] ${formulaTexto(dadosUsar, modUsar)}` : null;
-
-      registrarRolagem(
-        sessionId,
-        userName,
-        {
-          tipo: "lote",
-          total: null,
-          quantidade: lote.quantidade,
-          modificador: modUsar,
-          modo: modoUsar,
-          execucoes: lote.execucoes.map((execucao) => ({
-            total: execucao.total,
-            modificador: execucao.modificador,
-            modo: execucao.modo,
-            detalhes: execucao.detalhes,
-          })),
-          nomePreset: nomePreset || null,
-        },
-        personagemId,
-        ultimaRolagemTexto,
-      )
+      registrarRolagem(sessionId, userName, {
+        tipo: "lote",
+        total: null,
+        quantidade: lote.quantidade,
+        modificador: modUsar,
+        modo: modoUsar,
+        execucoes: lote.execucoes.map((execucao) => ({
+          total: execucao.total,
+          modificador: execucao.modificador,
+          modo: execucao.modo,
+          detalhes: execucao.detalhes,
+        })),
+        nomePreset: nomePreset || null,
+      })
         .then((msg) => onMensagemCriada(msg))
         .catch((err) => console.error(err));
       return;
@@ -429,25 +426,14 @@ export function PainelRolador({
       detalhesHtml: `[${r.total}] = ${stringFinal}`,
     });
 
-    // Uma única chamada: registra a mensagem no chat E salva ultimaRolagem no
-    // personagem (em paralelo no servidor). Retorna a mensagem pra append local.
-    const textoLimpo = stringFinal.replace(/<[^>]*>?/gm, "");
-    const ultimaRolagemTexto = personagemId ? `${prefixo}[${r.total}] = ${textoLimpo}` : null;
-
-    registrarRolagem(
-      sessionId,
-      userName,
-      {
-        tipo: "rolagem",
-        total: r.total,
-        detalhes: r.detalhes,
-        modificador: modUsar,
-        modo: modoUsar,
-        nomePreset: nomePreset || null,
-      },
-      personagemId,
-      ultimaRolagemTexto,
-    )
+    registrarRolagem(sessionId, userName, {
+      tipo: "rolagem",
+      total: r.total,
+      detalhes: r.detalhes,
+      modificador: modUsar,
+      modo: modoUsar,
+      nomePreset: nomePreset || null,
+    })
       .then((msg) => onMensagemCriada(msg))
       .catch((err) => console.error(err));
   }
@@ -459,7 +445,7 @@ export function PainelRolador({
   function rolarContextual(dadosUsar: Dado[], modUsar: number, nomePreset: string | null) {
     if (dadosUsar.length === 0 && modUsar === 0) return;
     const ligado = (t: ChipContexto["tipo"]) =>
-      !chipsDesativados.has(t) && chips.some((c) => c.tipo === t);
+      chips.some((c) => c.tipo === t && chipLigado(c));
     const valorChip = (t: ChipContexto["tipo"]) =>
       chips.find((c) => c.tipo === t)?.valor;
 
@@ -482,12 +468,13 @@ export function PainelRolador({
       floorD20: ligado("floor_d20") ? valorChip("floor_d20") ?? 0 : 0,
       critRange: ligado("crit_range") ? valorChip("crit_range") ?? 20 : 20,
       danoMinFloor,
+      melhorDe: ligado("melhor_de") ? valorChip("melhor_de") ?? 1 : 1,
     };
 
     // Anota as fontes dos efeitos ligados (exceto reroll, que vira interação).
     // Escapa nomes — vão pra string HTML renderizada no chat.
     const notas = chips
-      .filter((c) => !chipsDesativados.has(c.tipo) && c.tipo !== "reroll")
+      .filter((c) => chipLigado(c) && c.tipo !== "reroll")
       .map((c) => {
         const base = escaparHtml(c.rotulo);
         return c.fontes.length
@@ -567,32 +554,21 @@ export function PainelRolador({
       detalhesHtml: `[${resumo}] ${formulaTexto(dadosUsar, modUsar)}${notasHtml}<div class="roll-batch-list">${linhas}</div>`,
     });
 
-    const prefixo = nomePreset ? `[${nomePreset}] ` : "";
-    const ultimaRolagemTexto = personagemId
-      ? `${prefixo}[${resumo}] ${formulaTexto(dadosUsar, modUsar)}`
-      : null;
-
-    registrarRolagem(
-      sessionId,
-      userName,
-      {
-        tipo: "lote",
-        total: null,
-        quantidade,
+    registrarRolagem(sessionId, userName, {
+      tipo: "lote",
+      total: null,
+      quantidade,
+      modificador: modUsar,
+      modo: modoEfetivo,
+      execucoes: execucoes.map((e) => ({
+        total: e.total,
         modificador: modUsar,
         modo: modoEfetivo,
-        execucoes: execucoes.map((e) => ({
-          total: e.total,
-          modificador: modUsar,
-          modo: modoEfetivo,
-          detalhes: e.rolls,
-          texto: e.stringDados,
-        })),
-        nomePreset: nomePreset || null,
-      },
-      personagemId,
-      ultimaRolagemTexto,
-    )
+        detalhes: e.rolls,
+        texto: e.stringDados,
+      })),
+      nomePreset: nomePreset || null,
+    })
       .then((msg) => onMensagemCriada(msg))
       .catch((err) => console.error(err));
   }
@@ -643,7 +619,8 @@ export function PainelRolador({
     setDados([]);
     setContexto(null);
     setNomeContexto(null);
-    setChipsDesativados(new Set());
+    setEfeitosRolagem(null);
+    setChipsAlternados(new Set());
   }
 
   function salvarPresetComNome() {
@@ -794,22 +771,26 @@ export function PainelRolador({
       {(contexto || nomeContexto) && (
         <div className="rolador-contexto" title="Rolagem empilhada da ficha">
           <i className="fas fa-crosshairs" />
-          <span>{nomeContexto ?? "Rolagem contextual"}</span>
+          <span>{nomeContexto ?? "Rolagem da ficha"}</span>
         </div>
       )}
 
       {chips.length > 0 && (
         <div className="rolador-chips">
           {chips.map((c) => {
-            const on = chipLigado(c.tipo);
+            const on = chipLigado(c);
             return (
               <button
                 key={c.tipo}
                 type="button"
                 className={`rolador-chip${on ? " on" : ""}`}
-                title={
-                  c.fontes.length ? `${c.rotulo} — ${c.fontes.join(", ")}` : c.rotulo
-                }
+                aria-pressed={on}
+                title={[
+                  c.fontes.length ? `${c.rotulo} — ${c.fontes.join(", ")}` : c.rotulo,
+                  c.detalhe,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
                 onClick={() => alternarChip(c.tipo)}
               >
                 <i className={`fas ${ICONE_CHIP[c.tipo]}`} />

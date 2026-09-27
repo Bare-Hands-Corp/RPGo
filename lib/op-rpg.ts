@@ -2,6 +2,8 @@
 // Sem estado, sem I/O — podem ser usados em Server Component, Client Component
 // ou Server Action.
 
+import { parseFormulaDados, type Dado } from "./dice";
+
 export function modificador(valor: number): number {
   return Math.floor((valor - 10) / 2);
 }
@@ -454,6 +456,148 @@ export function resolverAtaqueArma(opts: {
   };
 }
 
+// ─── Passos de dano e desconto de técnica (Meito, cap. 8) ────────────
+
+// Sobe o primeiro dado da fórmula na escada do livro (1d4 → … → 1d12 → 2d6).
+export function subirPassosDano(formula: string, passos: number): string {
+  let f = formula;
+  for (let i = 0; i < passos; i++) f = subirUmPasso(f);
+  return f;
+}
+
+const FACES_ESCADA = [4, 6, 8, 10, 12];
+
+function subirUmPasso(formula: string): string {
+  const m = /(\d*)\s*d\s*(\d+)/i.exec(formula);
+  if (!m) return formula.replace(/^\s*1(?!\d)/, "1d4");
+  const qtd = m[1] === "" ? 1 : parseInt(m[1], 10);
+  const faces = parseInt(m[2], 10);
+  const proxima = FACES_ESCADA.find((f) => f > faces);
+  let novo: string;
+  if (faces === 12) novo = `${qtd * 2}d6`;
+  else if (proxima && faces < 12) novo = `${qtd}d${proxima}`;
+  else return formula;
+  return formula.slice(0, m.index) + novo + formula.slice(m.index + m[0].length);
+}
+
+// Custo com desconto, nunca abaixo da metade (arredondada pra baixo).
+export function custoComDesconto(custo: number, desconto: number): number {
+  if (custo <= 0 || desconto <= 0) return custo;
+  return Math.max(Math.floor(custo / 2), custo - desconto);
+}
+
+// Parcela do dano composto (tooltip).
+export type ParteDano = { rotulo: string; texto: string };
+
+export type DanoArmaResolvido = {
+  dados: Dado[];
+  modificador: number;
+  // Fórmula total normalizada ("1d8+1d6+3").
+  formula: string;
+  partes: ParteDano[];
+  fontes: string[];
+  // false quando não há nada pra rolar.
+  rolavel: boolean;
+};
+
+// Compõe o dano da arma a partir das parcelas; null se não houver nenhuma.
+export function resolverDanoArma(opts: {
+  danoBase: string | null;
+  danoBonus: string | null;
+  passos?: number;
+  somaAtributo: boolean;
+  atributoDano: Atributo | null;
+  atributos: Record<Atributo, number>;
+  // Bônus de proficiência a somar; 0 quando a arma não soma.
+  proficiencia?: number;
+  alcance: AlcanceArma;
+  efeitosAgregados: EfeitosAgregados;
+}): DanoArmaResolvido | null {
+  const partes: ParteDano[] = [];
+  const dados: Dado[] = [];
+  let total = 0;
+
+  const bruto = opts.danoBase?.trim() ?? "";
+  if (bruto) {
+    const passos = opts.passos ?? 0;
+    const base = passos > 0 ? subirPassosDano(bruto, passos) : bruto;
+    const p = parseFormulaDados(base);
+    dados.push(...p.dados);
+    total += p.modificador;
+    partes.push({
+      rotulo: passos > 0 ? `Arma (+${passos} passo${passos > 1 ? "s" : ""})` : "Arma",
+      texto: base,
+    });
+  }
+
+  const bonus = opts.danoBonus?.trim() ?? "";
+  if (bonus) {
+    const p = parseFormulaDados(bonus);
+    dados.push(...p.dados);
+    total += p.modificador;
+    partes.push({ rotulo: "Dano bônus", texto: bonus });
+  }
+
+  if (opts.somaAtributo && opts.atributoDano) {
+    const mod = modificador(opts.atributos[opts.atributoDano]);
+    if (mod !== 0) {
+      total += mod;
+      const sigla =
+        ATRIBUTOS.find((a) => a.slug === opts.atributoDano)?.sigla ?? opts.atributoDano;
+      partes.push({ rotulo: sigla, texto: formatarMod(mod) });
+    }
+  }
+
+  const prof = opts.proficiencia ?? 0;
+  if (prof !== 0) {
+    total += prof;
+    partes.push({ rotulo: "Proficiência", texto: formatarMod(prof) });
+  }
+
+  const agg = opts.efeitosAgregados;
+  const doAlcance =
+    opts.alcance === "corpo_a_corpo" ? agg.bonusDanoCC : agg.bonusDanoDistancia;
+  const extra = agg.bonusDano.valor + doAlcance.valor;
+  const fontes = [
+    ...agg.bonusDano.fontes,
+    ...doAlcance.fontes.filter((f) => !agg.bonusDano.fontes.includes(f)),
+  ];
+  if (extra !== 0) {
+    total += extra;
+    partes.push({
+      rotulo: fontes.join(", ") || "Habilidade",
+      texto: formatarMod(extra),
+    });
+  }
+
+  if (partes.length === 0) return null;
+  return {
+    dados,
+    modificador: total,
+    formula: formulaAgrupada(dados, total),
+    partes,
+    fontes,
+    rolavel: dados.length > 0 || total !== 0,
+  };
+}
+
+// Fórmula agrupando dados iguais ("3d6+1d4+3").
+function formulaAgrupada(dados: Dado[], mod: number): string {
+  const partes: string[] = [];
+  const contagem = new Map<string, number>();
+  for (const d of dados) {
+    const k = `${d.sinal}|${d.faces}`;
+    contagem.set(k, (contagem.get(k) ?? 0) + 1);
+  }
+  for (const [k, qtd] of contagem) {
+    const [sinal, faces] = k.split("|");
+    const prefixo = sinal === "-1" ? "−" : partes.length ? "+" : "";
+    partes.push(`${prefixo}${qtd}d${faces}`);
+  }
+  if (mod !== 0) partes.push(`${mod > 0 ? (partes.length ? "+" : "") : "−"}${Math.abs(mod)}`);
+  return partes.join("") || "0";
+}
+
 // ─── Técnicas / Ações ─────────────────────────────────────────────────
 
 // CD de uma técnica/salvaguarda forçada = 8 + bônus_prof + mod_atributo_primário.
@@ -536,6 +680,7 @@ export type OrigemHabilidade =
   | "especie"
   | "akumaNoMi"
   | "treinamento"
+  | "item"
   | "livre";
 
 export const ORIGENS_HABILIDADE: {
@@ -550,6 +695,7 @@ export const ORIGENS_HABILIDADE: {
   { slug: "especie", nome: "Espécie", icone: "fa-paw", cor: "var(--color-bonus)" },
   { slug: "akumaNoMi", nome: "Akuma no Mi", icone: "fa-apple-whole", cor: "var(--primary)" },
   { slug: "treinamento", nome: "Treinamento", icone: "fa-dumbbell", cor: "var(--color-padrao)" },
+  { slug: "item", nome: "Item", icone: "fa-sack-dollar", cor: "var(--color-bonus)" },
   { slug: "livre", nome: "Livre", icone: "fa-star", cor: "var(--text-sec)" },
 ];
 
@@ -612,6 +758,10 @@ export type TipoEfeito =
   | "ignora"
   | "trocar_dano"
   | "crit_imune"
+  | "margem_critico"
+  | "passo_dano"
+  | "desconto_tecnica"
+  | "dano_melhor_de"
   | "livre";
 
 export type EfeitoHabilidade =
@@ -636,8 +786,7 @@ export type EfeitoHabilidade =
   // Faixa de crítico expandida (19-20, 18-20…). minimo = 19 significa
   // crítico em 19 e 20. Padrão sem efeito = 20.
   | { tipo: "crit_range"; minimo: number }
-  // Permite rerrolar o resultado de uma jogada. gatilho identifica o
-  // contexto (ataque, salvaguarda, teste); usos = vezes por descanso longo.
+  // Rerrola uma jogada do contexto `gatilho`; `usos` por descanso longo.
   | { tipo: "reroll"; gatilho: string; usos: number }
   // Floor no d20: resultados ≤ minimo são tratados como minimo.
   // Ex: minimo=10 ⇒ qualquer 1-10 vira 10.
@@ -648,9 +797,7 @@ export type EfeitoHabilidade =
   // Ação/ataque/reação adicional. quantidade default = 1.
   // gatilho descreve quando se aplica (ex: "no turno", "1× por descanso").
   | { tipo: "acao_extra"; acao: string; quantidade: number; gatilho?: string }
-  // Sucesso automático numa categoria de teste. alvo é o tipo de jogada
-  // (ex: "concentracao", "intuicao", "salv-vontade"); quando descreve a
-  // condição opcional.
+  // Sucesso automático no tipo de jogada `alvo`.
   | { tipo: "sucesso_auto"; alvo: string; quando?: string }
   // Piso de dano: garante metade do dano MÁXIMO da fórmula rolada (arredonda
   // pra cima). Ex: "Preparação pra Batalha". Sem parâmetro — o piso depende da
@@ -668,6 +815,15 @@ export type EfeitoHabilidade =
   // Imune a acerto crítico (defensivo). Descritivo no card; passiva na sidebar
   // fica pra etapa 4 (junto de resistências/imunidades).
   | { tipo: "crit_imune" }
+  // Efeitos de arma (Meito): numa arma valem só nas rolagens com ela.
+  // Soma à margem de crítico: 19-20 com margem 1 vira 18-20.
+  | { tipo: "margem_critico"; valor: number }
+  // Sobe o dado de dano da arma ou das técnicas.
+  | { tipo: "passo_dano"; passos: number; alvo: "arma" | "tecnica" }
+  // Desconto no custo de técnica (mínimo: metade).
+  | { tipo: "desconto_tecnica"; valor: number; custo: "pp" | "pa" }
+  // Rola o dano N vezes e fica com o maior.
+  | { tipo: "dano_melhor_de"; vezes: number; usos: number; quando?: string }
   | { tipo: "livre"; texto: string };
 
 export const META_EFEITOS: Record<
@@ -701,6 +857,10 @@ export const META_EFEITOS: Record<
   ignora:           { nome: "Ignora Defesa",      icone: "fa-bolt-lightning", cor: "var(--color-power)" },
   trocar_dano:      { nome: "Troca Tipo de Dano", icone: "fa-fire",           cor: "var(--color-power)" },
   crit_imune:       { nome: "Imune a Crítico",    icone: "fa-shield",         cor: "var(--color-react)" },
+  margem_critico:   { nome: "Margem de Crítico",  icone: "fa-burst",          cor: "var(--color-power)" },
+  passo_dano:       { nome: "Passo de Dano",      icone: "fa-angles-up",      cor: "var(--color-power)" },
+  desconto_tecnica: { nome: "Desconto em Técnica", icone: "fa-tag",           cor: "var(--color-bonus)" },
+  dano_melhor_de:   { nome: "Melhor no Dano",     icone: "fa-dice",           cor: "var(--color-bonus)" },
   livre:            { nome: "Livre",             icone: "fa-feather",        cor: "var(--text-sec)" },
 };
 
@@ -722,7 +882,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   {
     id: "pv_temp",
     nome: "PV Temporário",
-    descricao: "Concede pontos de vida temporários",
+    descricao: "Dá pontos de vida temporários",
     icone: "fa-shield-heart",
     cor: "var(--color-bonus)",
     grupo: "ajuste",
@@ -851,7 +1011,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   {
     id: "condicao_aplicar",
     nome: "Aplica Condição",
-    descricao: "Impõe condição (com CD de salvaguarda)",
+    descricao: "Causa uma condição, com CD de salvaguarda",
     icone: "fa-bolt",
     cor: "var(--color-power)",
     grupo: "condicao",
@@ -876,6 +1036,42 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     cor: "var(--color-power)",
     grupo: "ativo",
     criar: () => ({ tipo: "crit_range", minimo: 19 }),
+  },
+  {
+    id: "margem_critico",
+    nome: "Margem de Crítico",
+    descricao: "Critica um número antes; soma com outras faixas",
+    icone: "fa-burst",
+    cor: "var(--color-power)",
+    grupo: "ativo",
+    criar: () => ({ tipo: "margem_critico", valor: 1 }),
+  },
+  {
+    id: "passo_dano",
+    nome: "Aumentar Passos",
+    descricao: "Sobe o dado de dano (1d8 → 1d10 → 1d12 → 2d6)",
+    icone: "fa-angles-up",
+    cor: "var(--color-power)",
+    grupo: "ativo",
+    criar: () => ({ tipo: "passo_dano", passos: 1, alvo: "arma" }),
+  },
+  {
+    id: "desconto_tecnica",
+    nome: "Desconto em Técnica",
+    descricao: "Técnicas custam menos PP ou PA, até a metade",
+    icone: "fa-tag",
+    cor: "var(--color-bonus)",
+    grupo: "ativo",
+    criar: () => ({ tipo: "desconto_tecnica", valor: 1, custo: "pp" }),
+  },
+  {
+    id: "dano_melhor_de",
+    nome: "Melhor de N no Dano",
+    descricao: "Rola o dano N vezes e fica com o maior",
+    icone: "fa-dice",
+    cor: "var(--color-bonus)",
+    grupo: "ativo",
+    criar: () => ({ tipo: "dano_melhor_de", vezes: 2, usos: 0 }),
   },
   {
     id: "reroll",
@@ -1067,13 +1263,19 @@ export function normalizarEfeito(
         alvo: str(obj.alvo),
         ...(obj.dobrada ? { dobrada: true } : {}),
       };
-    case "recurso_delta":
+    case "recurso_delta": {
       if (!str(obj.recurso)) return null;
+      // Legado: "Recurso → PV Máx" vira `modificador` de PV Máximo.
+      const r = str(obj.recurso).trim().toLowerCase();
+      if (r === "hp-max" || r === "hpmax") {
+        return { tipo: "modificador", alvo: "hp-max", valor: Math.trunc(num(obj.valor)) };
+      }
       return {
         tipo,
         recurso: str(obj.recurso),
         valor: Math.trunc(num(obj.valor)),
       };
+    }
     case "cura":
       if (!str(obj.valor)) return null;
       return {
@@ -1172,6 +1374,28 @@ export function normalizarEfeito(
       return { tipo, tipoDano: str(obj.tipoDano) };
     case "crit_imune":
       return { tipo };
+    case "margem_critico":
+      // Margem no máximo 18 (o 1 é sempre falha).
+      return { tipo, valor: Math.min(18, Math.max(1, Math.trunc(num(obj.valor)) || 1)) };
+    case "passo_dano":
+      return {
+        tipo,
+        passos: Math.min(6, Math.max(1, Math.trunc(num(obj.passos)) || 1)),
+        alvo: obj.alvo === "tecnica" ? "tecnica" : "arma",
+      };
+    case "desconto_tecnica":
+      return {
+        tipo,
+        valor: Math.max(1, Math.trunc(num(obj.valor)) || 1),
+        custo: obj.custo === "pa" ? "pa" : "pp",
+      };
+    case "dano_melhor_de":
+      return {
+        tipo,
+        vezes: Math.min(5, Math.max(2, Math.trunc(num(obj.vezes)) || 2)),
+        usos: Math.max(0, Math.trunc(num(obj.usos))),
+        ...(str(obj.quando) ? { quando: str(obj.quando) } : {}),
+      };
     case "livre":
       if (!str(obj.texto)) return null;
       return { tipo, texto: str(obj.texto) };
@@ -1198,14 +1422,14 @@ export const ALVOS_AGREGAVEIS: { slug: string; nome: string; grupo: string }[] =
     nome: `Limite ${a.nome}`,
     grupo: "Limite de Atributo",
   })),
-  { slug: "cr", nome: "Classe de Resistência", grupo: "Derivado" },
-  { slug: "iniciativa", nome: "Iniciativa", grupo: "Derivado" },
-  { slug: "percepcao-passiva", nome: "Percepção Passiva", grupo: "Derivado" },
-  { slug: "deslocamento", nome: "Deslocamento", grupo: "Derivado" },
-  { slug: "carga", nome: "Capacidade de Carga", grupo: "Derivado" },
-  { slug: "hp-max", nome: "PV Máximo", grupo: "Pool" },
-  { slug: "hp-temp", nome: "PV Temporário", grupo: "Pool" },
-  { slug: "pp-max", nome: "PP Máximo", grupo: "Pool" },
+  { slug: "cr", nome: "Classe de Resistência", grupo: "Geral" },
+  { slug: "iniciativa", nome: "Iniciativa", grupo: "Geral" },
+  { slug: "percepcao-passiva", nome: "Percepção Passiva", grupo: "Geral" },
+  { slug: "deslocamento", nome: "Deslocamento", grupo: "Geral" },
+  { slug: "carga", nome: "Capacidade de Carga", grupo: "Geral" },
+  { slug: "hp-max", nome: "PV Máximo", grupo: "PV e PP" },
+  { slug: "hp-temp", nome: "PV Temporário", grupo: "PV e PP" },
+  { slug: "pp-max", nome: "PP Máximo", grupo: "PV e PP" },
   { slug: "ataque", nome: "Ataque (geral)", grupo: "Combate" },
   { slug: "ataque-cc", nome: "Ataque CC", grupo: "Combate" },
   { slug: "ataque-distancia", nome: "Ataque à Distância", grupo: "Combate" },
@@ -1219,20 +1443,7 @@ const PERICIAS_SET = new Set<string>(PERICIAS.map((p) => p.slug));
 const ATRIBUTOS_SET = new Set<string>(ATRIBUTOS.map((a) => a.slug));
 
 // ─── Alvos contextuais (rolagens) ─────────────────────────────
-// Lista finita de slugs que `vantagem`, `desvantagem`, `sucesso_auto` e
-// `reroll` aceitam pra casar com o contexto da rolagem. Diferente de
-// ALVOS_AGREGAVEIS (passivos somáveis), aqui só importa "casa ou não casa".
-//
-// Convenções:
-// - Perícia: slug direto (`atletismo`, `furtividade`…) — alinhado com agregador.
-// - Salvaguarda: `salv-<atrib>` (ex: `salv-vontade`). `concentracao` é um
-//   pseudo-slug de salvaguarda especial.
-// - Teste puro de atributo: `teste-<atrib>` (ex: `teste-forca`) — distingue
-//   de modificador passivo de FOR.
-// - Combate: `ataque`, `ataque-cc`, `ataque-distancia`, `iniciativa`.
-// - Umbrellas: `ataque` (qualquer ataque), `salvaguarda` (qualquer salv),
-//   `teste` (qualquer teste/perícia), `qualquer` (qualquer d20). Útil em
-//   `reroll` ("rerrola qualquer ataque") e em descrições genéricas.
+// Slugs que vantagem, desvantagem, sucesso_auto e reroll casam com a rolagem.
 export const ALVOS_CONTEXTUAIS: { slug: string; nome: string; grupo: string }[] = [
   { slug: "qualquer", nome: "Qualquer d20", grupo: "Genérico" },
   { slug: "ataque", nome: "Ataque (qualquer)", grupo: "Combate" },
@@ -1245,7 +1456,6 @@ export const ALVOS_CONTEXTUAIS: { slug: string; nome: string; grupo: string }[] 
     nome: `Salv. ${a.nome}`,
     grupo: "Salvaguarda",
   })),
-  { slug: "concentracao", nome: "Salv. Concentração", grupo: "Salvaguarda" },
   { slug: "teste", nome: "Teste (qualquer)", grupo: "Teste de Atributo" },
   ...ATRIBUTOS.map((a) => ({
     slug: `teste-${a.slug}`,
@@ -1261,8 +1471,8 @@ const ALVOS_CONTEXTUAIS_SET = new Set(ALVOS_CONTEXTUAIS.map((a) => a.slug));
 // Só os derivados que usam um atributo fixo (CR/iniciativa via DES) ou testes
 // (salvaguardas, perícias). Ataque/CD já têm seletor de atributo na própria Ação.
 export const ALVOS_SUBSTITUIVEIS: { slug: string; nome: string; grupo: string }[] = [
-  { slug: "cr", nome: "Classe de Resistência", grupo: "Derivado" },
-  { slug: "iniciativa", nome: "Iniciativa", grupo: "Derivado" },
+  { slug: "cr", nome: "Classe de Resistência", grupo: "Geral" },
+  { slug: "iniciativa", nome: "Iniciativa", grupo: "Geral" },
   ...ATRIBUTOS.map((a) => ({
     slug: `salv-${a.slug}`,
     nome: `Salv. ${a.nome}`,
@@ -1299,15 +1509,13 @@ export function rotuloAlvo(slug: string): string {
 // efeito daquele alvo se aplica.
 export type ContextoRolagem =
   | { tipo: "ataque"; alcance: "corpo_a_corpo" | "distancia" }
-  | { tipo: "salvaguarda"; atributo: Atributo; concentracao?: boolean }
+  | { tipo: "salvaguarda"; atributo: Atributo }
   // `pericia` é string livre: cobre as 18 canônicas e perícias customizadas
   // (slug por-personagem, fora do set canônico).
   | { tipo: "pericia"; pericia: string }
   | { tipo: "teste-atributo"; atributo: Atributo }
   | { tipo: "iniciativa" }
-  // Rolagem de DANO (não é d20). Carrega o alcance pra casar efeitos CC/distância.
-  // Efeitos de d20 (vantagem/reroll/crit/floor) NÃO se aplicam; só os de dano
-  // (dano_min/trocar_dano/ignora) — ver `chipsDoContexto`.
+  // Rolagem de dano (não é d20): só valem os efeitos de dano.
   | { tipo: "dano"; alcance: "corpo_a_corpo" | "distancia" };
 
 // Verifica se um alvo (slug salvo no efeito) casa com o contexto da
@@ -1331,9 +1539,7 @@ export function casaContexto(alvoRaw: string, ctx: ContextoRolagem): boolean {
     case "salvaguarda":
       if (!ALVOS_CONTEXTUAIS_SET.has(alvo)) return false;
       if (alvo === "salvaguarda") return true;
-      if (alvo === `salv-${ctx.atributo}`) return true;
-      if (alvo === "concentracao" && ctx.concentracao) return true;
-      return false;
+      return alvo === `salv-${ctx.atributo}`;
     case "pericia":
       // Casa por igualdade exata com o slug rolado — não exige presença no set
       // canônico, então perícias customizadas (slug por-personagem) também casam.
@@ -1374,6 +1580,8 @@ export function estadoDefesa(
   };
 }
 type FonteLista = { fontes: string[] };
+// Proficiência em perícia vinda de efeito; `dobrada` se alguma fonte dobra.
+type FonteProficiencia = FonteLista & { dobrada: boolean };
 
 // Efeito que depende do contexto da rolagem (casa via `casaContexto`). Guardado
 // "cru" no agregado com alvo + fonte; quem rola decide se casa com o contexto
@@ -1399,7 +1607,7 @@ export type EfeitosAgregados = {
   // Aplicação fica a cargo da UI que controla AVA; aqui é só consolidação.
   // Campo segue `bonusTetoAtributo` / slug `teto-` (identificadores estáveis).
   bonusTetoAtributo: Partial<Record<Atributo, FonteValor>>;
-  proficienciasPericia: Partial<Record<string, FonteLista>>;
+  proficienciasPericia: Partial<Record<string, FonteProficiencia>>;
   proficienciasSalvaguarda: Partial<Record<Atributo, FonteLista>>;
   bonusCR: FonteValor;
   bonusIniciativa: FonteValor;
@@ -1455,6 +1663,16 @@ export type EfeitosAgregados = {
   // Imune a acerto crítico (defensivo). Presença (fontes) = imune. Não é
   // consumido no Rolador (é sobre ser atacado) — só exibição na sidebar.
   critImune: DefesaAgregada;
+  // ─ Qualidade de arma (Meito) ─
+  // Margem de crítico extra.
+  margemCritico: FonteValor;
+  // Passos no dado da arma e no dado das técnicas (somam).
+  passosDanoArma: FonteValor;
+  passosDanoTecnica: FonteValor;
+  // Desconto no custo de técnica, por tipo de custo (somam).
+  descontoTecnica: Record<"pp" | "pa", FonteValor>;
+  // Melhor de N no dano (maior N vence; usos somam).
+  danoMelhorDe: { vezes: number; usos: number; fontes: string[] } | null;
   // ─ Defesas (painel read-only da sidebar) ─
   // Resistências e imunidades a tipo de dano + imunidades a condição. Indexados
   // pelo nome (casing preservado). Agregam de QUALQUER tipo de habilidade (é
@@ -1500,6 +1718,11 @@ function vazio(): EfeitosAgregados {
     ignora: {},
     bonusAlcance: { valor: 0, fontes: [] },
     critImune: { fontes: [], passiva: false },
+    margemCritico: { valor: 0, fontes: [] },
+    passosDanoArma: { valor: 0, fontes: [] },
+    passosDanoTecnica: { valor: 0, fontes: [] },
+    descontoTecnica: { pp: { valor: 0, fontes: [] }, pa: { valor: 0, fontes: [] } },
+    danoMelhorDe: null,
     resistencias: {},
     imunidades: {},
     condicoesImunes: {},
@@ -1601,8 +1824,8 @@ export function computarDeltasInstantaneos(
       const v = Math.trunc(e.valor);
       if (!v) continue;
       const k = e.recurso.trim(); // pode ser UUID de recurso custom (case-sensitive)
+      // PV Máx legado já vem como `modificador`.
       if (k === "pp") d.ppAtual += v;
-      else if (k === "hp-max" || k === "hpMax" || k === "hpmax") d.hpMax += v;
       else if (k === "pa") continue; // PA não é pool rastreável (legado)
       else d.recursos[k] = (d.recursos[k] ?? 0) + v;
     }
@@ -1641,6 +1864,10 @@ export function efeitoEhSustentado(e: EfeitoHabilidade): boolean {
     case "alcance":
     case "ignora":
     case "trocar_dano":
+    case "margem_critico":
+    case "passo_dano":
+    case "desconto_tecnica":
+    case "dano_melhor_de":
       return true;
     default:
       return false;
@@ -1654,23 +1881,100 @@ export function temEfeitoSustentado(efeitos: EfeitoHabilidade[]): boolean {
   return efeitos.some(efeitoEhSustentado);
 }
 
-// Varre habilidades e aplica efeitos sustentados (modificador, proficiência,
-// contextuais, defesas, multiplicador…) nos alvos canônicos. Alvos não
-// reconhecidos são ignorados silenciosamente.
-// Gate único: um efeito sustentado entra no agregado quando a habilidade é
-// `passiva` (sempre ligada) OU está `ligada` (habilidade sustentada que o
-// usuário ativou via toggle). `ativa`/`reativa` DESLIGADA não agrega nada;
-// quando ligada, agrega exatamente como uma passiva (e some ao desligar).
-// Efeitos instantâneos (cura/PV-temp/recurso) não entram aqui — são consumidos
-// por `computarDeltasInstantaneos` no momento de ligar/usar.
+// Fonte de efeito do `agregarEfeitos`; item equipado entra como passiva.
+export type FonteEfeito = {
+  nome: string;
+  tipo: string;
+  efeitos: unknown;
+  ligada?: boolean;
+};
+
+const ALVOS_ROLAGEM_ARMA = new Set([
+  "ataque",
+  "ataque-cc",
+  "ataque-distancia",
+  "dano",
+  "dano-cc",
+  "dano-distancia",
+]);
+
+// Efeito de rolagem de arma: numa arma, vale só nas rolagens com ela.
+export function efeitoDeRolagemDeArma(e: EfeitoHabilidade): boolean {
+  switch (e.tipo) {
+    case "modificador":
+      return ALVOS_ROLAGEM_ARMA.has(e.alvo.trim().toLowerCase());
+    case "vantagem":
+    case "desvantagem":
+      return e.alvo.trim().toLowerCase().startsWith("ataque");
+    case "reroll":
+      return e.gatilho.trim().toLowerCase().startsWith("ataque");
+    case "crit_range":
+    case "margem_critico":
+    case "passo_dano":
+    case "desconto_tecnica":
+    case "dano_melhor_de":
+    case "dano_min":
+    case "alcance":
+    case "ignora":
+    case "trocar_dano":
+      return true;
+    default:
+      return false;
+  }
+}
+
+// Fontes de efeito dos itens equipados, sem os efeitos de rolagem de arma.
+export function fontesDeEfeitoDeItens(
+  itens: { nome: string; tipo: string; equipado: boolean; efeitos: unknown }[],
+): FonteEfeito[] {
+  return itens
+    .filter((i) => i.equipado)
+    .map((i) => ({
+      nome: i.nome,
+      tipo: "passiva",
+      efeitos:
+        i.tipo === "arma"
+          ? lerEfeitos(i.efeitos).filter((e) => !efeitoDeRolagemDeArma(e))
+          : lerEfeitos(i.efeitos),
+    }))
+    .filter((f) => f.efeitos.length > 0);
+}
+
+// Agregado da ficha + efeitos de rolagem da arma.
+export function efeitosComArma(
+  ficha: EfeitosAgregados,
+  arma: { nome: string; equipado: boolean; efeitos: unknown },
+): EfeitosAgregados {
+  if (!arma.equipado) return ficha;
+  const proprios = lerEfeitos(arma.efeitos).filter(efeitoDeRolagemDeArma);
+  if (proprios.length === 0) return ficha;
+  return agregarEfeitos([{ nome: arma.nome, tipo: "passiva", efeitos: proprios }], new Set(), ficha);
+}
+
+// Maior desconto de técnica entre os agregados da ação.
+export function melhorDesconto(
+  aggs: EfeitosAgregados[],
+  custo: "pp" | "pa",
+): { valor: number; fontes: string[] } {
+  let melhor = { valor: 0, fontes: [] as string[] };
+  for (const a of aggs) {
+    if (a.descontoTecnica[custo].valor > melhor.valor) melhor = a.descontoTecnica[custo];
+  }
+  return melhor;
+}
+
+// Agrega os efeitos sustentados de habilidades passivas ou ligadas.
+// Instantâneos ficam com `computarDeltasInstantaneos`.
 export function agregarEfeitos(
   habilidades: { nome: string; tipo: string; efeitos: unknown; ligada?: boolean }[],
   // Slugs de perícias customizadas do personagem. Permite que `modificador` e
   // `proficiencia` mirando uma perícia custom caiam em bonusPericia/
   // proficienciasPericia em vez de virarem efeito descritivo sem dono.
   slugsPericiaCustom: Set<string> = new Set(),
+  // Agregado de partida (copiado, não muda).
+  base?: EfeitosAgregados,
 ): EfeitosAgregados {
-  const out = vazio();
+  const out = base ? structuredClone(base) : vazio();
   for (const h of habilidades) {
     const ehPassiva = h.tipo === "passiva";
     // Habilidade não-passiva só agrega enquanto ligada. Passiva sempre agrega.
@@ -1699,7 +2003,7 @@ export function agregarEfeitos(
       if (e.tipo === "modificador") {
         aplicarModificador(out, e.alvo, e.valor, h.nome, slugsPericiaCustom);
       } else if (e.tipo === "proficiencia") {
-        aplicarProficiencia(out, e.alvo, h.nome, slugsPericiaCustom);
+        aplicarProficiencia(out, e.alvo, !!e.dobrada, h.nome, slugsPericiaCustom);
       } else if (e.tipo === "crit_range") {
         // Menor "minimo" vence (faixa mais ampla).
         if (e.minimo < out.critRangeMinimo.valor) out.critRangeMinimo.valor = e.minimo;
@@ -1767,6 +2071,22 @@ export function agregarEfeitos(
           if (!out.trocaDano) out.trocaDano = { tipoDano: t, fontes: [h.nome] };
           else if (!out.trocaDano.fontes.includes(h.nome)) out.trocaDano.fontes.push(h.nome);
         }
+      } else if (e.tipo === "margem_critico") {
+        somarBucketSimples(out.margemCritico, e.valor, h.nome);
+      } else if (e.tipo === "passo_dano") {
+        somarBucketSimples(
+          e.alvo === "tecnica" ? out.passosDanoTecnica : out.passosDanoArma,
+          e.passos,
+          h.nome,
+        );
+      } else if (e.tipo === "desconto_tecnica") {
+        somarBucketSimples(out.descontoTecnica[e.custo], e.valor, h.nome);
+      } else if (e.tipo === "dano_melhor_de") {
+        const atual = out.danoMelhorDe ?? { vezes: 0, usos: 0, fontes: [] };
+        atual.vezes = Math.max(atual.vezes, e.vezes);
+        atual.usos += e.usos;
+        if (!atual.fontes.includes(h.nome)) atual.fontes.push(h.nome);
+        out.danoMelhorDe = atual;
       } else if (e.tipo === "deslocamento") {
         const tipo = e.tipoMov.trim().toLowerCase();
         if (tipo && e.valor) {
@@ -1802,12 +2122,16 @@ export type ChipContexto = {
     | "dano_min"
     | "trocar_dano"
     | "ignora"
-    | "alcance";
+    | "alcance"
+    | "melhor_de";
   rotulo: string;
   fontes: string[];
-  // Parâmetro do efeito (minimo do crit/floor, usos do reroll, metros do alcance).
-  // Ignorado nos demais.
+  // Parâmetro do efeito (mínimo do crit/floor, rerrolagens, metros).
   valor?: number;
+  // Nasce desligado (uso limitado).
+  opcional?: boolean;
+  // Complemento do tooltip (ex: usos por descanso).
+  detalhe?: string;
 };
 
 // Subconjunto do agregado que o Rolador precisa pra montar os chips — evita
@@ -1816,13 +2140,30 @@ export type EfeitosContexto = Pick<
   EfeitosAgregados,
   | "contextuais"
   | "critRangeMinimo"
+  | "margemCritico"
   | "floorD20"
   | "rerolls"
   | "danoMinMetade"
   | "trocaDano"
   | "ignora"
   | "bonusAlcance"
+  | "danoMelhorDe"
 >;
+
+export function efeitosDoContexto(agg: EfeitosAgregados): EfeitosContexto {
+  return {
+    contextuais: agg.contextuais,
+    critRangeMinimo: agg.critRangeMinimo,
+    margemCritico: agg.margemCritico,
+    floorD20: agg.floorD20,
+    rerolls: agg.rerolls,
+    danoMinMetade: agg.danoMinMetade,
+    trocaDano: agg.trocaDano,
+    ignora: agg.ignora,
+    bonusAlcance: agg.bonusAlcance,
+    danoMelhorDe: agg.danoMelhorDe,
+  };
+}
 
 export function chipsDoContexto(
   agg: EfeitosContexto,
@@ -1846,14 +2187,17 @@ export function chipsDoContexto(
     if (grupos.sucesso_auto)
       chips.push({ tipo: "sucesso_auto", rotulo: "Sucesso automático", fontes: dedup(grupos.sucesso_auto) });
 
-    // Crítico expandido só importa em ataque (crit só acontece atacando).
-    if (ctx.tipo === "ataque" && agg.critRangeMinimo.valor < 20) {
-      chips.push({
-        tipo: "crit_range",
-        rotulo: `Crítico ${agg.critRangeMinimo.valor}-20`,
-        fontes: agg.critRangeMinimo.fontes,
-        valor: agg.critRangeMinimo.valor,
-      });
+    // Crítico expandido só em ataque; a margem soma à faixa.
+    if (ctx.tipo === "ataque") {
+      const minimo = Math.max(2, agg.critRangeMinimo.valor - agg.margemCritico.valor);
+      if (minimo < 20) {
+        chips.push({
+          tipo: "crit_range",
+          rotulo: `Crítico ${minimo}-20`,
+          fontes: dedup([...agg.critRangeMinimo.fontes, ...agg.margemCritico.fontes]),
+          valor: minimo,
+        });
+      }
     }
     // Floor no d20 vale pra qualquer rolagem de d20.
     if (agg.floorD20.valor > 0) {
@@ -1864,17 +2208,24 @@ export function chipsDoContexto(
         valor: agg.floorD20.valor,
       });
     }
-    // Reroll: gatilho segue a mesma convenção de slug do casaContexto.
+    // Reroll: nasce desligado e vale 1 rerrolagem por jogada.
+    let usosReroll = 0;
+    const fontesReroll: string[] = [];
     for (const [gatilho, fv] of Object.entries(agg.rerolls)) {
       if (fv && fv.valor > 0 && casaContexto(gatilho, ctx)) {
-        chips.push({
-          tipo: "reroll",
-          rotulo: `Rerrolar (${fv.valor}×)`,
-          fontes: fv.fontes,
-          valor: fv.valor,
-        });
-        break;
+        usosReroll += fv.valor;
+        fontesReroll.push(...fv.fontes);
       }
+    }
+    if (usosReroll > 0) {
+      chips.push({
+        tipo: "reroll",
+        rotulo: "Rerrolar",
+        fontes: dedup(fontesReroll),
+        valor: 1,
+        opcional: true,
+        detalhe: `${usosReroll} uso${usosReroll > 1 ? "s" : ""} por descanso longo`,
+      });
     }
   }
 
@@ -1886,6 +2237,18 @@ export function chipsDoContexto(
       tipo: "dano_min",
       rotulo: "Dano mín. (½ do máx)",
       fontes: agg.danoMinMetade.fontes,
+    });
+  }
+  // Melhor de N: só em dano, nasce desligado.
+  if (ehDano && agg.danoMelhorDe) {
+    const { vezes, usos, fontes } = agg.danoMelhorDe;
+    chips.push({
+      tipo: "melhor_de",
+      rotulo: `Melhor de ${vezes} no dano`,
+      fontes,
+      valor: vezes,
+      opcional: true,
+      detalhe: usos > 0 ? `${usos} uso${usos > 1 ? "s" : ""} por descanso longo` : undefined,
     });
   }
   // Troca de tipo de dano: só em dano.
@@ -1996,15 +2359,20 @@ const BUCKETS_SIMPLES: Record<string, (o: EfeitosAgregados) => FonteValor> = {
 function aplicarProficiencia(
   out: EfeitosAgregados,
   alvoRaw: string,
+  dobrada: boolean,
   fonte: string,
   slugsPericiaCustom: Set<string> = new Set(),
 ) {
   const alvo = alvoRaw.trim().toLowerCase();
   if (!alvo) return;
   if (PERICIAS_SET.has(alvo) || slugsPericiaCustom.has(alvo)) {
-    adicionarFonteLista(out.proficienciasPericia, alvo, fonte);
+    const atual = out.proficienciasPericia[alvo] ?? { fontes: [], dobrada: false };
+    if (!atual.fontes.includes(fonte)) atual.fontes.push(fonte);
+    if (dobrada) atual.dobrada = true;
+    out.proficienciasPericia[alvo] = atual;
     return;
   }
+  // Salvaguarda não dobra — `dobrada` só vale pra perícia.
   if (alvo.startsWith("salv-")) {
     const at = alvo.slice(5);
     if (ATRIBUTOS_SET.has(at)) {
@@ -2013,8 +2381,11 @@ function aplicarProficiencia(
   }
 }
 
-// Resumo curto pra exibir dentro do chip do efeito na listagem.
-export function resumoEfeito(e: EfeitoHabilidade): string {
+// Resumo curto do efeito pro chip; `nomeRecurso` traduz id de recurso.
+export function resumoEfeito(
+  e: EfeitoHabilidade,
+  nomeRecurso?: (id: string) => string | undefined,
+): string {
   switch (e.tipo) {
     case "modificador":
       return `${formatarMod(e.valor)} ${rotuloAlvo(e.alvo)}`;
@@ -2024,12 +2395,7 @@ export function resumoEfeito(e: EfeitoHabilidade): string {
     case "proficiencia":
       return `${rotuloAlvo(e.alvo)}${e.dobrada ? " (2×)" : ""}`;
     case "recurso_delta": {
-      const lbl =
-        e.recurso === "pp"
-          ? "PP"
-          : e.recurso === "hp-max" || e.recurso === "hpMax"
-            ? "PV Máx"
-            : e.recurso;
+      const lbl = e.recurso === "pp" ? "PP" : (nomeRecurso?.(e.recurso) ?? "recurso");
       return `${formatarMod(e.valor)} ${lbl}`;
     }
     case "cura":
@@ -2057,7 +2423,7 @@ export function resumoEfeito(e: EfeitoHabilidade): string {
     case "crit_range":
       return `${e.minimo}-20`;
     case "reroll":
-      return `${e.usos}× ${e.gatilho}`;
+      return `${rotuloAlvo(e.gatilho)} · ${e.usos}×/descanso`;
     case "floor_d20":
       return `≤${e.minimo} ⇒ ${e.minimo}`;
     case "sentido":
@@ -2076,6 +2442,14 @@ export function resumoEfeito(e: EfeitoHabilidade): string {
       return `→ ${e.tipoDano}`;
     case "crit_imune":
       return "imune a crítico";
+    case "margem_critico":
+      return `+${e.valor}`;
+    case "passo_dano":
+      return `+${e.passos} ${e.alvo === "tecnica" ? "nas técnicas" : "na arma"}`;
+    case "desconto_tecnica":
+      return `−${e.valor} ${e.custo === "pa" ? "PA" : "PP"}`;
+    case "dano_melhor_de":
+      return `${e.vezes} rolagens${e.usos > 0 ? ` · ${e.usos}×/descanso` : ""}`;
     case "livre":
       return e.texto;
   }

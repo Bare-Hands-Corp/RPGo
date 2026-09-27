@@ -1,9 +1,9 @@
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioDaRequest } from "@/lib/supabase/server";
 import { listarMensagensSessao } from "@/lib/mensagens";
 import { carregarCalendario } from "@/lib/calendario/carregar";
-import { agregarEfeitos } from "@/lib/op-rpg";
+import { agregarEfeitos, efeitosDoContexto, fontesDeEfeitoDeItens } from "@/lib/op-rpg";
 import { habilidadesTravadas } from "@/lib/arvore";
 import { PerfilSidebar } from "./perfil-sidebar";
 import { FichaTabs } from "./ficha-tabs";
@@ -21,16 +21,9 @@ type Params = {
 export default async function FichaPage({ params, searchParams }: Params) {
   const [{ uid }, { aba }] = await Promise.all([params, searchParams]);
 
-  const supabase = await createClient();
-
-  // Auth (rede pro Supabase) e personagem (Postgres) são independentes — paralelo.
-  const [
-    {
-      data: { user },
-    },
-    personagem,
-  ] = await Promise.all([
-    supabase.auth.getUser(),
+  // Auth e personagem (Postgres) são independentes — paralelo.
+  const [user, personagem] = await Promise.all([
+    usuarioDaRequest(),
     prisma.personagem.findUnique({
       where: { id: uid },
       include: {
@@ -71,17 +64,23 @@ export default async function FichaPage({ params, searchParams }: Params) {
     personagem.periciasCustom.map((p) => p.slug),
   );
 
-  // Habilidade presa a nó não liberado não entra no agregador.
+  // Habilidades travadas por árvore ou por item desequipado ficam fora do agregado.
   const travadasPorArvore = habilidadesTravadas(
     personagem.arvores.flatMap((a) => a.nos),
   );
+  const itensEquipados = new Set(
+    personagem.itens.filter((i) => i.equipado).map((i) => i.id),
+  );
   const habilidadesAtivas = personagem.habilidades.filter(
-    (h) => !travadasPorArvore.has(h.id),
+    (h) =>
+      !travadasPorArvore.has(h.id) && (!h.itemId || itensEquipados.has(h.itemId)),
   );
 
-  // Agrega efeitos das habilidades (modificadores + proficiências) pra alvos
-  // canônicos + perícias custom. Computado no servidor — frio, sem estado, barato.
-  const efeitosAgregados = agregarEfeitos(habilidadesAtivas, slugsPericiaCustom);
+  // Agrega efeitos das habilidades ativas e dos itens equipados.
+  const efeitosAgregados = agregarEfeitos(
+    [...habilidadesAtivas, ...fontesDeEfeitoDeItens(personagem.itens)],
+    slugsPericiaCustom,
+  );
 
   // Penalidade de DES das armaduras equipadas (geralmente negativa). Reduz o
   // modificador de DES em todos os cálculos derivados (CR, iniciativa, salv/
@@ -240,16 +239,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
         sessionId={sessionId}
         personagemId={personagem.id}
         mensagensIniciais={mensagensIniciais}
-        efeitosContexto={{
-          contextuais: efeitosAgregados.contextuais,
-          critRangeMinimo: efeitosAgregados.critRangeMinimo,
-          floorD20: efeitosAgregados.floorD20,
-          rerolls: efeitosAgregados.rerolls,
-          danoMinMetade: efeitosAgregados.danoMinMetade,
-          trocaDano: efeitosAgregados.trocaDano,
-          ignora: efeitosAgregados.ignora,
-          bonusAlcance: efeitosAgregados.bonusAlcance,
-        }}
+        efeitosContexto={efeitosDoContexto(efeitosAgregados)}
       />
     </div>
   );

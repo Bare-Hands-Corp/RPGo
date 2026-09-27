@@ -467,8 +467,6 @@ function TesteMensagemView({
           solicitacaoTesteId: msg.id,
           alvoNome: userName,
         },
-        personagemId,
-        personagemId ? `[${resultado.total}] = 1d20 ${bonusAtual >= 0 ? "+" : "-"} ${Math.abs(bonusAtual)}` : null,
       );
       onMensagemAtualizada(mensagem);
     } catch (error) {

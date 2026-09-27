@@ -29,6 +29,16 @@ export function ModalGerarClima({ mesaId, config, dataAtualDias, onFechar }: Pro
   const [sobrescrever, setSobrescrever] = useState(true);
   const [pending, startTransition] = useTransition();
 
+  function mostrarErro(mensagem: string) {
+    Swal.fire({
+      icon: "error",
+      title: "Erro",
+      text: mensagem,
+      background: "var(--bg-card)",
+      color: "var(--text-main)",
+    });
+  }
+
   function gerar() {
     const inicio = diasParaData(
       { ano: inicioAno, mes: inicioMes, dia: inicioDia },
@@ -48,6 +58,10 @@ export function ModalGerarClima({ mesaId, config, dataAtualDias, onFechar }: Pro
     startTransition(async () => {
       try {
         const r = await gerarClima(mesaId, inicio, fim, sobrescrever);
+        if (!r.ok) {
+          mostrarErro(r.erro);
+          return;
+        }
         Swal.fire({
           icon: "success",
           title: "Clima gerado",
@@ -56,14 +70,8 @@ export function ModalGerarClima({ mesaId, config, dataAtualDias, onFechar }: Pro
           color: "var(--text-main)",
         });
         onFechar();
-      } catch (e) {
-        Swal.fire({
-          icon: "error",
-          title: "Erro",
-          text: e instanceof Error ? e.message : "Não foi possível gerar.",
-          background: "var(--bg-card)",
-          color: "var(--text-main)",
-        });
+      } catch {
+        mostrarErro("Falha de conexão com o servidor. Tenta de novo.");
       }
     });
   }

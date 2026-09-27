@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { descansar, gastarDadoDeVida } from "./actions";
+import { exigir } from "@/lib/acoes";
 import {
   TIPOS_DESCANSO,
   descreverDescanso,
@@ -61,7 +62,7 @@ export function DescansoControle({
     setOcupado(true);
     startTransition(async () => {
       try {
-        const resumo = await descansar(personagemId, tipo);
+        const resumo = exigir(await descansar(personagemId, tipo));
         const linhas = descreverDescanso(resumo);
         Swal.fire({
           icon: "success",
@@ -100,7 +101,7 @@ export function DescansoControle({
       // Dentro da transition, senão o useOptimistic reclama.
       onOtimista?.({ deltaHpAtual: curado });
       try {
-        await gastarDadoDeVida(personagemId, curado);
+        exigir(await gastarDadoDeVida(personagemId, curado));
       } catch (err) {
         erro(err);
       } finally {

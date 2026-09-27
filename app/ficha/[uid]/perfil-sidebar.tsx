@@ -15,6 +15,7 @@ import { faixaPeDoNivel, pctPeDoNivel } from "@/lib/nivel";
 import { MarcaExausto } from "./marca-exausto";
 import {
   agregarEfeitos,
+  fontesDeEfeitoDeItens,
   atributoDeCalculo,
   bonusProficiencia,
   crBase,
@@ -59,10 +60,13 @@ type Personagem = {
   crOutros: number;
   recursos: Recurso[];
   itens: Array<{
+    id: string;
+    nome: string;
     tipo: string;
     equipado: boolean;
     ca: number;
     penalidadeDes: number;
+    efeitos: unknown;
   }>;
 };
 
@@ -74,6 +78,7 @@ type HabSidebar = {
   tipo: string;
   efeitos: unknown;
   ligada: boolean;
+  itemId: string | null;
 };
 
 function pct(atual: number, max: number): number {
@@ -241,15 +246,45 @@ export function PerfilSidebar({
     return () => window.removeEventListener("rpgo:toggle-habilidade", ouvir);
   }, []);
 
-  // Agregado recomputado a partir das habilidades + overlay de `ligada`. Mesma
-  // função pura do server (page.tsx) — barata, frio. Substitui a antiga prop
-  // `efeitosAgregados`: agora reage ao toggle sem round-trip.
+  // Overlay otimista de `equipado` (evento `rpgo:toggle-item`).
+  const [equipadoOverlay, setEquipadoOverlay] = useState<Record<string, boolean>>({});
+  const [itensAnterior, setItensAnterior] = useState(inicial.itens);
+  if (itensAnterior !== inicial.itens) {
+    setItensAnterior(inicial.itens);
+    setEquipadoOverlay({});
+  }
+  useEffect(() => {
+    function ouvir(e: Event) {
+      const det = (e as CustomEvent<Record<string, boolean>>).detail;
+      if (!det) return;
+      setEquipadoOverlay((o) => ({ ...o, ...det }));
+    }
+    window.addEventListener("rpgo:toggle-item", ouvir);
+    return () => window.removeEventListener("rpgo:toggle-item", ouvir);
+  }, []);
+
+  const itensComOverlay = useMemo(
+    () =>
+      inicial.itens.map((i) =>
+        i.id in equipadoOverlay ? { ...i, equipado: equipadoOverlay[i.id] } : i,
+      ),
+    [inicial.itens, equipadoOverlay],
+  );
+
+  // Agregado recalculado no cliente com os overlays de `ligada`/`equipado`.
   const efeitosAgregados = useMemo(() => {
-    const habs = habilidades.map((h) =>
-      h.id in ligadaOverlay ? { ...h, ligada: ligadaOverlay[h.id] } : h,
+    const habs = habilidades
+      .map((h) => (h.id in ligadaOverlay ? { ...h, ligada: ligadaOverlay[h.id] } : h))
+      // Habilidade concedida por item só conta com o item equipado.
+      .filter(
+        (h) =>
+          !h.itemId || itensComOverlay.some((i) => i.id === h.itemId && i.equipado),
+      );
+    return agregarEfeitos(
+      [...habs, ...fontesDeEfeitoDeItens(itensComOverlay)],
+      new Set(slugsPericiaCustom),
     );
-    return agregarEfeitos(habs, new Set(slugsPericiaCustom));
-  }, [habilidades, ligadaOverlay, slugsPericiaCustom]);
+  }, [habilidades, ligadaOverlay, itensComOverlay, slugsPericiaCustom]);
 
   const [p, aplicarOtimista] = useOptimistic(
     { ...inicial, ...shadow },
@@ -267,7 +302,7 @@ export function PerfilSidebar({
   // CR ganha automaticamente o `ca` de cada armadura equipada. A penalidade de
   // DES NÃO entra aqui — é aplicada via `atributosParaTeste` (reduz o mod de DES),
   // pra também pegar iniciativa/salv/perícia e respeitar substituição de atributo.
-  const caArmadura = p.itens.reduce(
+  const caArmadura = itensComOverlay.reduce(
     (acc, i) => (i.tipo === "armadura" && i.equipado ? acc + i.ca : acc),
     0,
   );
