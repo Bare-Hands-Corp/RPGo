@@ -1,18 +1,16 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRefreshAgrupado } from "./use-refresh-agrupado";
 
-// Força router.refresh() quando a aba volta a ficar visível.
-// Cobre o caso: usuário navegou enquanto uma action ainda rodava,
-// e ao voltar precisa ver o estado atualizado do SSR.
+// Refresh quando a aba volta a ficar visível (o realtime pode ter perdido eventos).
 export function useRefreshOnFocus() {
-  const router = useRouter();
+  const refresh = useRefreshAgrupado();
   useEffect(() => {
     function onVisible() {
-      if (document.visibilityState === "visible") router.refresh();
+      if (document.visibilityState === "visible") refresh();
     }
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [router]);
+  }, [refresh]);
 }

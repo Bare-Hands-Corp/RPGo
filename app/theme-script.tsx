@@ -1,8 +1,6 @@
-import Script from "next/script";
-
-// Script anti-flash de tema: roda ANTES do primeiro render, sincronamente.
-// Lê localStorage.temaId e aplica as variáveis CSS em :root, evitando que
-// o usuário veja o tema padrão piscando antes do tema dele carregar.
+// Script anti-flash de tema: <script> inline no <head>, roda antes do primeiro paint.
+// Não trocar por next/script: o beforeInteractive só roda depois do JS do Next.
+// Lê localStorage.temaId e aplica as variáveis CSS em :root.
 //
 // IMPORTANTE: o conteúdo da função aplicar() é stringificado e injetado via
 // dangerouslySetInnerHTML — não pode importar nada nem usar closures externos.
@@ -132,5 +130,5 @@ const script = `
 `;
 
 export function ThemeScript() {
-  return <Script id="theme-script" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: script }} />;
+  return <script id="theme-script" dangerouslySetInnerHTML={{ __html: script }} />;
 }

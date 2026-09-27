@@ -50,8 +50,8 @@ export function serializarMensagem(m: MensagemBruta): MensagemSerializada {
 export async function listarMensagensSessao(sessionId: string): Promise<MensagemSerializada[]> {
   const lista = await prisma.mensagem.findMany({
     where: { sessionId },
-    orderBy: { timestamp: "asc" },
+    orderBy: { timestamp: "desc" },
     take: 200,
   });
-  return lista.map(serializarMensagem);
+  return lista.reverse().map(serializarMensagem);
 }
