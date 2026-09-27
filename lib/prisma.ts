@@ -1,5 +1,4 @@
-// Singleton do PrismaClient com driver adapter (Prisma 7+ exige adapter).
-// Cache no globalThis também em produção, pra não abrir mais de um pool.
+// Singleton do PrismaClient (adapter pg), cacheado no globalThis.
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 

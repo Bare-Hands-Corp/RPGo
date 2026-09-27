@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
-// Junta eventos de realtime próximos num router.refresh() só — cada refresh
-// renderiza a página inteira de novo no servidor.
+// Junta eventos de realtime próximos num router.refresh() só.
 export function useRefreshAgrupado(esperaMs = 300) {
   const router = useRouter();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);

@@ -104,8 +104,7 @@ export function CalendarioView({
     });
   }
 
-  // Action não lança erro previsto — ele volta em `erro` (se lançasse, o Next
-  // trocaria a mensagem por um digest em produção). O catch aqui é só rede.
+  // Mostra o erro da action; o catch é só falha de rede.
   async function comErro(chamada: () => Promise<Resultado>) {
     try {
       const r = await chamada();

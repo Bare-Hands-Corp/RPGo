@@ -64,9 +64,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
     personagem.periciasCustom.map((p) => p.slug),
   );
 
-  // Habilidade presa a nó não liberado não entra no agregador. Idem a que vem
-  // de um item que não está equipado — guardar o Meito na mochila desliga a
-  // técnica que ele concede.
+  // Habilidades travadas por árvore ou por item desequipado ficam fora do agregado.
   const travadasPorArvore = habilidadesTravadas(
     personagem.arvores.flatMap((a) => a.nos),
   );
@@ -78,9 +76,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
       !travadasPorArvore.has(h.id) && (!h.itemId || itensEquipados.has(h.itemId)),
   );
 
-  // Agrega efeitos das habilidades ativas + dos itens equipados (mochila que
-  // soma carga, luva que soma ataque) pra alvos canônicos + perícias custom.
-  // Computado no servidor — frio, sem estado, barato.
+  // Agrega efeitos das habilidades ativas e dos itens equipados.
   const efeitosAgregados = agregarEfeitos(
     [...habilidadesAtivas, ...fontesDeEfeitoDeItens(personagem.itens)],
     slugsPericiaCustom,

@@ -1,6 +1,4 @@
-// Talentos que um molde de árvore já traz prontos. Só o servidor importa este
-// arquivo (criarArvore) — os textos não vão pro bundle do cliente, que só vê os
-// metadados em PRESETS_ARVORE.
+// Talentos prontos dos moldes de árvore (só o servidor importa).
 
 import type { RequisitoNo } from "./arvore";
 
@@ -33,15 +31,7 @@ function celula(camada: number, ramo: number, icone: string, lista: Base[]): Tal
 const req = (chave: string, rank = 1) => ({ chave, rank });
 
 // ─── Haki (OP RPG v1.5.7, cap. 7) ──────────────────────────────────────
-// As três árvores do livro numa árvore só, uma raia por tipo. Uma árvore só
-// porque o Estágio conta o PA aplicado nos três Haki juntos — e porque dois
-// talentos do Rei exigem talentos do Armamento e da Observação. O talento
-// "Rei" marca quem tem Haki do Rei; os da raia que não têm outro requisito
-// (Autoridade, Vontade, Espírito Vigoroso) o exigem.
-//
-// Grade: Observação em 4 colunas, Armamento em 3, Rei em 2. O palco da árvore
-// é navegável (arrastar/zoom), então a largura não aperta: cada cadeia corre na
-// própria coluna (Previsão → Previsão Sobrenatural → Previsão Especial).
+// Os três Haki numa árvore só, uma raia por tipo.
 
 const INEXPERIENTE = 0;
 const TREINADO = 1;
@@ -501,11 +491,7 @@ export const TALENTOS_POR_MOLDE: Record<string, TalentoMolde[]> = {
   haki: TALENTOS_HAKI,
 };
 
-/**
- * Talentos do molde já com ids, prontos pro createMany. Os ids vêm de fora
- * (randomUUID no servidor) pra os requisitos apontarem pros nós novos numa
- * passada só, sem criar e depois remendar.
- */
+/** Talentos do molde com ids novos, prontos pro createMany. */
 export function nosDoMolde(
   slug: string,
   ids: { arvoreId: string; camadaIds: string[]; ramoIds: string[] },

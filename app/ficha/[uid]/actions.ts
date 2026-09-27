@@ -193,13 +193,12 @@ function normalizarAcaoInput(input: AcaoInput) {
   }
   if (input.dano !== undefined) data.dano = input.dano ? String(input.dano) : null;
   if (input.alcance !== undefined) data.alcance = input.alcance ? String(input.alcance) : null;
-  // Refs soltas a Item (armas) e Habilidade. Não validamos ownership: pior caso
-  // é um id que a UI não resolve e simplesmente ignora ao desenhar o card.
+  // Refs soltas a Item e Habilidade (sem checar ownership).
   if (input.armaIds !== undefined) data.armaIds = normalizarIds(input.armaIds);
   if (input.habilidadeIds !== undefined) {
     data.habilidadeIds = normalizarIds(input.habilidadeIds);
   }
-  // Item que concede a ação; a UI trava o card quando ele não está equipado.
+  // Item que concede a ação.
   if (input.itemId !== undefined) data.itemId = input.itemId ? String(input.itemId) : null;
   return data;
 }
@@ -853,8 +852,7 @@ const RECARGAS_VALIDAS_HAB = new Set([
   "encontro",
   "manual",
 ]);
-// Derivado do catálogo em lib/op-rpg — lista fixa aqui ficava pra trás a cada
-// tipo novo de efeito e o descartava silenciosamente ao salvar.
+// Tipos válidos derivados do catálogo de efeitos.
 const TIPOS_EFEITO_VALIDOS = new Set<TipoEfeito>(
   Object.keys(META_EFEITOS) as TipoEfeito[],
 );
@@ -935,8 +933,7 @@ function normalizarHabilidadeInput(input: HabilidadeInput) {
   }
   if (input.favorita !== undefined) data.favorita = Boolean(input.favorita);
   if (input.ordem !== undefined) data.ordem = Math.trunc(Number(input.ordem) || 0);
-  // Item que concede a habilidade (ref solta). Sem o item equipado a UI e o
-  // agregador tratam a habilidade como travada.
+  // Item que concede a habilidade.
   if (input.itemId !== undefined) data.itemId = input.itemId ? String(input.itemId) : null;
   if (input.efeitos !== undefined) data.efeitos = normalizarEfeitosInput(input.efeitos);
   return data;
@@ -1139,10 +1136,7 @@ export async function usarHabilidade(personagemId: string, habilidadeId: string)
   });
 }
 
-// Liga/desliga uma habilidade sustentada (não-passiva com efeito sustentado).
-// LIGAR consome custos + aplica os instantâneos (cura/PV-temp/recurso; hp-max/
-// pp-max ficam no agregado, revertíveis) e marca `ligada=true`. DESLIGAR só
-// limpa `ligada` — sem reembolso de custo nem reversão de PV temp já concedido.
+// Liga (consome custos e aplica instantâneos) ou desliga uma habilidade sustentada.
 export async function alternarHabilidade(
   personagemId: string,
   habilidadeId: string,
@@ -1341,9 +1335,7 @@ export async function criarArvore(
     // Sem preset explícito cai no "Em branco".
     const preset = acharPreset(input.preset);
 
-    // Ids gerados aqui: os talentos do molde já nascem com os requisitos
-    // apontando pros nós novos, e tudo entra numa transação só — sem árvore
-    // pela metade se o createMany falhar.
+    // Ids gerados aqui pros requisitos do molde apontarem pros nós novos.
     const arvoreId = randomUUID();
     const camadaIds = preset.camadas.map(() => randomUUID());
     const ramoIds = preset.ramos.map(() => randomUUID());
@@ -1637,8 +1629,7 @@ export async function atualizarNo(
       data.rankAtual = data.maxRanks;
     }
 
-    // Trocou de camada/raia/célula: se a célula já tem dono, desce pra primeira
-    // linha livre da coluna em vez de cair em cima dele.
+    // Mudou de célula: se ocupada, desce pra primeira linha livre.
     if (["camadaId", "ramoId", "coluna", "linha"].some((k) => data[k] !== undefined)) {
       const nos = arvore.nos as NoArvore[];
       const alvo = {

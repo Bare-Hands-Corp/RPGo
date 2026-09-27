@@ -28,8 +28,7 @@ export function ModalConfig({ mesaId, config, dataAtualDias, onFechar }: Props) 
   const [tab, setTab] = useState<Tab>("data");
   const [pending, startTransition] = useTransition();
 
-  // Data atual. O calendário começa no ano inicial da config — ano menor que isso vira
-  // dataDias negativo e o servidor recusa, então o campo já mostra o limite.
+  // Data atual (a partir do ano inicial da config).
   const inicial = dataParaDias(dataAtualDias, config);
   const anoInicial = config.anoEpoch ?? 1;
   const [ano, setAno] = useState(inicial.ano);
@@ -124,8 +123,7 @@ export function ModalConfig({ mesaId, config, dataAtualDias, onFechar }: Props) 
           };
           r = await aplicarConfig(mesaId, novoConfig);
         }
-        // Erro previsto vem em `erro`: action não lança, senão o Next troca a
-        // mensagem por um digest em produção.
+        // Erro previsto vem em `erro`.
         if (!r.ok) {
           mostrarErro(r.erro);
           return;

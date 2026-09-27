@@ -75,8 +75,7 @@ type Item = {
   quantidade: number;
 };
 
-// Ação/habilidade que um item concede (ref solta via itemId). O inventário só
-// precisa do nome pra mostrar o que vem junto com o item.
+// Ação/habilidade concedida por um item.
 type Concedido = { id: string; nome: string; itemId: string | null };
 
 const CATEGORIAS_ARMA_VALIDAS = new Set<string>(CATEGORIAS_ARMA.map((c) => c.slug));
@@ -418,8 +417,7 @@ export function InventarioTab({
       danoBonus: ehArma ? form.danoBonus.trim() || null : null,
       danoSomaAtributo: ehArma ? form.danoSomaAtributo : false,
       danoSomaProficiencia: ehArma ? form.danoSomaProficiencia : false,
-      // Efeitos valem pra qualquer tipo — é o que faz mochila somar carga. Na
-      // arma, os de rolagem (crítico, passos, desconto…) valem só pra ela.
+      // Efeitos valem pra qualquer tipo de item.
       efeitos: form.efeitos,
       quantidade: Math.max(1, Number(form.quantidade) || 1),
     };
@@ -494,8 +492,7 @@ export function InventarioTab({
           )
         : [];
 
-    // Otimismo cross-tab: a sidebar recomputa CR, carga e derivados com os
-    // efeitos do item antes do server responder.
+    // Atualiza a sidebar antes do servidor responder.
     const overlay: Record<string, boolean> = { [item.id]: novo };
     for (const o of outras) overlay[o.id] = false;
     window.dispatchEvent(new CustomEvent("rpgo:toggle-item", { detail: overlay }));
@@ -549,11 +546,10 @@ export function InventarioTab({
     });
   }
 
-  // Acerto e dano da arma resolvidos juntos: o dano só sabe qual atributo somar
-  // (quando `danoSomaAtributo` está ligado) depois que o acerto escolheu um.
+  // Acerto e dano da arma (o dano usa o atributo do acerto).
   function calcArma(item: Item): ArmaResolvida {
     if (item.tipo !== "arma") return null;
-    // Efeitos da ficha + os de rolagem da própria arma (crítico, passos…).
+    // Ficha + efeitos de rolagem da arma.
     const agg = efeitosComArma(efeitosAgregados, item);
     const r = resolverAtaqueArma({
       alcanceRaw: item.alcance,
@@ -590,8 +586,7 @@ export function InventarioTab({
     };
   }
 
-  // O que cada item concede, indexado por itemId — o card lista pro jogador
-  // saber o que perde ao desequipar.
+  // O que cada item concede, por itemId.
   const concedidosPorItem = new Map<string, Concedidos>();
   for (const [lista, chave] of [
     [acoes, "acoes"],
@@ -605,7 +600,7 @@ export function InventarioTab({
     }
   }
 
-  // Carga conta cada unidade da pilha (10 rações pesam 10×).
+  // Carga conta cada unidade da pilha.
   const pesoTotal = itensOtimistas.reduce(
     (acc, i) => acc + (Number(i.peso) || 0) * Math.max(1, i.quantidade || 1),
     0,
@@ -1124,8 +1119,7 @@ type Concedidos = { acoes: string[]; habilidades: string[] };
 
 type Traco = { icone: string; texto: string; titulo: string };
 
-// O que o dano da arma leva além do dado base. O resto da qualidade (crítico,
-// passos, desconto…) aparece nos chips de efeito do card.
+// O que o dano da arma leva além do dado base.
 function tracosDaArma(item: Item): Traco[] {
   const tracos: Traco[] = [];
   if (item.danoBonus) {
@@ -1206,8 +1200,7 @@ function CardItem({
   const efeitos = lerEfeitos(item.efeitos);
   const nConcedido =
     (concedidos?.acoes.length ?? 0) + (concedidos?.habilidades.length ?? 0);
-  // Arma e armadura sempre equipam; item comum vira equipável quando carrega
-  // efeitos ou concede algo — é o que liga/desliga a mochila, a luva, o Meito.
+  // Arma e armadura sempre equipam; item comum, se tiver efeito ou concessão.
   const equipavel =
     item.tipo === "arma" ||
     item.tipo === "armadura" ||

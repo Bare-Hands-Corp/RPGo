@@ -262,8 +262,7 @@ model Item {
   nome          String
   peso          Float   @default(0)
   tipo          String  @default("comum")
-  // Quantas unidades do item o personagem tem (munição, rações, frascos).
-  // Peso de carga = peso × quantidade.
+  // Unidades do item; carga = peso × quantidade.
   quantidade    Int     @default(1)
   tags          String?
   // Estilo visual por tag: { "<nome da tag>": { cor, efeito } } (lib/estilos-cor.ts).
@@ -291,28 +290,18 @@ model Item {
   // Quando null, é derivado da categoria + propriedades.
   atributoAtaque   String? @map("atributo_ataque")
   proficienteArma  Boolean @default(true) @map("proficiente_arma")
-  // Dano EXTRA da arma, somado ao dano base sempre que ela é usada — inclui as
-  // Ações que puxam o acerto dela via `Acao.armaIds` (ex: Meito com "+1d6 fogo").
-  // Texto livre no mesmo formato de `dano` ("1d6 fogo", "+2").
+  // Dano extra da arma, somado ao dano base ("1d6 fogo", "+2").
   danoBonus        String? @map("dano_bonus")
-  // Soma o modificador do atributo de ataque no dano (regra do livro). Default
-  // `false` porque fichas antigas já escreveram o modificador dentro de `dano`
-  // na mão — ligar é opt-in, pra não dobrar o bônus de quem já tinha arma.
+  // Soma o modificador de atributo no dano (opt-in).
   danoSomaAtributo Boolean @default(false) @map("dano_soma_atributo")
 
-  // Soma o bônus de proficiência no dano dela — inclusive nas técnicas (Oo e
-  // Saijou Wazamono). O resto da Meito são efeitos da arma (margem de crítico,
-  // passos, desconto em técnica, melhor de N no dano).
+  // Soma a proficiência no dano da arma e das técnicas com ela.
   danoSomaProficiencia Boolean @default(false) @map("dano_soma_proficiencia")
 
-  // Efeitos estruturados do item (mesmo vocabulário de Habilidade.efeitos —
-  // ver lib/op-rpg.ts EfeitoHabilidade). Entram no agregador ENQUANTO o item
-  // estiver equipado, como se fossem uma passiva. É o que faz mochila somar
-  // carga, luva somar ataque, roupa dar resistência.
+  // Efeitos do item (formato de Habilidade.efeitos), valem enquanto equipado.
   efeitos Json @default("[]")
 
-  // Ações e habilidades concedidas por este item (ref solta, sem FK — ver
-  // Acao.itemId / Habilidade.itemId).
+  // Concessões: ver Acao.itemId / Habilidade.itemId.
 
   @@map("itens")
 }
@@ -339,24 +328,13 @@ model Acao {
   atributoCd     String? @map("atributo_cd") // atributo primário do usuário pra CD (8+prof+mod)
   dano           String? // "1d8 cortante", "2d6 fogo"
   alcance        String? // "cc 1,5 m", "9 m", "linha 18 m"
-  // Armas que podem desferir esta ação (Item.id[]). Uma técnica costuma servir a
-  // mais de uma arma — Seiken vale com qualquer marcial equipada —, então o card
-  // desenha UM chip de acerto por arma equipada, cada um com o bônus e o dano
-  // bônus dela. Refs soltas (sem FK): arma que sumiu é ignorada; nenhuma arma
-  // equipada faz cair no cálculo manual (atributoAtaque/dano).
-  // Substituiu o antigo `armaId` singular (migrado em 2026-09-23).
+  // Armas que desferem esta ação (Item.id[], sem FK).
   armaIds        Json    @default("[]") @map("arma_ids")
 
-  // Item que CONCEDE esta ação (mochila com engenhoca, Meito com técnica
-  // própria). Referência solta (sem FK): enquanto o item não estiver equipado,
-  // a ação aparece travada na aba; se o item sumir, o vínculo é ignorado.
-  // Diferente de `armaId`, que só empresta o acerto de uma arma.
+  // Item que concede esta ação (sem FK); travada se não estiver equipado.
   itemId String? @map("item_id")
 
-  // Habilidades das quais a ação deriva (Habilidade.id[]). Uma técnica pode
-  // nascer do cruzamento de várias (Estilo + Haki, p. ex.). Refs soltas (sem
-  // FK): habilidade apagada some do card.
-  // Substituiu o antigo `habilidadeId` singular (migrado em 2026-09-23).
+  // Habilidades de onde a ação deriva (Habilidade.id[], sem FK).
   habilidadeIds Json @default("[]") @map("habilidade_ids")
 
   @@map("acoes")
@@ -401,9 +379,7 @@ model Habilidade {
   // Habilidade só-instantânea (cura pura) não usa esse campo (continua no "Usar").
   ligada Boolean @default(false)
 
-  // Item que CONCEDE esta habilidade (ref solta, sem FK). Enquanto o item não
-  // estiver equipado, a habilidade fica travada: aparece no card com aviso e os
-  // efeitos NÃO entram no agregador — mesmo gate das travadas por árvore.
+  // Item que concede esta habilidade (sem FK); travada se não estiver equipado.
   itemId String? @map("item_id")
 
   // Lista de efeitos estruturados (ver lib/op-rpg.ts EfeitoHabilidade).
@@ -575,12 +551,10 @@ model ArvoreNo {
   // Raia onde o nó aparece. null = primeira raia (ou a raia única).
   ramoId   String?      @map("ramo_id")
   ramo     ArvoreRamo?  @relation(fields: [ramoId], references: [id], onDelete: SetNull)
-  // Célula na grade: coluna dentro da raia e linha dentro da camada (0 = a
-  // primeira). Aplicadas com ALTER TABLE aditivo em 2026-09-26.
+  // Célula na grade: coluna na raia, linha na camada.
   coluna   Int          @default(0)
   linha    Int          @default(0)
-  // Legado: altura (%) do layout antigo, antes da grade. Só serviu pra
-  // semear a `linha` dos nós que já existiam; nada mais lê.
+  // Legado (layout antigo), não é mais lido.
   offsetY  Int          @default(50) @map("offset_y")
 
   nome      String

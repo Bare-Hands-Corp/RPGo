@@ -1,9 +1,5 @@
-// Helper para o proxy do Next 16: refresca o token Supabase em cada navegação,
-// propaga cookies atualizados e aplica redirects baseados em sessão.
-//
-// IMPORTANTE: NÃO logar/await nada entre `createServerClient` e
-// `supabase.auth.getClaims()` — qualquer trabalho no meio pode causar logouts
-// aleatórios (race em refresh tokens single-use). Por isso o JWKS vem antes.
+// Proxy: refresca a sessão Supabase e redireciona conforme o login.
+// Nada entre `createServerClient` e `getClaims()`: pode deslogar (refresh token é de uso único).
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { carregarJwks } from "./jwks";

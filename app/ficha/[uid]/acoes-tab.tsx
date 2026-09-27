@@ -217,7 +217,7 @@ export function AcoesTab({
   };
   const desReduz = penalidadeDesArmadura < 0;
   const armas = itens.filter((i) => i.tipo === "arma");
-  // Efeitos de cada arma somados aos da ficha — valem nos golpes com ela.
+  // Agregado por arma: ficha + efeitos da arma.
   const efeitosPorArma = new Map(armas.map((a) => [a.id, efeitosComArma(efeitosAgregados, a)]));
   const efeitosDa = (a: ItemArma) => efeitosPorArma.get(a.id) ?? efeitosAgregados;
 
@@ -411,19 +411,16 @@ export function AcoesTab({
                   );
                   const atributoAtq = acao.atributoAtaque as Atributo | null;
                   const atributoCd = acao.atributoCd as Atributo | null;
-                  // Armas ligadas à ação (ex: Seiken servindo a qualquer marcial).
-                  // Só as EQUIPADAS desferem; as demais só aparecem esmaecidas.
+                  // Armas ligadas à ação; só as equipadas desferem.
                   const armasDaAcao = lerIds(acao.armaIds)
                     .map((id) => armas.find((a) => a.id === id))
                     .filter((a): a is ItemArma => !!a);
                   const armasEquipadas = armasDaAcao.filter((a) => a.equipado);
-                  // Habilidades das quais a ação deriva (refs soltas). Somem do
-                  // card se forem apagadas.
+                  // Habilidades de onde a ação deriva.
                   const habsDerivadas = lerIds(acao.habilidadeIds)
                     .map((id) => habilidades.find((h) => h.id === id))
                     .filter((h): h is HabilidadeRef => !!h);
-                  // Um acerto (e um dano) por arma equipada, cada um com os
-                  // efeitos da própria arma somados aos da ficha.
+                  // Um acerto e um dano por arma equipada.
                   const golpes = armasEquipadas.map((arma) => {
                     const atq = resolverAtaqueArma({
                       alcanceRaw: arma.alcance,
@@ -437,15 +434,12 @@ export function AcoesTab({
                     });
                     return { arma, atq };
                   });
-                  // A 1ª arma equipada define o alcance de contexto quando a
-                  // ação não tem atributo de ataque próprio.
+                  // A 1ª arma equipada define o alcance quando a ação não tem ataque próprio.
                   const ataqueArma = golpes[0]?.atq ?? null;
                   const alcanceContexto = ataqueArma
                     ? ataqueArma.alcance
                     : inferirAlcance(acao.alcance);
-                  // Técnica sem arma: o alcance vem do texto livre da ação
-                  // (`inferirAlcance`), então só o bônus daquele alcance soma —
-                  // igual ao dano, que já separa CC de distância.
+                  // Sem arma: soma só o bônus de ataque do alcance da ação.
                   const bonusAtaqueAlcance =
                     alcanceContexto === "corpo_a_corpo"
                       ? efeitosAgregados.bonusAtaqueCC
@@ -454,9 +448,7 @@ export function AcoesTab({
                     efeitosAgregados.bonusAtaque.valor + bonusAtaqueAlcance.valor;
                   const extraCd = efeitosAgregados.bonusCdTecnicas.valor;
                   const fontesCd = efeitosAgregados.bonusCdTecnicas.fontes;
-                  // Item que concede a ação. Sem ele equipado, a ação fica
-                  // travada (card apagado, sem rolar) — igual às travadas por
-                  // árvore de talento.
+                  // Item que concede a ação; sem ele equipado, a ação fica travada.
                   const itemOrigem = acao.itemId
                     ? itens.find((i) => i.id === acao.itemId)
                     : undefined;
@@ -480,11 +472,7 @@ export function AcoesTab({
                         efeitosAgregados.bonusAtaque.fontes,
                         bonusAtaqueAlcance.fontes,
                       );
-                  // O dado de dano é da própria técnica — sobe só com passo "nas
-                  // técnicas" —, mas o `danoBonus` e a proficiência da arma
-                  // ligada entram junto: é dano da arma, vale em todo golpe
-                  // desferido com ela. Bônus de habilidade (dano/dano-cc/
-                  // dano-distancia) também são compostos aqui.
+                  // Dano da técnica + dano bônus e proficiência da arma + bônus de habilidade.
                   const comporDano = (arma: ItemArma | null) => {
                     const agg = arma ? efeitosDa(arma) : efeitosAgregados;
                     const d = acao.dano
@@ -504,8 +492,7 @@ export function AcoesTab({
                       : null;
                     return { d, efeitos: efeitosDoContexto(agg) };
                   };
-                  // Um dano por arma equipada (cada uma soma o próprio bônus);
-                  // sem arma, um dano único da técnica.
+                  // Um dano por arma equipada; sem arma, o dano da técnica.
                   const danos =
                     armasEquipadas.length > 0
                       ? armasEquipadas.map((a) => ({
@@ -523,8 +510,7 @@ export function AcoesTab({
                   // Cada custo carrega cor opcional pra colorir o chip.
                   // Recurso customizado usa a cor configurada; PP/PA usam padrão.
                   const custos: { texto: string; estilo?: EstiloCor; titulo?: string }[] = [];
-                  // Desconto em técnica: o da ficha somado ao da arma que desfere
-                  // (ou que concede) a ação. Com várias armas, vale a melhor.
+                  // Desconto em técnica: ficha + arma que desfere ou concede (vale o maior).
                   const armasDoCusto = [
                     ...armasEquipadas,
                     ...(itemOrigem?.tipo === "arma" && itemOrigem.equipado ? [itemOrigem] : []),
@@ -586,9 +572,7 @@ export function AcoesTab({
                         <div className="card-title">{acao.nome}</div>
                         {(bonusAtq != null || cd != null || atributoSalv || acao.dano || acao.alcance || armasDaAcao.length > 0 || acao.itemId) && (
                           <div className="acao-stats">
-                            {/* Com armas ligadas, um chip de acerto POR arma
-                                equipada (cada uma tem bônus e alcance próprios).
-                                Sem arma, o acerto é o cálculo manual da técnica. */}
+                            {/* Um chip de acerto por arma equipada; sem arma, o cálculo da técnica. */}
                             {golpes.length > 0
                               ? golpes.map(({ arma, atq }) =>
                                   atq ? (
@@ -665,8 +649,7 @@ export function AcoesTab({
                                       dados: d.dados,
                                       modificador: d.modificador,
                                       nomePreset: `Dano ${acao.nome}${rotulo ? ` (${rotulo})` : ""}`,
-                                      // Contexto de dano casa dano_min/trocar_dano/
-                                      // ignora/melhor de N no Rolador (etapa 3.5).
+                                      // Contexto de dano pros efeitos de dano do Rolador.
                                       contexto: { tipo: "dano", alcance: alcanceContexto },
                                       efeitos,
                                     })

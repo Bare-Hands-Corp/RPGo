@@ -66,7 +66,7 @@ type Habilidade = {
   itemId: string | null;
 };
 
-// Item que pode conceder uma habilidade — só o necessário pro select e pro gate.
+// Item que pode conceder habilidade.
 type ItemRef = { id: string; nome: string; equipado: boolean };
 
 type Props = {
@@ -77,7 +77,7 @@ type Props = {
   periciasCustom: { slug: string; nome: string }[];
   /** IDs de habilidade presas a um nó de árvore ainda não liberado. */
   travadas?: string[];
-  /** Itens do personagem — habilidade concedida por item exige ele equipado. */
+  /** Itens do personagem. */
   itens: ItemRef[];
 };
 
@@ -128,7 +128,7 @@ export function HabilidadesTab({
   const [edit, setEdit] = useState<Habilidade | null>(null);
   const [filtro, setFiltro] = useState<Filtro>("todas");
 
-  // Itens indexados pra o card resolver de onde a habilidade veio.
+  // Itens por id.
   const itemPorId = useMemo(() => {
     const m = new Map<string, ItemRef>();
     for (const i of itens) m.set(i.id, i);
@@ -483,13 +483,11 @@ function CardHabilidade({
   onFavorita: () => void;
 }) {
   const efeitos = lerEfeitos(habilidade.efeitos);
-  // Habilidade concedida por item só vale com o item equipado — mesmo efeito
-  // prático de estar travada por um nó de árvore não liberado.
+  // Concedida por item: só vale com ele equipado.
   const travadaPorItem = !!habilidade.itemId && !itemOrigem?.equipado;
   const bloqueada = travada || travadaPorItem;
   const tipoMeta = TIPOS_HABILIDADE.find((t) => t.slug === habilidade.tipo);
-  // Tudo que não é passiva se ativa — "livre" é ação livre (espelho das Ações
-  // Livres), então também ganha Usar/toggle; sem isso os efeitos nunca contavam.
+  // Tudo que não é passiva é ativável (Usar ou toggle).
   const ehAtivavel = habilidade.tipo !== "passiva";
   // Habilidade ativável com efeito sustentado ganha switch on/off (estado
   // `ligada`); sem efeito sustentado (cura pura etc.) mantém o "Usar" pontual.

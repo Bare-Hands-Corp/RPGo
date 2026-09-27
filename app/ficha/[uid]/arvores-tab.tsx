@@ -151,15 +151,13 @@ export function ArvoresTab({
   const [noSelecionadoId, setNoSelecionado] = useState<string | null>(null);
   const [arvoreColapsada, setArvoreColapsada] = useState(false);
   const [telaCheia, setTelaCheia] = useState(false);
-  // Filtro do palco (ramo e camada), preso à árvore em que foi escolhido.
+  // Filtro do palco por ramo e camada.
   const [filtro, setFiltro] = useState<{
     arvoreId: string;
     ramoId: string | null;
     camadaId: string | null;
   } | null>(null);
-  // Dois modos na mesma aba. JOGAR é o padrão — 90% do uso é gastar ponto, não
-  // montar a árvore. MONTAR revela as ferramentas de autoria (criar/editar/
-  // apagar/arrastar), que antes ficavam ligadas o tempo todo e afogavam a tela.
+  // Modos da aba: jogar (padrão) e montar.
   const [montando, setMontando] = useState(false);
   const [modalCopiar, setModalCopiar] = useState(false);
   const [, startTransition] = useTransition();
@@ -175,7 +173,7 @@ export function ArvoresTab({
       return state.map((a) => (a.id === p.arvoreId ? { ...a, ...p.patch } : a));
     }
     if (p.kind === "mover") {
-      // Espelho do servidor: célula ocupada = os dois trocam de lugar.
+      // Célula ocupada: os dois trocam de lugar.
       return state.map((a) => {
         const no = a.nos.find((n) => n.id === p.noId);
         if (!no) return a;
@@ -240,7 +238,7 @@ export function ArvoresTab({
     [arvore],
   );
 
-  // Filtro de outra árvore, ou de ramo/camada que sumiu, vale como "todos".
+  // Filtro inválido vale como "todos".
   const doFiltro = filtro && filtro.arvoreId === arvore?.id ? filtro : null;
   const ramoFiltro =
     doFiltro?.ramoId && ramos.some((r) => r.id === doFiltro.ramoId) ? doFiltro.ramoId : null;
@@ -521,7 +519,6 @@ export function ArvoresTab({
                   className={`fas fa-chevron-${arvoreColapsada ? "right" : "down"}`}
                 />
               </button>
-              {/* Progresso primeiro: é o que o jogador quer saber ao abrir. */}
               <span className="arvore-metrica arvore-progresso">
                 <strong>{arvore.nos.filter((n) => n.rankAtual > 0).length}</strong>
                 {" de "}
@@ -533,8 +530,6 @@ export function ArvoresTab({
                   <strong>{recursoCusto.valorAtual}</strong>/{recursoCusto.valorMax}
                 </span>
               )}
-              {/* O critério vira ícone com dica — era um texto longo que só
-                  repetia o que as travas das camadas já mostram. */}
               <span
                 className="arvore-criterio"
                 title={`${criterioMeta?.nome}: ${criterioMeta?.dica}${
@@ -582,7 +577,7 @@ export function ArvoresTab({
                     type="button"
                     className="btn-rect outline"
                     onClick={() => {
-                      // Com filtro, o talento nasce onde dá pra ver.
+                      // Com filtro, cria na célula visível.
                       const celula = {
                         camadaId: camadaFiltro ?? camadas[0]?.id ?? "",
                         ramoId: ramoFiltro ?? ramos[0]?.id ?? null,
@@ -702,7 +697,6 @@ export function ArvoresTab({
             )}
 
           {!arvoreColapsada && (
-            // O palco leva o painel junto: na tela cheia os dois ocupam a tela.
             <div className={`arvore-palco${telaCheia ? " tela-cheia" : ""}`}>
               <ArvoreCanvas
                 arvore={arvore}
@@ -971,10 +965,9 @@ function CopiarModal({
   );
 }
 
-// ─── Canvas: palco navegável (arrastar move, roda ou pinça dá zoom) ────
+// ─── Palco navegável ─────────────────────────────────────────────
 
-// Mundo em px no zoom 1. Células largas: as linhas dos requisitos correm pelos
-// vãos e precisam de espaço pra não virarem um feixe grudado.
+// Dimensões do mundo em px (zoom 1).
 const NO_L = 112; // largura do bloco do nó
 const NO_A = 110; // altura: círculo + estrelas + nome em 2 linhas
 const PASSO_X = 172; // largura da célula
@@ -1035,13 +1028,7 @@ function origemCelula(
   return { x: raia.x + c.coluna * PASSO_X, y: faixa.y + c.linha * PASSO_Y };
 }
 
-/**
- * Tudo no mundo sai das células da grade: colunas por raia (valem pra árvore
- * toda) e linhas por camada. Montando, cada raia ganha uma coluna e cada camada
- * uma linha vazias, pra ter onde criar ou soltar talento. Com filtro, só o ramo
- * e a camada escolhidos entram no mundo; talento de fora não ganha caixa, e a
- * linha que ligaria nele some junto.
- */
+/** Posiciona os nós na grade: colunas por raia, linhas por camada. */
 function montarMundo(
   nos: NoArvore[],
   todasCamadas: CamadaArvore[],
@@ -1050,7 +1037,7 @@ function montarMundo(
   ramoFiltro: string | null,
   camadaFiltro: string | null,
 ): Mundo {
-  // As células usam todos os ramos: talento sem ramo cai no primeiro deles.
+  // Talento sem ramo cai no primeiro.
   const celulas = celulasDosNos(nos, ramos);
   const visiveis = ramoFiltro ? ramos.filter((r) => r.id === ramoFiltro) : ramos;
   const colunas: (RamoArvore | null)[] = visiveis.length > 0 ? visiveis : [null];
@@ -1104,13 +1091,7 @@ function montarMundo(
   };
 }
 
-/**
- * Rota de um requisito: sai por baixo do nome do pai, desce até o vão logo
- * acima do filho, anda na horizontal e entra no topo do círculo. A descida
- * reta pela coluna do pai não pode bater em outro nó nem parar em cima de um
- * que não é filho dele (pareceria ligar os dois); nesses casos desce pelo vão
- * entre colunas — vão nunca tem nó, então a linha não atravessa talento.
- */
+/** Rota em ângulo reto do pai ao filho, sem atravessar outros nós. */
 function rotaPontos(a: CaixaNo, b: CaixaNo, todas: CaixaNo[], filhosDoPai: Set<CaixaNo>): Ponto[] {
   const sx = a.cx;
   const sy = a.base;
@@ -1136,8 +1117,7 @@ function rotaPontos(a: CaixaNo, b: CaixaNo, todas: CaixaNo[], filhosDoPai: Set<C
     );
   if (!bate && !engana) return [[sx, sy], [sx, yAlvo], [ex, yAlvo], [ex, b.circTopo]];
   const yVao = a.base + FOLGA_Y / 2;
-  // Filho na mesma coluna desce pelo lado onde o pai já tem mais filhos: um
-  // tronco só, em vez de um de cada lado.
+  // Mesma coluna: desce pelo lado onde o pai tem mais filhos.
   let aEsquerda = 0;
   let aDireita = 0;
   for (const c of filhosDoPai) {
@@ -1168,12 +1148,7 @@ function limparRota(bruto: Ponto[]): Ponto[] {
   return pts;
 }
 
-/**
- * Linhas de pais diferentes que dividem o mesmo vão ganham trilhos paralelos,
- * em vez de virar uma só. As do mesmo pai andam juntas: viram um tronco que se
- * divide perto de cada filho. Mexe só nos trechos do meio: a saída do pai e a
- * entrada no filho ficam.
- */
+/** Separa em trilhos paralelos as linhas de pais diferentes no mesmo vão. */
 function separarTrilhos(rotas: { pts: Ponto[]; dono: string }[]): Ponto[][] {
   type Trecho = { r: number; i: number; vertical: boolean; de: number; ate: number };
   const grupos = new Map<string, Trecho[]>();
@@ -1292,15 +1267,14 @@ function ArvoreCanvas({
   onMover: (noId: string, destino: CelulaNo) => void;
   onCriarNoAqui: (celula: CelulaNo) => void;
   foco: boolean;
-  /** Modo autoria: revela criar/editar/apagar e habilita arrastar talento. */
+  /** Modo montar: edição e arrasto de talentos. */
   montando: boolean;
   telaCheia: boolean;
   onTelaCheia: () => void;
 }) {
   const palcoRef = useRef<HTMLDivElement>(null);
   const mundoRef = useRef<HTMLDivElement>(null);
-  // Vista (translação + zoom) mexida direto no DOM: re-renderizar a árvore a
-  // cada movimento do ponteiro pesaria à toa.
+  // Vista (translação + zoom) aplicada direto no DOM.
   const vista = useRef({ x: 0, y: 0, z: 1 });
   const ponteiros = useRef(new Map<number, { x: number; y: number }>());
   const gesto = useRef<
@@ -1367,7 +1341,7 @@ function ArvoreCanvas({
     if (m) m.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.z})`;
   }, []);
 
-  // Não deixa o mundo sumir da tela: sempre sobra um pedaço dele à vista.
+  // Mantém parte do mundo sempre visível.
   const limitar = useCallback(() => {
     const palco = palcoRef.current;
     if (!palco) return;
@@ -1393,7 +1367,7 @@ function ArvoreCanvas({
     [limitar, aplicar],
   );
 
-  /** "inicio": árvore pequena inteira e centrada; grande, legível a partir do começo. */
+  /** Enquadra a árvore: "inteira" cabe tudo, "inicio" prioriza o começo. */
   const ajustar = useCallback(
     (modo: "inicio" | "inteira") => {
       const palco = palcoRef.current;
@@ -1406,7 +1380,7 @@ function ArvoreCanvas({
         v.y = (palco.clientHeight - mundo.altura * v.z) / 2;
       } else {
         v.z = palco.clientWidth < 640 ? 0.7 : 0.85;
-        // Coube na largura (um ramo só, por exemplo): centra; senão, começo.
+        // Centraliza se couber na largura.
         v.x = Math.max(0, (palco.clientWidth - mundo.largura * v.z) / 2);
         v.y = 0;
       }
@@ -1416,7 +1390,7 @@ function ArvoreCanvas({
     [mundo, limitar, aplicar],
   );
 
-  // Árvore ou filtro novo: enquadra. Mesma vista com conteúdo mudado: fica onde estava.
+  // Reenquadra só ao trocar de árvore ou filtro.
   const vistaId = `${arvore.id}|${ramoFiltro ?? ""}|${camadaFiltro ?? ""}`;
   useLayoutEffect(() => {
     if (enquadrada.current === vistaId) {
@@ -1428,15 +1402,14 @@ function ArvoreCanvas({
     ajustar("inicio");
   }, [vistaId, ajustar, limitar, aplicar]);
 
-  // Roda = zoom no ponto do cursor. Listener nativo: o do React é passivo e não
-  // deixa cancelar a rolagem da página.
+  // Zoom na roda (listener nativo pra poder cancelar a rolagem).
   useEffect(() => {
     const palco = palcoRef.current;
     if (!palco) return;
     function roda(e: WheelEvent) {
       e.preventDefault();
       const r = palco!.getBoundingClientRect();
-      // Pinça no trackpad chega como roda com ctrl, em passos bem menores.
+      // Pinça do trackpad chega como roda + ctrl.
       const passo = e.ctrlKey ? 0.01 : 0.0015;
       zoomEm(e.clientX - r.left, e.clientY - r.top, vista.current.z * Math.exp(-e.deltaY * passo));
     }
@@ -1444,7 +1417,7 @@ function ArvoreCanvas({
     return () => palco.removeEventListener("wheel", roda);
   }, [zoomEm]);
 
-  // Palco mudou de tamanho (tela cheia, janela): só reenquadra os limites.
+  // Ajusta os limites quando o palco muda de tamanho.
   useEffect(() => {
     const palco = palcoRef.current;
     if (!palco) return;
@@ -1456,9 +1429,8 @@ function ArvoreCanvas({
     return () => ro.disconnect();
   }, [limitar, aplicar]);
 
-  // ─ Arrastar o palco (1 ponteiro) e pinça (2 dedos) ─
-  // A captura do ponteiro só entra depois que ele anda: um clique parado ainda
-  // chega no talento ou no "+".
+  // ─ Arrastar o palco e pinça ─
+  // Só captura o ponteiro depois que ele se move, pra não engolir cliques.
   function apertou(e: React.PointerEvent<HTMLDivElement>) {
     if (e.pointerType === "mouse" && e.button !== 0) return;
     ponteiros.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -1505,7 +1477,7 @@ function ArvoreCanvas({
       const [a, b] = [...ponteiros.current.values()];
       const r = palco.getBoundingClientRect();
       const z = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, g.z0 * (Math.hypot(b.x - a.x, b.y - a.y) / g.d0)));
-      // O ponto do mundo que estava entre os dedos continua entre os dedos.
+      // Zoom ancorado no centro da pinça.
       const wx = (g.mx - r.left - g.vx) / g.z0;
       const wy = (g.my - r.top - g.vy) / g.z0;
       v.z = z;
@@ -1534,7 +1506,7 @@ function ArvoreCanvas({
       }
       return;
     }
-    // Saiu um dedo da pinça: o que ficou continua arrastando.
+    // Sobrou um dedo: volta a arrastar.
     const [p] = [...ponteiros.current.values()];
     const v = vista.current;
     gesto.current = { tipo: "pan", x0: p.x, y0: p.y, vx: v.x, vy: v.y, moveu: true };
@@ -1744,7 +1716,7 @@ function ArvoreCanvas({
           height={mundo.altura}
           aria-hidden="true"
         >
-          {/* As linhas do talento selecionado vêm por último, por cima das outras. */}
+          {/* Linhas do talento selecionado por cima. */}
           {[false, true].flatMap((daVez) => [
             ...linhas
               .filter((l) => ligada(l) === daVez)
@@ -1966,8 +1938,7 @@ function PainelNo({
   onDevolver: () => void;
   onEditar: () => void;
 }) {
-  // O painel nasce no fim da aba: sem isso, clicar num talento no topo da
-  // árvore respondia fora da tela — a ação parecia não ter efeito.
+  // Rola até o painel ao abrir.
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     ref.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -2101,8 +2072,7 @@ function ArvoreModal({
   );
   const [recursoCustoId, setRecursoCustoId] = useState(inicial?.recursoCustoId ?? "");
   const [fundoUrl, setFundoUrl] = useState(inicial?.fundoUrl ?? "");
-  // Molde só vale na criação. Nasce "Em branco": o do Haki cria 38 talentos, não
-  // pode vir marcado sem o usuário escolher.
+  // Molde só na criação; começa em branco.
   const [preset, setPreset] = useState(PRESET_VAZIO);
 
   function submit(e: React.FormEvent) {
@@ -2319,8 +2289,7 @@ type NoFormDados = {
   nivelMinimo: number;
   habilidadeId: string | null;
   requisitos: RequisitoNo[];
-  // Célula: só na criação. Editando, o servidor mantém a célula (ou acha uma
-  // livre se a camada mudar).
+  // Célula: só na criação.
   ramoId?: string | null;
   coluna?: number;
   linha?: number;

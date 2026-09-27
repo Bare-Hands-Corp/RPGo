@@ -315,7 +315,7 @@ a {
   box-shadow: none;
 }
 
-/* Checkbox é desenhada (appearance: none): com width auto ela encolhe até o ✓. */
+/* Checkbox desenhada: largura fixa pra não encolher. */
 .modal-box input[type="checkbox"] {
   width: 18px;
   padding: 0;

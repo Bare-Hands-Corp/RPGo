@@ -458,9 +458,7 @@ export function resolverAtaqueArma(opts: {
 
 // ─── Passos de dano e desconto de técnica (Meito, cap. 8) ────────────
 
-// Escada de dado do livro: 1 → 1d4 → 1d6 → 1d8 → 1d10 → 1d12 → 2d6. Sobe só o
-// PRIMEIRO termo de dado (o dado da arma); tipo de dano e modificador ficam.
-// Depois do d12 a quantidade dobra em d6, como o 1d12 → 2d6 do livro.
+// Sobe o primeiro dado da fórmula na escada do livro (1d4 → … → 1d12 → 2d6).
 export function subirPassosDano(formula: string, passos: number): string {
   let f = formula;
   for (let i = 0; i < passos; i++) f = subirUmPasso(f);
@@ -482,36 +480,27 @@ function subirUmPasso(formula: string): string {
   return formula.slice(0, m.index) + novo + formula.slice(m.index + m[0].length);
 }
 
-// O desconto não leva o custo abaixo da metade da técnica — metade arredonda
-// pra baixo, regra geral do livro.
+// Custo com desconto, nunca abaixo da metade (arredondada pra baixo).
 export function custoComDesconto(custo: number, desconto: number): number {
   if (custo <= 0 || desconto <= 0) return custo;
   return Math.max(Math.floor(custo / 2), custo - desconto);
 }
 
-// Uma parcela do dano composto, pro tooltip explicar de onde veio cada pedaço.
+// Parcela do dano composto (tooltip).
 export type ParteDano = { rotulo: string; texto: string };
 
 export type DanoArmaResolvido = {
   dados: Dado[];
   modificador: number;
-  // Fórmula normalizada do total ("1d8+1d6+3"), pronta pro chip.
+  // Fórmula total normalizada ("1d8+1d6+3").
   formula: string;
   partes: ParteDano[];
   fontes: string[];
-  // false quando não sobrou nada pra rolar (sem dado e sem modificador).
+  // false quando não há nada pra rolar.
   rolavel: boolean;
 };
 
-// Compõe o dano de uma arma a partir das parcelas: dado base (subido pelos
-// passos da arma) + dano bônus da própria arma + modificador do atributo
-// (quando a arma liga `danoSomaAtributo`) + proficiência (quando liga
-// `danoSomaProficiencia`) + bônus de habilidade (`dano`, `dano-cc`,
-// `dano-distancia`).
-//
-// O texto de cada parcela é livre ("1d8 cortante"), então o tipo de dano se
-// perde na soma — ele continua visível nas `partes`. Retorna null quando não há
-// nenhuma parcela.
+// Compõe o dano da arma a partir das parcelas; null se não houver nenhuma.
 export function resolverDanoArma(opts: {
   danoBase: string | null;
   danoBonus: string | null;
@@ -592,9 +581,7 @@ export function resolverDanoArma(opts: {
   };
 }
 
-// Fórmula legível agrupando dados iguais ("3d6+1d4+3"). Difere do `formulaTexto`
-// do Rolador (que lista dado a dado) porque no card da arma o conjunto precisa
-// caber numa linha.
+// Fórmula agrupando dados iguais ("3d6+1d4+3").
 function formulaAgrupada(dados: Dado[], mod: number): string {
   const partes: string[] = [];
   const contagem = new Map<string, number>();
@@ -799,9 +786,7 @@ export type EfeitoHabilidade =
   // Faixa de crítico expandida (19-20, 18-20…). minimo = 19 significa
   // crítico em 19 e 20. Padrão sem efeito = 20.
   | { tipo: "crit_range"; minimo: number }
-  // Permite rerrolar o resultado de uma jogada. gatilho identifica o
-  // contexto (ataque, salvaguarda, teste); usos = vezes por descanso longo,
-  // informativo (o chip nasce desligado no Rolador e vale 1 rerrolagem).
+  // Rerrola uma jogada do contexto `gatilho`; `usos` por descanso longo.
   | { tipo: "reroll"; gatilho: string; usos: number }
   // Floor no d20: resultados ≤ minimo são tratados como minimo.
   // Ex: minimo=10 ⇒ qualquer 1-10 vira 10.
@@ -812,9 +797,7 @@ export type EfeitoHabilidade =
   // Ação/ataque/reação adicional. quantidade default = 1.
   // gatilho descreve quando se aplica (ex: "no turno", "1× por descanso").
   | { tipo: "acao_extra"; acao: string; quantidade: number; gatilho?: string }
-  // Sucesso automático numa categoria de teste. alvo é o tipo de jogada
-  // (ex: "intuicao", "salv-vontade"); quando descreve a
-  // condição opcional.
+  // Sucesso automático no tipo de jogada `alvo`.
   | { tipo: "sucesso_auto"; alvo: string; quando?: string }
   // Piso de dano: garante metade do dano MÁXIMO da fórmula rolada (arredonda
   // pra cima). Ex: "Preparação pra Batalha". Sem parâmetro — o piso depende da
@@ -832,18 +815,14 @@ export type EfeitoHabilidade =
   // Imune a acerto crítico (defensivo). Descritivo no card; passiva na sidebar
   // fica pra etapa 4 (junto de resistências/imunidades).
   | { tipo: "crit_imune" }
-  // Os quatro abaixo nasceram da Meito. Numa ARMA valem só pras rolagens com
-  // ela (ver `efeitoDeRolagemDeArma`); numa habilidade, pra ficha toda.
-  // Números a mais na margem de crítico, somados por cima da faixa do
-  // `crit_range`: 19-20 com margem 1 vira 18-20.
+  // Efeitos de arma (Meito): numa arma valem só nas rolagens com ela.
+  // Soma à margem de crítico: 19-20 com margem 1 vira 18-20.
   | { tipo: "margem_critico"; valor: number }
-  // Sobe o dado de dano na escada do livro (`subirPassosDano`). `alvo` diz qual
-  // dado: o da arma (card do inventário) ou o das técnicas.
+  // Sobe o dado de dano da arma ou das técnicas.
   | { tipo: "passo_dano"; passos: number; alvo: "arma" | "tecnica" }
-  // Técnica custa menos PP/PA — nunca abaixo da metade (`custoComDesconto`).
+  // Desconto no custo de técnica (mínimo: metade).
   | { tipo: "desconto_tecnica"; valor: number; custo: "pp" | "pa" }
-  // Rola o dano `vezes` vezes e fica com o maior. `usos` por descanso longo é
-  // informativo (0 = sem limite); o chip nasce desligado no Rolador.
+  // Rola o dano N vezes e fica com o maior.
   | { tipo: "dano_melhor_de"; vezes: number; usos: number; quando?: string }
   | { tipo: "livre"; texto: string };
 
@@ -1286,8 +1265,7 @@ export function normalizarEfeito(
       };
     case "recurso_delta": {
       if (!str(obj.recurso)) return null;
-      // Legado: "Recurso → PV Máx" subia o máximo pra sempre a cada uso. Vira o
-      // `modificador` de PV Máximo, que é bônus sustentado (reverte ao desligar).
+      // Legado: "Recurso → PV Máx" vira `modificador` de PV Máximo.
       const r = str(obj.recurso).trim().toLowerCase();
       if (r === "hp-max" || r === "hpmax") {
         return { tipo: "modificador", alvo: "hp-max", valor: Math.trunc(num(obj.valor)) };
@@ -1397,7 +1375,7 @@ export function normalizarEfeito(
     case "crit_imune":
       return { tipo };
     case "margem_critico":
-      // Crítico nunca chega no 1 (falha natural), então a margem para em 18.
+      // Margem no máximo 18 (o 1 é sempre falha).
       return { tipo, valor: Math.min(18, Math.max(1, Math.trunc(num(obj.valor)) || 1)) };
     case "passo_dano":
       return {
@@ -1465,19 +1443,7 @@ const PERICIAS_SET = new Set<string>(PERICIAS.map((p) => p.slug));
 const ATRIBUTOS_SET = new Set<string>(ATRIBUTOS.map((a) => a.slug));
 
 // ─── Alvos contextuais (rolagens) ─────────────────────────────
-// Lista finita de slugs que `vantagem`, `desvantagem`, `sucesso_auto` e
-// `reroll` aceitam pra casar com o contexto da rolagem. Diferente de
-// ALVOS_AGREGAVEIS (passivos somáveis), aqui só importa "casa ou não casa".
-//
-// Convenções:
-// - Perícia: slug direto (`atletismo`, `furtividade`…) — alinhado com agregador.
-// - Salvaguarda: `salv-<atrib>` (ex: `salv-vontade`).
-// - Teste puro de atributo: `teste-<atrib>` (ex: `teste-forca`) — distingue
-//   de modificador passivo de FOR.
-// - Combate: `ataque`, `ataque-cc`, `ataque-distancia`, `iniciativa`.
-// - Umbrellas: `ataque` (qualquer ataque), `salvaguarda` (qualquer salv),
-//   `teste` (qualquer teste/perícia), `qualquer` (qualquer d20). Útil em
-//   `reroll` ("rerrola qualquer ataque") e em descrições genéricas.
+// Slugs que vantagem, desvantagem, sucesso_auto e reroll casam com a rolagem.
 export const ALVOS_CONTEXTUAIS: { slug: string; nome: string; grupo: string }[] = [
   { slug: "qualquer", nome: "Qualquer d20", grupo: "Genérico" },
   { slug: "ataque", nome: "Ataque (qualquer)", grupo: "Combate" },
@@ -1549,9 +1515,7 @@ export type ContextoRolagem =
   | { tipo: "pericia"; pericia: string }
   | { tipo: "teste-atributo"; atributo: Atributo }
   | { tipo: "iniciativa" }
-  // Rolagem de DANO (não é d20). Carrega o alcance pra casar efeitos CC/distância.
-  // Efeitos de d20 (vantagem/reroll/crit/floor) NÃO se aplicam; só os de dano
-  // (dano_min/trocar_dano/ignora/melhor de N) — ver `chipsDoContexto`.
+  // Rolagem de dano (não é d20): só valem os efeitos de dano.
   | { tipo: "dano"; alcance: "corpo_a_corpo" | "distancia" };
 
 // Verifica se um alvo (slug salvo no efeito) casa com o contexto da
@@ -1616,8 +1580,7 @@ export function estadoDefesa(
   };
 }
 type FonteLista = { fontes: string[] };
-// Proficiência em perícia vinda de efeito. `dobrada` liga se QUALQUER fonte
-// dobra (Especialista) — a proficiência em si já vem das fontes.
+// Proficiência em perícia vinda de efeito; `dobrada` se alguma fonte dobra.
 type FonteProficiencia = FonteLista & { dobrada: boolean };
 
 // Efeito que depende do contexto da rolagem (casa via `casaContexto`). Guardado
@@ -1701,14 +1664,14 @@ export type EfeitosAgregados = {
   // consumido no Rolador (é sobre ser atacado) — só exibição na sidebar.
   critImune: DefesaAgregada;
   // ─ Qualidade de arma (Meito) ─
-  // Números a mais na margem de crítico; somam e descontam de critRangeMinimo.
+  // Margem de crítico extra.
   margemCritico: FonteValor;
   // Passos no dado da arma e no dado das técnicas (somam).
   passosDanoArma: FonteValor;
   passosDanoTecnica: FonteValor;
   // Desconto no custo de técnica, por tipo de custo (somam).
   descontoTecnica: Record<"pp" | "pa", FonteValor>;
-  // Rolar o dano N× e ficar com o maior. Maior N vence; usos somam.
+  // Melhor de N no dano (maior N vence; usos somam).
   danoMelhorDe: { vezes: number; usos: number; fontes: string[] } | null;
   // ─ Defesas (painel read-only da sidebar) ─
   // Resistências e imunidades a tipo de dano + imunidades a condição. Indexados
@@ -1861,7 +1824,7 @@ export function computarDeltasInstantaneos(
       const v = Math.trunc(e.valor);
       if (!v) continue;
       const k = e.recurso.trim(); // pode ser UUID de recurso custom (case-sensitive)
-      // PV Máx legado já chega convertido em `modificador` (ver normalizarEfeito).
+      // PV Máx legado já vem como `modificador`.
       if (k === "pp") d.ppAtual += v;
       else if (k === "pa") continue; // PA não é pool rastreável (legado)
       else d.recursos[k] = (d.recursos[k] ?? 0) + v;
@@ -1918,8 +1881,7 @@ export function temEfeitoSustentado(efeitos: EfeitoHabilidade[]): boolean {
   return efeitos.some(efeitoEhSustentado);
 }
 
-// Fonte de efeito no formato que `agregarEfeitos` consome. Item equipado entra
-// como `passiva` — enquanto estiver no corpo, os efeitos valem sempre.
+// Fonte de efeito do `agregarEfeitos`; item equipado entra como passiva.
 export type FonteEfeito = {
   nome: string;
   tipo: string;
@@ -1936,9 +1898,7 @@ const ALVOS_ROLAGEM_ARMA = new Set([
   "dano-distancia",
 ]);
 
-// Efeito que mexe numa rolagem feita COM a arma (acerto, dano, crítico, custo
-// da técnica). Posto numa arma, vale só pra ela — a Meito não amplia o crítico
-// da pistola. Numa habilidade ou item comum, continua valendo pra ficha toda.
+// Efeito de rolagem de arma: numa arma, vale só nas rolagens com ela.
 export function efeitoDeRolagemDeArma(e: EfeitoHabilidade): boolean {
   switch (e.tipo) {
     case "modificador":
@@ -1963,10 +1923,7 @@ export function efeitoDeRolagemDeArma(e: EfeitoHabilidade): boolean {
   }
 }
 
-// Converte os itens do personagem em fontes de efeito: só os EQUIPADOS, e só os
-// que têm algum efeito. Desequipar remove os bônus automaticamente, porque a
-// fonte some da lista antes de agregar. Os efeitos de rolagem de uma arma ficam
-// de fora — entram só nas rolagens com ela, via `efeitosComArma`.
+// Fontes de efeito dos itens equipados, sem os efeitos de rolagem de arma.
 export function fontesDeEfeitoDeItens(
   itens: { nome: string; tipo: string; equipado: boolean; efeitos: unknown }[],
 ): FonteEfeito[] {
@@ -1983,8 +1940,7 @@ export function fontesDeEfeitoDeItens(
     .filter((f) => f.efeitos.length > 0);
 }
 
-// Agregado de uma rolagem com a arma: o da ficha + os efeitos de rolagem da
-// própria arma. Desequipada, os efeitos dela não valem (igual a todo item).
+// Agregado da ficha + efeitos de rolagem da arma.
 export function efeitosComArma(
   ficha: EfeitosAgregados,
   arma: { nome: string; equipado: boolean; efeitos: unknown },
@@ -1995,8 +1951,7 @@ export function efeitosComArma(
   return agregarEfeitos([{ nome: arma.nome, tipo: "passiva", efeitos: proprios }], new Set(), ficha);
 }
 
-// Melhor desconto de técnica entre os agregados que valem pra ação (o da ficha,
-// ou um por arma que desfere/concede — com várias, o jogador usa a melhor).
+// Maior desconto de técnica entre os agregados da ação.
 export function melhorDesconto(
   aggs: EfeitosAgregados[],
   custo: "pp" | "pa",
@@ -2008,24 +1963,15 @@ export function melhorDesconto(
   return melhor;
 }
 
-// Varre habilidades e aplica efeitos sustentados (modificador, proficiência,
-// contextuais, defesas, multiplicador…) nos alvos canônicos. Alvos não
-// reconhecidos são ignorados silenciosamente.
-// Gate único: um efeito sustentado entra no agregado quando a habilidade é
-// `passiva` (sempre ligada) OU está `ligada` (habilidade sustentada que o
-// usuário ativou via toggle). Não-passiva (ativa/reativa/livre) DESLIGADA não
-// agrega nada; quando ligada, agrega exatamente como uma passiva (e some ao
-// desligar).
-// Efeitos instantâneos (cura/PV-temp/recurso) não entram aqui — são consumidos
-// por `computarDeltasInstantaneos` no momento de ligar/usar.
+// Agrega os efeitos sustentados de habilidades passivas ou ligadas.
+// Instantâneos ficam com `computarDeltasInstantaneos`.
 export function agregarEfeitos(
   habilidades: { nome: string; tipo: string; efeitos: unknown; ligada?: boolean }[],
   // Slugs de perícias customizadas do personagem. Permite que `modificador` e
   // `proficiencia` mirando uma perícia custom caiam em bonusPericia/
   // proficienciasPericia em vez de virarem efeito descritivo sem dono.
   slugsPericiaCustom: Set<string> = new Set(),
-  // Agregado de partida (ex: o da ficha, pra somar os efeitos de uma arma).
-  // É copiado — o original não muda.
+  // Agregado de partida (copiado, não muda).
   base?: EfeitosAgregados,
 ): EfeitosAgregados {
   const out = base ? structuredClone(base) : vazio();
@@ -2180,10 +2126,9 @@ export type ChipContexto = {
     | "melhor_de";
   rotulo: string;
   fontes: string[];
-  // Parâmetro do efeito (minimo do crit/floor, rerrolagens por jogada, metros do alcance).
-  // Ignorado nos demais.
+  // Parâmetro do efeito (mínimo do crit/floor, rerrolagens, metros).
   valor?: number;
-  // Começa desligado: é de uso limitado, o jogador liga quando quer gastar.
+  // Nasce desligado (uso limitado).
   opcional?: boolean;
   // Complemento do tooltip (ex: usos por descanso).
   detalhe?: string;
@@ -2242,8 +2187,7 @@ export function chipsDoContexto(
     if (grupos.sucesso_auto)
       chips.push({ tipo: "sucesso_auto", rotulo: "Sucesso automático", fontes: dedup(grupos.sucesso_auto) });
 
-    // Crítico expandido só importa em ataque (crit só acontece atacando). A
-    // margem soma por cima da faixa: 19-20 com margem 1 vira 18-20.
+    // Crítico expandido só em ataque; a margem soma à faixa.
     if (ctx.tipo === "ataque") {
       const minimo = Math.max(2, agg.critRangeMinimo.valor - agg.margemCritico.valor);
       if (minimo < 20) {
@@ -2264,9 +2208,7 @@ export function chipsDoContexto(
         valor: agg.floorD20.valor,
       });
     }
-    // Reroll: gatilho segue a mesma convenção de slug do casaContexto. Os usos
-    // são por descanso longo e a ficha não os conta — então o chip nasce
-    // desligado (o jogador liga quando gasta) e vale 1 rerrolagem por jogada.
+    // Reroll: nasce desligado e vale 1 rerrolagem por jogada.
     let usosReroll = 0;
     const fontesReroll: string[] = [];
     for (const [gatilho, fv] of Object.entries(agg.rerolls)) {
@@ -2297,7 +2239,7 @@ export function chipsDoContexto(
       fontes: agg.danoMinMetade.fontes,
     });
   }
-  // Melhor de N: só em dano. Nasce desligado — o jogador gasta o uso quando quer.
+  // Melhor de N: só em dano, nasce desligado.
   if (ehDano && agg.danoMelhorDe) {
     const { vezes, usos, fontes } = agg.danoMelhorDe;
     chips.push({
@@ -2439,8 +2381,7 @@ function aplicarProficiencia(
   }
 }
 
-// Resumo curto pra exibir dentro do chip do efeito na listagem. `nomeRecurso`
-// traduz o id (UUID) de recurso custom pro nome — sem ele o chip vazaria o id.
+// Resumo curto do efeito pro chip; `nomeRecurso` traduz id de recurso.
 export function resumoEfeito(
   e: EfeitoHabilidade,
   nomeRecurso?: (id: string) => string | undefined,

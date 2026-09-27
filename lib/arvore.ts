@@ -281,8 +281,7 @@ export function habilidadesTravadas(nos: NoArvore[]): Set<string> {
 }
 
 // ─── Presets de árvore ─────────────────────────────────────
-// Só metadados (vão pro cliente). Os talentos que um molde já traz ficam em
-// lib/moldes-arvore.ts, que só o servidor importa.
+// Só metadados; os talentos ficam em lib/moldes-arvore.ts (servidor).
 
 export type PresetArvore = {
   slug: string;
@@ -344,8 +343,7 @@ export function acharPreset(slug: unknown): PresetArvore {
 }
 
 // ─── Grade ──────────────────────────────────────────────────
-// Cada nó ocupa uma célula: camada × raia × coluna × linha. As colunas são por
-// raia e as linhas por camada, então a árvore cresce com o conteúdo.
+// Cada nó ocupa uma célula: camada × raia × coluna × linha.
 
 export const MAX_COLUNAS_RAIA = 8;
 export const MAX_LINHAS_CAMADA = 12;
@@ -375,11 +373,7 @@ function chaveCelula(c: CelulaNo): string {
   return `${c.camadaId}|${c.ramoId ?? ""}|${c.coluna}|${c.linha}`;
 }
 
-/**
- * Célula onde cada nó é desenhado. Dois nós na mesma célula (dado antigo,
- * corrida entre abas) não se sobrepõem: o que vem depois na `ordem` desce pra
- * próxima linha livre da coluna.
- */
+/** Célula de cada nó; nós na mesma célula descem pra próxima linha livre. */
 export function celulasDosNos(
   nos: NoArvore[],
   ramos: { id: string }[],
@@ -387,8 +381,7 @@ export function celulasDosNos(
   const ocupadas = new Set<string>();
   const out = new Map<string, CelulaNo>();
   for (const n of [...nos].sort((a, b) => a.ordem - b.ordem)) {
-    // Inteiro garantido: com Prisma Client antigo em memória o nó chega sem
-    // coluna/linha, e NaN + 1 = NaN prendia o laço abaixo pra sempre.
+    // Inteiro garantido: client antigo pode trazer o nó sem coluna/linha (NaN).
     const cel: CelulaNo = {
       camadaId: n.camadaId,
       ramoId: raiaEfetiva(n.ramoId, ramos),
@@ -434,7 +427,7 @@ export function primeiraLinhaLivre(
   ignorarId?: string,
 ): number {
   let linha = 0;
-  // Teto: coluna lotada não trava — volta a última linha e a grade resolve.
+  // Coluna lotada: fica na última linha.
   while (linha < MAX_LINHAS_CAMADA - 1 && noNaCelula({ ...alvo, linha }, nos, ramos, ignorarId)) {
     linha++;
   }

@@ -1,9 +1,6 @@
 "use client";
 
-// Editor de efeitos estruturados — compartilhado por Habilidades e Itens.
-// Extraído de habilidades-tab.tsx: as duas telas usam o MESMO vocabulário
-// (EfeitoHabilidade), então o picker de presets, os campos por tipo e os chips
-// de resumo vivem aqui em vez de duplicados.
+// Editor de efeitos estruturados, usado por Habilidades e Itens.
 
 import { createContext, useContext, useState } from "react";
 import {
@@ -23,17 +20,13 @@ export type RecursoMinimo = { id: string; nome: string };
 
 export type AlvoEntry = { slug: string; nome: string; grupo: string };
 
-// Perícias customizadas do personagem, no formato de alvo de efeito. Disponível
-// pros SelectAlvo/datalist via contexto pra não precisar drilar a prop por toda
-// a árvore do editor (EditorEfeito → renderCorpo → SelectAlvo).
+// Perícias customizadas como alvo de efeito.
 export const AlvosCustomContext = createContext<AlvoEntry[]>([]);
 
-// Nome dos recursos custom por id, pro chip de "Ganha/Gasta Recurso" não
-// mostrar o UUID cru. Mesmo motivo do contexto acima: evita drilar até o chip.
+// Nome dos recursos custom por id (chips).
 export const NomesRecursoContext = createContext<Map<string, string>>(new Map());
 
-// Bloco completo "adicionar efeito + lista de editores". Quem usa decide o
-// invólucro (details, seção do modal…) e o texto da pergunta do picker.
+// Picker de efeitos + lista de editores.
 export function EfeitosEditor({
   efeitos,
   onChange,
@@ -93,8 +86,7 @@ export function EfeitosEditor({
   );
 }
 
-// Sugestões canônicas pros campos de alvo automatizáveis. Texto livre continua
-// aceito; só não modifica cálculo. Renderize UMA vez por modal.
+// Sugestões de alvo pros campos de efeito. Renderizar uma vez por modal.
 export function DatalistAlvos() {
   const periciasCustom = useContext(AlvosCustomContext);
   return (
@@ -130,8 +122,7 @@ export function ChipEfeito({ efeito }: { efeito: EfeitoHabilidade }) {
   );
 }
 
-// Picker visual em grid: presets em linguagem natural agrupados por tema.
-// Clicar adiciona o efeito já com o tipo + campos pré-preenchidos.
+// Grade de presets de efeito agrupados por tema.
 function PickerPreset({
   pergunta,
   onPick,
@@ -185,8 +176,7 @@ function PickerPreset({
   );
 }
 
-// Subset de alvos que faz sentido para `multiplicador` (Espécie Gigante dobra
-// carga, etc). Tudo o que não tá aqui (perícia, ataque, dano…) cai no "Outro".
+// Alvos aceitos pelo `multiplicador`.
 const ALVOS_MULTIPLICADOR_SLUGS = new Set([
   "carga",
   "deslocamento",
@@ -197,14 +187,12 @@ const ALVOS_MULTIPLICADOR = ALVOS_AGREGAVEIS.filter((a) =>
   ALVOS_MULTIPLICADOR_SLUGS.has(a.slug),
 );
 
-// Proficiência só existe em perícia e salvaguarda — o resto do catálogo
-// (atributo, CR, dano…) seria aceito e ignorado em silêncio.
+// Alvos da proficiência: perícia e salvaguarda.
 const ALVOS_PROFICIENCIA = ALVOS_AGREGAVEIS.filter(
   (a) => a.grupo === "Perícia" || a.grupo === "Salvaguarda",
 );
 
-// Select de alvo agrupado por categoria. Mostra "Outro…" no fim — escolher
-// abre o input livre, mantendo a flexibilidade que tinha antes.
+// Select de alvo por categoria, com "Outro…" pra texto livre.
 function SelectAlvo({
   valor,
   onChange,
@@ -216,8 +204,7 @@ function SelectAlvo({
   placeholder?: string;
   alvos?: typeof ALVOS_AGREGAVEIS;
 }) {
-  // Perícias customizadas entram nas listas que já oferecem perícias (modificador,
-  // proficiência, vantagem, substituição) — não no multiplicador (Geral / PV e PP).
+  // Perícias customizadas entram nas listas de perícia.
   const periciasCustom = useContext(AlvosCustomContext);
   const alvosFinais =
     periciasCustom.length > 0 && alvos.some((a) => a.grupo === "Perícia")
@@ -225,7 +212,7 @@ function SelectAlvo({
       : alvos;
 
   const slugsCanonicos = new Set(alvosFinais.map((a) => a.slug));
-  // Se o valor existente não está na lista canônica, automaticamente vira "outro".
+  // Valor fora da lista canônica vira "outro".
   const ehOutro = valor !== "" && !slugsCanonicos.has(valor);
   const [modoOutro, setModoOutro] = useState(ehOutro);
 
@@ -300,7 +287,7 @@ function EditorEfeito({
   onRemover: () => void;
 }) {
   const meta = META_EFEITOS[efeito.tipo];
-  // Efeito sem parâmetro (Imune a Crítico) não tem corpo — o nome já diz tudo.
+  // Efeito sem parâmetro não tem corpo.
   const corpo = renderCorpo(efeito, recursos, onPatch);
   return (
     <div className="efeito-editor" style={{ borderColor: meta.cor }}>
@@ -321,11 +308,7 @@ function EditorEfeito({
   );
 }
 
-// Bloco de campos opcionais colapsável. Fica no módulo, não dentro de
-// `renderCorpo`: declarado lá, virava um componente novo a cada render e o
-// React remontava o campo — o input perdia o foco a cada tecla digitada.
-// `aberto` vale só na montagem (já preenchido → nasce aberto); depois quem
-// manda é o usuário, senão apagar o texto fechava a seção no meio da edição.
+// Campos opcionais colapsáveis (fora do `renderCorpo` pra não perder o foco).
 function Detalhes({
   children,
   aberto,
@@ -349,8 +332,7 @@ function renderCorpo(
 ): React.ReactNode {
   switch (e.tipo) {
     case "modificador": {
-      // Quando o alvo é canônico e estável (hp-temp, hp-max, pp-max, cr…),
-      // o card mostra só "Quantidade". Alvo livre → mostra select de alvo.
+      // Alvo fixo mostra só "Quantidade"; alvo livre mostra o select.
       const ALVOS_FIXOS_LABEL: Record<string, string> = {
         "hp-temp": "PV Temporário",
         "hp-max": "PV Máximo",
@@ -463,8 +445,6 @@ function renderCorpo(
       );
     }
     case "recurso_delta": {
-      // PV Máx saiu daqui: era permanente a cada uso. Quem quer mexer no
-      // máximo usa o preset "PV Máximo" (sustentado, reverte ao desligar).
       const orfao =
         e.recurso !== "" && e.recurso !== "pp" && !recursos.some((r) => r.id === e.recurso);
       return (
@@ -508,8 +488,7 @@ function renderCorpo(
             <div>
               <label>Onde aplica</label>
               <select
-                // PV é o padrão (alvoCura vazio); só grava slug pros outros
-                // pools. Aliases legados (ppv/pv-temp/pv) caem no canônico.
+                // PV é o padrão; aliases legados caem no canônico.
                 value={
                   e.alvoCura === "pp"
                     ? "pp"

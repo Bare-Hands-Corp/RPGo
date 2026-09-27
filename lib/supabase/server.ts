@@ -31,8 +31,7 @@ export async function createClient() {
   );
 }
 
-// Usuário logado, com o JWT validado localmente (sem ida ao servidor de Auth).
-// Sessão revogada continua valendo até o token expirar.
+// Usuário logado, com JWT validado localmente (revogação só vale quando o token expira).
 export const usuarioDaRequest = cache(async (): Promise<{ id: string } | null> => {
   const [supabase, jwks] = await Promise.all([createClient(), carregarJwks()]);
   const { data, error } = await supabase.auth.getClaims(

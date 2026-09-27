@@ -1,10 +1,6 @@
 "use client";
 
-// Pickers de vínculo da ficha (ação ↔ arma / habilidade, ação·habilidade ↔ item).
-//
-// Nasce COLAPSADO: só os escolhidos aparecem, como chips removíveis. A lista
-// completa só abre no "adicionar", e abre com busca — uma ficha de verdade tem
-// dezenas de habilidades e itens, e uma grade com tudo vira parede.
+// Pickers de vínculo da ficha: colapsados, com busca.
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
@@ -18,7 +14,7 @@ export type OpcaoVinculo = {
   inativo?: boolean;
 };
 
-// Busca tolerante: ignora acento e caixa, casa em qualquer parte do texto.
+// Busca sem acento e sem caixa, em qualquer parte do texto.
 function normalizar(s: string): string {
   return s
     .normalize("NFD")
@@ -157,7 +153,6 @@ function SeletorBase({
       {!aberto ? (
         <button type="button" className="vinculo-abrir" onClick={abrir}>
           <i className="fas fa-plus" />
-          {/* Mesmo verbo em todo estado: os seletores lado a lado ficam iguais. */}
           Escolher {rotulo}
           <span className="vinculo-abrir-qtd">{opcoes.length}</span>
         </button>

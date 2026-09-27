@@ -246,9 +246,7 @@ export function PerfilSidebar({
     return () => window.removeEventListener("rpgo:toggle-habilidade", ouvir);
   }, []);
 
-  // Overlay otimista de `equipado` por item — InventarioTab dispara
-  // `rpgo:toggle-item` ao equipar/desequipar, pra CR, carga e derivados
-  // reagirem antes do revalidate.
+  // Overlay otimista de `equipado` (evento `rpgo:toggle-item`).
   const [equipadoOverlay, setEquipadoOverlay] = useState<Record<string, boolean>>({});
   const [itensAnterior, setItensAnterior] = useState(inicial.itens);
   if (itensAnterior !== inicial.itens) {
@@ -273,9 +271,7 @@ export function PerfilSidebar({
     [inicial.itens, equipadoOverlay],
   );
 
-  // Agregado recomputado a partir das habilidades + itens equipados + overlays
-  // de `ligada`/`equipado`. Mesma função pura do server (page.tsx) — barata,
-  // fria. Reage ao toggle e ao equipar sem round-trip.
+  // Agregado recalculado no cliente com os overlays de `ligada`/`equipado`.
   const efeitosAgregados = useMemo(() => {
     const habs = habilidades
       .map((h) => (h.id in ligadaOverlay ? { ...h, ligada: ligadaOverlay[h.id] } : h))

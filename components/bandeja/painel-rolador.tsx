@@ -210,10 +210,7 @@ export function PainelRolador({
   const [nomeContexto, setNomeContexto] = useState<string | null>(null);
   // Efeitos da rolagem empilhada (ficha + arma que desfere). Null = os da ficha.
   const [efeitosRolagem, setEfeitosRolagem] = useState<EfeitosContexto | null>(null);
-  // Chips contextuais começam no padrão do tipo: ligados, salvo os `opcional`
-  // (uso limitado), que começam desligados. Guardamos só os que o usuário
-  // alternou. Reseta a cada novo empilhar. Evitamos set-state-in-effect
-  // derivando "ligado" daqui em vez de um Set de ativos.
+  // Chips que o usuário alternou; o resto segue o padrão do tipo.
   const [chipsAlternados, setChipsAlternados] = useState<
     Set<ChipContexto["tipo"]>
   >(new Set());
@@ -352,9 +349,7 @@ export function PainelRolador({
     setResultado({ tipo: "preview" });
   }
 
-  // Persiste a rolagem no chat e atualiza o display local.
-  // `stringFinal` é a fração HTML após "[total] = "; persistimos como `texto`
-  // pro chat renderizar igual ao Rolador (sem reconstruir dos rolls).
+  // Grava a rolagem no chat (com o HTML do Rolador) e atualiza o display.
   function finalizar(
     total: number,
     rolls: DadoRolado[],

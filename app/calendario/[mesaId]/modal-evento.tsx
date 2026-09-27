@@ -50,7 +50,7 @@ export function ModalEvento({
   const tiposProntos = tiposClima.filter((t) => !ehTemporario(t.id));
   const [tipoClimaId, setTipoClimaId] = useState(eventoInicial?.tipoClimaId || tiposProntos[0]?.id || "");
 
-  // O calendário só existe do ano inicial em diante — fora disso o servidor recusa.
+  // Calendário começa no ano inicial.
   const anoInicial = config.anoEpoch ?? 1;
   const diasDoMes = config.meses[mes - 1]?.dias ?? 1;
 

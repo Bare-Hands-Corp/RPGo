@@ -1,5 +1,4 @@
-// Chaves públicas (JWKS) do Supabase em cache por instância: com elas o
-// `getClaims()` valida o JWT sem ir à rede. Sem `next/headers` — o proxy usa.
+// JWKS do Supabase em cache, pra validar o JWT sem rede (usado também no proxy).
 import type { JWK } from "@supabase/supabase-js";
 
 const TTL_MS = 10 * 60 * 1000;

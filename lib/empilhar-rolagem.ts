@@ -16,8 +16,7 @@ export type EmpilharRolagemDetail = {
   nomePreset?: string;
   // Marca o tipo de rolagem pra Bandeja casar efeitos contextuais (etapa 3.3).
   contexto?: ContextoRolagem;
-  // Efeitos que valem nesta rolagem: os da ficha + os da arma que desfere
-  // (`efeitosComArma`). Ausente = só os da ficha, que a Bandeja já tem.
+  // Efeitos da rolagem (ficha + arma); ausente = só os da ficha.
   efeitos?: EfeitosContexto;
   // Abre + expande a Bandeja na tab Rolador. Default: true.
   abrirAuto?: boolean;

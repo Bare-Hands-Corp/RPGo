@@ -32,7 +32,7 @@ async function calendarioIdDaMesa(mesaId: string): Promise<string> {
   return c.id;
 }
 
-// Intervalo de datas aceito por este calendário: do ano inicial até ANO_MAX.
+// Datas aceitas: do ano inicial até ANO_MAX.
 async function limitesDoCalendario(mesaId: string): Promise<{ max: number; anoEpoch: number }> {
   const c = await prisma.calendario.findUnique({
     where: { mesaId },

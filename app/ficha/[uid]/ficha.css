@@ -1460,7 +1460,7 @@
   border-color: var(--color-power);
 }
 
-/* Dobro vindo de habilidade: travado, igual à checkbox de proficiência. */
+/* Dobro vindo de habilidade (travado). */
 .prof-dobro:disabled {
   cursor: not-allowed;
 }
@@ -3009,8 +3009,7 @@
   color: var(--text-sec);
 }
 
-/* Critério agora é só um ícone com dica — o texto longo repetia o que as
-   travas das camadas já dizem. */
+/* Critério: ícone com dica. */
 .arvore-criterio {
   display: inline-flex;
   align-items: center;
@@ -3036,7 +3035,7 @@
   align-items: center;
 }
 
-/* Filtro do palco: um ramo e/ou uma camada por vez, ou todos. */
+/* Filtro do palco. */
 .arvore-filtros {
   display: flex;
   flex-wrap: wrap;
@@ -3110,12 +3109,12 @@
   opacity: 1;
 }
 
-/* ─── Palco da árvore: arrastar move, roda ou pinça dá zoom ─── */
+/* ─── Palco da árvore ─── */
 .arvore-palco {
   position: relative;
 }
 
-/* Tela cheia: palco + painel ocupam a tela (no celular é o jeito bom de jogar). */
+/* Tela cheia: palco + painel. */
 .arvore-palco.tela-cheia {
   position: fixed;
   inset: 0;
@@ -3145,7 +3144,7 @@
   height: clamp(420px, 70vh, 780px);
   border: 1px solid var(--border);
   border-radius: 14px;
-  /* clip, não hidden: focar um talento não pode rolar o palco por baixo do zoom. */
+  /* clip, não hidden: o foco não pode rolar o palco. */
   overflow: clip;
   background-color: var(--bg-card);
   background-size: cover;
@@ -3153,7 +3152,7 @@
   cursor: grab;
   touch-action: none;
   user-select: none;
-  /* Camada própria: os botões de zoom não passam por cima do painel do talento. */
+  /* Camada própria: controles de zoom abaixo do painel. */
   isolation: isolate;
 }
 
@@ -3170,7 +3169,7 @@
   will-change: transform;
 }
 
-/* Fundo de cada camada; a fechada ganha listras. Fica atrás das linhas. */
+/* Fundo de cada camada (a fechada, listrada). */
 .arvore-mundo-faixa {
   position: absolute;
   border-radius: 20px;
@@ -3248,7 +3247,7 @@
   gap: 2px;
 }
 
-/* Zoom, enquadrar e tela cheia: fora do mundo, não crescem com o zoom. */
+/* Controles de zoom, fora do mundo. */
 .arvore-controles {
   position: absolute;
   right: 10px;
@@ -3346,7 +3345,7 @@
   opacity: 0.3;
 }
 
-/* Talento selecionado: as linhas dele acendem, as outras recuam. */
+/* Talento selecionado: destaca as linhas dele. */
 .arvore-conectores.com-selecao .arvore-conector:not(.ligada),
 .arvore-conectores.com-selecao .arvore-fio:not(.ligada) {
   opacity: 0.3;
@@ -3383,8 +3382,7 @@
 
 
 /* ─── Nó: círculo com ícone, estrelas e nome ──────────────── */
-/* Posição absoluta no mundo (vem da célula da grade). Só o círculo tem fundo —
-   e ele é sólido, pra linha de trás nunca aparecer. */
+/* Posição absoluta no mundo; círculo com fundo sólido. */
 .arvore-no {
   position: absolute;
   z-index: 3;
@@ -3534,7 +3532,7 @@
   line-height: 1;
 }
 
-/* Rank legível de relance: a vazia some, a cheia brilha. */
+/* Estrela de rank: vazia some, cheia brilha. */
 .arvore-estrela {
   font-size: 0.66rem;
   color: color-mix(in oklch, var(--text-sec) 38%, transparent);
@@ -3652,8 +3650,7 @@
 }
 
 /* ─── Painel do talento selecionado ───────────────────────── */
-/* Gruda no rodapé da tela enquanto um talento está selecionado: a ação fica
-   ligada ao clique mesmo com a árvore grande e a página rolada. */
+/* Gruda no rodapé enquanto há talento selecionado. */
 .arvore-painel {
   position: sticky;
   bottom: 12px;
@@ -3768,7 +3765,7 @@
   color: var(--text-sec);
 }
 
-/* Dano bônus + proficiência no dano: o que o dano da arma leva além do dado. */
+/* Traços do dano da arma. */
 .item-tracos {
   display: flex;
   flex-wrap: wrap;
@@ -3785,8 +3782,7 @@
   color: var(--color-power);
 }
 
-/* Bloco do que o item dá (efeitos + ações/habilidades concedidas). Apagado
-   enquanto o item não está equipado — nada dali está valendo. */
+/* O que o item dá; apagado se não estiver equipado. */
 .item-concessoes {
   margin-top: 8px;
   padding-left: 8px;
@@ -3807,7 +3803,7 @@
   color: #e0a000;
 }
 
-/* Botão de rolar desabilitado (ação travada pelo item desequipado). */
+/* Rolar desabilitado (ação travada). */
 .acao-rolar:disabled {
   cursor: not-allowed;
   opacity: 0.7;
@@ -3819,7 +3815,7 @@
   margin-top: 4px;
 }
 
-/* Escolhidos ficam sempre à vista — é o estado que importa. */
+/* Escolhidos sempre visíveis. */
 .vinculo-escolhidos {
   display: flex;
   flex-wrap: wrap;
@@ -3907,7 +3903,7 @@
   color: var(--text-sec);
 }
 
-/* Reseta o estilo global de input dentro do modal — aqui ele é embutido. */
+/* Reseta o estilo global de input no modal. */
 .modal-box .vinculo-busca input,
 .vinculo-busca input {
   flex: 1;
@@ -4334,7 +4330,7 @@
   border-radius: 9px;
   background: var(--bg-surface);
   overflow: hidden;
-  /* Sem isto a lista longa espreme os itens até virarem risco. */
+  /* Não espreme os itens na lista longa. */
   flex-shrink: 0;
   transition: border-color 0.15s;
 }
