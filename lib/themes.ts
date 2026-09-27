@@ -145,6 +145,20 @@ export function aplicarTema(vars: Record<string, string>, isDark: boolean) {
   }
 }
 
+// Reaplica o tema salvo, com a mesma regra do script anti-flash.
+export function aplicarTemaSalvo() {
+  try {
+    const temaId = localStorage.getItem("temaId");
+    const lista = temaId?.startsWith("custom-") ? getTemasCustom() : TEMAS_PRESET;
+    const tema =
+      lista.find((t) => t.id === temaId) ??
+      (localStorage.getItem("theme") === "dark"
+        ? TEMAS_PRESET.find((t) => t.id === "dark")
+        : undefined);
+    if (tema) aplicarTema(tema.vars, tema.dark);
+  } catch {}
+}
+
 export function salvarTemaAtivo(temaId: string) {
   if (typeof localStorage === "undefined") return;
   localStorage.setItem("temaId", temaId);
