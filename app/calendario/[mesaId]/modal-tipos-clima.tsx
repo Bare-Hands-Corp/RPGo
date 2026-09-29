@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Swal from "sweetalert2";
+import { ehTemporario } from "@/lib/acoes";
 import type { CalendarioConfig } from "@/lib/calendario/engine";
 import type { TipoClima } from "./types";
 import { ICONES_CLIMA_FA, IconeCal } from "./icones";
@@ -87,14 +88,14 @@ export function ModalTiposClima({
   return (
     <div className="modal-overlay" onClick={onFechar}>
       <div
-        className="modal-box modal-box-grande cal-modal"
+        className="modal-box modal-box-grande"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="cal-modal-header">
-          <span className="cal-kicker">PERFIL CLIMÁTICO</span>
+          <span className="cal-kicker">Perfil climático</span>
           <h2>Tipos de Clima</h2>
         </div>
-        <p className="cal-modal-hint">
+        <p className="campo-dica">
           Edite os campos clicando neles. Use as pílulas pra ajustar a frequência de cada
           clima por estação (0 = nunca sorteado).
         </p>
@@ -120,7 +121,7 @@ export function ModalTiposClima({
         {!mostrarForm ? (
           <button
             type="button"
-            className="cal-tipo-add-btn"
+            className="btn-rect tracejado"
             onClick={() => setMostrarForm(true)}
           >
             <i className="fas fa-plus" /> Adicionar novo tipo
@@ -162,20 +163,20 @@ export function ModalTiposClima({
             <div className="cal-tipo-novo-acoes">
               <button
                 type="button"
-                className="cal-btn-sm"
+                className="btn-rect neutro sm"
                 onClick={() => setMostrarForm(false)}
               >
                 Cancelar
               </button>
-              <button type="button" className="cal-btn-primary-sm" onClick={criarNovo}>
+              <button type="button" className="btn-rect outline sm" onClick={criarNovo}>
                 <i className="fas fa-check" /> Criar
               </button>
             </div>
           </div>
         )}
 
-        <div className="cal-modal-footer">
-          <button type="button" className="cal-btn-sm" onClick={onFechar}>
+        <div className="modal-actions separada">
+          <button type="button" className="btn-rect neutro sm" onClick={onFechar}>
             Fechar
           </button>
         </div>
@@ -245,7 +246,7 @@ function IconePickerClima({
             />
             <button
               type="button"
-              className="cal-btn-primary-sm"
+              className="btn-rect outline sm"
               onClick={() => {
                 onChange(custom.trim());
                 setAberto(false);
@@ -361,8 +362,10 @@ function TipoCard({
     onPatch({ pesosPorEstacao: { ...tipo.pesosPorEstacao, [estacao]: v } });
   }
 
+  const pendente = ehTemporario(tipo.id);
+
   return (
-    <div className="cal-tipo-item">
+    <div className={`cal-tipo-item${pendente ? " item-pendente" : ""}`} inert={pendente}>
       <div className="cal-tipo-cabecalho">
         <IconePickerClima
           valor={tipo.icone || ""}

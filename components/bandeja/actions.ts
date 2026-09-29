@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioDaRequest } from "@/lib/supabase/server";
 import {
   listarMensagensSessao,
   serializarMensagem,
@@ -11,10 +11,7 @@ import type { DadoRolado, ModoRolagem } from "@/lib/dice";
 import type { Prisma } from "@prisma/client";
 
 async function requireUser() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await usuarioDaRequest();
   if (!user) throw new Error("Não autenticado.");
   return user;
 }
@@ -120,18 +117,14 @@ function extrairRoladasDoPayload(rolagem: RolagemPayload): Array<{ resultado: nu
   return rolagem.detalhes;
 }
 
-// Combina envio de rolagem + persistência de ultimaRolagem no personagem (se houver)
-// numa única chamada com queries em paralelo no servidor.
 export async function registrarRolagem(
   sessionId: string,
   nome: string,
   rolagem: RolagemPayload,
-  personagemId: string | null,
-  ultimaRolagem: string | null,
 ): Promise<MensagemSerializada> {
   const user = await requireUser();
 
-  const criar = prisma.mensagem.create({
+  const nova = await prisma.mensagem.create({
     data: {
       sessionId,
       uid: user.id,
@@ -186,16 +179,6 @@ export async function registrarRolagem(
       ) as Prisma.InputJsonValue,
     },
   });
-
-  const atualizarPersonagem =
-    personagemId && ultimaRolagem
-      ? prisma.personagem.update({
-          where: { id: personagemId },
-          data: { ultimaRolagem },
-        })
-      : Promise.resolve(null);
-
-  const [nova] = await Promise.all([criar, atualizarPersonagem]);
 
   if (rolagem.solicitacaoTesteId && rolagem.alvoNome) {
     const solicitacao = await prisma.mensagem.findUnique({

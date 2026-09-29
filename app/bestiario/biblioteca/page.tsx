@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioDaRequest } from "@/lib/supabase/server";
 import { ThemeButton } from "@/components/temas/theme-button";
 import { BotaoVoltar } from "@/components/botao-voltar";
 import { serializarTemplate } from "../utils";
@@ -8,10 +8,7 @@ import { TraitsManager } from "./traits-manager";
 import "../bestiario.css";
 
 export default async function BibliotecaPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await usuarioDaRequest();
   if (!user) redirect("/login");
 
   const templates = await prisma.traitTemplate.findMany({

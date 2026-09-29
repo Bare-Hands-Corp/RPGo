@@ -2,10 +2,12 @@
 
 import { useState, useTransition } from "react";
 import Swal from "sweetalert2";
+import type { Resultado } from "@/lib/acoes";
 import {
   type CalendarioConfig,
   type Estacao,
   type Mes,
+  ANO_MAX,
   DIAS_POR_MES_MAX,
   MESES_POR_ANO_MAX,
   dataParaDias,
@@ -26,11 +28,13 @@ export function ModalConfig({ mesaId, config, dataAtualDias, onFechar }: Props) 
   const [tab, setTab] = useState<Tab>("data");
   const [pending, startTransition] = useTransition();
 
-  // Data atual
+  // Data atual (a partir do ano inicial da config).
   const inicial = dataParaDias(dataAtualDias, config);
+  const anoInicial = config.anoEpoch ?? 1;
   const [ano, setAno] = useState(inicial.ano);
   const [mes, setMes] = useState(inicial.mes);
   const [dia, setDia] = useState(inicial.dia);
+  const diasDoMes = config.meses[mes - 1]?.dias ?? 1;
 
   // Template
   const [template, setTemplate] = useState<string | null>(null);
@@ -47,15 +51,29 @@ export function ModalConfig({ mesaId, config, dataAtualDias, onFechar }: Props) 
 
   const totalDias = meses.reduce((s, m) => s + (Number(m.dias) || 0), 0);
 
+  function mostrarErro(mensagem: string) {
+    Swal.fire({
+      icon: "error",
+      title: "Erro",
+      text: mensagem,
+      background: "var(--bg-card)",
+      color: "var(--text-main)",
+    });
+  }
+
   function salvar() {
     startTransition(async () => {
       try {
+        let r: Resultado;
         if (tab === "data") {
-          const diasMes = config.meses[mes - 1]?.dias;
-          if (!diasMes) throw new Error("Mês inválido.");
-          const diaClamp = Math.max(1, Math.min(dia, diasMes));
+          if (!Number.isInteger(ano) || ano < anoInicial || ano > ANO_MAX) {
+            throw new Error(
+              `O ano precisa estar entre ${anoInicial} e ${ANO_MAX}. Pra começar a contagem antes disso, mude o ano inicial na aba Customizar.`,
+            );
+          }
+          const diaClamp = Math.max(1, Math.min(dia, diasDoMes));
           const novosDias = diasParaData({ ano, mes, dia: diaClamp }, config);
-          await setarDataAtual(mesaId, novosDias);
+          r = await setarDataAtual(mesaId, novosDias);
         } else if (tab === "template") {
           if (!template) {
             Swal.fire({
@@ -66,7 +84,7 @@ export function ModalConfig({ mesaId, config, dataAtualDias, onFechar }: Props) 
             });
             return;
           }
-          await aplicarTemplate(mesaId, template, resetarTipos);
+          r = await aplicarTemplate(mesaId, template, resetarTipos);
         } else {
           const mesesLimpos = meses
             .map((m) => ({ nome: (m.nome || "").trim(), dias: Math.max(1, Math.floor(Number(m.dias) || 0)) }))
@@ -103,26 +121,25 @@ export function ModalConfig({ mesaId, config, dataAtualDias, onFechar }: Props) 
             diaSemanaEpoch,
             anoEpoch,
           };
-          await aplicarConfig(mesaId, novoConfig);
+          r = await aplicarConfig(mesaId, novoConfig);
+        }
+        // Erro previsto vem em `erro`.
+        if (!r.ok) {
+          mostrarErro(r.erro);
+          return;
         }
         onFechar();
       } catch (e) {
-        Swal.fire({
-          icon: "error",
-          title: "Erro",
-          text: e instanceof Error ? e.message : "Erro ao salvar.",
-          background: "var(--bg-card)",
-          color: "var(--text-main)",
-        });
+        mostrarErro(e instanceof Error ? e.message : "Erro ao salvar.");
       }
     });
   }
 
   return (
     <div className="modal-overlay" onClick={onFechar}>
-      <div className="modal-box modal-box-grande cal-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-box modal-box-grande" onClick={(e) => e.stopPropagation()}>
         <div className="cal-modal-header">
-          <span className="cal-kicker">CONFIGURAR</span>
+          <span className="cal-kicker">Configurar</span>
           <h2>Calendário da mesa</h2>
         </div>
 
@@ -152,16 +169,23 @@ export function ModalConfig({ mesaId, config, dataAtualDias, onFechar }: Props) 
 
         {tab === "data" && (
           <div className="cal-modal-painel">
-            <p className="cal-modal-hint">
+            <p className="campo-dica">
               Define onde a campanha está no calendário. Mudar isso afeta o que os jogadores
               enxergam — eventos passados ficam visíveis, futuros somem da visão deles.
             </p>
             <div className="cal-field-row3">
               <div className="cal-field">
-                <label className="cal-field-label">Ano</label>
+                <label className="cal-field-label">
+                  Ano{" "}
+                  <span className="cal-field-hint">
+                    {anoInicial}–{ANO_MAX}
+                  </span>
+                </label>
                 <input
                   type="number"
                   className="cal-input"
+                  min={anoInicial}
+                  max={ANO_MAX}
                   value={ano}
                   onChange={(e) => setAno(Number(e.target.value))}
                 />
@@ -181,11 +205,14 @@ export function ModalConfig({ mesaId, config, dataAtualDias, onFechar }: Props) 
                 </select>
               </div>
               <div className="cal-field">
-                <label className="cal-field-label">Dia</label>
+                <label className="cal-field-label">
+                  Dia <span className="cal-field-hint">1–{diasDoMes}</span>
+                </label>
                 <input
                   type="number"
                   className="cal-input"
                   min={1}
+                  max={diasDoMes}
                   value={dia}
                   onChange={(e) => setDia(Number(e.target.value))}
                 />
@@ -196,7 +223,7 @@ export function ModalConfig({ mesaId, config, dataAtualDias, onFechar }: Props) 
 
         {tab === "template" && (
           <div className="cal-modal-painel">
-            <p className="cal-modal-hint">
+            <p className="campo-dica">
               Escolha um template base. Eventos existentes são mantidos, mas suas datas podem
               aparecer em meses diferentes se a estrutura mudar.
             </p>
@@ -353,7 +380,7 @@ export function ModalConfig({ mesaId, config, dataAtualDias, onFechar }: Props) 
                 />
                 <button
                   type="button"
-                  className="cal-btn-sm"
+                  className="btn-rect neutro sm"
                   onClick={() => {
                     const nv = novoDia.trim();
                     if (nv) {
@@ -480,11 +507,11 @@ export function ModalConfig({ mesaId, config, dataAtualDias, onFechar }: Props) 
           </div>
         )}
 
-        <div className="cal-modal-footer">
-          <button type="button" className="cal-btn-sm" onClick={onFechar} disabled={pending}>
+        <div className="modal-actions separada">
+          <button type="button" className="btn-rect neutro sm" onClick={onFechar} disabled={pending}>
             Cancelar
           </button>
-          <button type="button" className="cal-btn-primary-sm" onClick={salvar} disabled={pending}>
+          <button type="button" className="btn-rect outline sm" onClick={salvar} disabled={pending}>
             <i className="fas fa-check" /> {pending ? "Salvando..." : "Salvar"}
           </button>
         </div>

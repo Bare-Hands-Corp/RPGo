@@ -3,17 +3,14 @@
 import crypto from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioDaRequest } from "@/lib/supabase/server";
 
 function gerarCodigoAcesso(): string {
   return crypto.randomBytes(3).toString("hex").toUpperCase();
 }
 
 async function userIdOrThrow(): Promise<string> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await usuarioDaRequest();
   if (!user) throw new Error("Não autenticado.");
   return user.id;
 }
@@ -74,14 +71,8 @@ export async function entrarEmMesa(input: { codigoAcesso: string; personagemId: 
 
 export async function deletarMesa(mesaId: string) {
   // Auth + lookup em paralelo (antes eram seriais).
-  const supabase = await createClient();
-  const [
-    {
-      data: { user },
-    },
-    mesa,
-  ] = await Promise.all([
-    supabase.auth.getUser(),
+  const [user, mesa] = await Promise.all([
+    usuarioDaRequest(),
     prisma.mesa.findUnique({ where: { id: mesaId }, select: { userId: true } }),
   ]);
   if (!user) throw new Error("Não autenticado.");
@@ -93,14 +84,8 @@ export async function deletarMesa(mesaId: string) {
 }
 
 export async function deletarPersonagem(personagemId: string) {
-  const supabase = await createClient();
-  const [
-    {
-      data: { user },
-    },
-    personagem,
-  ] = await Promise.all([
-    supabase.auth.getUser(),
+  const [user, personagem] = await Promise.all([
+    usuarioDaRequest(),
     prisma.personagem.findUnique({
       where: { id: personagemId },
       select: { userId: true },

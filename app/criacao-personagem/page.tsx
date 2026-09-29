@@ -1,20 +1,17 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioDaRequest } from "@/lib/supabase/server";
 import { BotaoVoltar } from "@/components/botao-voltar";
 import { FormCriacao } from "./form";
 import "./criacao.css";
 
 export default async function CriacaoPersonagemPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await usuarioDaRequest();
   if (!user) redirect("/login");
 
   return (
     <div className="char-creation-container">
       <div className="char-creation-topbar">
-        <BotaoVoltar fallbackHref="/dashboard" className="btn-voltar-criacao">
+        <BotaoVoltar fallbackHref="/dashboard" className="btn-rect neutro">
           <i className="fas fa-arrow-left" /> Voltar
         </BotaoVoltar>
       </div>

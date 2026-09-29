@@ -255,15 +255,6 @@
   box-sizing: border-box;
   font-variant-numeric: tabular-nums;
 }
-.clear-btn {
-  background: var(--bg-button);
-  border: none;
-  padding: 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  color: var(--text-sec);
-  font-family: inherit;
-}
 .rolador-contexto {
   display: flex;
   align-items: center;
@@ -337,27 +328,6 @@
 }
 .rolador-pendente-btn {
   flex: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 7px 10px;
-  border-radius: 6px;
-  font-family: inherit;
-  font-size: 0.82rem;
-  font-weight: 700;
-  cursor: pointer;
-  border: 1px solid var(--border);
-  background: var(--bg-card);
-  color: var(--text-main);
-  transition: filter 0.15s, opacity 0.15s;
-}
-.rolador-pendente-btn:hover:not(:disabled) {
-  filter: brightness(1.12);
-}
-.rolador-pendente-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
 }
 .rolador-pendente-btn.rerrolar {
   border-color: color-mix(in srgb, var(--color-bonus) 50%, transparent);
@@ -1088,28 +1058,6 @@
   gap: 8px;
   justify-content: flex-end;
 }
-.preset-name-btn {
-  padding: 7px 16px;
-  border: none;
-  border-radius: 6px;
-  font-weight: 700;
-  font-size: 0.82rem;
-  cursor: pointer;
-  transition: filter 0.15s;
-  font-family: inherit;
-}
-.preset-name-btn:hover {
-  filter: brightness(1.1);
-}
-.preset-name-btn.cancel {
-  background: var(--bg-surface);
-  color: var(--text-sec);
-}
-.preset-name-btn.ok {
-  background: var(--primary);
-  color: white;
-}
-
 .presets-area {
   display: flex;
   flex-direction: column;
@@ -1190,23 +1138,3 @@
   color: #c62828;
 }
 
-.preset-add-btn {
-  background: var(--bg-card);
-  border: 2px dashed var(--border);
-  border-radius: 8px;
-  padding: 10px;
-  cursor: pointer;
-  color: var(--text-sec);
-  font-weight: 700;
-  font-size: 0.82rem;
-  transition: border-color 0.15s, color 0.15s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  font-family: inherit;
-}
-.preset-add-btn:hover {
-  border-color: var(--primary);
-  color: var(--primary);
-}

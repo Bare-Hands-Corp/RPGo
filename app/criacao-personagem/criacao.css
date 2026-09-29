@@ -16,26 +16,6 @@
   left: 20px;
 }
 
-.btn-voltar-criacao {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text-sec);
-  text-decoration: none;
-  font-size: 0.85rem;
-  font-weight: 600;
-  transition: border-color 0.15s, color 0.15s;
-}
-
-.btn-voltar-criacao:hover {
-  border-color: var(--primary);
-  color: var(--primary);
-}
-
 .char-creation-header {
   text-align: center;
   margin-bottom: 30px;

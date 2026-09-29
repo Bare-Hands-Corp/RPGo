@@ -6,6 +6,7 @@ import Swal from "sweetalert2";
 import { createClient } from "@/lib/supabase/client";
 import { recortarParaBlob } from "@/lib/crop-image";
 import { patchPersonagem } from "./actions";
+import { exigir } from "@/lib/acoes";
 
 type Props = {
   personagemId: string;
@@ -88,7 +89,7 @@ export function AvatarUploadModal({ personagemId, avatarAtual }: Props) {
           .from("avatars")
           .getPublicUrl(fileName);
 
-        await patchPersonagem(personagemId, { fotoUrl: publicData.publicUrl });
+        exigir(await patchPersonagem(personagemId, { fotoUrl: publicData.publicUrl }));
 
         Swal.fire({
           icon: "success",
@@ -135,9 +136,6 @@ export function AvatarUploadModal({ personagemId, avatarAtual }: Props) {
             style={{ width: 420, maxWidth: "90vw" }}
           >
             <h2>Alterar Avatar</h2>
-            <p style={{ fontSize: "0.85rem", color: "var(--text-sec)", marginBottom: 15 }}>
-              Cole (Ctrl+V), arraste uma imagem ou clique pra selecionar.
-            </p>
 
             {!imgSrc && (
               <div

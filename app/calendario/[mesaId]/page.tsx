@@ -1,7 +1,10 @@
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
-import { carregarCalendario } from "@/lib/calendario/carregar";
+import { usuarioDaRequest } from "@/lib/supabase/server";
+import {
+  carregarCalendario,
+  carregarObjetivosComPrazo,
+} from "@/lib/calendario/carregar";
 import { CalendarioView } from "./calendario-view";
 import { CalendarioRealtime } from "./realtime-refresher";
 import { ThemeButton } from "@/components/temas/theme-button";
@@ -13,10 +16,7 @@ type Params = { params: Promise<{ mesaId: string }> };
 export default async function CalendarioPage({ params }: Params) {
   const { mesaId } = await params;
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await usuarioDaRequest();
   if (!user) redirect("/login");
 
   const mesa = await prisma.mesa.findUnique({ where: { id: mesaId } });
@@ -32,7 +32,10 @@ export default async function CalendarioPage({ params }: Params) {
     : false;
   if (!isNarrador && !isJogador) redirect("/dashboard");
 
-  const calendario = await carregarCalendario(mesaId, { isNarrador });
+  const [calendario, objetivos] = await Promise.all([
+    carregarCalendario(mesaId, { isNarrador }),
+    carregarObjetivosComPrazo(mesaId, { userId: user.id, isNarrador }),
+  ]);
   if (!calendario) notFound();
 
   return (
@@ -43,17 +46,18 @@ export default async function CalendarioPage({ params }: Params) {
         <BotaoVoltar
           fallbackHref={isNarrador ? `/narrador/${mesaId}` : "/dashboard"}
           className="cal-page-voltar"
-          title="Voltar"
+          title={isNarrador ? "Voltar pro painel da mesa" : "Voltar pro painel"}
+          aria-label={isNarrador ? "Voltar pro painel da mesa" : "Voltar pro painel"}
         >
           <i className="fas fa-arrow-left" />
         </BotaoVoltar>
         <div className="cal-page-titulo">
-          <span className="cal-page-kicker">CALENDÁRIO DA MESA</span>
+          <span className="cal-kicker">Calendário da mesa</span>
           <h1>{mesa.nome}</h1>
         </div>
         <div className="cal-page-mesa-chip">
           <i className={isNarrador ? "fas fa-chess-king" : "fas fa-user"} />
-          <span className="cal-page-role">{isNarrador ? "NARRADOR" : "JOGADOR"}</span>
+          <span className="cal-page-role">{isNarrador ? "Narrador" : "Jogador"}</span>
         </div>
         <ThemeButton />
       </div>
@@ -65,6 +69,7 @@ export default async function CalendarioPage({ params }: Params) {
         dataAtualDias={calendario.dataAtualDias}
         eventos={calendario.eventos}
         tiposClima={calendario.tiposClima}
+        objetivos={objetivos}
       />
     </div>
   );

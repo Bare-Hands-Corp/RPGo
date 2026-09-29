@@ -153,6 +153,14 @@ export function fasesLua(dataDias: number, cicloLuaDias: number): FaseLua {
   return { fracao: f, nome: "Lua Nova", icone: "far fa-circle" };
 }
 
+// Regra única de visibilidade: usada no loader e na prévia "ver como jogador".
+export function eventoVisivelPraJogador(
+  evento: { oculto: boolean; dataDias: number },
+  dataAtualDias: number,
+): boolean {
+  return !evento.oculto && evento.dataDias <= dataAtualDias;
+}
+
 export function dataRelativa(dataDias: number, refDias: number): string {
   const delta = refDias - dataDias;
   if (delta === 0) return "hoje";

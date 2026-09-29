@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioDaRequest } from "@/lib/supabase/server";
 import {
   ATRIBUTOS,
   PERICIAS,
@@ -72,14 +72,8 @@ function valorDoAtributo(personagem: PersonagemTeste, atributo: Atributo): numbe
 }
 
 async function requireNarradorMesa(mesaId: string) {
-  const supabase = await createClient();
-  const [
-    {
-      data: { user },
-    },
-    mesa,
-  ] = await Promise.all([
-    supabase.auth.getUser(),
+  const [user, mesa] = await Promise.all([
+    usuarioDaRequest(),
     prisma.mesa.findUnique({ where: { id: mesaId }, select: { userId: true } }),
   ]);
 
@@ -281,14 +275,8 @@ export async function aggregateSalvaguardasForMesa(mesaId: string) {
 }
 
 export async function calcularBonusTeste(personagemId: string, selecao: SelecaoTestePayload) {
-  const supabase = await createClient();
-  const [
-    {
-      data: { user },
-    },
-    personagem,
-  ] = await Promise.all([
-    supabase.auth.getUser(),
+  const [user, personagem] = await Promise.all([
+    usuarioDaRequest(),
     prisma.personagem.findUnique({
       where: { id: personagemId },
       select: {

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { TemaGuardado } from "@/components/temas/tema-guardado";
 import { ThemeScript } from "./theme-script";
 import "./globals.css";
 
@@ -25,7 +26,10 @@ export default function RootLayout({
             pra evitar React 19 reconciliar a className durante hidratação. */}
         <ThemeScript />
       </head>
-      <body>{children}</body>
+      <body>
+        <TemaGuardado />
+        {children}
+      </body>
     </html>
   );
 }

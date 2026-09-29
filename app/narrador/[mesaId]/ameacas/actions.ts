@@ -2,19 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioDaRequest } from "@/lib/supabase/server";
 import type { AmeacaPayload } from "./types";
 import { serializarAmeaca } from "./utils";
 
 async function autorizarNarrador(mesaId: string) {
-  const supabase = await createClient();
-  const [
-    {
-      data: { user },
-    },
-    mesa,
-  ] = await Promise.all([
-    supabase.auth.getUser(),
+  const [user, mesa] = await Promise.all([
+    usuarioDaRequest(),
     prisma.mesa.findUnique({ where: { id: mesaId }, select: { userId: true } }),
   ]);
 
@@ -117,6 +111,7 @@ export async function criarAmeaca(mesaId: string, payload: AmeacaPayload) {
 
   const linhas = await prisma.$queryRaw<AmeacaLinha[]>`
     INSERT INTO ameacas (
+      id,
       mesa_id,
       nome,
       classe_resistencia,
@@ -135,8 +130,10 @@ export async function criarAmeaca(mesaId: string, payload: AmeacaPayload) {
       vontade,
       caracteristicas,
       aspectos,
-      acoes
+      acoes,
+      atualizado_em
     ) VALUES (
+      gen_random_uuid(),
       ${mesaId},
       ${dados.nome},
       ${dados.classeResistencia},
@@ -155,7 +152,8 @@ export async function criarAmeaca(mesaId: string, payload: AmeacaPayload) {
       ${dados.vontade},
       ${JSON.stringify(dados.caracteristicas)}::jsonb,
       ${JSON.stringify(dados.aspectos)}::jsonb,
-      ${JSON.stringify(dados.acoes)}::jsonb
+      ${JSON.stringify(dados.acoes)}::jsonb,
+      now()
     )
     RETURNING
       id,

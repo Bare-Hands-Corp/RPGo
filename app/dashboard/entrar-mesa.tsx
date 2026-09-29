@@ -70,7 +70,7 @@ export function BotaoEntrarMesa({ personagens }: Props) {
 
   return (
     <>
-      <button type="button" className="btn-entrar-mesa" onClick={abrir} disabled={pending}>
+      <button type="button" className="btn-rect neutro" onClick={abrir} disabled={pending}>
         <i className="fas fa-door-open" />
         <span>Entrar em mesa</span>
       </button>

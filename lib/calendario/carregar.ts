@@ -3,6 +3,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { TEMPLATE_GREGORIANO, TIPOS_CLIMA_DEFAULT } from "./templates";
+import { eventoVisivelPraJogador } from "./engine";
 import type { CalendarioConfig } from "./engine";
 
 export type EventoSerializado = {
@@ -21,6 +22,16 @@ export type TipoClimaSerializado = {
   descricao: string | null;
   icone: string | null;
   pesosPorEstacao: Record<string, number>;
+};
+
+// Prazo de objetivo projetado no calendário (só leitura).
+export type ObjetivoPrazo = {
+  id: string;
+  titulo: string;
+  icone: string;
+  prazoDias: number;
+  personagemId: string;
+  personagemNome: string;
 };
 
 export type CalendarioCarregado = {
@@ -83,7 +94,9 @@ export async function carregarCalendario(
 
   const eventos = opts.isNarrador
     ? calendario.eventos
-    : calendario.eventos.filter((e) => !e.oculto && e.dataDias <= calendario!.dataAtualDias);
+    : calendario.eventos.filter((e) =>
+        eventoVisivelPraJogador(e, calendario!.dataAtualDias),
+      );
 
   return {
     id: calendario.id,
@@ -106,4 +119,39 @@ export async function carregarCalendario(
       pesosPorEstacao: (t.pesosPorEstacao as Record<string, number> | null) || {},
     })),
   };
+}
+
+// Objetivos abertos com prazo. Narrador vê todos; jogador só os dos próprios personagens.
+export async function carregarObjetivosComPrazo(
+  mesaId: string,
+  opts: { userId: string; isNarrador: boolean },
+): Promise<ObjetivoPrazo[]> {
+  const objetivos = await prisma.objetivo.findMany({
+    where: {
+      estado: "aberto",
+      prazoDias: { not: null },
+      personagem: {
+        mesaId,
+        ...(opts.isNarrador ? {} : { userId: opts.userId }),
+      },
+    },
+    select: {
+      id: true,
+      titulo: true,
+      icone: true,
+      prazoDias: true,
+      personagemId: true,
+      personagem: { select: { nome: true } },
+    },
+    orderBy: { prazoDias: "asc" },
+  });
+
+  return objetivos.map((o) => ({
+    id: o.id,
+    titulo: o.titulo,
+    icone: o.icone,
+    prazoDias: o.prazoDias as number,
+    personagemId: o.personagemId,
+    personagemNome: o.personagem.nome,
+  }));
 }

@@ -14,7 +14,10 @@ import { BotaoVoltar } from "@/components/botao-voltar";
 import { ModalSolicitarTeste } from "./modal-solicitar-teste";
 import { CalendarioRealtime } from "@/app/calendario/[mesaId]/realtime-refresher";
 import { CalendarioView } from "@/app/calendario/[mesaId]/calendario-view";
-import type { CalendarioCarregado } from "@/lib/calendario/carregar";
+import type {
+  CalendarioCarregado,
+  ObjetivoPrazo,
+} from "@/lib/calendario/carregar";
 import { SessaoPainel } from "./sessao/sessao-painel";
 import type { CriaturaParaCombate, EncontroParaCombate, SessaoSerializada } from "./sessao/types";
 
@@ -43,6 +46,7 @@ type Props = {
   userId: string;
   mensagensIniciais: MensagemSerializada[];
   calendario: CalendarioCarregado;
+  objetivosComPrazo: ObjetivoPrazo[];
   sessaoInicial: SessaoSerializada | null;
   criaturas: CriaturaParaCombate[];
   encontros: EncontroParaCombate[];
@@ -87,7 +91,16 @@ const ACOES_PROTOTIPO: AcaoNarrador[] = [
   },
 ] as const;
 
-export function NarradorShell({ mesa, userId, mensagensIniciais, calendario, sessaoInicial, criaturas, encontros }: Props) {
+export function NarradorShell({
+  mesa,
+  userId,
+  mensagensIniciais,
+  calendario,
+  objetivosComPrazo,
+  sessaoInicial,
+  criaturas,
+  encontros,
+}: Props) {
   const [aba, setAba] = useState<Aba>("jogadores");
   const [modalTesteAberto, setModalTesteAberto] = useState(false);
   const [mensagemCriada, setMensagemCriada] = useState<MensagemSerializada | null>(null);
@@ -222,6 +235,7 @@ export function NarradorShell({ mesa, userId, mensagensIniciais, calendario, ses
                 dataAtualDias={calendario.dataAtualDias}
                 eventos={calendario.eventos}
                 tiposClima={calendario.tiposClima}
+                objetivos={objetivosComPrazo}
               />
             </section>
           ) : (

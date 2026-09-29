@@ -1,14 +1,18 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioDaRequest } from "@/lib/supabase/server";
+import { ErroDeUso, executar } from "@/lib/acoes";
 import {
   ATRIBUTOS,
+  META_EFEITOS,
   PERICIAS,
   computarDeltasInstantaneos,
   lerEfeitos,
+  modificador,
   lerProficiencias,
   normalizarEfeito,
   slugPericiaCustom,
@@ -18,31 +22,63 @@ import {
   type TipoEfeito,
 } from "@/lib/op-rpg";
 import { TAMANHOS_VALIDOS, MADEIRAS_VALIDAS, statsTamanho } from "@/lib/navio";
+import {
+  corValida,
+  normalizarEfeitoCor,
+  normalizarEstilosTag,
+  separarTags,
+} from "@/lib/estilos-cor";
+import {
+  NIVEL_MAXIMO,
+  clampGanhoPv,
+  pvRetroativoPorCon,
+  tetoGanhoPv,
+  validarAprimoramento,
+  type Aprimoramento,
+} from "@/lib/nivel";
+import {
+  dadosVidaRecuperados,
+  facesDadoVida,
+  recuperaNoDescanso,
+  type ResumoDescanso,
+  type TipoDescanso,
+} from "@/lib/descanso";
+import {
+  MAX_RANKS_TETO,
+  bloqueiosDevolver,
+  estadoNo,
+  lerRequisitos,
+  acharPreset,
+  clampColuna,
+  clampLinha,
+  noNaCelula,
+  normalizarCriterio,
+  primeiraLinhaLivre,
+  raiaEfetiva,
+  type ContextoArvore,
+  type NoArvore,
+  type RequisitoNo,
+} from "@/lib/arvore";
+import { nosDoMolde } from "@/lib/moldes-arvore";
 
 // ─── Auth helper interno ───────────────────────────────────
 // Verifica sessão + acesso (dono OU narrador) e retorna o personagem com mesa.
 // Auth (Supabase) e personagem (Postgres) rodam em paralelo — checagem de
 // ownership é feita depois que as duas resolvem.
 async function autorizar(personagemId: string) {
-  const supabase = await createClient();
-  const [
-    {
-      data: { user },
-    },
-    personagem,
-  ] = await Promise.all([
-    supabase.auth.getUser(),
+  const [user, personagem] = await Promise.all([
+    usuarioDaRequest(),
     prisma.personagem.findUnique({
       where: { id: personagemId },
       include: { mesa: true },
     }),
   ]);
-  if (!user) throw new Error("Não autenticado.");
-  if (!personagem) throw new Error("Personagem não encontrado.");
+  if (!user) throw new ErroDeUso("Não autenticado.");
+  if (!personagem) throw new ErroDeUso("Personagem não encontrado.");
 
   const isDono = personagem.userId === user.id;
   const isNarrador = personagem.mesa?.userId === user.id;
-  if (!isDono && !isNarrador) throw new Error("Acesso negado.");
+  if (!isDono && !isNarrador) throw new ErroDeUso("Acesso negado.");
 
   return { user, personagem };
 }
@@ -84,18 +120,20 @@ export async function patchPersonagem(
   personagemId: string,
   patch: PersonagemPatch,
 ) {
-  await autorizar(personagemId);
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
 
-  const data: Record<string, unknown> = {};
-  for (const key of ALLOWED_PERSONAGEM) {
-    if (patch[key] !== undefined) data[key] = patch[key];
-  }
+    const data: Record<string, unknown> = {};
+    for (const key of ALLOWED_PERSONAGEM) {
+      if (patch[key] !== undefined) data[key] = patch[key];
+    }
 
-  await prisma.personagem.update({
-    where: { id: personagemId },
-    data,
+    await prisma.personagem.update({
+      where: { id: personagemId },
+      data,
+    });
+    revalidatePath(`/ficha/${personagemId}`);
   });
-  revalidatePath(`/ficha/${personagemId}`);
 }
 
 // ─── Ações ─────────────────────────────────────────────────
@@ -113,8 +151,9 @@ const ALLOWED_ACAO = [
   "atributoCd",
   "dano",
   "alcance",
-  "armaId",
-  "habilidadeId",
+  "armaIds",
+  "itemId",
+  "habilidadeIds",
 ] as const;
 
 type AcaoInput = Partial<Record<(typeof ALLOWED_ACAO)[number], unknown>>;
@@ -125,13 +164,13 @@ function normalizarAcaoInput(input: AcaoInput) {
   const data: Record<string, unknown> = {};
   if (input.nome !== undefined) {
     const nome = (input.nome as string).trim();
-    if (!nome) throw new Error("Nome é obrigatório.");
+    if (!nome) throw new ErroDeUso("Nome é obrigatório.");
     data.nome = nome;
   }
   if (input.descricao !== undefined) data.descricao = String(input.descricao);
   if (input.tipo !== undefined) {
     const tipo = String(input.tipo);
-    if (!TIPOS_ACAO_VALIDOS.has(tipo)) throw new Error("Tipo de ação inválido.");
+    if (!TIPOS_ACAO_VALIDOS.has(tipo)) throw new ErroDeUso("Tipo de ação inválido.");
     data.tipo = tipo;
   }
   if (input.tag !== undefined) data.tag = String(input.tag);
@@ -147,50 +186,65 @@ function normalizarAcaoInput(input: AcaoInput) {
     if (input[k] !== undefined) {
       const v = input[k] ? String(input[k]) : null;
       if (v && !ATRIBUTOS_VALIDOS.has(v as Atributo)) {
-        throw new Error(`Atributo inválido em ${k}.`);
+        throw new ErroDeUso(`Atributo inválido em ${k}.`);
       }
       data[k] = v;
     }
   }
   if (input.dano !== undefined) data.dano = input.dano ? String(input.dano) : null;
   if (input.alcance !== undefined) data.alcance = input.alcance ? String(input.alcance) : null;
-  // Referência solta a um Item (arma). Não validamos ownership aqui: pior caso
-  // é um id que a UI não acha na lista de armas e cai no cálculo manual.
-  if (input.armaId !== undefined) data.armaId = input.armaId ? String(input.armaId) : null;
-  // Referência solta a uma Habilidade ("deriva de"). Mesma lógica do armaId:
-  // sem validação de ownership — pior caso é um id que a UI não resolve.
-  if (input.habilidadeId !== undefined) {
-    data.habilidadeId = input.habilidadeId ? String(input.habilidadeId) : null;
+  // Refs soltas a Item e Habilidade (sem checar ownership).
+  if (input.armaIds !== undefined) data.armaIds = normalizarIds(input.armaIds);
+  if (input.habilidadeIds !== undefined) {
+    data.habilidadeIds = normalizarIds(input.habilidadeIds);
   }
+  // Item que concede a ação.
+  if (input.itemId !== undefined) data.itemId = input.itemId ? String(input.itemId) : null;
   return data;
 }
 
-export async function criarAcao(personagemId: string, input: AcaoInput) {
-  await autorizar(personagemId);
-  const data = normalizarAcaoInput(input);
-  if (data.nome === undefined) throw new Error("Nome é obrigatório.");
+// Lista de ids: só strings não-vazias, sem repetição, com teto defensivo.
+function normalizarIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const v of raw) {
+    if (typeof v !== "string") continue;
+    const id = v.trim();
+    if (id && !out.includes(id)) out.push(id);
+    if (out.length >= 20) break;
+  }
+  return out;
+}
 
-  await prisma.acao.create({
-    data: {
-      personagemId,
-      nome: data.nome as string,
-      descricao: (data.descricao as string) ?? "",
-      tipo: (data.tipo as string) ?? "padrao",
-      tag: (data.tag as string) ?? "",
-      custoPp: (data.custoPp as number) ?? 0,
-      custoPa: (data.custoPa as number) ?? 0,
-      custoRecursoId: (data.custoRecursoId as string | null) ?? null,
-      custoRecursoValor: (data.custoRecursoValor as number) ?? 0,
-      atributoAtaque: (data.atributoAtaque as string | null) ?? null,
-      atributoSalv: (data.atributoSalv as string | null) ?? null,
-      atributoCd: (data.atributoCd as string | null) ?? null,
-      dano: (data.dano as string | null) ?? null,
-      alcance: (data.alcance as string | null) ?? null,
-      armaId: (data.armaId as string | null) ?? null,
-      habilidadeId: (data.habilidadeId as string | null) ?? null,
-    },
+export async function criarAcao(personagemId: string, input: AcaoInput) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const data = normalizarAcaoInput(input);
+    if (data.nome === undefined) throw new ErroDeUso("Nome é obrigatório.");
+
+    await prisma.acao.create({
+      data: {
+        personagemId,
+        nome: data.nome as string,
+        descricao: (data.descricao as string) ?? "",
+        tipo: (data.tipo as string) ?? "padrao",
+        tag: (data.tag as string) ?? "",
+        custoPp: (data.custoPp as number) ?? 0,
+        custoPa: (data.custoPa as number) ?? 0,
+        custoRecursoId: (data.custoRecursoId as string | null) ?? null,
+        custoRecursoValor: (data.custoRecursoValor as number) ?? 0,
+        atributoAtaque: (data.atributoAtaque as string | null) ?? null,
+        atributoSalv: (data.atributoSalv as string | null) ?? null,
+        atributoCd: (data.atributoCd as string | null) ?? null,
+        dano: (data.dano as string | null) ?? null,
+        alcance: (data.alcance as string | null) ?? null,
+        armaIds: (data.armaIds as string[]) ?? [],
+        itemId: (data.itemId as string | null) ?? null,
+        habilidadeIds: (data.habilidadeIds as string[]) ?? [],
+      },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
   });
-  revalidatePath(`/ficha/${personagemId}`);
 }
 
 export async function atualizarAcao(
@@ -198,21 +252,25 @@ export async function atualizarAcao(
   acaoId: string,
   patch: AcaoInput,
 ) {
-  await autorizar(personagemId);
-  const data = normalizarAcaoInput(patch);
-  await prisma.acao.update({
-    where: { id: acaoId, personagemId },
-    data,
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const data = normalizarAcaoInput(patch);
+    await prisma.acao.update({
+      where: { id: acaoId, personagemId },
+      data,
+    });
+    revalidatePath(`/ficha/${personagemId}`);
   });
-  revalidatePath(`/ficha/${personagemId}`);
 }
 
 export async function deletarAcao(personagemId: string, acaoId: string) {
-  await autorizar(personagemId);
-  await prisma.acao.delete({
-    where: { id: acaoId, personagemId },
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    await prisma.acao.delete({
+      where: { id: acaoId, personagemId },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
   });
-  revalidatePath(`/ficha/${personagemId}`);
 }
 
 // ─── Itens ─────────────────────────────────────────────────
@@ -221,6 +279,7 @@ const ALLOWED_ITEM = [
   "peso",
   "tipo",
   "tags",
+  "tagsEstilo",
   "descricao",
   "dano",
   "modificador",
@@ -234,6 +293,11 @@ const ALLOWED_ITEM = [
   "propriedades",
   "atributoAtaque",
   "proficienteArma",
+  "danoBonus",
+  "danoSomaAtributo",
+  "danoSomaProficiencia",
+  "efeitos",
+  "quantidade",
 ] as const;
 
 type ItemInput = Partial<Record<(typeof ALLOWED_ITEM)[number], unknown>>;
@@ -263,12 +327,19 @@ function normalizarItemInput(input: ItemInput) {
   const data: Record<string, unknown> = {};
   if (input.nome !== undefined) {
     const nome = (input.nome as string).trim();
-    if (!nome) throw new Error("Nome é obrigatório.");
+    if (!nome) throw new ErroDeUso("Nome é obrigatório.");
     data.nome = nome;
   }
   if (input.peso !== undefined) data.peso = Number(input.peso) || 0;
   if (input.tipo !== undefined) data.tipo = String(input.tipo) || "comum";
   if (input.tags !== undefined) data.tags = (input.tags as string) || "";
+  if (input.tagsEstilo !== undefined) {
+    // Poda estilos de tags que sumiram do texto.
+    const tagsDoPatch =
+      input.tags !== undefined ? separarTags(String(input.tags)) : undefined;
+    data.tagsEstilo =
+      normalizarEstilosTag(input.tagsEstilo, tagsDoPatch) ?? Prisma.DbNull;
+  }
   if (input.descricao !== undefined) data.descricao = (input.descricao as string) || "";
   if (input.dano !== undefined) data.dano = (input.dano as string) || "";
   if (input.modificador !== undefined) data.modificador = Number(input.modificador) || 0;
@@ -278,12 +349,12 @@ function normalizarItemInput(input: ItemInput) {
   if (input.favorito !== undefined) data.favorito = Boolean(input.favorito);
   if (input.categoria !== undefined) {
     const v = String(input.categoria);
-    if (!CATEGORIAS_VALIDAS.has(v)) throw new Error("Categoria inválida.");
+    if (!CATEGORIAS_VALIDAS.has(v)) throw new ErroDeUso("Categoria inválida.");
     data.categoria = v;
   }
   if (input.alcance !== undefined) {
     const v = String(input.alcance);
-    if (!ALCANCES_VALIDOS.has(v)) throw new Error("Alcance inválido.");
+    if (!ALCANCES_VALIDOS.has(v)) throw new ErroDeUso("Alcance inválido.");
     data.alcance = v;
   }
   if (input.alcanceMetros !== undefined) {
@@ -297,43 +368,67 @@ function normalizarItemInput(input: ItemInput) {
   if (input.atributoAtaque !== undefined) {
     const v = input.atributoAtaque ? String(input.atributoAtaque) : null;
     if (v && !ATRIBUTOS_VALIDOS.has(v as Atributo)) {
-      throw new Error("Atributo de ataque inválido.");
+      throw new ErroDeUso("Atributo de ataque inválido.");
     }
     data.atributoAtaque = v;
   }
   if (input.proficienteArma !== undefined) {
     data.proficienteArma = Boolean(input.proficienteArma);
   }
+  if (input.danoBonus !== undefined) {
+    const v = input.danoBonus ? String(input.danoBonus).trim().slice(0, 60) : "";
+    data.danoBonus = v || null;
+  }
+  if (input.danoSomaAtributo !== undefined) {
+    data.danoSomaAtributo = Boolean(input.danoSomaAtributo);
+  }
+  if (input.danoSomaProficiencia !== undefined) {
+    data.danoSomaProficiencia = Boolean(input.danoSomaProficiencia);
+  }
+  if (input.efeitos !== undefined) data.efeitos = normalizarEfeitosInput(input.efeitos);
+  if (input.quantidade !== undefined) {
+    data.quantidade = Math.max(1, Math.trunc(Number(input.quantidade) || 1));
+  }
   return data;
 }
 
 export async function criarItem(personagemId: string, input: ItemInput) {
-  await autorizar(personagemId);
-  const data = normalizarItemInput(input);
-  if (data.nome === undefined) throw new Error("Nome é obrigatório.");
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const data = normalizarItemInput(input);
+    if (data.nome === undefined) throw new ErroDeUso("Nome é obrigatório.");
 
-  await prisma.item.create({
-    data: {
-      personagemId,
-      nome: data.nome as string,
-      peso: (data.peso as number) ?? 0,
-      tipo: (data.tipo as string) ?? "comum",
-      tags: (data.tags as string) ?? "",
-      descricao: (data.descricao as string) ?? "",
-      dano: (data.dano as string) ?? "",
-      modificador: (data.modificador as number) ?? 0,
-      ca: (data.ca as number) ?? 0,
-      penalidadeDes: (data.penalidadeDes as number) ?? 0,
-      categoria: (data.categoria as string) ?? "cortante",
-      alcance: (data.alcance as string) ?? "corpo_a_corpo",
-      alcanceMetros: (data.alcanceMetros as string | null) ?? null,
-      propriedades: (data.propriedades as string[]) ?? [],
-      atributoAtaque: (data.atributoAtaque as string | null) ?? null,
-      proficienteArma:
-        data.proficienteArma === undefined ? true : (data.proficienteArma as boolean),
-    },
+    await prisma.item.create({
+      data: {
+        personagemId,
+        nome: data.nome as string,
+        peso: (data.peso as number) ?? 0,
+        tipo: (data.tipo as string) ?? "comum",
+        tags: (data.tags as string) ?? "",
+        tagsEstilo:
+          (data.tagsEstilo as Prisma.InputJsonValue | typeof Prisma.DbNull) ??
+          Prisma.DbNull,
+        descricao: (data.descricao as string) ?? "",
+        dano: (data.dano as string) ?? "",
+        modificador: (data.modificador as number) ?? 0,
+        ca: (data.ca as number) ?? 0,
+        penalidadeDes: (data.penalidadeDes as number) ?? 0,
+        categoria: (data.categoria as string) ?? "cortante",
+        alcance: (data.alcance as string) ?? "corpo_a_corpo",
+        alcanceMetros: (data.alcanceMetros as string | null) ?? null,
+        propriedades: (data.propriedades as string[]) ?? [],
+        atributoAtaque: (data.atributoAtaque as string | null) ?? null,
+        proficienteArma:
+          data.proficienteArma === undefined ? true : (data.proficienteArma as boolean),
+        danoBonus: (data.danoBonus as string | null) ?? null,
+        danoSomaAtributo: (data.danoSomaAtributo as boolean) ?? false,
+        danoSomaProficiencia: (data.danoSomaProficiencia as boolean) ?? false,
+        efeitos: (data.efeitos as EfeitoHabilidade[]) ?? [],
+        quantidade: (data.quantidade as number) ?? 1,
+      },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
   });
-  revalidatePath(`/ficha/${personagemId}`);
 }
 
 export async function atualizarItem(
@@ -341,22 +436,26 @@ export async function atualizarItem(
   itemId: string,
   patch: ItemInput,
 ) {
-  await autorizar(personagemId);
-  const data = normalizarItemInput(patch);
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const data = normalizarItemInput(patch);
 
-  await prisma.item.update({
-    where: { id: itemId, personagemId },
-    data,
+    await prisma.item.update({
+      where: { id: itemId, personagemId },
+      data,
+    });
+    revalidatePath(`/ficha/${personagemId}`);
   });
-  revalidatePath(`/ficha/${personagemId}`);
 }
 
 export async function deletarItem(personagemId: string, itemId: string) {
-  await autorizar(personagemId);
-  await prisma.item.delete({
-    where: { id: itemId, personagemId },
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    await prisma.item.delete({
+      where: { id: itemId, personagemId },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
   });
-  revalidatePath(`/ficha/${personagemId}`);
 }
 
 // ─── Proficiências (perícias e salvaguardas) ──────────────
@@ -375,21 +474,23 @@ export async function togglePericia(
   slug: PericiaSlug,
   proficiente: boolean,
 ) {
-  if (!PERICIAS_VALIDAS.has(slug)) throw new Error("Perícia inválida.");
-  const { personagem } = await autorizar(personagemId);
+  return executar("ficha", async () => {
+    if (!PERICIAS_VALIDAS.has(slug)) throw new ErroDeUso("Perícia inválida.");
+    const { personagem } = await autorizar(personagemId);
 
-  const prof = lerProficiencias(personagem.proficiencias);
-  prof.pericias = toggleEm(prof.pericias, slug, proficiente);
-  // Desligar a proficiência também limpa o "dobrado".
-  if (!proficiente) {
-    prof.periciasDobradas = prof.periciasDobradas.filter((p) => p !== slug);
-  }
+    const prof = lerProficiencias(personagem.proficiencias);
+    prof.pericias = toggleEm(prof.pericias, slug, proficiente);
+    // Desligar a proficiência também limpa o "dobrado".
+    if (!proficiente) {
+      prof.periciasDobradas = prof.periciasDobradas.filter((p) => p !== slug);
+    }
 
-  await prisma.personagem.update({
-    where: { id: personagemId },
-    data: { proficiencias: prof },
+    await prisma.personagem.update({
+      where: { id: personagemId },
+      data: { proficiencias: prof },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
   });
-  revalidatePath(`/ficha/${personagemId}`);
 }
 
 export async function setPericiaOutros(
@@ -397,23 +498,25 @@ export async function setPericiaOutros(
   slug: PericiaSlug,
   valor: number,
 ) {
-  if (!PERICIAS_VALIDAS.has(slug)) throw new Error("Perícia inválida.");
-  if (!Number.isFinite(valor)) throw new Error("Valor inválido.");
-  const { personagem } = await autorizar(personagemId);
+  return executar("ficha", async () => {
+    if (!PERICIAS_VALIDAS.has(slug)) throw new ErroDeUso("Perícia inválida.");
+    if (!Number.isFinite(valor)) throw new ErroDeUso("Valor inválido.");
+    const { personagem } = await autorizar(personagemId);
 
-  const prof = lerProficiencias(personagem.proficiencias);
-  const truncado = Math.trunc(valor);
-  if (truncado === 0) {
-    delete prof.outrosPericias[slug];
-  } else {
-    prof.outrosPericias[slug] = truncado;
-  }
+    const prof = lerProficiencias(personagem.proficiencias);
+    const truncado = Math.trunc(valor);
+    if (truncado === 0) {
+      delete prof.outrosPericias[slug];
+    } else {
+      prof.outrosPericias[slug] = truncado;
+    }
 
-  await prisma.personagem.update({
-    where: { id: personagemId },
-    data: { proficiencias: prof },
+    await prisma.personagem.update({
+      where: { id: personagemId },
+      data: { proficiencias: prof },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
   });
-  revalidatePath(`/ficha/${personagemId}`);
 }
 
 export async function togglePericiaDobrada(
@@ -421,21 +524,23 @@ export async function togglePericiaDobrada(
   slug: PericiaSlug,
   dobrado: boolean,
 ) {
-  if (!PERICIAS_VALIDAS.has(slug)) throw new Error("Perícia inválida.");
-  const { personagem } = await autorizar(personagemId);
+  return executar("ficha", async () => {
+    if (!PERICIAS_VALIDAS.has(slug)) throw new ErroDeUso("Perícia inválida.");
+    const { personagem } = await autorizar(personagemId);
 
-  const prof = lerProficiencias(personagem.proficiencias);
-  // "Dobrado" só faz sentido se for proficiente.
-  if (dobrado && !prof.pericias.includes(slug)) {
-    throw new Error("É preciso ser proficiente antes de dobrar.");
-  }
-  prof.periciasDobradas = toggleEm(prof.periciasDobradas, slug, dobrado);
+    const prof = lerProficiencias(personagem.proficiencias);
+    // "Dobrado" só faz sentido se for proficiente.
+    if (dobrado && !prof.pericias.includes(slug)) {
+      throw new ErroDeUso("É preciso ser proficiente antes de dobrar.");
+    }
+    prof.periciasDobradas = toggleEm(prof.periciasDobradas, slug, dobrado);
 
-  await prisma.personagem.update({
-    where: { id: personagemId },
-    data: { proficiencias: prof },
+    await prisma.personagem.update({
+      where: { id: personagemId },
+      data: { proficiencias: prof },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
   });
-  revalidatePath(`/ficha/${personagemId}`);
 }
 
 export async function toggleSalvaguarda(
@@ -443,17 +548,19 @@ export async function toggleSalvaguarda(
   atributo: Atributo,
   proficiente: boolean,
 ) {
-  if (!ATRIBUTOS_VALIDOS.has(atributo)) throw new Error("Atributo inválido.");
-  const { personagem } = await autorizar(personagemId);
+  return executar("ficha", async () => {
+    if (!ATRIBUTOS_VALIDOS.has(atributo)) throw new ErroDeUso("Atributo inválido.");
+    const { personagem } = await autorizar(personagemId);
 
-  const prof = lerProficiencias(personagem.proficiencias);
-  prof.salvaguardas = toggleEm(prof.salvaguardas, atributo, proficiente);
+    const prof = lerProficiencias(personagem.proficiencias);
+    prof.salvaguardas = toggleEm(prof.salvaguardas, atributo, proficiente);
 
-  await prisma.personagem.update({
-    where: { id: personagemId },
-    data: { proficiencias: prof },
+    await prisma.personagem.update({
+      where: { id: personagemId },
+      data: { proficiencias: prof },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
   });
-  revalidatePath(`/ficha/${personagemId}`);
 }
 
 export async function setSalvaguardaOutros(
@@ -461,23 +568,25 @@ export async function setSalvaguardaOutros(
   atributo: Atributo,
   valor: number,
 ) {
-  if (!ATRIBUTOS_VALIDOS.has(atributo)) throw new Error("Atributo inválido.");
-  if (!Number.isFinite(valor)) throw new Error("Valor inválido.");
-  const { personagem } = await autorizar(personagemId);
+  return executar("ficha", async () => {
+    if (!ATRIBUTOS_VALIDOS.has(atributo)) throw new ErroDeUso("Atributo inválido.");
+    if (!Number.isFinite(valor)) throw new ErroDeUso("Valor inválido.");
+    const { personagem } = await autorizar(personagemId);
 
-  const prof = lerProficiencias(personagem.proficiencias);
-  const truncado = Math.trunc(valor);
-  if (truncado === 0) {
-    delete prof.outrosSalvaguardas[atributo];
-  } else {
-    prof.outrosSalvaguardas[atributo] = truncado;
-  }
+    const prof = lerProficiencias(personagem.proficiencias);
+    const truncado = Math.trunc(valor);
+    if (truncado === 0) {
+      delete prof.outrosSalvaguardas[atributo];
+    } else {
+      prof.outrosSalvaguardas[atributo] = truncado;
+    }
 
-  await prisma.personagem.update({
-    where: { id: personagemId },
-    data: { proficiencias: prof },
+    await prisma.personagem.update({
+      where: { id: personagemId },
+      data: { proficiencias: prof },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
   });
-  revalidatePath(`/ficha/${personagemId}`);
 }
 
 // ─── Perícias customizadas ────────────────────────────────
@@ -511,33 +620,35 @@ export async function criarPericiaCustom(
   personagemId: string,
   input: { nome: string; atributo: string; origem?: string },
 ) {
-  await autorizar(personagemId);
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
 
-  const nome = String(input.nome ?? "").trim();
-  if (!nome) throw new Error("Dê um nome à perícia.");
-  if (!ATRIBUTOS_VALIDOS.has(input.atributo)) throw new Error("Atributo inválido.");
-  const origem = String(input.origem ?? "").trim();
+    const nome = String(input.nome ?? "").trim();
+    if (!nome) throw new ErroDeUso("Dê um nome à perícia.");
+    if (!ATRIBUTOS_VALIDOS.has(input.atributo)) throw new ErroDeUso("Atributo inválido.");
+    const origem = String(input.origem ?? "").trim();
 
-  // Slug único por personagem — deriva do nome evitando colisão com built-ins
-  // e com as customizadas que já existem.
-  const existentes = await prisma.periciaCustom.findMany({
-    where: { personagemId },
-    select: { slug: true },
+    // Slug único por personagem — deriva do nome evitando colisão com built-ins
+    // e com as customizadas que já existem.
+    const existentes = await prisma.periciaCustom.findMany({
+      where: { personagemId },
+      select: { slug: true },
+    });
+    const slug = slugPericiaCustom(nome, new Set(existentes.map((p) => p.slug)));
+
+    const criada = await prisma.periciaCustom.create({
+      data: {
+        personagemId,
+        nome,
+        slug,
+        atributo: input.atributo,
+        origem,
+        ordem: existentes.length,
+      },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
+    return serializarPericiaCustom(criada);
   });
-  const slug = slugPericiaCustom(nome, new Set(existentes.map((p) => p.slug)));
-
-  const criada = await prisma.periciaCustom.create({
-    data: {
-      personagemId,
-      nome,
-      slug,
-      atributo: input.atributo,
-      origem,
-      ordem: existentes.length,
-    },
-  });
-  revalidatePath(`/ficha/${personagemId}`);
-  return serializarPericiaCustom(criada);
 }
 
 const ALLOWED_PERICIA_CUSTOM = [
@@ -558,46 +669,50 @@ export async function patchPericiaCustom(
   id: string,
   patch: PericiaCustomPatch,
 ) {
-  await autorizar(personagemId);
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
 
-  const data: Record<string, unknown> = {};
-  for (const key of ALLOWED_PERICIA_CUSTOM) {
-    if (patch[key] !== undefined) data[key] = patch[key];
-  }
+    const data: Record<string, unknown> = {};
+    for (const key of ALLOWED_PERICIA_CUSTOM) {
+      if (patch[key] !== undefined) data[key] = patch[key];
+    }
 
-  if (typeof data.nome === "string") {
-    const nome = data.nome.trim();
-    if (!nome) throw new Error("Nome inválido.");
-    data.nome = nome;
-  }
-  if (data.atributo !== undefined && !ATRIBUTOS_VALIDOS.has(String(data.atributo))) {
-    throw new Error("Atributo inválido.");
-  }
-  if (typeof data.origem === "string") data.origem = data.origem.trim();
-  if (data.bonusOutros !== undefined) {
-    const n = Number(data.bonusOutros);
-    if (!Number.isFinite(n)) throw new Error("Valor inválido.");
-    data.bonusOutros = Math.trunc(n);
-  }
-  // Invariantes: dobrar exige proficiência; tirar proficiência tira o dobro.
-  if (data.dobrada === true) data.proficiente = true;
-  if (data.proficiente === false) data.dobrada = false;
+    if (typeof data.nome === "string") {
+      const nome = data.nome.trim();
+      if (!nome) throw new ErroDeUso("Nome inválido.");
+      data.nome = nome;
+    }
+    if (data.atributo !== undefined && !ATRIBUTOS_VALIDOS.has(String(data.atributo))) {
+      throw new ErroDeUso("Atributo inválido.");
+    }
+    if (typeof data.origem === "string") data.origem = data.origem.trim();
+    if (data.bonusOutros !== undefined) {
+      const n = Number(data.bonusOutros);
+      if (!Number.isFinite(n)) throw new ErroDeUso("Valor inválido.");
+      data.bonusOutros = Math.trunc(n);
+    }
+    // Invariantes: dobrar exige proficiência; tirar proficiência tira o dobro.
+    if (data.dobrada === true) data.proficiente = true;
+    if (data.proficiente === false) data.dobrada = false;
 
-  if (Object.keys(data).length === 0) return;
+    if (Object.keys(data).length === 0) return;
 
-  await prisma.periciaCustom.update({
-    where: { id, personagemId },
-    data,
+    await prisma.periciaCustom.update({
+      where: { id, personagemId },
+      data,
+    });
+    revalidatePath(`/ficha/${personagemId}`);
   });
-  revalidatePath(`/ficha/${personagemId}`);
 }
 
 export async function deletarPericiaCustom(personagemId: string, id: string) {
-  await autorizar(personagemId);
-  await prisma.periciaCustom.delete({
-    where: { id, personagemId },
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    await prisma.periciaCustom.delete({
+      where: { id, personagemId },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
   });
-  revalidatePath(`/ficha/${personagemId}`);
 }
 
 // ─── Recursos customizados ────────────────────────────────
@@ -607,6 +722,8 @@ const ALLOWED_RECURSO = [
   "valorMax",
   "ordem",
   "cor",
+  "cor2",
+  "efeito",
   "resetEm",
 ] as const;
 type RecursoInput = Partial<Record<(typeof ALLOWED_RECURSO)[number], unknown>>;
@@ -619,43 +736,51 @@ function normalizarRecurso(input: RecursoInput, parcial: boolean) {
     if (input[key] === undefined) continue;
     if (key === "nome") {
       const nome = (input.nome as string).trim();
-      if (!nome) throw new Error("Nome do recurso é obrigatório.");
+      if (!nome) throw new ErroDeUso("Nome do recurso é obrigatório.");
       data.nome = nome;
     } else if (key === "valorAtual" || key === "valorMax" || key === "ordem") {
       data[key] = Number(input[key]) || 0;
     } else if (key === "resetEm") {
       const v = String(input.resetEm);
-      if (!RESET_VALIDOS.has(v)) throw new Error("resetEm inválido.");
+      if (!RESET_VALIDOS.has(v)) throw new ErroDeUso("resetEm inválido.");
       data.resetEm = v;
     } else if (key === "cor") {
-      data.cor = input.cor ? String(input.cor) : null;
+      data.cor = corValida(input.cor);
+    } else if (key === "cor2") {
+      data.cor2 = corValida(input.cor2);
+    } else if (key === "efeito") {
+      data.efeito = normalizarEfeitoCor(input.efeito);
     }
   }
   if (!parcial && data.nome === undefined) {
-    throw new Error("Nome do recurso é obrigatório.");
+    throw new ErroDeUso("Nome do recurso é obrigatório.");
   }
   return data;
 }
 
 export async function criarRecurso(personagemId: string, input: RecursoInput) {
-  await autorizar(personagemId);
-  const data = normalizarRecurso(input, false);
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const data = normalizarRecurso(input, false);
 
-  const atual =
-    typeof data.valorAtual === "number" ? data.valorAtual : Number(data.valorMax) || 0;
+    const atual =
+      typeof data.valorAtual === "number" ? data.valorAtual : Number(data.valorMax) || 0;
 
-  await prisma.recurso.create({
-    data: {
-      personagemId,
-      nome: data.nome as string,
-      valorAtual: atual,
-      valorMax: (data.valorMax as number) ?? 0,
-      ordem: (data.ordem as number) ?? 0,
-      cor: (data.cor as string | null) ?? null,
-      resetEm: (data.resetEm as string) ?? "manual",
-    },
+    await prisma.recurso.create({
+      data: {
+        personagemId,
+        nome: data.nome as string,
+        valorAtual: atual,
+        valorMax: (data.valorMax as number) ?? 0,
+        ordem: (data.ordem as number) ?? 0,
+        cor: (data.cor as string | null) ?? null,
+        cor2: (data.cor2 as string | null) ?? null,
+        efeito: (data.efeito as string) ?? "solido",
+        resetEm: (data.resetEm as string) ?? "manual",
+      },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
   });
-  revalidatePath(`/ficha/${personagemId}`);
 }
 
 export async function atualizarRecurso(
@@ -663,22 +788,26 @@ export async function atualizarRecurso(
   recursoId: string,
   patch: RecursoInput,
 ) {
-  await autorizar(personagemId);
-  const data = normalizarRecurso(patch, true);
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const data = normalizarRecurso(patch, true);
 
-  await prisma.recurso.update({
-    where: { id: recursoId, personagemId },
-    data,
+    await prisma.recurso.update({
+      where: { id: recursoId, personagemId },
+      data,
+    });
+    revalidatePath(`/ficha/${personagemId}`);
   });
-  revalidatePath(`/ficha/${personagemId}`);
 }
 
 export async function deletarRecurso(personagemId: string, recursoId: string) {
-  await autorizar(personagemId);
-  await prisma.recurso.delete({
-    where: { id: recursoId, personagemId },
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    await prisma.recurso.delete({
+      where: { id: recursoId, personagemId },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
   });
-  revalidatePath(`/ficha/${personagemId}`);
 }
 
 // ─── Habilidades ───────────────────────────────────────────
@@ -695,8 +824,10 @@ const ALLOWED_HABILIDADE = [
   "usosAtual",
   "recarga",
   "tags",
+  "tagsEstilo",
   "favorita",
   "ordem",
+  "itemId",
   "efeitos",
 ] as const;
 
@@ -711,6 +842,7 @@ const ORIGENS_HAB_VALIDAS = new Set([
   "especie",
   "akumaNoMi",
   "treinamento",
+  "item",
   "livre",
 ]);
 const TIPOS_HAB_VALIDOS = new Set(["passiva", "ativa", "reativa", "livre"]);
@@ -720,28 +852,10 @@ const RECARGAS_VALIDAS_HAB = new Set([
   "encontro",
   "manual",
 ]);
-const TIPOS_EFEITO_VALIDOS = new Set<TipoEfeito>([
-  "modificador",
-  "vantagem",
-  "desvantagem",
-  "proficiencia",
-  "recurso_delta",
-  "cura",
-  "condicao_imune",
-  "condicao_remover",
-  "condicao_aplicar",
-  "resistencia",
-  "imunidade",
-  "deslocamento",
-  "multiplicador",
-  "substituir_atributo",
-  "rolagem",
-  "trigger",
-  "crit_range",
-  "reroll",
-  "floor_d20",
-  "livre",
-]);
+// Tipos válidos derivados do catálogo de efeitos.
+const TIPOS_EFEITO_VALIDOS = new Set<TipoEfeito>(
+  Object.keys(META_EFEITOS) as TipoEfeito[],
+);
 
 function normalizarEfeitosInput(raw: unknown): EfeitoHabilidade[] {
   if (!Array.isArray(raw)) return [];
@@ -761,17 +875,17 @@ function normalizarHabilidadeInput(input: HabilidadeInput) {
   const data: Record<string, unknown> = {};
   if (input.nome !== undefined) {
     const nome = String(input.nome).trim();
-    if (!nome) throw new Error("Nome é obrigatório.");
+    if (!nome) throw new ErroDeUso("Nome é obrigatório.");
     data.nome = nome;
   }
   if (input.origem !== undefined) {
     const v = String(input.origem);
-    if (!ORIGENS_HAB_VALIDAS.has(v)) throw new Error("Origem inválida.");
+    if (!ORIGENS_HAB_VALIDAS.has(v)) throw new ErroDeUso("Origem inválida.");
     data.origem = v;
   }
   if (input.tipo !== undefined) {
     const v = String(input.tipo);
-    if (!TIPOS_HAB_VALIDOS.has(v)) throw new Error("Tipo de habilidade inválido.");
+    if (!TIPOS_HAB_VALIDOS.has(v)) throw new ErroDeUso("Tipo de habilidade inválido.");
     data.tipo = v;
   }
   if (input.descricao !== undefined) data.descricao = String(input.descricao);
@@ -806,13 +920,21 @@ function normalizarHabilidadeInput(input: HabilidadeInput) {
       data.recarga = null;
     } else {
       const v = String(input.recarga);
-      if (!RECARGAS_VALIDAS_HAB.has(v)) throw new Error("Recarga inválida.");
+      if (!RECARGAS_VALIDAS_HAB.has(v)) throw new ErroDeUso("Recarga inválida.");
       data.recarga = v;
     }
   }
   if (input.tags !== undefined) data.tags = input.tags ? String(input.tags) : null;
+  if (input.tagsEstilo !== undefined) {
+    const tagsDoPatch =
+      input.tags !== undefined ? separarTags(String(input.tags ?? "")) : undefined;
+    data.tagsEstilo =
+      normalizarEstilosTag(input.tagsEstilo, tagsDoPatch) ?? Prisma.DbNull;
+  }
   if (input.favorita !== undefined) data.favorita = Boolean(input.favorita);
   if (input.ordem !== undefined) data.ordem = Math.trunc(Number(input.ordem) || 0);
+  // Item que concede a habilidade.
+  if (input.itemId !== undefined) data.itemId = input.itemId ? String(input.itemId) : null;
   if (input.efeitos !== undefined) data.efeitos = normalizarEfeitosInput(input.efeitos);
   return data;
 }
@@ -821,31 +943,37 @@ export async function criarHabilidade(
   personagemId: string,
   input: HabilidadeInput,
 ) {
-  await autorizar(personagemId);
-  const data = normalizarHabilidadeInput(input);
-  if (data.nome === undefined) throw new Error("Nome é obrigatório.");
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const data = normalizarHabilidadeInput(input);
+    if (data.nome === undefined) throw new ErroDeUso("Nome é obrigatório.");
 
-  await prisma.habilidade.create({
-    data: {
-      personagemId,
-      nome: data.nome as string,
-      origem: (data.origem as string) ?? "livre",
-      tipo: (data.tipo as string) ?? "passiva",
-      descricao: (data.descricao as string) ?? "",
-      custoPp: (data.custoPp as number) ?? 0,
-      custoPa: (data.custoPa as number) ?? 0,
-      custoRecursoId: (data.custoRecursoId as string | null) ?? null,
-      custoRecursoValor: (data.custoRecursoValor as number) ?? 0,
-      usos: (data.usos as number | null) ?? null,
-      usosAtual: (data.usosAtual as number | null) ?? null,
-      recarga: (data.recarga as string | null) ?? null,
-      tags: (data.tags as string | null) ?? null,
-      favorita: (data.favorita as boolean) ?? false,
-      ordem: (data.ordem as number) ?? 0,
-      efeitos: (data.efeitos as EfeitoHabilidade[]) ?? [],
-    },
+    await prisma.habilidade.create({
+      data: {
+        personagemId,
+        nome: data.nome as string,
+        origem: (data.origem as string) ?? "livre",
+        tipo: (data.tipo as string) ?? "passiva",
+        descricao: (data.descricao as string) ?? "",
+        custoPp: (data.custoPp as number) ?? 0,
+        custoPa: (data.custoPa as number) ?? 0,
+        custoRecursoId: (data.custoRecursoId as string | null) ?? null,
+        custoRecursoValor: (data.custoRecursoValor as number) ?? 0,
+        usos: (data.usos as number | null) ?? null,
+        usosAtual: (data.usosAtual as number | null) ?? null,
+        recarga: (data.recarga as string | null) ?? null,
+        tags: (data.tags as string | null) ?? null,
+        tagsEstilo:
+          (data.tagsEstilo as Prisma.InputJsonValue | typeof Prisma.DbNull) ??
+          Prisma.DbNull,
+        favorita: (data.favorita as boolean) ?? false,
+        ordem: (data.ordem as number) ?? 0,
+        itemId: (data.itemId as string | null) ?? null,
+        efeitos: (data.efeitos as EfeitoHabilidade[]) ?? [],
+      },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
   });
-  revalidatePath(`/ficha/${personagemId}`);
 }
 
 export async function atualizarHabilidade(
@@ -853,24 +981,28 @@ export async function atualizarHabilidade(
   habilidadeId: string,
   patch: HabilidadeInput,
 ) {
-  await autorizar(personagemId);
-  const data = normalizarHabilidadeInput(patch);
-  await prisma.habilidade.update({
-    where: { id: habilidadeId, personagemId },
-    data,
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const data = normalizarHabilidadeInput(patch);
+    await prisma.habilidade.update({
+      where: { id: habilidadeId, personagemId },
+      data,
+    });
+    revalidatePath(`/ficha/${personagemId}`);
   });
-  revalidatePath(`/ficha/${personagemId}`);
 }
 
 export async function deletarHabilidade(
   personagemId: string,
   habilidadeId: string,
 ) {
-  await autorizar(personagemId);
-  await prisma.habilidade.delete({
-    where: { id: habilidadeId, personagemId },
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    await prisma.habilidade.delete({
+      where: { id: habilidadeId, personagemId },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
   });
-  revalidatePath(`/ficha/${personagemId}`);
 }
 
 // Debita custos (PP, recurso de custo, usos) e aplica efeitos instantâneos
@@ -895,13 +1027,13 @@ async function aplicarUsoHabilidade(
   const hab = await prisma.habilidade.findFirst({
     where: { id: habilidadeId, personagemId },
   });
-  if (!hab) throw new Error("Habilidade não encontrada.");
+  if (!hab) throw new ErroDeUso("Habilidade não encontrada.");
 
   if (hab.custoPp > 0 && personagem.ppAtual < hab.custoPp) {
-    throw new Error("PP insuficiente.");
+    throw new ErroDeUso("PP insuficiente.");
   }
   if (hab.usos != null && (hab.usosAtual ?? 0) <= 0) {
-    throw new Error("Sem usos restantes.");
+    throw new ErroDeUso("Sem usos restantes.");
   }
 
   let recursoCusto: Awaited<ReturnType<typeof prisma.recurso.findFirst>> = null;
@@ -909,9 +1041,9 @@ async function aplicarUsoHabilidade(
     recursoCusto = await prisma.recurso.findFirst({
       where: { id: hab.custoRecursoId, personagemId },
     });
-    if (!recursoCusto) throw new Error("Recurso configurado não existe mais.");
+    if (!recursoCusto) throw new ErroDeUso("Recurso configurado não existe mais.");
     if (recursoCusto.valorAtual < hab.custoRecursoValor) {
-      throw new Error(`${recursoCusto.nome} insuficiente.`);
+      throw new ErroDeUso(`${recursoCusto.nome} insuficiente.`);
     }
   }
 
@@ -999,33 +1131,34 @@ async function aplicarUsoHabilidade(
 // Botão "Usar" de habilidade não-sustentada (ou ativa só-instantânea): consome
 // custos + aplica efeitos instantâneos, sem estado persistente.
 export async function usarHabilidade(personagemId: string, habilidadeId: string) {
-  await aplicarUsoHabilidade(personagemId, habilidadeId);
+  return executar("ficha", async () => {
+    await aplicarUsoHabilidade(personagemId, habilidadeId);
+  });
 }
 
-// Liga/desliga uma habilidade sustentada (ativa/reativa com efeito sustentado).
-// LIGAR consome custos + aplica os instantâneos (cura/PV-temp/recurso; hp-max/
-// pp-max ficam no agregado, revertíveis) e marca `ligada=true`. DESLIGAR só
-// limpa `ligada` — sem reembolso de custo nem reversão de PV temp já concedido.
+// Liga (consome custos e aplica instantâneos) ou desliga uma habilidade sustentada.
 export async function alternarHabilidade(
   personagemId: string,
   habilidadeId: string,
   ligada: boolean,
 ) {
-  if (!ligada) {
-    await autorizar(personagemId);
-    await prisma.habilidade.update({
-      where: { id: habilidadeId, personagemId },
-      data: { ligada: false },
-    });
-    revalidatePath(`/ficha/${personagemId}`);
-    return;
-  }
-  await aplicarUsoHabilidade(
-    personagemId,
-    habilidadeId,
-    { ligada: true },
-    { incluirMax: false },
-  );
+  return executar("ficha", async () => {
+    if (!ligada) {
+      await autorizar(personagemId);
+      await prisma.habilidade.update({
+        where: { id: habilidadeId, personagemId },
+        data: { ligada: false },
+      });
+      revalidatePath(`/ficha/${personagemId}`);
+      return;
+    }
+    await aplicarUsoHabilidade(
+      personagemId,
+      habilidadeId,
+      { ligada: true },
+      { incluirMax: false },
+    );
+  });
 }
 
 function clamp(n: number, min: number, max: number): number {
@@ -1063,22 +1196,24 @@ function navioSerializado(n: {
 async function mesaDoPersonagem(personagemId: string) {
   const { personagem } = await autorizar(personagemId);
   if (!personagem.mesaId) {
-    throw new Error("Entre em uma mesa para ter um navio.");
+    throw new ErroDeUso("Entre em uma mesa para ter um navio.");
   }
   return personagem.mesaId;
 }
 
 export async function criarNavio(personagemId: string) {
-  const mesaId = await mesaDoPersonagem(personagemId);
-  // upsert idempotente — tolera double-click / race entre dois membros.
-  // Nasce com o PV cheio do tamanho default (mais útil que começar em 0).
-  const navio = await prisma.navio.upsert({
-    where: { mesaId },
-    update: {},
-    create: { mesaId, nome: "Novo Navio", pvAtual: statsTamanho("pequeno").pvMax },
+  return executar("ficha", async () => {
+    const mesaId = await mesaDoPersonagem(personagemId);
+    // upsert idempotente — tolera double-click / race entre dois membros.
+    // Nasce com o PV cheio do tamanho default (mais útil que começar em 0).
+    const navio = await prisma.navio.upsert({
+      where: { mesaId },
+      update: {},
+      create: { mesaId, nome: "Novo Navio", pvAtual: statsTamanho("pequeno").pvMax },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
+    return navioSerializado(navio);
   });
-  revalidatePath(`/ficha/${personagemId}`);
-  return navioSerializado(navio);
 }
 
 const ALLOWED_NAVIO = [
@@ -1094,38 +1229,1102 @@ const ALLOWED_NAVIO = [
 type NavioPatch = Partial<Record<(typeof ALLOWED_NAVIO)[number], unknown>>;
 
 export async function patchNavio(personagemId: string, patch: NavioPatch) {
-  const mesaId = await mesaDoPersonagem(personagemId);
+  return executar("ficha", async () => {
+    const mesaId = await mesaDoPersonagem(personagemId);
 
-  const data: Record<string, unknown> = {};
-  for (const key of ALLOWED_NAVIO) {
-    if (patch[key] !== undefined) data[key] = patch[key];
-  }
-
-  if (typeof data.nome === "string") data.nome = data.nome.trim();
-  if (typeof data.descricao === "string") data.descricao = data.descricao.trim();
-  if (data.tamanho !== undefined && !TAMANHOS_VALIDOS.has(String(data.tamanho))) {
-    throw new Error("Tamanho de navio inválido.");
-  }
-  if (data.madeira !== undefined && !MADEIRAS_VALIDAS.has(String(data.madeira))) {
-    throw new Error("Madeira inválida.");
-  }
-  for (const num of ["pvAtual", "velocidadeNos", "canhoes"] as const) {
-    if (data[num] !== undefined) {
-      const n = Number(data[num]);
-      if (!Number.isFinite(n)) throw new Error("Valor inválido.");
-      data[num] = Math.max(0, Math.trunc(n));
+    const data: Record<string, unknown> = {};
+    for (const key of ALLOWED_NAVIO) {
+      if (patch[key] !== undefined) data[key] = patch[key];
     }
-  }
 
-  if (Object.keys(data).length === 0) return;
+    if (typeof data.nome === "string") data.nome = data.nome.trim();
+    if (typeof data.descricao === "string") data.descricao = data.descricao.trim();
+    if (data.tamanho !== undefined && !TAMANHOS_VALIDOS.has(String(data.tamanho))) {
+      throw new ErroDeUso("Tamanho de navio inválido.");
+    }
+    if (data.madeira !== undefined && !MADEIRAS_VALIDAS.has(String(data.madeira))) {
+      throw new ErroDeUso("Madeira inválida.");
+    }
+    for (const num of ["pvAtual", "velocidadeNos", "canhoes"] as const) {
+      if (data[num] !== undefined) {
+        const n = Number(data[num]);
+        if (!Number.isFinite(n)) throw new ErroDeUso("Valor inválido.");
+        data[num] = Math.max(0, Math.trunc(n));
+      }
+    }
 
-  await prisma.navio.update({ where: { mesaId }, data });
-  revalidatePath(`/ficha/${personagemId}`);
+    if (Object.keys(data).length === 0) return;
+
+    await prisma.navio.update({ where: { mesaId }, data });
+    revalidatePath(`/ficha/${personagemId}`);
+  });
 }
 
 export async function deletarNavio(personagemId: string) {
-  const mesaId = await mesaDoPersonagem(personagemId);
-  // deleteMany tolera ausência (sem throw se já não existe).
-  await prisma.navio.deleteMany({ where: { mesaId } });
-  revalidatePath(`/ficha/${personagemId}`);
+  return executar("ficha", async () => {
+    const mesaId = await mesaDoPersonagem(personagemId);
+    // deleteMany tolera ausência (sem throw se já não existe).
+    await prisma.navio.deleteMany({ where: { mesaId } });
+    revalidatePath(`/ficha/${personagemId}`);
+  });
+}
+
+// ─── Árvores de talento ────────────────────────────────────
+
+const ALLOWED_ARVORE = [
+  "nome",
+  "icone",
+  "cor",
+  "cor2",
+  "efeito",
+  "ordem",
+  "criterio",
+  "recursoCustoId",
+  "fundoUrl",
+] as const;
+type ArvoreInput = Partial<Record<(typeof ALLOWED_ARVORE)[number], unknown>>;
+
+function normalizarArvore(input: ArvoreInput) {
+  const data: Record<string, unknown> = {};
+  if (input.nome !== undefined) {
+    const nome = String(input.nome).trim();
+    if (!nome) throw new ErroDeUso("Nome da árvore é obrigatório.");
+    data.nome = nome.slice(0, 60);
+  }
+  if (input.icone !== undefined) {
+    data.icone = String(input.icone).trim().slice(0, 40) || "fa-sitemap";
+  }
+  if (input.cor !== undefined) data.cor = corValida(input.cor);
+  if (input.cor2 !== undefined) data.cor2 = corValida(input.cor2);
+  if (input.efeito !== undefined) data.efeito = normalizarEfeitoCor(input.efeito);
+  if (input.ordem !== undefined) data.ordem = Math.trunc(Number(input.ordem) || 0);
+  if (input.criterio !== undefined) data.criterio = normalizarCriterio(input.criterio);
+  if (input.recursoCustoId !== undefined) {
+    data.recursoCustoId = input.recursoCustoId ? String(input.recursoCustoId) : null;
+  }
+  if (input.fundoUrl !== undefined) {
+    const v = input.fundoUrl ? String(input.fundoUrl).trim().slice(0, 500) : "";
+    // Só http(s) — evita javascript:/data: virando background do canvas.
+    data.fundoUrl = /^https?:\/\//i.test(v) ? v : null;
+  }
+  return data;
+}
+
+async function arvoreDoPersonagem(personagemId: string, arvoreId: string) {
+  const arvore = await prisma.arvore.findFirst({
+    where: { id: arvoreId, personagemId },
+    include: {
+      camadas: { orderBy: { ordem: "asc" } },
+      ramos: { orderBy: { ordem: "asc" } },
+      nos: { orderBy: { ordem: "asc" } },
+    },
+  });
+  if (!arvore) throw new ErroDeUso("Árvore não encontrada.");
+  return arvore;
+}
+
+export async function criarArvore(
+  personagemId: string,
+  input: ArvoreInput & { preset?: unknown },
+) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const data = normalizarArvore(input);
+    if (data.nome === undefined) throw new ErroDeUso("Nome da árvore é obrigatório.");
+
+    // Sem preset explícito cai no "Em branco".
+    const preset = acharPreset(input.preset);
+
+    // Ids gerados aqui pros requisitos do molde apontarem pros nós novos.
+    const arvoreId = randomUUID();
+    const camadaIds = preset.camadas.map(() => randomUUID());
+    const ramoIds = preset.ramos.map(() => randomUUID());
+    const nos = nosDoMolde(preset.slug, { arvoreId, camadaIds, ramoIds }, randomUUID);
+
+    await prisma.$transaction([
+      prisma.arvore.create({
+        data: {
+          id: arvoreId,
+          personagemId,
+          nome: data.nome as string,
+          icone: (data.icone as string) ?? preset.icone,
+          cor: (data.cor as string | null) ?? null,
+          cor2: (data.cor2 as string | null) ?? null,
+          efeito: (data.efeito as string) ?? "solido",
+          ordem: (data.ordem as number) ?? 0,
+          criterio: (data.criterio as string) ?? preset.criterio,
+          recursoCustoId: (data.recursoCustoId as string | null) ?? null,
+          fundoUrl: (data.fundoUrl as string | null) ?? null,
+          camadas: {
+            create: preset.camadas.map((c, i) => ({
+              id: camadaIds[i],
+              nome: c.nome,
+              ordem: i,
+              limiar: c.limiar,
+            })),
+          },
+          ramos: {
+            create: preset.ramos.map((nome, i) => ({ id: ramoIds[i], nome, ordem: i })),
+          },
+        },
+      }),
+      ...(nos.length > 0 ? [prisma.arvoreNo.createMany({ data: nos })] : []),
+    ]);
+    revalidatePath(`/ficha/${personagemId}`);
+    return { id: arvoreId, camadaId: camadaIds[0] ?? null };
+  });
+}
+
+export async function atualizarArvore(
+  personagemId: string,
+  arvoreId: string,
+  patch: ArvoreInput,
+) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const data = normalizarArvore(patch);
+    await prisma.arvore.update({ where: { id: arvoreId, personagemId }, data });
+    revalidatePath(`/ficha/${personagemId}`);
+  });
+}
+
+export async function deletarArvore(personagemId: string, arvoreId: string) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    await prisma.arvore.delete({ where: { id: arvoreId, personagemId } });
+    revalidatePath(`/ficha/${personagemId}`);
+  });
+}
+
+// ─── Camadas ───────────────────────────────────────────────
+const ALLOWED_CAMADA = ["nome", "ordem", "limiar"] as const;
+type CamadaInput = Partial<Record<(typeof ALLOWED_CAMADA)[number], unknown>>;
+
+function normalizarCamada(input: CamadaInput) {
+  const data: Record<string, unknown> = {};
+  if (input.nome !== undefined) {
+    const nome = String(input.nome).trim();
+    if (!nome) throw new ErroDeUso("Nome da camada é obrigatório.");
+    data.nome = nome.slice(0, 40);
+  }
+  if (input.ordem !== undefined) data.ordem = Math.trunc(Number(input.ordem) || 0);
+  if (input.limiar !== undefined) {
+    data.limiar = Math.max(0, Math.trunc(Number(input.limiar) || 0));
+  }
+  return data;
+}
+
+export async function criarCamada(
+  personagemId: string,
+  arvoreId: string,
+  input: CamadaInput,
+) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const arvore = await arvoreDoPersonagem(personagemId, arvoreId);
+    const data = normalizarCamada(input);
+
+    const camada = await prisma.arvoreCamada.create({
+      data: {
+        arvoreId,
+        nome: (data.nome as string) ?? `Camada ${arvore.camadas.length + 1}`,
+        ordem: (data.ordem as number) ?? arvore.camadas.length,
+        limiar: (data.limiar as number) ?? 0,
+      },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
+    return { id: camada.id };
+  });
+}
+
+export async function atualizarCamada(
+  personagemId: string,
+  arvoreId: string,
+  camadaId: string,
+  patch: CamadaInput,
+) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    await arvoreDoPersonagem(personagemId, arvoreId);
+    const data = normalizarCamada(patch);
+    await prisma.arvoreCamada.update({ where: { id: camadaId, arvoreId }, data });
+    revalidatePath(`/ficha/${personagemId}`);
+  });
+}
+
+export async function deletarCamada(
+  personagemId: string,
+  arvoreId: string,
+  camadaId: string,
+) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const arvore = await arvoreDoPersonagem(personagemId, arvoreId);
+    if (arvore.camadas.length <= 1) {
+      throw new ErroDeUso("A árvore precisa de pelo menos uma camada.");
+    }
+    await prisma.arvoreCamada.delete({ where: { id: camadaId, arvoreId } });
+    revalidatePath(`/ficha/${personagemId}`);
+  });
+}
+
+// ─── Nós ───────────────────────────────────────────────────
+const ALLOWED_NO = [
+  "camadaId",
+  "ramoId",
+  "coluna",
+  "linha",
+  "nome",
+  "descricao",
+  "icone",
+  "custo",
+  "maxRanks",
+  "nivelMinimo",
+  "habilidadeId",
+  "requisitos",
+  "ordem",
+] as const;
+type NoInput = Partial<Record<(typeof ALLOWED_NO)[number], unknown>>;
+
+function normalizarNo(input: NoInput) {
+  const data: Record<string, unknown> = {};
+  if (input.nome !== undefined) {
+    const nome = String(input.nome).trim();
+    if (!nome) throw new ErroDeUso("Nome do talento é obrigatório.");
+    data.nome = nome.slice(0, 60);
+  }
+  if (input.camadaId !== undefined) data.camadaId = String(input.camadaId);
+  if (input.ramoId !== undefined) data.ramoId = input.ramoId ? String(input.ramoId) : null;
+  if (input.coluna !== undefined) data.coluna = clampColuna(input.coluna);
+  if (input.linha !== undefined) data.linha = clampLinha(input.linha);
+  if (input.descricao !== undefined) data.descricao = String(input.descricao);
+  if (input.icone !== undefined) {
+    data.icone = String(input.icone).trim().slice(0, 40) || "fa-circle-nodes";
+  }
+  if (input.custo !== undefined) data.custo = Math.max(0, Math.trunc(Number(input.custo) || 0));
+  if (input.maxRanks !== undefined) {
+    const n = Math.trunc(Number(input.maxRanks) || 1);
+    data.maxRanks = Math.max(1, Math.min(n, MAX_RANKS_TETO));
+  }
+  if (input.nivelMinimo !== undefined) {
+    data.nivelMinimo = Math.max(0, Math.trunc(Number(input.nivelMinimo) || 0));
+  }
+  if (input.habilidadeId !== undefined) {
+    data.habilidadeId = input.habilidadeId ? String(input.habilidadeId) : null;
+  }
+  if (input.ordem !== undefined) data.ordem = Math.trunc(Number(input.ordem) || 0);
+  if (input.requisitos !== undefined) {
+    data.requisitos = lerRequisitos(input.requisitos);
+  }
+  return data;
+}
+
+function validarVinculosDoNo(
+  data: Record<string, unknown>,
+  arvore: { camadas: { id: string }[]; ramos: { id: string }[]; nos: { id: string }[] },
+  noId: string | null,
+) {
+  if (data.camadaId !== undefined) {
+    const ok = arvore.camadas.some((c) => c.id === data.camadaId);
+    if (!ok) throw new ErroDeUso("Camada não pertence a esta árvore.");
+  }
+  if (data.ramoId) {
+    const ok = arvore.ramos.some((r) => r.id === data.ramoId);
+    if (!ok) throw new ErroDeUso("Ramo não pertence a esta árvore.");
+  }
+  if (data.requisitos !== undefined) {
+    const idsValidos = new Set(arvore.nos.map((n) => n.id));
+    const reqs = data.requisitos as RequisitoNo[];
+    for (const r of reqs) {
+      if (r.noId === noId) throw new ErroDeUso("Um talento não pode exigir a si mesmo.");
+      if (!idsValidos.has(r.noId)) {
+        throw new ErroDeUso("Requisito aponta pra talento de outra árvore.");
+      }
+    }
+    if (noId && criaCiclo(noId, reqs, arvore.nos as NoArvore[])) {
+      throw new ErroDeUso("Esse requisito criaria um ciclo na árvore.");
+    }
+  }
+}
+
+function criaCiclo(noId: string, novosReqs: RequisitoNo[], nos: NoArvore[]): boolean {
+  const porId = new Map(nos.map((n) => [n.id, n]));
+  const vistos = new Set<string>();
+  const pilha = novosReqs.map((r) => r.noId);
+  while (pilha.length) {
+    const atual = pilha.pop()!;
+    if (atual === noId) return true;
+    if (vistos.has(atual)) continue;
+    vistos.add(atual);
+    const pai = porId.get(atual);
+    if (!pai) continue;
+    for (const r of lerRequisitos(pai.requisitos)) pilha.push(r.noId);
+  }
+  return false;
+}
+
+export async function criarNo(
+  personagemId: string,
+  arvoreId: string,
+  input: NoInput,
+) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const arvore = await arvoreDoPersonagem(personagemId, arvoreId);
+    const data = normalizarNo(input);
+    if (data.nome === undefined) throw new ErroDeUso("Nome do talento é obrigatório.");
+    if (data.camadaId === undefined) throw new ErroDeUso("Escolha a camada do talento.");
+    validarVinculosDoNo(data, arvore, null);
+
+    // A célula pedida, se livre; senão a primeira linha livre da mesma coluna.
+    const nos = arvore.nos as NoArvore[];
+    const celula = {
+      camadaId: data.camadaId as string,
+      ramoId: raiaEfetiva((data.ramoId as string | null | undefined) ?? null, arvore.ramos),
+      coluna: (data.coluna as number | undefined) ?? 0,
+    };
+    const linhaPedida = data.linha as number | undefined;
+    const linha =
+      linhaPedida !== undefined && !noNaCelula({ ...celula, linha: linhaPedida }, nos, arvore.ramos)
+        ? linhaPedida
+        : primeiraLinhaLivre(celula, nos, arvore.ramos);
+
+    const no = await prisma.arvoreNo.create({
+      data: {
+        arvoreId,
+        ...celula,
+        linha,
+        nome: data.nome as string,
+        descricao: (data.descricao as string) ?? "",
+        icone: (data.icone as string) ?? "fa-circle-nodes",
+        custo: (data.custo as number) ?? 0,
+        maxRanks: (data.maxRanks as number) ?? 1,
+        nivelMinimo: (data.nivelMinimo as number) ?? 0,
+        habilidadeId: (data.habilidadeId as string | null) ?? null,
+        requisitos: (data.requisitos as RequisitoNo[]) ?? [],
+        ordem: (data.ordem as number) ?? arvore.nos.length,
+      },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
+    return { id: no.id };
+  });
+}
+
+export async function atualizarNo(
+  personagemId: string,
+  arvoreId: string,
+  noId: string,
+  patch: NoInput,
+) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const arvore = await arvoreDoPersonagem(personagemId, arvoreId);
+    const data = normalizarNo(patch);
+    validarVinculosDoNo(data, arvore, noId);
+    const atual = arvore.nos.find((n) => n.id === noId);
+    if (!atual) throw new ErroDeUso("Talento não encontrado.");
+
+    // Baixar o teto de ranks não pode deixar o progresso acima dele.
+    if (data.maxRanks !== undefined && atual.rankAtual > (data.maxRanks as number)) {
+      data.rankAtual = data.maxRanks;
+    }
+
+    // Mudou de célula: se ocupada, desce pra primeira linha livre.
+    if (["camadaId", "ramoId", "coluna", "linha"].some((k) => data[k] !== undefined)) {
+      const nos = arvore.nos as NoArvore[];
+      const alvo = {
+        camadaId: (data.camadaId as string | undefined) ?? atual.camadaId,
+        ramoId: raiaEfetiva(
+          data.ramoId !== undefined ? (data.ramoId as string | null) : atual.ramoId,
+          arvore.ramos,
+        ),
+        coluna: (data.coluna as number | undefined) ?? atual.coluna,
+        linha: (data.linha as number | undefined) ?? atual.linha,
+      };
+      if (noNaCelula(alvo, nos, arvore.ramos, noId)) {
+        alvo.linha = primeiraLinhaLivre(alvo, nos, arvore.ramos, noId);
+      }
+      Object.assign(data, alvo);
+    }
+
+    await prisma.arvoreNo.update({ where: { id: noId, arvoreId }, data });
+    revalidatePath(`/ficha/${personagemId}`);
+  });
+}
+
+export async function deletarNo(
+  personagemId: string,
+  arvoreId: string,
+  noId: string,
+) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const arvore = await arvoreDoPersonagem(personagemId, arvoreId);
+
+    // Limpa requisitos órfãos nos filhos antes de apagar o pai.
+    const filhos = arvore.nos.filter((n) =>
+      lerRequisitos(n.requisitos).some((r) => r.noId === noId),
+    );
+    await prisma.$transaction([
+      ...filhos.map((f) =>
+        prisma.arvoreNo.update({
+          where: { id: f.id, arvoreId },
+          data: {
+            requisitos: lerRequisitos(f.requisitos).filter((r) => r.noId !== noId),
+          },
+        }),
+      ),
+      prisma.arvoreNo.delete({ where: { id: noId, arvoreId } }),
+    ]);
+    revalidatePath(`/ficha/${personagemId}`);
+  });
+}
+
+// ─── Comprar / devolver rank ───────────────────────────────
+// O server revalida com o mesmo `estadoNo` do cliente.
+
+async function contextoDaArvore(
+  personagemId: string,
+  arvore: { criterio: string; recursoCustoId: string | null; nos: NoArvore[] },
+  nivelPersonagem: number,
+): Promise<ContextoArvore> {
+  let saldoRecurso: number | null = null;
+  if (arvore.recursoCustoId) {
+    const recurso = await prisma.recurso.findFirst({
+      where: { id: arvore.recursoCustoId, personagemId },
+    });
+    saldoRecurso = recurso ? recurso.valorAtual : null;
+  }
+  return {
+    criterio: normalizarCriterio(arvore.criterio),
+    nivelPersonagem,
+    nos: arvore.nos,
+    saldoRecurso,
+  };
+}
+
+export async function comprarNo(
+  personagemId: string,
+  arvoreId: string,
+  noId: string,
+) {
+  return executar("ficha", async () => {
+    const { personagem } = await autorizar(personagemId);
+    const arvore = await arvoreDoPersonagem(personagemId, arvoreId);
+    const no = arvore.nos.find((n) => n.id === noId);
+    if (!no) throw new ErroDeUso("Talento não encontrado.");
+
+    const ctx = await contextoDaArvore(
+      personagemId,
+      { ...arvore, nos: arvore.nos as NoArvore[] },
+      personagem.nivel,
+    );
+    const estado = estadoNo(no as NoArvore, arvore.camadas, ctx);
+    if (!estado.podeComprar) {
+      throw new ErroDeUso(estado.bloqueios[0] ?? "Talento indisponível.");
+    }
+
+    const ops: Prisma.PrismaPromise<unknown>[] = [
+      prisma.arvoreNo.update({
+        where: { id: noId, arvoreId },
+        data: { rankAtual: { increment: 1 } },
+      }),
+    ];
+    if (arvore.recursoCustoId && ctx.saldoRecurso !== null && estado.custoProximo > 0) {
+      ops.push(
+        prisma.recurso.update({
+          where: { id: arvore.recursoCustoId, personagemId },
+          data: { valorAtual: { decrement: estado.custoProximo } },
+        }),
+      );
+    }
+    await prisma.$transaction(ops);
+    revalidatePath(`/ficha/${personagemId}`);
+  });
+}
+
+export async function devolverNo(
+  personagemId: string,
+  arvoreId: string,
+  noId: string,
+) {
+  return executar("ficha", async () => {
+    const { personagem } = await autorizar(personagemId);
+    const arvore = await arvoreDoPersonagem(personagemId, arvoreId);
+    const no = arvore.nos.find((n) => n.id === noId);
+    if (!no) throw new ErroDeUso("Talento não encontrado.");
+    if (no.rankAtual <= 0) throw new ErroDeUso("Esse talento não está comprado.");
+
+    const rankAlvo = no.rankAtual - 1;
+    const ctx = await contextoDaArvore(
+      personagemId,
+      { ...arvore, nos: arvore.nos as NoArvore[] },
+      personagem.nivel,
+    );
+    const bloqueios = bloqueiosDevolver(noId, arvore.camadas, ctx);
+    if (bloqueios.length > 0) {
+      throw new ErroDeUso(`Devolva antes: ${bloqueios.join("; ")}.`);
+    }
+
+    const ops: Prisma.PrismaPromise<unknown>[] = [
+      prisma.arvoreNo.update({
+        where: { id: noId, arvoreId },
+        data: { rankAtual: rankAlvo },
+      }),
+    ];
+    if (arvore.recursoCustoId && no.custo > 0) {
+      // Reembolso clampado no valorMax, fora da transação.
+      const recurso = await prisma.recurso.findFirst({
+        where: { id: arvore.recursoCustoId, personagemId },
+      });
+      if (recurso) {
+        ops.push(
+          prisma.recurso.update({
+            where: { id: recurso.id, personagemId },
+            data: {
+              valorAtual: Math.min(recurso.valorAtual + no.custo, recurso.valorMax),
+            },
+          }),
+        );
+      }
+    }
+    await prisma.$transaction(ops);
+    revalidatePath(`/ficha/${personagemId}`);
+  });
+}
+
+// ─── Ramos ────────────────────────────────────────────────
+
+export async function criarRamo(
+  personagemId: string,
+  arvoreId: string,
+  nome: string,
+) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const arvore = await arvoreDoPersonagem(personagemId, arvoreId);
+    const limpo = String(nome).trim().slice(0, 40);
+    if (!limpo) throw new ErroDeUso("Nome do ramo é obrigatório.");
+
+    const ramo = await prisma.arvoreRamo.create({
+      data: { arvoreId, nome: limpo, ordem: arvore.ramos.length },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
+    return { id: ramo.id };
+  });
+}
+
+export async function atualizarRamo(
+  personagemId: string,
+  arvoreId: string,
+  ramoId: string,
+  patch: { nome?: unknown; ordem?: unknown },
+) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    await arvoreDoPersonagem(personagemId, arvoreId);
+    const data: Record<string, unknown> = {};
+    if (patch.nome !== undefined) {
+      const limpo = String(patch.nome).trim().slice(0, 40);
+      if (!limpo) throw new ErroDeUso("Nome do ramo é obrigatório.");
+      data.nome = limpo;
+    }
+    if (patch.ordem !== undefined) data.ordem = Math.trunc(Number(patch.ordem) || 0);
+
+    await prisma.arvoreRamo.update({ where: { id: ramoId, arvoreId }, data });
+    revalidatePath(`/ficha/${personagemId}`);
+  });
+}
+
+export async function deletarRamo(
+  personagemId: string,
+  arvoreId: string,
+  ramoId: string,
+) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    await arvoreDoPersonagem(personagemId, arvoreId);
+    // ramoId é SetNull: os nós voltam pro primeiro ramo.
+    await prisma.arvoreRamo.delete({ where: { id: ramoId, arvoreId } });
+    revalidatePath(`/ficha/${personagemId}`);
+  });
+}
+
+/** Leva o nó pra outra célula da grade; se ela tiver dono, os dois trocam de lugar. */
+export async function moverNo(
+  personagemId: string,
+  arvoreId: string,
+  noId: string,
+  destino: { camadaId: string; ramoId: string | null; coluna: number; linha: number },
+) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const arvore = await arvoreDoPersonagem(personagemId, arvoreId);
+    const no = arvore.nos.find((n) => n.id === noId);
+    if (!no) throw new ErroDeUso("Talento não encontrado.");
+    if (!arvore.camadas.some((c) => c.id === destino.camadaId)) {
+      throw new ErroDeUso("Camada não pertence a esta árvore.");
+    }
+    if (destino.ramoId && !arvore.ramos.some((r) => r.id === destino.ramoId)) {
+      throw new ErroDeUso("Ramo não pertence a esta árvore.");
+    }
+
+    const alvo = {
+      camadaId: destino.camadaId,
+      ramoId: raiaEfetiva(destino.ramoId, arvore.ramos),
+      coluna: clampColuna(destino.coluna),
+      linha: clampLinha(destino.linha),
+    };
+    const ocupante = noNaCelula(alvo, arvore.nos as NoArvore[], arvore.ramos, noId);
+    const ops: Prisma.PrismaPromise<unknown>[] = [
+      prisma.arvoreNo.update({ where: { id: noId, arvoreId }, data: alvo }),
+    ];
+    if (ocupante) {
+      ops.push(
+        prisma.arvoreNo.update({
+          where: { id: ocupante.id, arvoreId },
+          data: {
+            camadaId: no.camadaId,
+            ramoId: raiaEfetiva(no.ramoId, arvore.ramos),
+            coluna: no.coluna,
+            linha: no.linha,
+          },
+        }),
+      );
+    }
+    await prisma.$transaction(ops);
+    revalidatePath(`/ficha/${personagemId}`);
+  });
+}
+
+/**
+ * Copia a estrutura da árvore (sem progresso) pra outro personagem ou pro mesmo.
+ * habilidadeId e recursoCustoId são religados por nome no destino, ou viram null.
+ */
+export async function duplicarArvore(
+  personagemId: string,
+  arvoreOrigemId: string,
+) {
+  return executar("ficha", async () => {
+    const { user } = await autorizar(personagemId);
+
+    const origem = await prisma.arvore.findUnique({
+      where: { id: arvoreOrigemId },
+      include: {
+        personagem: { include: { mesa: true } },
+        camadas: { orderBy: { ordem: "asc" } },
+        ramos: { orderBy: { ordem: "asc" } },
+        nos: { orderBy: { ordem: "asc" } },
+      },
+    });
+    if (!origem) throw new ErroDeUso("Árvore de origem não encontrada.");
+
+    // Acesso à origem é checado à parte: `autorizar` cobriu só o destino.
+    const podeLerOrigem =
+      origem.personagem.userId === user.id ||
+      origem.personagem.mesa?.userId === user.id;
+    if (!podeLerOrigem) throw new ErroDeUso("Sem acesso à árvore de origem.");
+
+    const [habilidadesDestino, recursosDestino] = await Promise.all([
+      prisma.habilidade.findMany({
+        where: { personagemId },
+        select: { id: true, nome: true },
+      }),
+      prisma.recurso.findMany({
+        where: { personagemId },
+        select: { id: true, nome: true },
+      }),
+    ]);
+    const habPorNome = new Map(
+      habilidadesDestino.map((h) => [h.nome.trim().toLowerCase(), h.id]),
+    );
+    const recPorNome = new Map(
+      recursosDestino.map((r) => [r.nome.trim().toLowerCase(), r.id]),
+    );
+
+    let recursoCustoId: string | null = null;
+    if (origem.recursoCustoId) {
+      const original = await prisma.recurso.findUnique({
+        where: { id: origem.recursoCustoId },
+        select: { nome: true },
+      });
+      if (original) {
+        recursoCustoId = recPorNome.get(original.nome.trim().toLowerCase()) ?? null;
+      }
+    }
+
+    const mesmoDono = origem.personagemId === personagemId;
+    const nome = mesmoDono ? `${origem.nome} (cópia)`.slice(0, 60) : origem.nome;
+
+    const ordemFinal = await prisma.arvore.count({ where: { personagemId } });
+
+    // 1: árvore, camadas e raias.
+    const nova = await prisma.arvore.create({
+      data: {
+        personagemId,
+        nome,
+        icone: origem.icone,
+        cor: origem.cor,
+        cor2: origem.cor2,
+        efeito: origem.efeito,
+        ordem: ordemFinal,
+        criterio: origem.criterio,
+        recursoCustoId,
+        fundoUrl: origem.fundoUrl,
+        camadas: {
+          create: origem.camadas.map((c) => ({
+            nome: c.nome,
+            ordem: c.ordem,
+            limiar: c.limiar,
+          })),
+        },
+        ramos: {
+          create: origem.ramos.map((r) => ({ nome: r.nome, ordem: r.ordem })),
+        },
+      },
+      include: {
+        camadas: { orderBy: { ordem: "asc" } },
+        ramos: { orderBy: { ordem: "asc" } },
+      },
+    });
+
+    // Pareamento por índice: a ordem é preservada, nomes podem repetir.
+    const mapaCamada = new Map<string, string>();
+    origem.camadas.forEach((c, i) => {
+      const destino = nova.camadas[i];
+      if (destino) mapaCamada.set(c.id, destino.id);
+    });
+    const mapaRamo = new Map<string, string>();
+    origem.ramos.forEach((r, i) => {
+      const destino = nova.ramos[i];
+      if (destino) mapaRamo.set(r.id, destino.id);
+    });
+
+    // 2: talentos, ainda sem requisitos.
+    const mapaNo = new Map<string, string>();
+    for (const no of origem.nos) {
+      const camadaId = mapaCamada.get(no.camadaId);
+      if (!camadaId) continue; // camada órfã — não deveria acontecer
+      const criado = await prisma.arvoreNo.create({
+        data: {
+          arvoreId: nova.id,
+          camadaId,
+          ramoId: no.ramoId ? mapaRamo.get(no.ramoId) ?? null : null,
+          coluna: no.coluna,
+          linha: no.linha,
+          nome: no.nome,
+          descricao: no.descricao,
+          icone: no.icone,
+          custo: no.custo,
+          maxRanks: no.maxRanks,
+          rankAtual: 0,
+          nivelMinimo: no.nivelMinimo,
+          habilidadeId: habPorNome.get(no.nome.trim().toLowerCase()) ?? null,
+          requisitos: [],
+          ordem: no.ordem,
+        },
+        select: { id: true },
+      });
+      mapaNo.set(no.id, criado.id);
+    }
+
+    // 3: requisitos com os ids novos.
+    const comRequisitos = origem.nos
+      .map((no) => {
+        const reqs = lerRequisitos(no.requisitos)
+          .map((r) => {
+            const alvo = mapaNo.get(r.noId);
+            return alvo ? { noId: alvo, rank: r.rank } : null;
+          })
+          .filter((r): r is RequisitoNo => r !== null);
+        const id = mapaNo.get(no.id);
+        return id && reqs.length > 0 ? { id, reqs } : null;
+      })
+      .filter((x): x is { id: string; reqs: RequisitoNo[] } => x !== null);
+
+    if (comRequisitos.length > 0) {
+      await prisma.$transaction(
+        comRequisitos.map((x) =>
+          prisma.arvoreNo.update({
+            where: { id: x.id, arvoreId: nova.id },
+            data: { requisitos: x.reqs },
+          }),
+        ),
+      );
+    }
+
+    revalidatePath(`/ficha/${personagemId}`);
+    return { id: nova.id, talentos: mapaNo.size };
+  });
+}
+
+// ─── Descanso ──────────────────────────────────────────────
+
+/**
+ * Curto recupera o que é "descansoCurto"; longo também o "descansoLongo", PV/PP cheios,
+ * PV temporário zerado, exaustão −1 e metade dos Dados de Vida. Sustentada não é desligada.
+ */
+export async function descansar(personagemId: string, tipo: TipoDescanso) {
+  return executar("ficha", async () => {
+    if (tipo !== "curto" && tipo !== "longo") {
+      throw new ErroDeUso("Tipo de descanso inválido.");
+    }
+    const { personagem } = await autorizar(personagemId);
+
+    const [recursos, habilidades] = await Promise.all([
+      prisma.recurso.findMany({ where: { personagemId } }),
+      prisma.habilidade.findMany({ where: { personagemId } }),
+    ]);
+
+    const ops: Prisma.PrismaPromise<unknown>[] = [];
+    const resumo: ResumoDescanso = {
+      tipo,
+      recursos: [],
+      habilidades: [],
+      pvRestaurado: 0,
+      ppRestaurado: 0,
+      pvTempPerdido: 0,
+      exaustaoReduzida: false,
+      dadosVidaDevolvidos: 0,
+    };
+
+    for (const r of recursos) {
+      if (!recuperaNoDescanso(r.resetEm, tipo)) continue;
+      if (r.valorAtual >= r.valorMax) continue;
+      ops.push(
+        prisma.recurso.update({
+          where: { id: r.id, personagemId },
+          data: { valorAtual: r.valorMax },
+        }),
+      );
+      resumo.recursos.push(r.nome);
+    }
+
+    for (const h of habilidades) {
+      if (!recuperaNoDescanso(h.recarga, tipo)) continue;
+      if (h.usos == null || (h.usosAtual ?? 0) >= h.usos) continue;
+      ops.push(
+        prisma.habilidade.update({
+          where: { id: h.id, personagemId },
+          data: { usosAtual: h.usos },
+        }),
+      );
+      resumo.habilidades.push(h.nome);
+    }
+
+    if (tipo === "longo") {
+      resumo.pvRestaurado = Math.max(0, personagem.hpMax - personagem.hpAtual);
+      resumo.ppRestaurado = Math.max(0, personagem.ppMax - personagem.ppAtual);
+      resumo.pvTempPerdido = Math.max(0, personagem.hpTemp);
+      resumo.exaustaoReduzida = personagem.exaustao > 0;
+      resumo.dadosVidaDevolvidos = dadosVidaRecuperados(
+        personagem.nivel,
+        personagem.dadosVidaGastos,
+      );
+
+      ops.push(
+        prisma.personagem.update({
+          where: { id: personagemId },
+          data: {
+            hpAtual: personagem.hpMax,
+            ppAtual: personagem.ppMax,
+            hpTemp: 0,
+            exaustao: Math.max(0, personagem.exaustao - 1),
+            dadosVidaGastos: Math.max(
+              0,
+              personagem.dadosVidaGastos - resumo.dadosVidaDevolvidos,
+            ),
+          },
+        }),
+      );
+    }
+
+    if (ops.length > 0) await prisma.$transaction(ops);
+    revalidatePath(`/ficha/${personagemId}`);
+    return resumo;
+  });
+}
+
+/** A rolagem é no cliente (vai pro Rolador); aqui só debita o dado e clampa a cura. */
+export async function gastarDadoDeVida(personagemId: string, curado: number) {
+  return executar("ficha", async () => {
+    const { personagem } = await autorizar(personagemId);
+
+    const disponiveis = personagem.nivel - personagem.dadosVidaGastos;
+    if (disponiveis <= 0) throw new ErroDeUso("Sem Dados de Vida disponíveis.");
+
+    // Teto: um dado + mod CON não passa de faces + 10 em qualquer cenário são.
+    const teto = facesDadoVida(personagem.tipoDadoVida) + 10;
+    const cura = Math.max(0, Math.min(Math.trunc(Number(curado) || 0), teto));
+
+    await prisma.personagem.update({
+      where: { id: personagemId },
+      data: {
+        dadosVidaGastos: { increment: 1 },
+        hpAtual: Math.min(personagem.hpAtual + cura, personagem.hpMax),
+      },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
+  });
+}
+
+// ─── Subir de nível ────────────────────────────────────────
+
+/** Aplica a proposta do assistente. PV e aprimoramento vindos do cliente são revalidados. */
+export async function subirDeNivel(
+  personagemId: string,
+  entrada: { pvGanho: unknown; aprimoramento?: unknown },
+) {
+  return executar("ficha", async () => {
+    const { personagem } = await autorizar(personagemId);
+
+    if (personagem.nivel >= NIVEL_MAXIMO) {
+      throw new ErroDeUso(`Nível máximo (${NIVEL_MAXIMO}) já atingido.`);
+    }
+    const nivelNovo = personagem.nivel + 1;
+
+    const modCon = modificador(personagem.constituicao);
+    const teto = tetoGanhoPv(personagem.tipoDadoVida, modCon);
+    const pvGanho = Math.min(clampGanhoPv(Number(entrada.pvGanho) || 0), teto);
+
+    const bruto = (entrada.aprimoramento ?? {}) as Record<string, unknown>;
+    const apr: Aprimoramento = {};
+    for (const a of ATRIBUTOS) {
+      const v = Math.trunc(Number(bruto[a.slug]) || 0);
+      if (v > 0) apr[a.slug] = v;
+    }
+
+    const atuais = {
+      forca: personagem.forca,
+      destreza: personagem.destreza,
+      constituicao: personagem.constituicao,
+      sabedoria: personagem.sabedoria,
+      vontade: personagem.vontade,
+      presenca: personagem.presenca,
+    };
+    const recusa = validarAprimoramento(apr, atuais);
+    if (recusa) throw new ErroDeUso(recusa);
+
+    // CON que sobe de modificador dá PV retroativo por nível já atingido.
+    const conDepois = personagem.constituicao + (apr.constituicao ?? 0);
+    const retroativo = pvRetroativoPorCon(
+      personagem.constituicao,
+      conDepois,
+      nivelNovo,
+    );
+
+    const data: Record<string, unknown> = {
+      nivel: nivelNovo,
+      hpMax: personagem.hpMax + pvGanho + retroativo,
+      hpAtual: personagem.hpAtual + pvGanho + retroativo,
+    };
+    for (const [slug, ganho] of Object.entries(apr)) {
+      data[slug] = atuais[slug as Atributo] + ganho;
+    }
+
+    await prisma.personagem.update({ where: { id: personagemId }, data });
+    revalidatePath(`/ficha/${personagemId}`);
+    return { nivelNovo, pvGanho, retroativo };
+  });
+}
+
+// ─── Objetivos ─────────────────────────────────────────────
+// O prazo fica em dias absolutos do calendário da mesa.
+
+const ALLOWED_OBJETIVO = ["titulo", "descricao", "estado", "icone", "prazoDias", "ordem"] as const;
+type ObjetivoInput = Partial<Record<(typeof ALLOWED_OBJETIVO)[number], unknown>>;
+
+// Sem export: arquivo "use server" so pode exportar funcao async.
+const ESTADOS_OBJETIVO = ["aberto", "feito", "abandonado"] as const;
+const ESTADOS_VALIDOS = new Set<string>(ESTADOS_OBJETIVO);
+
+function normalizarObjetivo(input: ObjetivoInput, parcial: boolean) {
+  const data: Record<string, unknown> = {};
+  for (const key of ALLOWED_OBJETIVO) {
+    if (input[key] === undefined) continue;
+    if (key === "titulo") {
+      const titulo = String(input.titulo).trim();
+      if (!titulo) throw new ErroDeUso("Título do objetivo é obrigatório.");
+      data.titulo = titulo.slice(0, 160);
+    } else if (key === "descricao") {
+      data.descricao = String(input.descricao).trim();
+    } else if (key === "estado") {
+      const v = String(input.estado);
+      if (!ESTADOS_VALIDOS.has(v)) throw new ErroDeUso("Estado de objetivo inválido.");
+      data.estado = v;
+    } else if (key === "icone") {
+      data.icone = String(input.icone).trim() || "fa-scroll";
+    } else if (key === "prazoDias") {
+      data.prazoDias =
+        input.prazoDias === null ? null : Math.trunc(Number(input.prazoDias) || 0);
+    } else if (key === "ordem") {
+      data.ordem = Number(input.ordem) || 0;
+    }
+  }
+  if (!parcial && data.titulo === undefined) {
+    throw new ErroDeUso("Título do objetivo é obrigatório.");
+  }
+  return data;
+}
+
+export async function criarObjetivo(personagemId: string, input: ObjetivoInput) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const data = normalizarObjetivo(input, false);
+
+    const ultimo = await prisma.objetivo.findFirst({
+      where: { personagemId },
+      orderBy: { ordem: "desc" },
+      select: { ordem: true },
+    });
+
+    const criado = await prisma.objetivo.create({
+      data: {
+        personagemId,
+        titulo: data.titulo as string,
+        descricao: (data.descricao as string) ?? "",
+        estado: (data.estado as string) ?? "aberto",
+        icone: (data.icone as string) ?? "fa-scroll",
+        prazoDias: (data.prazoDias as number | null) ?? null,
+        ordem: (data.ordem as number) ?? (ultimo ? ultimo.ordem + 1 : 0),
+      },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
+    return {
+      id: criado.id,
+      titulo: criado.titulo,
+      descricao: criado.descricao,
+      estado: criado.estado,
+      icone: criado.icone,
+      prazoDias: criado.prazoDias,
+      ordem: criado.ordem,
+    };
+  });
+}
+
+export async function atualizarObjetivo(
+  personagemId: string,
+  objetivoId: string,
+  patch: ObjetivoInput,
+) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const data = normalizarObjetivo(patch, true);
+
+    await prisma.objetivo.update({
+      where: { id: objetivoId, personagemId },
+      data,
+    });
+    revalidatePath(`/ficha/${personagemId}`);
+  });
+}
+
+export async function deletarObjetivo(personagemId: string, objetivoId: string) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    await prisma.objetivo.delete({
+      where: { id: objetivoId, personagemId },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
+  });
 }

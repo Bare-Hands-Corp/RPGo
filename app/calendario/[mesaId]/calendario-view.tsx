@@ -8,11 +8,13 @@ import {
   dataParaDias,
   diasMaximos,
   diasParaData,
+  eventoVisivelPraJogador,
   fasesLua,
   mesesNaEstacao,
   posicaoMesNaEstacao,
 } from "@/lib/calendario/engine";
-import type { EventoCal, TipoClima } from "./types";
+import { idTemporario, type Resultado } from "@/lib/acoes";
+import type { EventoCal, ObjetivoPrazo, TipoClima } from "./types";
 import {
   atualizarEvento,
   atualizarTipoClima,
@@ -25,6 +27,7 @@ import {
 import { GridMensal } from "./grid-mensal";
 import { IconeCal } from "./icones";
 import { ListaEventos } from "./lista-eventos";
+import { PrazosCard } from "./prazos-card";
 import { GeradorClimaCard } from "./gerador-card";
 import { ModalEvento } from "./modal-evento";
 import { ModalConfig } from "./modal-config";
@@ -38,6 +41,8 @@ type Props = {
   dataAtualDias: number;
   eventos: EventoCal[];
   tiposClima: TipoClima[];
+  /** Prazos de objetivo já filtrados no servidor por quem pode ver. */
+  objetivos: ObjetivoPrazo[];
 };
 
 export function CalendarioView({
@@ -47,6 +52,7 @@ export function CalendarioView({
   dataAtualDias,
   eventos,
   tiposClima,
+  objetivos,
 }: Props) {
   const [, startTransition] = useTransition();
 
@@ -88,14 +94,24 @@ export function CalendarioView({
   );
 
   // Helper centralizado pra erros de action — todos os handlers reportam igual.
-  function mostrarErro(e: unknown) {
+  function mostrarErro(mensagem: string) {
     Swal.fire({
       icon: "error",
       title: "Erro",
-      text: e instanceof Error ? e.message : "Erro inesperado.",
+      text: mensagem,
       background: "var(--bg-card)",
       color: "var(--text-main)",
     });
+  }
+
+  // Mostra o erro da action; o catch é só falha de rede.
+  async function comErro(chamada: () => Promise<Resultado>) {
+    try {
+      const r = await chamada();
+      if (!r.ok) mostrarErro(r.erro);
+    } catch {
+      mostrarErro("Falha de conexão com o servidor. Tenta de novo.");
+    }
   }
 
   // ─── Handlers expostos pros modais e lista ────────────────────────────
@@ -112,19 +128,11 @@ export function CalendarioView({
     startTransition(async () => {
       if (id) {
         aplicarPatchEvento({ kind: "update", id, patch: payload });
-        try {
-          await atualizarEvento(mesaId, id, payload);
-        } catch (e) {
-          mostrarErro(e);
-        }
+        await comErro(() => atualizarEvento(mesaId, id, payload));
       } else {
-        const tempId = "temp-" + Math.random().toString(36).slice(2);
+        const tempId = idTemporario();
         aplicarPatchEvento({ kind: "create", evento: { id: tempId, ...payload } });
-        try {
-          await criarEvento(mesaId, payload);
-        } catch (e) {
-          mostrarErro(e);
-        }
+        await comErro(() => criarEvento(mesaId, payload));
       }
     });
   }
@@ -132,11 +140,7 @@ export function CalendarioView({
   function onApagarEvento(id: string) {
     startTransition(async () => {
       aplicarPatchEvento({ kind: "delete", id });
-      try {
-        await deletarEvento(mesaId, id);
-      } catch (e) {
-        mostrarErro(e);
-      }
+      await comErro(() => deletarEvento(mesaId, id));
     });
   }
 
@@ -149,40 +153,30 @@ export function CalendarioView({
 
   function onCriarTipoClima(payload: TipoClimaPayload) {
     startTransition(async () => {
-      const tempId = "temp-" + Math.random().toString(36).slice(2);
+      const tempId = idTemporario();
       aplicarPatchTipoClima({ kind: "create", tipo: { id: tempId, ...payload } });
-      try {
-        await criarTipoClima(mesaId, payload);
-      } catch (e) {
-        mostrarErro(e);
-      }
+      await comErro(() => criarTipoClima(mesaId, payload));
     });
   }
 
   function onPatchTipoClima(id: string, patch: Partial<TipoClima>) {
     startTransition(async () => {
       aplicarPatchTipoClima({ kind: "update", id, patch });
-      try {
-        await atualizarTipoClima(mesaId, id, {
+      await comErro(() =>
+        atualizarTipoClima(mesaId, id, {
           nome: patch.nome,
           descricao: patch.descricao,
           icone: patch.icone,
           pesosPorEstacao: patch.pesosPorEstacao,
-        });
-      } catch (e) {
-        mostrarErro(e);
-      }
+        }),
+      );
     });
   }
 
   function onApagarTipoClima(id: string) {
     startTransition(async () => {
       aplicarPatchTipoClima({ kind: "delete", id });
-      try {
-        await deletarTipoClima(mesaId, id);
-      } catch (e) {
-        mostrarErro(e);
-      }
+      await comErro(() => deletarTipoClima(mesaId, id));
     });
   }
 
@@ -198,16 +192,29 @@ export function CalendarioView({
   });
 
   // Modais
-  const [modalEvento, setModalEvento] = useState<{ aberto: boolean; evento: EventoCal | null }>({
-    aberto: false,
-    evento: null,
-  });
+  const [modalEvento, setModalEvento] = useState<{
+    aberto: boolean;
+    evento: EventoCal | null;
+    dataDias: number | null;
+  }>({ aberto: false, evento: null, dataDias: null });
   const [modalConfigAberto, setModalConfigAberto] = useState(false);
   const [modalTiposAberto, setModalTiposAberto] = useState(false);
   const [modalGerarAberto, setModalGerarAberto] = useState(false);
 
   // Lista expandida (6 → 30 dias)
   const [expandido, setExpandido] = useState(false);
+
+  // Prévia "ver como jogador": `comoNarrador` é o papel efetivo, `isNarrador` o real.
+  const [verComoJogador, setVerComoJogador] = useState(false);
+  const comoNarrador = isNarrador && !verComoJogador;
+
+  function alternarPrevia() {
+    setModalEvento({ aberto: false, evento: null, dataDias: null });
+    setModalConfigAberto(false);
+    setModalTiposAberto(false);
+    setModalGerarAberto(false);
+    setVerComoJogador((v) => !v);
+  }
 
   // Edição inline do dia atual (só narrador)
   const [editandoDia, setEditandoDia] = useState(false);
@@ -226,8 +233,16 @@ export function CalendarioView({
   const ciclo = config.cicloLuaDias || 29.5;
   const diaCiclo = Math.floor(lua.fracao * ciclo) + 1;
 
+  // Mesmo filtro do loader, refeito no cliente pra prévia.
+  const eventosVisiveis = comoNarrador
+    ? eventosOtimistas
+    : eventosOtimistas.filter((e) => eventoVisivelPraJogador(e, dataAtualOtimista));
+
+  // Objetivo é pessoal; a prévia não é de nenhum jogador específico.
+  const objetivosVisiveis = verComoJogador ? [] : objetivos;
+
   // Clima de hoje
-  const climaHoje = eventosOtimistas.find(
+  const climaHoje = eventosVisiveis.find(
     (e) => e.dataDias === dataAtualOtimista && e.tipo === "climatico",
   );
   const tipoClimaHoje = climaHoje?.tipoClimaId
@@ -241,17 +256,7 @@ export function CalendarioView({
     if (alvo === dataAtualOtimista) return;
     startTransition(async () => {
       setDataAtualOtimista(alvo);
-      try {
-        await setarDataAtual(mesaId, alvo);
-      } catch (e) {
-        Swal.fire({
-          icon: "error",
-          title: "Erro",
-          text: e instanceof Error ? e.message : "Erro ao mudar a data.",
-          background: "var(--bg-card)",
-          color: "var(--text-main)",
-        });
-      }
+      await comErro(() => setarDataAtual(mesaId, alvo));
     });
   }
 
@@ -275,17 +280,7 @@ export function CalendarioView({
     );
     startTransition(async () => {
       setDataAtualOtimista(novosDias);
-      try {
-        await setarDataAtual(mesaId, novosDias);
-      } catch (e) {
-        Swal.fire({
-          icon: "error",
-          title: "Erro",
-          text: e instanceof Error ? e.message : "Erro ao salvar a data.",
-          background: "var(--bg-card)",
-          color: "var(--text-main)",
-        });
-      }
+      await comErro(() => setarDataAtual(mesaId, novosDias));
     });
   }
 
@@ -307,20 +302,41 @@ export function CalendarioView({
     setMesVisao({ ano: hoje.ano, mes: hoje.mes });
   }
 
+  const noMesDeHoje = mesVisao.ano === hoje.ano && mesVisao.mes === hoje.mes;
+
   return (
     <>
-      <div className="cal-header-card">
+      {verComoJogador && (
+        <div className="cal-previa-faixa" role="status">
+          <span className="cal-previa-icone">
+            <i className="fas fa-eye" />
+          </span>
+          <div className="cal-previa-texto">
+            <strong>Prévia: é isto que um jogador vê.</strong>
+            <span>
+              Eventos ocultos e os que ainda não chegaram somem, e os prazos de
+              objetivo também — cada jogador enxerga só os do próprio personagem.
+            </span>
+          </div>
+          <button type="button" className="btn-rect neutro sm" onClick={alternarPrevia}>
+            <i className="fas fa-xmark" /> Sair da prévia
+          </button>
+        </div>
+      )}
+
+      <div className="cal-card">
         <div className="cal-header-row1">
           <div className="cal-header-titulo">
-            <span className="cal-kicker">CALENDÁRIO</span>
+            <span className="cal-kicker">Mês em exibição</span>
             <div className="cal-header-mes-nav">
               <button
                 type="button"
                 className="cal-nav-btn"
                 onClick={() => mudarMes(-1)}
                 title="Mês anterior"
+                aria-label="Mês anterior"
               >
-                ◁
+                <i className="fas fa-chevron-left" />
               </button>
               <h2 className="cal-mes-visao">
                 <span>{config.meses[mesVisao.mes - 1]?.nome || "?"}</span>
@@ -331,22 +347,52 @@ export function CalendarioView({
                 className="cal-nav-btn"
                 onClick={() => mudarMes(+1)}
                 title="Próximo mês"
+                aria-label="Próximo mês"
               >
-                ▷
+                <i className="fas fa-chevron-right" />
               </button>
             </div>
           </div>
           <div className="cal-header-acoes">
-            <button type="button" className="cal-hoje-btn" onClick={irPraHoje} title="Ir pro mês atual">
-              HOJE
+            <button
+              type="button"
+              className="btn-rect neutro sm"
+              onClick={irPraHoje}
+              disabled={noMesDeHoje}
+              title={noMesDeHoje ? "Já está no mês atual" : "Voltar pro mês atual"}
+            >
+              <i className="fas fa-location-crosshairs" /> Hoje
             </button>
             {isNarrador && (
               <div className="cal-header-narrador-btns">
                 <button
                   type="button"
+                  className={"cal-icon-btn" + (verComoJogador ? " ativo" : "")}
+                  onClick={alternarPrevia}
+                  aria-pressed={verComoJogador}
+                  title={
+                    verComoJogador
+                      ? "Voltar pra visão do narrador"
+                      : "Ver o calendário como um jogador vê"
+                  }
+                  aria-label={
+                    verComoJogador
+                      ? "Voltar pra visão do narrador"
+                      : "Ver o calendário como um jogador vê"
+                  }
+                >
+                  <i className={verComoJogador ? "fas fa-eye-slash" : "fas fa-eye"} />
+                </button>
+              </div>
+            )}
+            {comoNarrador && (
+              <div className="cal-header-narrador-btns">
+                <button
+                  type="button"
                   className="cal-icon-btn"
                   onClick={() => avancarDias(-1)}
-                  title="Voltar um dia"
+                  title="Voltar um dia na mesa"
+                  aria-label="Voltar um dia na mesa"
                 >
                   <i className="fas fa-backward-step" />
                 </button>
@@ -354,7 +400,8 @@ export function CalendarioView({
                   type="button"
                   className="cal-icon-btn"
                   onClick={() => avancarDias(+1)}
-                  title="Avançar um dia"
+                  title="Avançar um dia na mesa"
+                  aria-label="Avançar um dia na mesa"
                 >
                   <i className="fas fa-forward-step" />
                 </button>
@@ -363,6 +410,7 @@ export function CalendarioView({
                   className="cal-icon-btn"
                   onClick={() => setModalConfigAberto(true)}
                   title="Configurar calendário"
+                  aria-label="Configurar calendário"
                 >
                   <i className="fas fa-gear" />
                 </button>
@@ -372,11 +420,11 @@ export function CalendarioView({
         </div>
 
         <div className="cal-header-chips">
-          <div className="cal-today-chip">
-            <span className="cal-chip-kicker">HOJE</span>
+          <div className="cal-today-chip cal-chip-tint-hoje">
+            <span className="cal-chip-kicker">Hoje</span>
             <div className="cal-chip-main">
               Dia{" "}
-              {editandoDia && isNarrador ? (
+              {editandoDia && comoNarrador ? (
                 <input
                   type="text"
                   autoFocus
@@ -391,8 +439,8 @@ export function CalendarioView({
                 />
               ) : (
                 <span
-                  className={isNarrador ? "editable-num" : undefined}
-                  onClick={isNarrador ? () => setEditandoDia(true) : undefined}
+                  className={comoNarrador ? "editable-num" : undefined}
+                  onClick={comoNarrador ? () => setEditandoDia(true) : undefined}
                 >
                   {hoje.dia}
                 </span>
@@ -401,17 +449,19 @@ export function CalendarioView({
             <div className="cal-chip-sub">{hoje.nomeMes}</div>
           </div>
           <div className="cal-today-chip">
-            <span className="cal-chip-kicker">DIA DA SEMANA</span>
+            <span className="cal-chip-kicker">Dia da semana</span>
             <div className="cal-chip-main">{hoje.diaSemana}</div>
-            <div className="cal-chip-sub">Ano {hoje.ano}</div>
+            <div className="cal-chip-sub">
+              {hoje.nomeMes}, ano {hoje.ano}
+            </div>
           </div>
           <div className="cal-today-chip cal-chip-tint-estacao">
-            <span className="cal-chip-kicker">ESTAÇÃO</span>
+            <span className="cal-chip-kicker">Estação</span>
             <div className="cal-chip-main">{hoje.estacao}</div>
             <div className="cal-chip-sub">{estacaoSub}</div>
           </div>
           <div className="cal-today-chip cal-chip-tint-lua">
-            <span className="cal-chip-kicker">LUA</span>
+            <span className="cal-chip-kicker">Lua</span>
             <div className="cal-chip-main">
               <IconeCal icone={lua.icone} /> <span>{lua.nome}</span>
             </div>
@@ -420,18 +470,21 @@ export function CalendarioView({
             </div>
           </div>
           <div className="cal-today-chip cal-chip-tint-clima">
-            <span className="cal-chip-kicker">CLIMA</span>
+            <span className="cal-chip-kicker">Clima</span>
             <div className="cal-chip-main">
               {climaHoje ? (
                 <>
-                  <IconeCal icone={tipoClimaHoje?.icone} fallback="fa-cloud-sun" />{" "}
-                  {climaHoje.titulo}
+                  <IconeCal icone={tipoClimaHoje?.icone} fallback="fa-cloud-sun" />
+                  <span>{climaHoje.titulo}</span>
                 </>
               ) : (
-                "—"
+                <span>Sem registro</span>
               )}
             </div>
-            <div className="cal-chip-sub">{tipoClimaHoje?.nome || "sem registro"}</div>
+            <div className="cal-chip-sub">
+              {tipoClimaHoje?.nome ||
+                (comoNarrador ? "gere ou registre um evento" : "nada registrado hoje")}
+            </div>
           </div>
         </div>
       </div>
@@ -440,11 +493,15 @@ export function CalendarioView({
         config={config}
         dataAtualDias={dataAtualOtimista}
         mesVisao={mesVisao}
-        eventos={eventosOtimistas}
+        eventos={eventosVisiveis}
         tiposClima={tiposClimaOtimistas}
-        isNarrador={isNarrador}
+        objetivos={objetivosVisiveis}
+        isNarrador={comoNarrador}
+        onNovoEventoNoDia={(dias) =>
+          setModalEvento({ aberto: true, evento: null, dataDias: dias })
+        }
         onClickDia={(dias) => {
-          if (!isNarrador) return;
+          if (!comoNarrador) return;
           if (dias === dataAtualOtimista) return;
           startTransition(async () => {
             setDataAtualOtimista(dias);
@@ -466,17 +523,24 @@ export function CalendarioView({
       <ListaEventos
         config={config}
         dataAtualDias={dataAtualOtimista}
-        eventos={eventosOtimistas}
+        eventos={eventosVisiveis}
         tiposClima={tiposClimaOtimistas}
-        isNarrador={isNarrador}
+        isNarrador={comoNarrador}
         expandido={expandido}
         onToggleExpandir={() => setExpandido((v) => !v)}
-        onNovo={() => setModalEvento({ aberto: true, evento: null })}
-        onEditar={(ev) => setModalEvento({ aberto: true, evento: ev })}
+        onNovo={() => setModalEvento({ aberto: true, evento: null, dataDias: null })}
+        onEditar={(ev) => setModalEvento({ aberto: true, evento: ev, dataDias: null })}
         onApagar={onApagarEvento}
       />
 
-      {isNarrador && (
+      <PrazosCard
+        config={config}
+        dataAtualDias={dataAtualOtimista}
+        objetivos={objetivosVisiveis}
+        mostrarDono={comoNarrador}
+      />
+
+      {comoNarrador && (
         <GeradorClimaCard
           estacao={hoje.estacao}
           totalTipos={tiposClima.length}
@@ -486,17 +550,17 @@ export function CalendarioView({
       )}
 
       {/* Modais */}
-      {isNarrador && modalEvento.aberto && (
+      {comoNarrador && modalEvento.aberto && (
         <ModalEvento
           config={config}
           tiposClima={tiposClimaOtimistas}
           eventoInicial={modalEvento.evento}
-          dataAtualDias={dataAtualOtimista}
-          onFechar={() => setModalEvento({ aberto: false, evento: null })}
+          dataAtualDias={modalEvento.dataDias ?? dataAtualOtimista}
+          onFechar={() => setModalEvento({ aberto: false, evento: null, dataDias: null })}
           onSalvar={onSalvarEvento}
         />
       )}
-      {isNarrador && modalConfigAberto && (
+      {comoNarrador && modalConfigAberto && (
         <ModalConfig
           mesaId={mesaId}
           config={config}
@@ -504,7 +568,7 @@ export function CalendarioView({
           onFechar={() => setModalConfigAberto(false)}
         />
       )}
-      {isNarrador && modalTiposAberto && (
+      {comoNarrador && modalTiposAberto && (
         <ModalTiposClima
           config={config}
           tiposClima={tiposClimaOtimistas}
@@ -514,7 +578,7 @@ export function CalendarioView({
           onApagar={onApagarTipoClima}
         />
       )}
-      {isNarrador && modalGerarAberto && (
+      {comoNarrador && modalGerarAberto && (
         <ModalGerarClima
           mesaId={mesaId}
           config={config}

@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useTransition } from "react";
 import { patchPersonagem } from "./actions";
+import { exigir } from "@/lib/acoes";
 import { formatarBerries } from "@/lib/op-rpg";
 
 // Formato é uma string simples (não função) porque o componente é cruzado
@@ -73,7 +74,7 @@ export function EditableStat({ personagemId, campo, valor, max, formato, onOtimi
     startTransition(async () => {
       onOtimista?.(novo);
       try {
-        await patchPersonagem(personagemId, { [campo]: novo });
+        exigir(await patchPersonagem(personagemId, { [campo]: novo }));
       } catch {
         setOtimista(null);
       }
@@ -104,6 +105,12 @@ export function EditableStat({ personagemId, campo, valor, max, formato, onOtimi
     <span
       className="editable-num"
       onClick={() => setEditando(true)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          setEditando(true);
+        }
+      }}
       role="button"
       tabIndex={0}
     >

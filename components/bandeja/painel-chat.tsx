@@ -19,6 +19,13 @@ import {
 } from "./actions";
 import type { MensagemSerializada } from "@/lib/mensagens";
 
+// Fuso fixo: o servidor (UTC) e o navegador precisam gerar o mesmo texto na hidratação.
+const formatoHora = new Intl.DateTimeFormat("pt-BR", {
+  hour: "2-digit",
+  minute: "2-digit",
+  timeZone: "America/Sao_Paulo",
+});
+
 export type PainelChatHandle = {
   // Append local de uma mensagem já persistida (usado pelo rolador pra evitar
   // round-trip duplo: a action retorna a mensagem e a passamos pra cá).
@@ -207,10 +214,7 @@ function MensagemView({
   personagemId: string | null;
   onMensagemAtualizada: (msg: MensagemSerializada) => void;
 }) {
-  const hora = new Date(msg.timestamp).toLocaleTimeString("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const hora = formatoHora.format(new Date(msg.timestamp));
   const nome = msg.uid === meuUid ? "Você" : msg.nome;
 
   if (msg.tipo === "rolagem" && msg.detalhes) {
@@ -377,10 +381,7 @@ function TesteMensagemView({
   personagemId: string | null;
   onMensagemAtualizada: (msg: MensagemSerializada) => void;
 }) {
-  const hora = new Date(msg.timestamp).toLocaleTimeString("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const hora = formatoHora.format(new Date(msg.timestamp));
   const nome = msg.uid === meuUid ? "Você" : msg.nome;
   const detalhes = msg.detalhes as {
     pericia?: string | null;
@@ -467,8 +468,6 @@ function TesteMensagemView({
           solicitacaoTesteId: msg.id,
           alvoNome: userName,
         },
-        personagemId,
-        personagemId ? `[${resultado.total}] = 1d20 ${bonusAtual >= 0 ? "+" : "-"} ${Math.abs(bonusAtual)}` : null,
       );
       onMensagemAtualizada(mensagem);
     } catch (error) {

@@ -1,8 +1,11 @@
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioDaRequest } from "@/lib/supabase/server";
 import { listarMensagensSessao } from "@/lib/mensagens";
-import { carregarCalendario } from "@/lib/calendario/carregar";
+import {
+  carregarCalendario,
+  carregarObjetivosComPrazo,
+} from "@/lib/calendario/carregar";
 import { serializarCriatura } from "@/app/bestiario/utils";
 import { NarradorShell } from "./painel-narrador";
 import { serializarSessao } from "./sessao/utils";
@@ -16,14 +19,11 @@ type Params = { params: Promise<{ mesaId: string }> };
 export default async function NarradorPage({ params }: Params) {
   const { mesaId } = await params;
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await usuarioDaRequest();
   if (!user) redirect("/login");
 
-  // Mesa + mensagens + calendário + sessão/bestiário pré-carregados em paralelo.
-  const [mesa, mensagensIniciais, calendario, sessaoAtiva, criaturas, encontros] = await Promise.all([
+  // Mesa + mensagens + calendário + objetivos + sessão/bestiário pré-carregados em paralelo.
+  const [mesa, mensagensIniciais, calendario, objetivosComPrazo, sessaoAtiva, criaturas, encontros] = await Promise.all([
     prisma.mesa.findUnique({
       where: { id: mesaId },
       include: {
@@ -34,6 +34,7 @@ export default async function NarradorPage({ params }: Params) {
     }),
     listarMensagensSessao(mesaId),
     carregarCalendario(mesaId, { isNarrador: true }),
+    carregarObjetivosComPrazo(mesaId, { userId: user.id, isNarrador: true }),
     prisma.sessao.findFirst({
       where: { mesaId, encerradaEm: null },
       include: { combates: { include: { participantes: true } } },
@@ -62,6 +63,7 @@ export default async function NarradorPage({ params }: Params) {
       userId={user.id}
       mensagensIniciais={mensagensIniciais}
       calendario={calendario}
+      objetivosComPrazo={objetivosComPrazo}
       sessaoInicial={sessaoAtiva ? serializarSessao(sessaoAtiva) : null}
       criaturas={criaturas.map(serializarCriatura)}
       encontros={encontros.map((e) => ({
