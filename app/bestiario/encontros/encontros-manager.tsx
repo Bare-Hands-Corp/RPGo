@@ -92,7 +92,7 @@ function EditorItens({
             setCriaturaEscolhida("");
           }}
         >
-          + Adicionar
+          <i className="fas fa-plus" /> Adicionar
         </button>
       </div>
     </div>
@@ -301,6 +301,7 @@ export function EncontrosManager({ criaturas, esquadroesIniciais, encontrosInici
                   </button>
                 )}
                 <button type="button" className="bestiario-btn-salvar" onClick={salvarEsquadrao} disabled={salvando}>
+                  <i className={`fas ${salvando ? "fa-spinner fa-spin" : "fa-floppy-disk"}`} />
                   {salvando ? "Salvando..." : "Salvar"}
                 </button>
               </div>
@@ -356,6 +357,7 @@ export function EncontrosManager({ criaturas, esquadroesIniciais, encontrosInici
                   </button>
                 )}
                 <button type="button" className="bestiario-btn-salvar" onClick={salvarEncontro} disabled={salvando}>
+                  <i className={`fas ${salvando ? "fa-spinner fa-spin" : "fa-floppy-disk"}`} />
                   {salvando ? "Salvando..." : "Salvar"}
                 </button>
               </div>

@@ -14,12 +14,17 @@
 //   ALTER TABLE calendarios         REPLICA IDENTITY FULL;
 //   ALTER TABLE tipos_clima         REPLICA IDENTITY FULL;
 //   ALTER TABLE eventos_calendario  REPLICA IDENTITY FULL;
+//   ALTER TABLE sessoes             REPLICA IDENTITY FULL;
+//   ALTER TABLE combates            REPLICA IDENTITY FULL;
+//   ALTER TABLE instancias_combate  REPLICA IDENTITY FULL;
 // E adicione cada tabela na lista de publicações do Realtime no Supabase Dashboard.
 //
 // Tabelas do Bestiário (criaturas, trait_templates, trait_instances,
 // esquadroes, encontros) não entram nessa lista de propósito: são editadas
 // só pelo narrador dono, um cliente por vez — sem necessidade de sync
 // realtime entre navegadores como Mesa/Personagem/Calendario têm.
+// Sessao/Combate/InstanciaCombate SÃO realtime — jogadores acompanham a
+// iniciativa e o PV das criaturas ao vivo, igual Mesa/Personagem já fazem.
 // ─────────────────────────────────────────────────────────────────────────────
 
 generator client {
@@ -41,6 +46,7 @@ model Mesa {
   personagens  Personagem[]
   calendario   Calendario?
   navio        Navio?
+  sessoes      Sessao[]
 
   @@map("mesas")
 }
@@ -593,4 +599,107 @@ model Encontro {
 
   @@index([userId])
   @@map("encontros")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Modo Sessão — Sessao é o container que nasce quando o narrador "inicia
+// sessão"; Combate vive dentro dela (várias, uma ativa por vez, sequenciais
+// ao longo da noite). Recursos futuros do Modo Sessão que não são combate
+// (áudio, modo teatro, resumo) penduram em sessaoId depois, sem mexer aqui.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Sessao {
+  id     String @id @default(uuid())
+  mesaId String @map("mesa_id")
+  mesa   Mesa   @relation(fields: [mesaId], references: [id], onDelete: Cascade)
+
+  iniciadaEm  DateTime  @default(now()) @map("iniciada_em")
+  // null = sessão ativa. Só uma sessão sem encerradaEm por mesa (checado na
+  // aplicação, não no banco — Postgres não tem unique parcial via Prisma puro).
+  encerradaEm DateTime? @map("encerrada_em")
+
+  combates Combate[]
+  logs     LogCombate[]
+
+  @@index([mesaId, encerradaEm])
+  @@map("sessoes")
+}
+
+model Combate {
+  id       String @id @default(uuid())
+  sessaoId String @map("sessao_id")
+  sessao   Sessao @relation(fields: [sessaoId], references: [id], onDelete: Cascade)
+
+  iniciadoEm  DateTime  @default(now()) @map("iniciado_em")
+  encerradoEm DateTime? @map("encerrado_em") // null = combate ativo
+
+  rodadaAtual Int @default(1) @map("rodada_atual")
+  // Índice na lista de participantes ordenada por iniciativa (não um id) —
+  // avançar turno é só somar 1 e voltar a 0 (+ rodada) ao passar do fim.
+  turnoAtual  Int @default(0) @map("turno_atual")
+
+  participantes InstanciaCombate[]
+
+  @@index([sessaoId, encerradoEm])
+  @@map("combates")
+}
+
+// Participante vivo de um combate — criatura do bestiário OU personagem de
+// jogador, nunca os dois (criaturaId/personagemId são referências soltas, sem
+// FK, mesmo padrão do resto do schema). PV de PJ não mora aqui: dano em
+// combate é permanente, então PJ usa Personagem.hpAtual direto; pvAtual/pvMax
+// aqui só fazem sentido pra criatura (ficam null quando personagemId setado).
+model InstanciaCombate {
+  id        String  @id @default(uuid())
+  combateId String  @map("combate_id")
+  combate   Combate @relation(fields: [combateId], references: [id], onDelete: Cascade)
+
+  criaturaId   String? @map("criatura_id")
+  personagemId String? @map("personagem_id")
+
+  // Cache do nome no momento de entrar em combate — sobrevive se a criatura
+  // for editada/removida do bestiário depois, sem quebrar o combate em curso.
+  nomeExibicao String @map("nome_exibicao")
+
+  iniciativa Int @default(0)
+  // Posição de exibição/desempate quando a iniciativa empata entre dois.
+  ordem      Int @default(0)
+
+  pvAtual Int? @map("pv_atual")
+  pvMax   Int? @map("pv_max")
+
+  // [{ nome: string, duracaoRodadas: number }]
+  condicoesAtivas Json @default("[]") @map("condicoes_ativas")
+  ppGasto         Int  @default(0) @map("pp_gasto")
+  // { [traitInstanceId]: "gasto" | "disponivel" }
+  estadoRecargas  Json @default("{}") @map("estado_recargas")
+
+  // Revelação progressiva pro jogador (seção "Modo Sessão" combinada antes) —
+  // só relevante quando é criatura; PJ não tem nada disso, é sempre visível.
+  pvVisivel        Boolean  @default(false) @map("pv_visivel")
+  ameacaVisivel    Boolean  @default(false) @map("ameaca_visivel")
+  acoesReveladas   String[] @default([]) @map("acoes_reveladas")
+  autoRevelarAcoes Boolean  @default(true) @map("auto_revelar_acoes")
+
+  criadoEm DateTime @default(now()) @map("criado_em")
+
+  @@index([combateId, ordem])
+  @@map("instancias_combate")
+}
+
+// Snapshot leve gravado ao encerrar um combate, antes de apagar as
+// InstanciaCombate — preserva histórico (quem participou, resultado) sem
+// manter linhas de combate encerrado poluindo consultas de combate ativo.
+model LogCombate {
+  id       String @id @default(uuid())
+  sessaoId String @map("sessao_id")
+  sessao   Sessao @relation(fields: [sessaoId], references: [id], onDelete: Cascade)
+
+  // { participantes: [{nome, tipo, pvFinal, sobreviveu}], rodadas, ... }
+  resumo Json
+
+  encerradoEm DateTime @default(now()) @map("encerrado_em")
+
+  @@index([sessaoId])
+  @@map("logs_combate")
 }

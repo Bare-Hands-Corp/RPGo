@@ -561,3 +561,224 @@
     gap: 12px;
   }
 }
+
+/* ─── Modo Sessão ─────────────────────────────────────────────── */
+
+.sessao-painel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sessao-vazio {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 24px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  color: var(--text-sec);
+}
+
+.sessao-topo-acoes {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sessao-topo-botoes {
+  display: flex;
+  gap: 10px;
+}
+
+.sessao-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.sessao-sem-combate,
+.sessao-combate {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sessao-iniciativa-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sessao-linha-iniciativa {
+  display: grid;
+  grid-template-columns: 44px 1fr 90px auto 32px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.sessao-linha-iniciativa.ativo {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary) inset;
+}
+
+.sessao-iniciativa-valor {
+  font-weight: 700;
+  text-align: center;
+  color: var(--text-sec);
+}
+
+.sessao-iniciativa-nome {
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.sessao-iniciativa-nome em {
+  font-weight: 400;
+  color: var(--text-sec);
+  font-style: normal;
+  font-size: 0.78rem;
+}
+
+.sessao-nome-link {
+  border: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  color: var(--text-main) !important;
+  font-weight: 600;
+  font-size: inherit;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.sessao-nome-link:hover {
+  color: var(--primary) !important;
+  text-decoration: underline;
+}
+
+.sessao-modal-ficha {
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  max-width: 720px;
+}
+
+.sessao-modal-ficha .bestiario-ficha-view {
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.sessao-iniciativa-pv {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 70px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-weight: 700;
+  text-align: center;
+  cursor: pointer;
+}
+
+input.sessao-iniciativa-pv {
+  cursor: text;
+}
+
+.sessao-iniciativa-pvmax {
+  color: var(--text-sec);
+  font-size: 0.8rem;
+}
+
+.sessao-linha-iniciativa button {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-sec);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.sessao-builder {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.sessao-builder-atalhos {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sessao-builder-atalhos select {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+}
+
+.sessao-linha-participante {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  flex-wrap: wrap;
+}
+
+.sessao-linha-nome {
+  flex: 1;
+  min-width: 120px;
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.sessao-linha-campo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--text-sec);
+}
+
+.sessao-linha-campo input[type="number"] {
+  width: 60px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-main);
+}
+
+.sessao-linha-checkbox {
+  flex-direction: row-reverse;
+}
+
+.sessao-linha-participante > button {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-sec);
+  border-radius: 6px;
+  cursor: pointer;
+}

@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { BotaoVoltar } from "@/components/botao-voltar";
 import { FormCriacao } from "./form";
 import "./criacao.css";
 
@@ -14,9 +14,9 @@ export default async function CriacaoPersonagemPage() {
   return (
     <div className="char-creation-container">
       <div className="char-creation-topbar">
-        <Link href="/dashboard" className="btn-voltar-criacao">
+        <BotaoVoltar fallbackHref="/dashboard" className="btn-voltar-criacao">
           <i className="fas fa-arrow-left" /> Voltar
-        </Link>
+        </BotaoVoltar>
       </div>
 
       <div className="char-creation-header">

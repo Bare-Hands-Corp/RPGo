@@ -5,27 +5,74 @@ import { useRouter } from "next/navigation";
 import Swal from "sweetalert2";
 import { criarTemplate, atualizarTemplate, deletarTemplate } from "../traits-actions";
 import { criarTemplateVazio } from "../utils";
-import { CATEGORIAS_COMPONENTE, FORMAS_AREA, TIPOS_DANO_SUGERIDOS } from "../types";
-import type {
-  AtributoSalvaguarda,
-  DanoEntrada,
-  DerivacaoNumero,
-  DerivacaoTexto,
-  TemplatePayload,
-  TemplateSerializado,
-} from "../types";
-import { ListaTextoInput, NumeroInput } from "../inputs";
-
-function uuid() {
-  return crypto.randomUUID();
-}
+import { corDaCondicao } from "../cor-condicao";
+import { destacarCondicoes } from "../destacar-condicoes";
+import { EfeitosEditor, UsosLimitadosEditor } from "../componente-editor";
+import { CATEGORIAS_ACAO, CATEGORIAS_COMPONENTE } from "../types";
+import type { CondicaoEfeito, ComponenteCategoria, EfeitoAcao, TemplatePayload, TemplateSerializado } from "../types";
+import { ListaTextoInput } from "../inputs";
 
 function draftDeTemplate(t: TemplateSerializado): TemplatePayload {
   const { id: _id, criadoEm: _criadoEm, ...payload } = t;
   return payload;
 }
 
-const ATRIBUTOS: AtributoSalvaguarda[] = ["forca", "destreza", "constituicao", "sabedoria", "presenca", "vontade"];
+function textoDano(formula: string, tipos: string[]) {
+  const f = formula.trim();
+  const t = tipos.filter(Boolean).join(" ou ");
+  if (!f) return t;
+  return t ? `${f} ${t}` : f;
+}
+
+const FORMA_LABEL: Record<string, string> = {
+  cone: "Cone",
+  linha: "Linha",
+  esfera: "Esfera",
+  emanacao: "Emanação",
+  cilindro: "Cilindro",
+};
+
+// Versão em texto de um efeito pra ficha de visualização (somente leitura,
+// sem opção de rolar — a biblioteca não tem Bandeja, ela não pertence a
+// nenhuma mesa). Condição não vira badge aqui — ela é destacada dentro do
+// texto pela `destacarCondicoes`, junto com a descrição.
+function textoEfeito(e: EfeitoAcao): string | null {
+  switch (e.tipo) {
+    case "ataque":
+      return e.bonus.trim() ? `Ataque ${e.bonus.trim()}` : null;
+    case "salvaguarda":
+      return `CD ${e.cd} (${e.atributo})`;
+    case "dano": {
+      const t = textoDano(e.formula, e.tipos);
+      return t ? `Dano: ${t}` : null;
+    }
+    case "area":
+      return e.forma !== "nenhuma" ? `Área: ${FORMA_LABEL[e.forma]}${e.tamanho ? ` (${e.tamanho})` : ""}` : null;
+    case "movimento":
+      return `Movimento: ${e.valor}m ${e.tipoMov}${e.duracao ? ` (${e.duracao})` : ""}`;
+    case "bonus_numerico":
+      return e.alvo.trim() ? `${e.alvo}: ${e.valor >= 0 ? "+" : ""}${e.valor}${e.duracao ? ` (${e.duracao})` : ""}` : null;
+    case "cura":
+      return e.formula.trim() ? `Recupera ${e.formula.trim()} PV` : null;
+    case "condicao":
+      return null;
+    case "livre":
+      return e.texto.trim() || null;
+  }
+}
+
+// As "pastas" da biblioteca — cada categoria vira uma pasta própria, exceto
+// as 5 variações de ação (padrão/bônus/reação/poderosa/lendária) que cabem
+// juntas dentro de uma pasta "Ações" só, igual o statblock trata como blocos
+// do mesmo grupo.
+type Pasta = { key: string; categorias: ComponenteCategoria[]; label: string; icone: string };
+const PASTAS: Pasta[] = [
+  { key: "condicao", categorias: ["condicao"], label: "Condições", icone: "fa-triangle-exclamation" },
+  { key: "aspecto", categorias: ["aspecto"], label: "Aspectos", icone: "fa-star" },
+  { key: "acoes", categorias: CATEGORIAS_ACAO, label: "Ações", icone: "fa-bolt" },
+];
+
+type Visualizacao = "pastas" | "lista" | "ficha" | "editor";
 
 type Props = { templatesIniciais: TemplateSerializado[] };
 
@@ -35,15 +82,59 @@ export function TraitsManager({ templatesIniciais }: Props) {
   const [selecionadoId, setSelecionadoId] = useState<string | null>(null);
   const [draft, setDraft] = useState<TemplatePayload>(() => criarTemplateVazio());
   const [salvando, setSalvando] = useState(false);
+  const [visualizacao, setVisualizacao] = useState<Visualizacao>("pastas");
+  const [pastaAtiva, setPastaAtiva] = useState<Pasta | null>(null);
+  // Só a pasta "Ações" precisa escolher a categoria antes do formulário —
+  // Aspectos e Condições têm categoria única, então "Novo trait" já entra
+  // direto no formulário com ela preenchida.
+  const [mostrarPicker, setMostrarPicker] = useState(false);
 
-  function abrirNovo() {
-    setSelecionadoId(null);
-    setDraft(criarTemplateVazio());
+  const condicoesDisponiveis = templates.filter((t) => t.categoria === "condicao" && t.id !== selecionadoId);
+
+  function abrirPasta(pasta: Pasta) {
+    setPastaAtiva(pasta);
+    setVisualizacao("lista");
   }
 
-  function abrirEdicao(t: TemplateSerializado) {
+  function voltarParaPastas() {
+    setPastaAtiva(null);
+    setVisualizacao("pastas");
+  }
+
+  function voltarParaLista() {
+    setVisualizacao("lista");
+  }
+
+  function abrirNovo() {
+    if (!pastaAtiva) return;
+    setSelecionadoId(null);
+    if (pastaAtiva.categorias.length === 1) {
+      setDraft({ ...criarTemplateVazio(), categoria: pastaAtiva.categorias[0] });
+      setMostrarPicker(false);
+      setVisualizacao("editor");
+    } else {
+      setDraft(criarTemplateVazio());
+      setMostrarPicker(true);
+      setVisualizacao("editor");
+    }
+  }
+
+  function escolherCategoria(categoria: TemplatePayload["categoria"]) {
+    setDraft((atual) => ({ ...atual, categoria }));
+    setMostrarPicker(false);
+  }
+
+  function abrirFicha(t: TemplateSerializado) {
     setSelecionadoId(t.id);
+    setVisualizacao("ficha");
+  }
+
+  function abrirEdicaoDaFicha() {
+    const t = templates.find((x) => x.id === selecionadoId);
+    if (!t) return;
     setDraft(draftDeTemplate(t));
+    setMostrarPicker(false);
+    setVisualizacao("editor");
   }
 
   function campo<K extends keyof TemplatePayload>(chave: K, valor: TemplatePayload[K]) {
@@ -69,6 +160,7 @@ export function TraitsManager({ templatesIniciais }: Props) {
       });
       setSelecionadoId(salvo.id);
       setDraft(draftDeTemplate(salvo));
+      setVisualizacao("ficha");
       router.refresh();
     } catch (err) {
       void Swal.fire({
@@ -99,7 +191,8 @@ export function TraitsManager({ templatesIniciais }: Props) {
     try {
       await deletarTemplate(selecionadoId);
       setTemplates((prev) => prev.filter((t) => t.id !== selecionadoId));
-      abrirNovo();
+      setSelecionadoId(null);
+      voltarParaLista();
       router.refresh();
     } catch (err) {
       void Swal.fire({
@@ -112,280 +205,270 @@ export function TraitsManager({ templatesIniciais }: Props) {
     }
   }
 
-  return (
-    <div className="biblioteca-shell">
-      <aside className="biblioteca-lista">
-        <button type="button" className="bestiario-btn-nova" onClick={abrirNovo}>
-          <i className="fas fa-plus" /> Novo trait
-        </button>
-        {templates.length === 0 ? (
-          <p className="bestiario-vazio">Nenhum trait cadastrado ainda.</p>
-        ) : (
-          templates.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className={"bestiario-card-item" + (t.id === selecionadoId ? " active" : "")}
-              onClick={() => abrirEdicao(t)}
-            >
-              <span className="bestiario-card-nome">{t.nome}</span>
+  if (visualizacao === "pastas") {
+    return (
+      <div className="bestiario-grade-cards">
+        {PASTAS.map((pasta) => {
+          const total = templates.filter((t) => pasta.categorias.includes(t.categoria)).length;
+          return (
+            <button key={pasta.key} type="button" className="trait-pasta-card" onClick={() => abrirPasta(pasta)}>
+              <i className={`fas ${pasta.icone}`} />
+              <span className="bestiario-card-nome">{pasta.label}</span>
               <span className="bestiario-card-meta">
-                {CATEGORIAS_COMPONENTE.find((c) => c.key === t.categoria)?.label ?? t.categoria}
+                {total} trait{total === 1 ? "" : "s"}
               </span>
             </button>
-          ))
-        )}
-      </aside>
+          );
+        })}
+      </div>
+    );
+  }
 
-      <section className="bestiario-editor">
-        <div className="bestiario-editor-header">
-          <h2>{selecionadoId ? "Editar trait" : "Novo trait"}</h2>
-          <div className="bestiario-editor-acoes">
-            {selecionadoId && (
-              <button type="button" className="bestiario-btn-remover" onClick={remover}>
-                <i className="fas fa-trash" /> Remover
-              </button>
-            )}
-            <button type="button" className="bestiario-btn-salvar" onClick={salvar} disabled={salvando}>
-              {salvando ? "Salvando..." : "Salvar"}
-            </button>
-          </div>
+  if (visualizacao === "lista" && pastaAtiva) {
+    const itens = templates.filter((t) => pastaAtiva.categorias.includes(t.categoria));
+    return (
+      <div className="bestiario-lista-view">
+        <div className="bestiario-lista-toolbar">
+          <button type="button" className="bestiario-voltar-lista" onClick={voltarParaPastas}>
+            <i className="fas fa-arrow-left" /> Pastas
+          </button>
+          <span className="bestiario-page-chip">
+            <i className={`fas ${pastaAtiva.icone}`} /> {pastaAtiva.label}
+          </span>
+          <button type="button" className="bestiario-btn-nova" onClick={abrirNovo}>
+            <i className="fas fa-plus" /> Novo trait
+          </button>
         </div>
+        {itens.length === 0 ? (
+          <p className="bestiario-vazio">Nenhum trait nesta pasta ainda.</p>
+        ) : (
+          <div className="bestiario-grade-cards">
+            {itens.map((t) => (
+              <button key={t.id} type="button" className="bestiario-card-item" onClick={() => abrirFicha(t)}>
+                <span className="bestiario-card-nome">{t.nome}</span>
+                {pastaAtiva.categorias.length > 1 && (
+                  <span className="bestiario-card-meta">
+                    {CATEGORIAS_COMPONENTE.find((c) => c.key === t.categoria)?.label ?? t.categoria}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
 
-        <div className="bestiario-secao">
-          <div className="bestiario-grid">
-            <label>
-              Nome
-              <input value={draft.nome} onChange={(e) => campo("nome", e.target.value)} />
-            </label>
-            <label>
-              Categoria
-              <select value={draft.categoria} onChange={(e) => campo("categoria", e.target.value as TemplatePayload["categoria"])}>
-                {CATEGORIAS_COMPONENTE.map((c) => (
-                  <option key={c.key} value={c.key}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Como acerta
-              <select
-                value={draft.formula.modoResolucao}
-                onChange={(e) => formulaCampo("modoResolucao", e.target.value as TemplatePayload["formula"]["modoResolucao"])}
-              >
-                <option value="nenhum">Nenhum (passivo)</option>
-                <option value="ataque">Jogada de ataque</option>
-                <option value="salvaguarda">Salvaguarda do alvo</option>
-              </select>
-            </label>
+  if (visualizacao === "ficha") {
+    const t = templates.find((x) => x.id === selecionadoId);
+    if (!t) {
+      voltarParaLista();
+      return null;
+    }
+    const f = t.formula;
+    const badges = f.efeitos.map(textoEfeito).filter((x): x is string => x !== null);
+    const condicoes = f.efeitos.filter((e): e is CondicaoEfeito => e.tipo === "condicao");
+    return (
+      <div className="bestiario-ficha-view">
+        <div className="bestiario-ficha-toolbar">
+          <button type="button" className="bestiario-btn-salvar" onClick={abrirEdicaoDaFicha}>
+            <i className="fas fa-pen" /> Editar
+          </button>
+          <button type="button" className="bestiario-ficha-fechar" onClick={voltarParaLista} title="Fechar">
+            <i className="fas fa-xmark" />
+          </button>
+        </div>
+        <div className="bestiario-ficha-cabecalho">
+          <h2>{t.nome}</h2>
+          <p className="bestiario-ficha-subtitulo">
+            <i className={`fas ${CATEGORIAS_COMPONENTE.find((c) => c.key === t.categoria)?.icone ?? "fa-bolt"}`} />{" "}
+            {CATEGORIAS_COMPONENTE.find((c) => c.key === t.categoria)?.label ?? t.categoria}
+          </p>
+        </div>
+        {(badges.length > 0 || f.alcance || f.custo) && (
+          <div className="bestiario-ficha-secao">
+            <div className="bestiario-ficha-badges">
+              {badges.map((b, i) => (
+                <span key={i} className="bestiario-ficha-badge">
+                  {b}
+                </span>
+              ))}
+              {f.alcance && <span className="bestiario-ficha-badge">Alcance: {f.alcance}</span>}
+              {f.custo && <span className="bestiario-ficha-badge">Custo: {f.custo}</span>}
+            </div>
+          </div>
+        )}
+        {(t.textoTemplate || condicoes.length > 0) && (
+          <div className="bestiario-ficha-secao">
+            <p className="bestiario-ficha-descricao">{destacarCondicoes(t.textoTemplate, condicoes)}</p>
+          </div>
+        )}
+        {(t.tagsProve.length > 0 || t.tagsConsome.length > 0 || t.tagsReageA.length > 0) && (
+          <div className="bestiario-ficha-secao">
+            {t.tagsProve.length > 0 && (
+              <p>
+                <strong>Provê.</strong> {t.tagsProve.join(", ")}
+              </p>
+            )}
+            {t.tagsConsome.length > 0 && (
+              <p>
+                <strong>Consome.</strong> {t.tagsConsome.join(", ")}
+              </p>
+            )}
+            {t.tagsReageA.length > 0 && (
+              <p>
+                <strong>Reage a.</strong> {t.tagsReageA.join(", ")}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // visualizacao === "editor"
+  const ehCondicao = draft.categoria === "condicao";
+
+  return (
+    <section className="bestiario-editor">
+      {mostrarPicker ? (
+        <>
+          <div className="bestiario-editor-header">
+            <h2>Novo trait — qual categoria?</h2>
+          </div>
+          <div className="bestiario-secao">
+            <p className="bestiario-sublabel">Em qual bloco do statblock esse trait entra?</p>
+            <div className="wizard-origem-opcoes">
+              {CATEGORIAS_ACAO.map((key) => {
+                const meta = CATEGORIAS_COMPONENTE.find((c) => c.key === key);
+                return (
+                  <button key={key} type="button" className="wizard-origem-opcao" onClick={() => escolherCategoria(key)}>
+                    <i className={`fas ${meta?.icone ?? "fa-bolt"}`} />
+                    <strong>{meta?.label ?? key}</strong>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="bestiario-editor-header">
+            <button type="button" className="bestiario-voltar-lista" onClick={voltarParaLista}>
+              <i className="fas fa-arrow-left" /> Voltar
+            </button>
+            <h2>{selecionadoId ? "Editar trait" : "Novo trait"}</h2>
+            <div className="bestiario-editor-acoes">
+              {selecionadoId && (
+                <button type="button" className="bestiario-btn-remover" onClick={remover}>
+                  <i className="fas fa-trash" /> Remover
+                </button>
+              )}
+              <button type="button" className="bestiario-btn-salvar" onClick={salvar} disabled={salvando}>
+                <i className={`fas ${salvando ? "fa-spinner fa-spin" : "fa-floppy-disk"}`} />
+                {salvando ? "Salvando..." : "Salvar"}
+              </button>
+            </div>
           </div>
 
-          {draft.formula.modoResolucao === "ataque" && (
+          <div className="bestiario-secao">
             <div className="bestiario-grid">
               <label>
-                Bônus de ataque
-                <select
-                  value={draft.formula.bonusAtaque.modo}
-                  onChange={(e) => {
-                    const modo = e.target.value as DerivacaoTexto["modo"];
-                    formulaCampo(
-                      "bonusAtaque",
-                      modo === "padrao" ? { modo: "padrao", atributo: "destreza" } : { modo: "fixo", valor: "" },
-                    );
-                  }}
-                >
-                  <option value="padrao">Padrão (bônus de proficiência + atributo)</option>
-                  <option value="fixo">Valor fixo</option>
-                </select>
+                Nome
+                <input value={draft.nome} onChange={(e) => campo("nome", e.target.value)} autoFocus />
               </label>
-              {draft.formula.bonusAtaque.modo === "padrao" ? (
+              {ehCondicao && (
                 <label>
-                  Atributo
-                  <select
-                    value={draft.formula.bonusAtaque.atributo}
-                    onChange={(e) => formulaCampo("bonusAtaque", { modo: "padrao", atributo: e.target.value as AtributoSalvaguarda })}
-                  >
-                    {ATRIBUTOS.map((a) => (
-                      <option key={a} value={a}>
-                        {a}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : (
-                <label>
-                  Valor
+                  Cor
                   <input
-                    placeholder="+5"
-                    value={draft.formula.bonusAtaque.valor}
-                    onChange={(e) => formulaCampo("bonusAtaque", { modo: "fixo", valor: e.target.value })}
+                    type="color"
+                    className="trait-condicao-cor-input"
+                    value={draft.formula.cor || corDaCondicao(draft.nome || "condicao")}
+                    onChange={(e) => formulaCampo("cor", e.target.value)}
                   />
                 </label>
               )}
-            </div>
-          )}
-
-          {draft.formula.modoResolucao === "salvaguarda" && (
-            <div className="bestiario-grid">
-              <label>
-                Atributo da salvaguarda (do alvo)
-                <select
-                  value={draft.formula.salvaguardaAtributo}
-                  onChange={(e) => formulaCampo("salvaguardaAtributo", e.target.value as AtributoSalvaguarda)}
-                >
-                  {ATRIBUTOS.map((a) => (
-                    <option key={a} value={a}>
-                      {a}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                CD
-                <select
-                  value={draft.formula.cd.modo}
-                  onChange={(e) => {
-                    const modo = e.target.value as DerivacaoNumero["modo"];
-                    formulaCampo("cd", modo === "padrao" ? { modo: "padrao", atributo: "constituicao" } : { modo: "fixo", valor: 10 });
-                  }}
-                >
-                  <option value="padrao">Padrão (8 + proficiência + atributo)</option>
-                  <option value="fixo">Valor fixo</option>
-                </select>
-              </label>
-              {draft.formula.cd.modo === "padrao" ? (
+              {!pastaAtiva && (
                 <label>
-                  Atributo (de quem usa)
-                  <select
-                    value={draft.formula.cd.atributo}
-                    onChange={(e) => formulaCampo("cd", { modo: "padrao", atributo: e.target.value as AtributoSalvaguarda })}
-                  >
-                    {ATRIBUTOS.map((a) => (
-                      <option key={a} value={a}>
-                        {a}
+                  Categoria
+                  <select value={draft.categoria} onChange={(e) => campo("categoria", e.target.value as TemplatePayload["categoria"])}>
+                    {CATEGORIAS_COMPONENTE.map((c) => (
+                      <option key={c.key} value={c.key}>
+                        {c.label}
                       </option>
                     ))}
                   </select>
                 </label>
-              ) : (
-                <label>
-                  Valor
-                  <NumeroInput value={draft.formula.cd.valor} onChange={(v) => formulaCampo("cd", { modo: "fixo", valor: v ?? 10 })} />
-                </label>
+              )}
+              {!ehCondicao && (
+                <>
+                  <label>
+                    Alcance
+                    <input value={draft.formula.alcance} placeholder="1,5 metro" onChange={(e) => formulaCampo("alcance", e.target.value)} />
+                  </label>
+                  <label>
+                    Custo
+                    <input value={draft.formula.custo} placeholder="1 PP" onChange={(e) => formulaCampo("custo", e.target.value)} />
+                  </label>
+                </>
               )}
             </div>
-          )}
 
-          <div className="bestiario-grid">
-            <label>
-              Área (opcional)
-              <select
-                value={draft.formula.area.forma}
-                onChange={(e) => formulaCampo("area", { ...draft.formula.area, forma: e.target.value as TemplatePayload["formula"]["area"]["forma"] })}
-              >
-                {FORMAS_AREA.map((f) => (
-                  <option key={f.key} value={f.key}>
-                    {f.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {draft.formula.area.forma !== "nenhuma" && (
+            {ehCondicao ? (
               <label>
-                Tamanho da área
-                <input
-                  value={draft.formula.area.tamanho}
-                  placeholder="15 metros"
-                  onChange={(e) => formulaCampo("area", { ...draft.formula.area, tamanho: e.target.value })}
+                Descrição da condição (o que ela faz — vira tooltip na ficha da criatura)
+                <textarea
+                  className="bestiario-textarea-descricao"
+                  value={draft.textoTemplate}
+                  onChange={(e) => campo("textoTemplate", e.target.value)}
+                  placeholder="Ex: não pode se mover nem usar reações até o fim do próximo turno."
                 />
               </label>
+            ) : (
+              <>
+                <UsosLimitadosEditor
+                  usos={draft.formula.usos}
+                  recarga={draft.formula.recarga}
+                  onChange={(patch) => {
+                    if ("usos" in patch) formulaCampo("usos", patch.usos ?? null);
+                    if ("recarga" in patch) formulaCampo("recarga", patch.recarga ?? null);
+                  }}
+                />
+
+                <EfeitosEditor
+                  efeitos={draft.formula.efeitos}
+                  condicoesDisponiveis={condicoesDisponiveis}
+                  onChange={(efeitos) => formulaCampo("efeitos", efeitos)}
+                />
+
+                <label>
+                  Texto
+                  <textarea
+                    className="bestiario-textarea-descricao"
+                    value={draft.textoTemplate}
+                    onChange={(e) => campo("textoTemplate", e.target.value)}
+                  />
+                </label>
+              </>
             )}
-            <label>
-              Alcance
-              <input value={draft.formula.alcance} placeholder="1,5 metro" onChange={(e) => formulaCampo("alcance", e.target.value)} />
-            </label>
-            <label>
-              Custo
-              <input value={draft.formula.custo} placeholder="1 PP" onChange={(e) => formulaCampo("custo", e.target.value)} />
-            </label>
-          </div>
 
-          <div className="bestiario-lista-linhas">
-            <span className="bestiario-sublabel">Dano (literal — o mestre ajusta o bônus fixo por criatura depois de aplicar)</span>
-            <datalist id="tipos-dano-sugeridos-template">
-              {TIPOS_DANO_SUGERIDOS.map((t) => (
-                <option key={t} value={t} />
-              ))}
-            </datalist>
-            {draft.formula.danos.map((d) => (
-              <div key={d.id} className="bestiario-linha-dano">
-                <input
-                  value={d.formula}
-                  placeholder="1d6"
-                  onChange={(e) =>
-                    formulaCampo(
-                      "danos",
-                      draft.formula.danos.map((x) => (x.id === d.id ? { ...x, formula: e.target.value } : x)),
-                    )
-                  }
-                />
-                <ListaTextoInput
-                  list="tipos-dano-sugeridos-template"
-                  placeholder="Cortante"
-                  value={d.tipos}
-                  onChange={(v) =>
-                    formulaCampo(
-                      "danos",
-                      draft.formula.danos.map((x) => (x.id === d.id ? { ...x, tipos: v } : x)),
-                    )
-                  }
-                />
-                <button
-                  type="button"
-                  onClick={() => formulaCampo("danos", draft.formula.danos.filter((x) => x.id !== d.id))}
-                >
-                  <i className="fas fa-xmark" />
-                </button>
-              </div>
-            ))}
-            <button
-              type="button"
-              className="bestiario-btn-add"
-              onClick={() => {
-                const novo: DanoEntrada = { id: uuid(), formula: "", tipos: [] };
-                formulaCampo("danos", [...draft.formula.danos, novo]);
-              }}
-            >
-              + Dano
-            </button>
+            <div className="bestiario-grid">
+              <label className="bestiario-span-2">
+                Provê (tags de sinergia, vírgula)
+                <ListaTextoInput value={draft.tagsProve} onChange={(v) => campo("tagsProve", v)} />
+              </label>
+              <label className="bestiario-span-2">
+                Consome (tags de sinergia, vírgula)
+                <ListaTextoInput value={draft.tagsConsome} onChange={(v) => campo("tagsConsome", v)} />
+              </label>
+              <label className="bestiario-span-2">
+                Reage a (tags de sinergia, vírgula)
+                <ListaTextoInput value={draft.tagsReageA} onChange={(v) => campo("tagsReageA", v)} />
+              </label>
+            </div>
           </div>
-
-          <label>
-            Texto (use {"{cd}"} e {"{bonus_ataque}"} onde o número calculado deve entrar)
-            <textarea
-              className="bestiario-textarea-descricao"
-              value={draft.textoTemplate}
-              onChange={(e) => campo("textoTemplate", e.target.value)}
-            />
-          </label>
-
-          <div className="bestiario-grid">
-            <label className="bestiario-span-2">
-              Provê (tags de sinergia, vírgula)
-              <ListaTextoInput value={draft.tagsProve} onChange={(v) => campo("tagsProve", v)} />
-            </label>
-            <label className="bestiario-span-2">
-              Consome (tags de sinergia, vírgula)
-              <ListaTextoInput value={draft.tagsConsome} onChange={(v) => campo("tagsConsome", v)} />
-            </label>
-            <label className="bestiario-span-2">
-              Reage a (tags de sinergia, vírgula)
-              <ListaTextoInput value={draft.tagsReageA} onChange={(v) => campo("tagsReageA", v)} />
-            </label>
-          </div>
-        </div>
-      </section>
-    </div>
+        </>
+      )}
+    </section>
   );
 }

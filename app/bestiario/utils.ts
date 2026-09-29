@@ -1,5 +1,4 @@
-import type { Criatura, Encontro, Esquadrao, TraitInstance, TraitTemplate } from "@prisma/client";
-import { modificador, formatarMod } from "@/lib/op-rpg";
+import type { Criatura, Encontro, Esquadrao, Linhagem, TraitInstance, TraitTemplate } from "@prisma/client";
 import type {
   AtributoSalvaguarda,
   CaracteristicasPayload,
@@ -7,13 +6,13 @@ import type {
   ComponentePayload,
   CriaturaPayload,
   CriaturaSerializada,
-  DanoEntrada,
-  DerivacaoNumero,
-  DerivacaoTexto,
+  EfeitoAcao,
+  RecargaAcao,
   EncontroPayload,
   EncontroSerializado,
   EsquadraoPayload,
   EsquadraoSerializado,
+  FormaArea,
   ItemComposicao,
   ResistenciasPayload,
   TemplateFormula,
@@ -43,6 +42,35 @@ function resistenciasVazias(): ResistenciasPayload {
   return { danoResistencia: [], danoImunidade: [], danoVulneravel: [], condicaoImunidade: [] };
 }
 
+export function criarComponenteVazio(categoria: ComponenteCategoria, ordem: number): ComponentePayload {
+  return {
+    id: crypto.randomUUID(),
+    nome: "",
+    categoria,
+    ordem,
+    descricao: "",
+    efeitos: [],
+    usos: null,
+    recarga: null,
+    alcance: "",
+    custo: "",
+  };
+}
+
+function comoRecarga(valor: unknown): RecargaAcao | null {
+  if (!valor || typeof valor !== "object") return null;
+  const objeto = valor as Record<string, unknown>;
+  if (objeto.tipo === "dado") return { tipo: "dado", minimo: Number(objeto.minimo ?? 5) };
+  if (objeto.tipo === "manual") return { tipo: "manual" };
+  if (objeto.tipo === "combate") return { tipo: "combate" };
+  return null;
+}
+
+export function draftDeCriatura(c: CriaturaSerializada): CriaturaPayload {
+  const { id: _id, criadoEm: _criadoEm, atualizadoEm: _atualizadoEm, ...payload } = c;
+  return payload;
+}
+
 export function criarCriaturaVazia(): CriaturaPayload {
   return {
     nome: "",
@@ -51,6 +79,8 @@ export function criarCriaturaVazia(): CriaturaPayload {
     imagemUrl: null,
     tags: [],
     personalidade: null,
+    linhagem: "",
+    ordemTier: null,
     nd: "1",
     ndValor: 1,
     xp: 0,
@@ -115,23 +145,113 @@ function comoResistencias(valor: unknown): ResistenciasPayload {
   };
 }
 
+function comoEfeito(e: Record<string, unknown>): EfeitoAcao | null {
+  const id = String(e.id ?? crypto.randomUUID());
+  switch (e.tipo) {
+    case "ataque":
+      return { id, tipo: "ataque", bonus: String(e.bonus ?? "") };
+    case "salvaguarda":
+      return {
+        id,
+        tipo: "salvaguarda",
+        atributo: (e.atributo as AtributoSalvaguarda) ?? "destreza",
+        cd: Number(e.cd ?? 10),
+      };
+    case "dano":
+      return { id, tipo: "dano", formula: String(e.formula ?? ""), tipos: Array.isArray(e.tipos) ? (e.tipos as string[]) : [] };
+    case "area":
+      return { id, tipo: "area", forma: (e.forma as FormaArea) ?? "nenhuma", tamanho: String(e.tamanho ?? "") };
+    case "movimento":
+      return {
+        id,
+        tipo: "movimento",
+        tipoMov: String(e.tipoMov ?? "caminhar"),
+        valor: Number(e.valor ?? 0),
+        duracao: String(e.duracao ?? ""),
+      };
+    case "bonus_numerico":
+      return { id, tipo: "bonus_numerico", alvo: String(e.alvo ?? ""), valor: Number(e.valor ?? 0), duracao: String(e.duracao ?? "") };
+    case "cura":
+      return { id, tipo: "cura", formula: String(e.formula ?? "") };
+    case "condicao":
+      return {
+        id,
+        tipo: "condicao",
+        condicaoId: String(e.condicaoId ?? ""),
+        nome: String(e.nome ?? ""),
+        descricao: String(e.descricao ?? ""),
+        cor: String(e.cor ?? ""),
+        duracaoTurnos: e.duracaoTurnos === null || e.duracaoTurnos === undefined ? null : Number(e.duracaoTurnos),
+      };
+    case "livre":
+      return { id, tipo: "livre", texto: String(e.texto ?? "") };
+    default:
+      return null;
+  }
+}
+
+function comoEfeitos(valor: unknown): EfeitoAcao[] {
+  if (!Array.isArray(valor)) return [];
+  return (valor as Record<string, unknown>[])
+    .map((e) => comoEfeito(e))
+    .filter((e): e is EfeitoAcao => e !== null);
+}
+
+// Converte o formato antigo (campos fixos: modoResolucao/bonusAtaque/cd/
+// danos/area/condicoesImpostas) pra lista de efeitos, só na leitura — dados
+// salvos antes dessa mudança continuam abrindo certo, sem precisar de
+// migração no banco (parametrosResolvidos já era JSON solto).
+function efeitosLegadoComponente(parametros: Record<string, unknown>): EfeitoAcao[] {
+  const efeitos: EfeitoAcao[] = [];
+  const modoResolucao =
+    (parametros.modoResolucao as string) ?? (typeof parametros.acerto === "string" && parametros.acerto ? "ataque" : "nenhum");
+
+  if (modoResolucao === "ataque") {
+    const bonus = String(parametros.bonusAtaque ?? parametros.acerto ?? "");
+    if (bonus) efeitos.push({ id: crypto.randomUUID(), tipo: "ataque", bonus });
+  } else if (modoResolucao === "salvaguarda") {
+    const cd = parametros.cd;
+    efeitos.push({
+      id: crypto.randomUUID(),
+      tipo: "salvaguarda",
+      atributo: (parametros.salvaguardaAtributo as AtributoSalvaguarda) ?? "destreza",
+      cd: cd === null || cd === undefined ? 10 : Number(cd),
+    });
+  }
+
+  const danosSalvos = Array.isArray(parametros.danos) ? (parametros.danos as Record<string, unknown>[]) : null;
+  if (danosSalvos) {
+    for (const d of danosSalvos) {
+      efeitos.push({ id: crypto.randomUUID(), tipo: "dano", formula: String(d.formula ?? ""), tipos: Array.isArray(d.tipos) ? (d.tipos as string[]) : [] });
+    }
+  } else if (typeof parametros.dano === "string" && parametros.dano) {
+    efeitos.push({ id: crypto.randomUUID(), tipo: "dano", formula: parametros.dano, tipos: [] });
+  }
+
+  const area = (parametros.area ?? {}) as Record<string, unknown>;
+  if (area.forma && area.forma !== "nenhuma") {
+    efeitos.push({ id: crypto.randomUUID(), tipo: "area", forma: area.forma as FormaArea, tamanho: String(area.tamanho ?? "") });
+  }
+
+  const condicoes = Array.isArray(parametros.condicoesImpostas) ? (parametros.condicoesImpostas as Record<string, unknown>[]) : [];
+  for (const c of condicoes) {
+    efeitos.push({
+      id: crypto.randomUUID(),
+      tipo: "condicao",
+      condicaoId: String(c.condicaoId ?? ""),
+      nome: String(c.nome ?? ""),
+      descricao: String(c.descricao ?? ""),
+      cor: String(c.cor ?? ""),
+      duracaoTurnos: c.duracaoTurnos === null || c.duracaoTurnos === undefined ? null : Number(c.duracaoTurnos),
+    });
+  }
+
+  return efeitos;
+}
+
 function componenteDeInstance(instancia: TraitInstance): ComponentePayload {
   const parametros = (instancia.parametrosResolvidos ?? {}) as Record<string, unknown>;
-
-  // Compat com fichas criadas antes do modo ataque/salvaguarda + tipos de dano
-  // existir (formato anterior: { acerto, dano, alcance, custo } em texto livre).
-  const danosSalvos = Array.isArray(parametros.danos) ? (parametros.danos as Record<string, unknown>[]) : null;
-  const danos: DanoEntrada[] = danosSalvos
-    ? danosSalvos.map((d) => ({
-        id: String(d.id ?? crypto.randomUUID()),
-        formula: String(d.formula ?? ""),
-        tipos: Array.isArray(d.tipos) ? (d.tipos as string[]) : [],
-      }))
-    : typeof parametros.dano === "string" && parametros.dano
-      ? [{ id: crypto.randomUUID(), formula: parametros.dano, tipos: [] }]
-      : [];
-
-  const modoResolucao = (parametros.modoResolucao as string) ?? (typeof parametros.acerto === "string" && parametros.acerto ? "ataque" : "nenhum");
+  const efeitos = Array.isArray(parametros.efeitos) ? comoEfeitos(parametros.efeitos) : efeitosLegadoComponente(parametros);
 
   return {
     id: instancia.id,
@@ -139,22 +259,16 @@ function componenteDeInstance(instancia: TraitInstance): ComponentePayload {
     categoria: instancia.categoria as ComponenteCategoria,
     ordem: instancia.ordem,
     descricao: instancia.textoRenderizado,
-    modoResolucao: modoResolucao as ComponentePayload["modoResolucao"],
-    bonusAtaque: String(parametros.bonusAtaque ?? parametros.acerto ?? ""),
-    salvaguardaAtributo: (parametros.salvaguardaAtributo as ComponentePayload["salvaguardaAtributo"]) ?? "destreza",
-    cd: parametros.cd === null || parametros.cd === undefined ? null : Number(parametros.cd),
-    danos,
-    area: {
-      forma: ((parametros.area as Record<string, unknown>)?.forma as ComponentePayload["area"]["forma"]) ?? "nenhuma",
-      tamanho: String((parametros.area as Record<string, unknown>)?.tamanho ?? ""),
-    },
+    efeitos,
+    usos: parametros.usos === null || parametros.usos === undefined ? null : Number(parametros.usos),
+    recarga: comoRecarga(parametros.recarga),
     alcance: String(parametros.alcance ?? ""),
     custo: String(parametros.custo ?? ""),
   };
 }
 
 export function serializarCriatura(
-  criatura: Criatura & { componentes: TraitInstance[] },
+  criatura: Criatura & { componentes: TraitInstance[]; linhagem?: Linhagem | null },
 ): CriaturaSerializada {
   return {
     id: criatura.id,
@@ -164,6 +278,8 @@ export function serializarCriatura(
     imagemUrl: criatura.imagemUrl,
     tags: criatura.tags,
     personalidade: criatura.personalidade,
+    linhagem: criatura.linhagem?.nome ?? "",
+    ordemTier: criatura.ordemTier,
     nd: criatura.nd,
     ndValor: criatura.ndValor,
     xp: criatura.xp,
@@ -198,16 +314,7 @@ export function serializarCriatura(
 // ─── Biblioteca de traits ─────────────────────────────────────────────────
 
 function formulaVazia(): TemplateFormula {
-  return {
-    modoResolucao: "nenhum",
-    bonusAtaque: { modo: "fixo", valor: "" },
-    salvaguardaAtributo: "destreza",
-    cd: { modo: "fixo", valor: 10 },
-    danos: [],
-    area: { forma: "nenhuma", tamanho: "" },
-    alcance: "",
-    custo: "",
-  };
+  return { efeitos: [], usos: null, recarga: null, cor: "", alcance: "", custo: "" };
 }
 
 export function criarTemplateVazio(): TemplatePayload {
@@ -222,26 +329,55 @@ export function criarTemplateVazio(): TemplatePayload {
   };
 }
 
-function comoDerivacaoTexto(valor: unknown): DerivacaoTexto {
-  const objeto = (valor ?? {}) as Record<string, unknown>;
-  if (objeto.modo === "padrao") {
-    return { modo: "padrao", atributo: (objeto.atributo as AtributoSalvaguarda) ?? "destreza" };
-  }
-  return { modo: "fixo", valor: String(objeto.valor ?? "") };
-}
+// Mesma ideia da compat de componente, adaptada pro shape antigo de template
+// (bonusAtaque/cd eram "derivações" fixo|padrão — "padrão" não tem como
+// resolver sem uma criatura, então vira um efeito vazio que o narrador
+// preenche à mão uma vez, na próxima edição).
+function efeitosLegadoTemplate(f: Record<string, unknown>): EfeitoAcao[] {
+  const efeitos: EfeitoAcao[] = [];
+  const modoResolucao = f.modoResolucao as string;
 
-function comoDerivacaoNumero(valor: unknown): DerivacaoNumero {
-  const objeto = (valor ?? {}) as Record<string, unknown>;
-  if (objeto.modo === "padrao") {
-    return { modo: "padrao", atributo: (objeto.atributo as AtributoSalvaguarda) ?? "destreza" };
+  if (modoResolucao === "ataque") {
+    const ba = (f.bonusAtaque ?? {}) as Record<string, unknown>;
+    efeitos.push({ id: crypto.randomUUID(), tipo: "ataque", bonus: ba.modo === "fixo" ? String(ba.valor ?? "") : "" });
+  } else if (modoResolucao === "salvaguarda") {
+    const cdObj = (f.cd ?? {}) as Record<string, unknown>;
+    efeitos.push({
+      id: crypto.randomUUID(),
+      tipo: "salvaguarda",
+      atributo: (f.salvaguardaAtributo as AtributoSalvaguarda) ?? "destreza",
+      cd: cdObj.modo === "fixo" ? Number(cdObj.valor ?? 10) : 10,
+    });
   }
-  return { modo: "fixo", valor: Number(objeto.valor ?? 10) };
+
+  const danosSalvos = Array.isArray(f.danos) ? (f.danos as Record<string, unknown>[]) : [];
+  for (const d of danosSalvos) {
+    efeitos.push({ id: crypto.randomUUID(), tipo: "dano", formula: String(d.formula ?? ""), tipos: Array.isArray(d.tipos) ? (d.tipos as string[]) : [] });
+  }
+
+  const area = (f.area ?? {}) as Record<string, unknown>;
+  if (area.forma && area.forma !== "nenhuma") {
+    efeitos.push({ id: crypto.randomUUID(), tipo: "area", forma: area.forma as FormaArea, tamanho: String(area.tamanho ?? "") });
+  }
+
+  const condicoes = Array.isArray(f.condicoesImpostas) ? (f.condicoesImpostas as Record<string, unknown>[]) : [];
+  for (const c of condicoes) {
+    efeitos.push({
+      id: crypto.randomUUID(),
+      tipo: "condicao",
+      condicaoId: String(c.condicaoId ?? ""),
+      nome: String(c.nome ?? ""),
+      descricao: String(c.descricao ?? ""),
+      cor: String(c.cor ?? ""),
+      duracaoTurnos: c.duracaoTurnos === null || c.duracaoTurnos === undefined ? null : Number(c.duracaoTurnos),
+    });
+  }
+
+  return efeitos;
 }
 
 export function serializarTemplate(template: TraitTemplate): TemplateSerializado {
   const f = (template.formulaParametros ?? {}) as Record<string, unknown>;
-  const danosSalvos = Array.isArray(f.danos) ? (f.danos as Record<string, unknown>[]) : [];
-  const area = (f.area ?? {}) as Record<string, unknown>;
 
   return {
     id: template.id,
@@ -249,19 +385,10 @@ export function serializarTemplate(template: TraitTemplate): TemplateSerializado
     categoria: template.categoria as ComponenteCategoria,
     textoTemplate: template.textoTemplate,
     formula: {
-      modoResolucao: (f.modoResolucao as TemplateFormula["modoResolucao"]) ?? "nenhum",
-      bonusAtaque: comoDerivacaoTexto(f.bonusAtaque),
-      salvaguardaAtributo: (f.salvaguardaAtributo as AtributoSalvaguarda) ?? "destreza",
-      cd: comoDerivacaoNumero(f.cd),
-      danos: danosSalvos.map((d) => ({
-        id: crypto.randomUUID(),
-        formula: String(d.formula ?? ""),
-        tipos: Array.isArray(d.tipos) ? (d.tipos as string[]) : [],
-      })),
-      area: {
-        forma: (area.forma as TemplateFormula["area"]["forma"]) ?? "nenhuma",
-        tamanho: String(area.tamanho ?? ""),
-      },
+      efeitos: Array.isArray(f.efeitos) ? comoEfeitos(f.efeitos) : efeitosLegadoTemplate(f),
+      usos: f.usos === null || f.usos === undefined ? null : Number(f.usos),
+      recarga: comoRecarga(f.recarga),
+      cor: String(f.cor ?? ""),
       alcance: String(f.alcance ?? ""),
       custo: String(f.custo ?? ""),
     },
@@ -272,49 +399,19 @@ export function serializarTemplate(template: TraitTemplate): TemplateSerializado
   };
 }
 
-// Deriva um valor de texto (bônus de ataque) contra os atributos/proficiência
-// da criatura-alvo. "padrao" = mesmo cálculo que o jogo usa em toda parte:
-// bônus de proficiência + modificador do atributo (ver lib/op-rpg.ts).
-function resolverDerivacaoTexto(d: DerivacaoTexto, criatura: CriaturaPayload): string {
-  if (d.modo === "fixo") return d.valor;
-  return formatarMod(criatura.bonusProficiencia + modificador(criatura[d.atributo]));
-}
-
-// CD padrão = 8 + bônus de proficiência + modificador do atributo.
-function resolverDerivacaoNumero(d: DerivacaoNumero, criatura: CriaturaPayload): number {
-  if (d.modo === "fixo") return d.valor;
-  return 8 + criatura.bonusProficiencia + modificador(criatura[d.atributo]);
-}
-
-function interpolarTexto(texto: string, valores: { cd: number | null; bonusAtaque: string }): string {
-  return texto
-    .replaceAll("{cd}", valores.cd !== null ? String(valores.cd) : "{cd}")
-    .replaceAll("{bonus_ataque}", valores.bonusAtaque || "{bonus_ataque}");
-}
-
-// Aplica um template numa criatura, calculando os números pro ND/atributos
-// dela. O mestre pode editar tudo depois — isso só evita começar do zero.
-export function aplicarTemplate(
-  template: TemplateSerializado,
-  criatura: CriaturaPayload,
-  ordem: number,
-): ComponentePayload {
+// Aplica um template numa criatura — só copia os efeitos, literal (mesma
+// filosofia de antes: o mestre ajusta os números pro ND dela na hora).
+export function aplicarTemplate(template: TemplateSerializado, ordem: number): ComponentePayload {
   const f = template.formula;
-  const bonusAtaque = f.modoResolucao === "ataque" ? resolverDerivacaoTexto(f.bonusAtaque, criatura) : "";
-  const cd = f.modoResolucao === "salvaguarda" ? resolverDerivacaoNumero(f.cd, criatura) : null;
-
   return {
     id: crypto.randomUUID(),
     nome: template.nome,
     categoria: template.categoria,
     ordem,
-    descricao: interpolarTexto(template.textoTemplate, { cd, bonusAtaque }),
-    modoResolucao: f.modoResolucao,
-    bonusAtaque,
-    salvaguardaAtributo: f.salvaguardaAtributo,
-    cd,
-    danos: f.danos.map((d) => ({ ...d, id: crypto.randomUUID() })),
-    area: { ...f.area },
+    descricao: template.textoTemplate,
+    efeitos: f.efeitos.map((e) => ({ ...e, id: crypto.randomUUID() })),
+    usos: f.usos,
+    recarga: f.recarga,
     alcance: f.alcance,
     custo: f.custo,
   };

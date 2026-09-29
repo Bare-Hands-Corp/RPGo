@@ -3,9 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { listarMensagensSessao } from "@/lib/mensagens";
 import { carregarCalendario } from "@/lib/calendario/carregar";
+import { serializarCriatura } from "@/app/bestiario/utils";
 import { NarradorShell } from "./painel-narrador";
+import { serializarSessao } from "./sessao/utils";
 import "@/app/dashboard/dashboard.css";
 import "@/app/calendario/[mesaId]/calendario.css";
+import "@/app/bestiario/bestiario.css";
 import "./narrador.css";
 
 type Params = { params: Promise<{ mesaId: string }> };
@@ -19,8 +22,8 @@ export default async function NarradorPage({ params }: Params) {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // Mesa + mensagens + calendário pré-carregados em paralelo.
-  const [mesa, mensagensIniciais, calendario] = await Promise.all([
+  // Mesa + mensagens + calendário + sessão/bestiário pré-carregados em paralelo.
+  const [mesa, mensagensIniciais, calendario, sessaoAtiva, criaturas, encontros] = await Promise.all([
     prisma.mesa.findUnique({
       where: { id: mesaId },
       include: {
@@ -31,6 +34,20 @@ export default async function NarradorPage({ params }: Params) {
     }),
     listarMensagensSessao(mesaId),
     carregarCalendario(mesaId, { isNarrador: true }),
+    prisma.sessao.findFirst({
+      where: { mesaId, encerradaEm: null },
+      include: { combates: { include: { participantes: true } } },
+    }),
+    prisma.criatura.findMany({
+      where: { userId: user.id },
+      include: { componentes: true, linhagem: true },
+      orderBy: { nome: "asc" },
+    }),
+    prisma.encontro.findMany({
+      where: { userId: user.id },
+      select: { id: true, nome: true, itens: true },
+      orderBy: { nome: "asc" },
+    }),
   ]);
   if (!mesa) notFound();
   if (!calendario) notFound();
@@ -45,6 +62,13 @@ export default async function NarradorPage({ params }: Params) {
       userId={user.id}
       mensagensIniciais={mensagensIniciais}
       calendario={calendario}
+      sessaoInicial={sessaoAtiva ? serializarSessao(sessaoAtiva) : null}
+      criaturas={criaturas.map(serializarCriatura)}
+      encontros={encontros.map((e) => ({
+        id: e.id,
+        nome: e.nome,
+        itens: e.itens as { criaturaId: string; quantidade: number }[],
+      }))}
     />
   );
 }
