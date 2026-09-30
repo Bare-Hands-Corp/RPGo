@@ -10,6 +10,7 @@ import { CopyCodigoBadge } from "./copy-codigo-badge";
 import { NarradorRealtime } from "./realtime-refresher";
 import { Bandeja } from "@/components/bandeja/bandeja";
 import { ThemeButton } from "@/components/temas/theme-button";
+import { BotaoVoltar } from "@/components/botao-voltar";
 import { ModalSolicitarTeste } from "./modal-solicitar-teste";
 import { CalendarioRealtime } from "@/app/calendario/[mesaId]/realtime-refresher";
 import { CalendarioView } from "@/app/calendario/[mesaId]/calendario-view";
@@ -17,6 +18,8 @@ import type {
   CalendarioCarregado,
   ObjetivoPrazo,
 } from "@/lib/calendario/carregar";
+import { SessaoPainel } from "./sessao/sessao-painel";
+import type { CriaturaParaCombate, EncontroParaCombate, SessaoSerializada } from "./sessao/types";
 
 type Personagem = {
   id: string;
@@ -27,6 +30,7 @@ type Personagem = {
   hpMax: number;
   ppAtual: number;
   ppMax: number;
+  destreza: number;
 };
 
 type Mesa = {
@@ -43,9 +47,12 @@ type Props = {
   mensagensIniciais: MensagemSerializada[];
   calendario: CalendarioCarregado;
   objetivosComPrazo: ObjetivoPrazo[];
+  sessaoInicial: SessaoSerializada | null;
+  criaturas: CriaturaParaCombate[];
+  encontros: EncontroParaCombate[];
 };
 
-type Aba = "jogadores" | "acoes" | "calendario";
+type Aba = "jogadores" | "sessao" | "acoes" | "calendario";
 
 type AcaoNarrador = {
   id: string;
@@ -63,18 +70,6 @@ const ACOES_PROTOTIPO: AcaoNarrador[] = [
     descricao: "Solicitar rolagens diretas dos jogadores.",
   },
   {
-    id: "iniciativa",
-    titulo: "Gerenciar Iniciativa",
-    icone: "fa-bolt",
-    descricao: "Ordem de combate e estados do turno.",
-  },
-  {
-    id: "encontros",
-    titulo: "Encontros",
-    icone: "fa-skull",
-    descricao: "Preparar cenas, emboscadas e eventos da mesa.",
-  },
-  {
     id: "mesa",
     titulo: "Editar Mesa",
     icone: "fa-gear",
@@ -87,6 +82,13 @@ const ACOES_PROTOTIPO: AcaoNarrador[] = [
     descricao: "Sua biblioteca de criaturas, reutilizável entre mesas.",
     href: () => `/bestiario`,
   },
+  {
+    id: "encontros",
+    titulo: "Esquadrões e Encontros",
+    icone: "fa-people-group",
+    descricao: "Composições salvas de criaturas pra montar combates rápido.",
+    href: () => `/bestiario/encontros`,
+  },
 ] as const;
 
 export function NarradorShell({
@@ -95,6 +97,9 @@ export function NarradorShell({
   mensagensIniciais,
   calendario,
   objetivosComPrazo,
+  sessaoInicial,
+  criaturas,
+  encontros,
 }: Props) {
   const [aba, setAba] = useState<Aba>("jogadores");
   const [modalTesteAberto, setModalTesteAberto] = useState(false);
@@ -106,9 +111,9 @@ export function NarradorShell({
 
       <div className="painel-central">
         <div className="narrador-topbar">
-          <Link href="/dashboard" className="btn-voltar">
+          <BotaoVoltar fallbackHref="/dashboard" className="btn-voltar">
             <i className="fas fa-arrow-left" /> Voltar
-          </Link>
+          </BotaoVoltar>
           <ThemeButton />
         </div>
 
@@ -138,6 +143,13 @@ export function NarradorShell({
             onClick={() => setAba("jogadores")}
           >
             <i className="fas fa-users" /> Jogadores
+          </button>
+          <button
+            type="button"
+            className={"narrador-tab" + (aba === "sessao" ? " active" : "")}
+            onClick={() => setAba("sessao")}
+          >
+            <i className="fas fa-bolt" /> Sessão
           </button>
           <button
             type="button"
@@ -196,6 +208,22 @@ export function NarradorShell({
                   );
                 })
               )}
+            </section>
+          ) : aba === "sessao" ? (
+            <section className="narrador-sessao-embed">
+              <SessaoPainel
+                mesaId={mesa.id}
+                sessaoInicial={sessaoInicial}
+                criaturas={criaturas}
+                personagensMesa={mesa.personagens.map((p) => ({
+                  id: p.id,
+                  nome: p.nome,
+                  hpAtual: p.hpAtual,
+                  hpMax: p.hpMax,
+                  destreza: p.destreza,
+                }))}
+                encontros={encontros}
+              />
             </section>
           ) : aba === "calendario" ? (
             <section className="narrador-calendario-embed">

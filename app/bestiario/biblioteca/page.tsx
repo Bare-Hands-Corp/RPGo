@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { usuarioDaRequest } from "@/lib/supabase/server";
 import { ThemeButton } from "@/components/temas/theme-button";
+import { BotaoVoltar } from "@/components/botao-voltar";
 import { serializarTemplate } from "../utils";
 import { TraitsManager } from "./traits-manager";
 import "../bestiario.css";
@@ -19,9 +19,9 @@ export default async function BibliotecaPage() {
   return (
     <div className="bestiario-page-wrapper">
       <div className="bestiario-page-topbar">
-        <Link href="/bestiario" className="bestiario-voltar" title="Voltar ao bestiário">
+        <BotaoVoltar fallbackHref="/bestiario" className="bestiario-voltar" title="Voltar ao bestiário">
           <i className="fas fa-arrow-left" />
-        </Link>
+        </BotaoVoltar>
         <div className="bestiario-page-titulo">
           <span className="bestiario-page-kicker">NARRADOR</span>
           <h1>Biblioteca de traits</h1>

@@ -1,9 +1,17 @@
 /* ─── Página do Bestiário ─────────────────────────── */
 
+/* Mesma identidade tipográfica das telas do jogador (ficha.css) — sem isso
+   button/input/select caem na fonte padrão do navegador em vez do Inter. */
+.bestiario-page-wrapper button,
+.bestiario-page-wrapper input,
+.bestiario-page-wrapper select,
+.bestiario-page-wrapper textarea {
+  font-family: inherit;
+}
+
 .bestiario-page-wrapper {
-  width: 100%;
   max-width: none;
-  margin: 20px 0 0;
+  margin: 20px 24px 0;
   padding: 22px 24px 26px;
   display: flex;
   flex-direction: column;
@@ -139,6 +147,13 @@
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+  transition: border-color 0.15s, transform 0.15s, background 0.15s;
+}
+
+.bestiario-btn-nova:hover {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 8%, transparent);
+  transform: translateY(-1px);
 }
 
 .bestiario-grade-cards {
@@ -185,6 +200,46 @@
   color: var(--text-sec);
   font-size: 0.85rem;
   padding: 8px;
+}
+
+.bestiario-card-item.active {
+  border-color: var(--primary);
+  background: var(--bg-surface);
+}
+
+/* ─── Lista + ficha lado a lado (a ficha abre na mesma tela) ────────── */
+
+.bestiario-split {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  min-width: 0;
+}
+
+.bestiario-split .bestiario-lista-view {
+  flex: 1 1 380px;
+  min-width: 0;
+}
+
+.bestiario-split .bestiario-ficha-view {
+  flex: 1 1 420px;
+  min-width: 0;
+  max-width: 640px;
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+
+@media (max-width: 980px) {
+  .bestiario-split {
+    flex-direction: column;
+  }
+  .bestiario-split .bestiario-ficha-view {
+    max-width: none;
+    position: static;
+    max-height: none;
+  }
 }
 
 /* ─── Abas (esquadrões/encontros) ────────────────────────────── */
@@ -326,24 +381,44 @@
   gap: 10px;
 }
 
-.bestiario-btn-salvar {
+.bestiario-btn-salvar,
+.bestiario-btn-remover {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 8px 16px;
   border-radius: 8px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.15s, transform 0.15s, background 0.15s;
+}
+
+.bestiario-btn-salvar {
   border: none;
   background: var(--primary);
   color: #fff;
-  font-weight: 700;
-  cursor: pointer;
+}
+
+.bestiario-btn-salvar:hover:not(:disabled) {
+  filter: brightness(1.1);
+  transform: translateY(-2px);
+}
+
+.bestiario-btn-salvar:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .bestiario-btn-remover {
-  padding: 8px 16px;
-  border-radius: 8px;
   border: 1px solid var(--border);
   background: transparent;
   color: #e05555;
   font-weight: 600;
-  cursor: pointer;
+}
+
+.bestiario-btn-remover:hover {
+  background: color-mix(in oklch, #e05555 10%, transparent);
+  border-color: #e05555;
 }
 
 .bestiario-secao {
@@ -362,6 +437,14 @@
   color: var(--text-sec);
   text-transform: uppercase;
   letter-spacing: 0.06em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bestiario-secao h3 i {
+  color: var(--primary);
+  font-size: 0.85rem;
 }
 
 .bestiario-grid {
@@ -401,6 +484,17 @@
   background: var(--bg-card);
   color: var(--text-main);
   font-size: 0.85rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.bestiario-grid input:focus,
+.bestiario-grid select:focus,
+.bestiario-secao input:focus,
+.bestiario-secao select:focus,
+.bestiario-secao textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--primary) 22%, transparent);
 }
 
 .bestiario-secao textarea {
@@ -469,6 +563,29 @@
   cursor: pointer;
 }
 
+.bestiario-linha-condicao {
+  display: grid;
+  grid-template-columns: 1fr 80px 32px;
+  align-items: center;
+  gap: 8px;
+}
+
+.bestiario-linha-condicao input {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+}
+
+.bestiario-linha-condicao button {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-sec);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
 .bestiario-btn-add {
   align-self: flex-start;
   padding: 6px 12px;
@@ -496,6 +613,13 @@
 
 .bestiario-componente-header strong {
   color: var(--text-main);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bestiario-componente-header strong i {
+  color: var(--primary);
 }
 
 .bestiario-componente-card {
@@ -516,6 +640,684 @@
   background: transparent;
   color: #e05555;
   font-size: 0.75rem;
+  cursor: pointer;
+}
+
+/* ─── Ficha de visualização (somente leitura) ────────────────────────── */
+
+.bestiario-ficha-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.bestiario-ficha-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.bestiario-ficha-fechar {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-sec);
+  cursor: pointer;
+}
+
+.bestiario-ficha-fechar:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.bestiario-ficha-cabecalho {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bestiario-ficha-cabecalho h2 {
+  margin: 0;
+  font-size: 1.4rem;
+  color: var(--text-main);
+}
+
+.bestiario-ficha-subtitulo {
+  margin: 0;
+  color: var(--text-sec);
+  text-transform: capitalize;
+  font-size: 0.85rem;
+}
+
+.bestiario-ficha-personalidade {
+  margin: 4px 0 0;
+  color: var(--text-sec);
+  font-style: italic;
+  font-size: 0.85rem;
+}
+
+.bestiario-ficha-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.bestiario-ficha-tag {
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-sec);
+  font-size: 0.72rem;
+}
+
+.bestiario-ficha-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.bestiario-ficha-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+}
+
+.bestiario-ficha-stat span {
+  font-size: 0.68rem;
+  color: var(--text-sec);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.bestiario-ficha-stat strong {
+  color: var(--text-main);
+  font-size: 0.95rem;
+}
+
+.bestiario-ficha-atributos {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(70px, 1fr));
+  gap: 8px;
+}
+
+.bestiario-ficha-atributo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  border-radius: 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+}
+
+.bestiario-ficha-atributo-label {
+  font-size: 0.68rem;
+  color: var(--text-sec);
+  text-transform: uppercase;
+}
+
+.bestiario-ficha-atributo-valor {
+  color: var(--text-main);
+  font-weight: 700;
+}
+
+.bestiario-ficha-atributo-valor em {
+  font-style: normal;
+  font-weight: 400;
+  color: var(--text-sec);
+  font-size: 0.8rem;
+}
+
+.bestiario-ficha-secao {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+}
+
+.bestiario-ficha-secao h3 {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-sec);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bestiario-ficha-secao h3 i {
+  color: var(--primary);
+  font-size: 0.8rem;
+}
+
+.bestiario-ficha-secao p {
+  margin: 0;
+  color: var(--text-main);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.bestiario-ficha-componente {
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bestiario-ficha-componente-nome {
+  font-weight: 700;
+}
+
+.bestiario-ficha-componente-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bestiario-ficha-usos {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.bestiario-ficha-usos-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--bg-surface);
+  border: 1px solid var(--primary);
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.bestiario-ficha-usos-btn:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--primary) 15%, transparent);
+}
+
+.bestiario-ficha-usos-btn.esgotado {
+  border-color: var(--border);
+  color: var(--text-sec);
+  cursor: not-allowed;
+}
+
+.bestiario-ficha-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.bestiario-ficha-badge {
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-sec);
+  font-size: 0.72rem;
+}
+
+button.bestiario-ficha-badge-rolavel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--primary);
+  border-color: var(--primary);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+button.bestiario-ficha-badge-rolavel:hover {
+  background: color-mix(in oklch, var(--primary) 15%, transparent);
+}
+
+.bestiario-ficha-descricao {
+  white-space: pre-wrap;
+}
+
+.bestiario-condicao-inline {
+  display: inline;
+  padding: 1px 6px;
+  border-radius: 5px;
+  border: 1px solid;
+  font-weight: 700;
+  cursor: help;
+  white-space: nowrap;
+}
+
+/* ─── Testes roláveis (perícias/salvaguardas) e botão de dado inline ──── */
+
+.bestiario-ficha-linha-testes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bestiario-ficha-testes-lista {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.bestiario-ficha-teste {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  font-size: 0.8rem;
+  color: var(--text-main);
+}
+
+.bestiario-ficha-dado-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--primary);
+  cursor: pointer;
+  font-size: 0.72rem;
+}
+
+.bestiario-ficha-dado-inline:hover {
+  background: color-mix(in oklch, var(--primary) 18%, transparent);
+}
+
+/* ─── Wizard de criação de criatura ─────────────────────────────────── */
+
+.wizard-criatura {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+.wizard-passos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.wizard-passo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-sec);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.wizard-passo:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+
+.wizard-passo.ativo {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 12%, var(--bg-surface));
+}
+
+.wizard-passo.bloqueado {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.wizard-passo-numero {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  font-size: 0.68rem;
+}
+
+.wizard-corpo {
+  min-height: 260px;
+}
+
+.wizard-rodape {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.wizard-origem-opcoes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.wizard-origem-opcao {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  text-align: left;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s, background 0.15s;
+}
+
+.wizard-origem-opcao:hover:not(:disabled) {
+  border-color: var(--primary);
+  transform: translateY(-2px);
+}
+
+.wizard-origem-opcao i {
+  font-size: 1.2rem;
+  color: var(--primary);
+}
+
+.wizard-origem-opcao strong {
+  font-weight: 700;
+}
+
+.wizard-origem-opcao span {
+  color: var(--text-sec);
+  font-size: 0.78rem;
+}
+
+.wizard-origem-opcao.ativo {
+  border-color: var(--primary);
+  border-left-color: var(--color-power, var(--primary));
+  background: color-mix(in oklch, var(--primary) 8%, var(--bg-card));
+}
+
+.wizard-origem-opcao:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.wizard-campo-com-botao {
+  display: flex;
+  gap: 6px;
+}
+
+.wizard-campo-com-botao input {
+  flex: 1;
+}
+
+.wizard-componente-linha {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  font-size: 0.82rem;
+}
+
+.wizard-componente-linha button {
+  border: none;
+  background: transparent;
+  color: var(--text-sec);
+  cursor: pointer;
+}
+
+.wizard-revisao {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wizard-preview .bestiario-ficha-fechar {
+  display: none;
+}
+
+/* ─── Picker de categoria+modo do wizard de trait novo ──────────────── */
+
+.trait-picker-categoria {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.trait-picker-categoria strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.trait-picker-categoria strong i {
+  color: var(--primary);
+}
+
+.trait-picker-modos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ─── Pastas da biblioteca de traits ─────────────────────────────────── */
+
+.trait-pasta-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  text-align: left;
+  padding: 20px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.trait-pasta-card:hover {
+  border-color: var(--primary);
+  transform: translateY(-2px);
+}
+
+.trait-pasta-card i {
+  font-size: 1.6rem;
+  color: var(--primary);
+}
+
+/* ─── Usos limitados (ex: 3/dia, Recarga 5-6) ────────────────────────── */
+
+.bestiario-usos-detalhe {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--bg-surface);
+}
+
+.bestiario-usos-detalhe summary {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-sec);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bestiario-usos-detalhe summary::-webkit-details-marker {
+  display: none;
+}
+
+.bestiario-usos-detalhe summary i {
+  color: var(--primary);
+}
+
+.bestiario-usos-detalhe[open] summary {
+  margin-bottom: 10px;
+}
+
+/* ─── Efeitos de ação (mesmo padrão visual do efeito-editor da ficha) ──── */
+
+.bestiario-efeitos-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bestiario-efeito-card {
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 8px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+
+.bestiario-efeito-topo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.bestiario-efeito-remover {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-sec);
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.bestiario-efeito-remover:hover {
+  color: #e74c3c;
+  background: color-mix(in oklch, #e74c3c 10%, transparent);
+}
+
+.bestiario-efeito-corpo {
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.bestiario-efeito-corpo > label:has(textarea) {
+  grid-column: 1 / -1;
+}
+
+.bestiario-efeito-corpo label {
+  font-size: 0.75rem;
+  color: var(--text-sec);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bestiario-efeito-corpo input,
+.bestiario-efeito-corpo select,
+.bestiario-efeito-corpo textarea {
+  font-size: 0.85rem;
+}
+
+.bestiario-efeito-tipos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.bestiario-efeito-tipo-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  transition: transform 0.15s, background 0.15s;
+}
+
+.bestiario-efeito-tipo-btn:hover {
+  transform: translateY(-2px);
+  background: var(--bg-surface);
+}
+
+.preset-acao-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px dashed var(--border);
+  background: var(--bg-surface);
+  margin-bottom: 8px;
+}
+
+.trait-condicao-cor-input {
+  width: 100%;
+  height: 38px;
+  padding: 2px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
   cursor: pointer;
 }
 
