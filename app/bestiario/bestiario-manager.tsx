@@ -5,67 +5,41 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Swal from "sweetalert2";
 import { criarCriatura, atualizarCriatura, deletarCriatura } from "./actions";
-import { aplicarTemplate, criarCriaturaVazia, ndParaValor } from "./utils";
-import { CATEGORIAS_COMPONENTE, FORMAS_AREA, TIPOS_DANO_SUGERIDOS } from "./types";
-import type {
-  ComponenteCategoria,
-  ComponentePayload,
-  CriaturaPayload,
-  CriaturaSerializada,
-  DanoEntrada,
-  TemplateSerializado,
-} from "./types";
+import { aplicarTemplate, criarComponenteVazio, criarCriaturaVazia, draftDeCriatura, ndParaValor } from "./utils";
+import { CATEGORIAS_COMPONENTE, TIPOS_DANO_SUGERIDOS } from "./types";
+import type { ComponenteCategoria, ComponentePayload, CriaturaPayload, CriaturaSerializada, TemplateSerializado } from "./types";
 import { ListaTextoInput, NumeroInput } from "./inputs";
+import { ComponenteEditor } from "./componente-editor";
+import { FichaCriaturaView } from "./ficha-view";
+import { WizardCriatura } from "./wizard-criatura";
+import { PickerAcaoPreset, type PresetAcao } from "./presets-acao";
 
 function uuid() {
   return crypto.randomUUID();
 }
 
-function novoComponente(categoria: ComponenteCategoria, ordem: number): ComponentePayload {
-  return {
-    id: uuid(),
-    nome: "",
-    categoria,
-    ordem,
-    descricao: "",
-    modoResolucao: "nenhum",
-    bonusAtaque: "",
-    salvaguardaAtributo: "destreza",
-    cd: null,
-    danos: [],
-    area: { forma: "nenhuma", tamanho: "" },
-    alcance: "",
-    custo: "",
-  };
-}
+type Props = { criaturasIniciais: CriaturaSerializada[]; templates: TemplateSerializado[]; linhagens: string[] };
 
-function novoDano(): DanoEntrada {
-  return { id: uuid(), formula: "", tipos: [] };
-}
-
-function draftDeCriatura(c: CriaturaSerializada): CriaturaPayload {
-  const { id: _id, criadoEm: _criadoEm, atualizadoEm: _atualizadoEm, ...payload } = c;
-  return payload;
-}
-
-type Props = { criaturasIniciais: CriaturaSerializada[]; templates: TemplateSerializado[] };
-
-export function BestiarioManager({ criaturasIniciais, templates }: Props) {
+export function BestiarioManager({ criaturasIniciais, templates, linhagens }: Props) {
   const router = useRouter();
   const [criaturas, setCriaturas] = useState(criaturasIniciais);
   const [selecionadaId, setSelecionadaId] = useState<string | null>(null);
   const [draft, setDraft] = useState<CriaturaPayload>(() => criarCriaturaVazia());
   const [salvando, setSalvando] = useState(false);
 
-  // A lista é a visão padrão — a ficha só ocupa a tela quando o narrador
-  // escolhe abrir uma criatura existente ou criar uma nova.
+  // A lista é a visão padrão. Clicar num card seleciona a criatura e mostra
+  // a ficha de visualização (somente leitura, campos vazios ocultos) ao lado
+  // da lista, na mesma tela — só o editor ocupa a página inteira.
   const [visualizacao, setVisualizacao] = useState<"lista" | "editor">("lista");
   const [busca, setBusca] = useState("");
   const [filtroCategoria, setFiltroCategoria] = useState("");
+  const [wizardAberto, setWizardAberto] = useState(false);
+  const [presetPickerCategoria, setPresetPickerCategoria] = useState<ComponenteCategoria | null>(null);
 
   const categorias = Array.from(new Set(criaturas.map((c) => c.categoria).filter(Boolean))).sort((a, b) =>
     a.localeCompare(b, "pt-BR"),
   );
+  const condicoesDisponiveis = templates.filter((t) => t.categoria === "condicao");
 
   const criaturasFiltradas = criaturas.filter((c) => {
     if (filtroCategoria && c.categoria !== filtroCategoria) return false;
@@ -75,9 +49,25 @@ export function BestiarioManager({ criaturasIniciais, templates }: Props) {
   });
 
   function abrirNova() {
+    setWizardAberto(true);
+  }
+
+  // O wizard já salva a criatura (ele mesmo chama criarCriatura) — aqui só
+  // reflete o resultado na lista e abre o editor completo pra ajustes finos
+  // (ações detalhadas, notas do narrador etc. que o wizard não cobre).
+  function aoTerminarWizard(nova: CriaturaSerializada) {
+    setCriaturas((prev) => [...prev, nova].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")));
+    setWizardAberto(false);
+    abrirEdicao(nova);
+    router.refresh();
+  }
+
+  function abrirFicha(c: CriaturaSerializada) {
+    setSelecionadaId(c.id);
+  }
+
+  function fecharFicha() {
     setSelecionadaId(null);
-    setDraft(criarCriaturaVazia());
-    setVisualizacao("editor");
   }
 
   function abrirEdicao(c: CriaturaSerializada) {
@@ -97,8 +87,19 @@ export function BestiarioManager({ criaturasIniciais, templates }: Props) {
   function adicionarComponente(categoria: ComponenteCategoria) {
     setDraft((atual) => ({
       ...atual,
-      componentes: [...atual.componentes, novoComponente(categoria, atual.componentes.length)],
+      componentes: [...atual.componentes, criarComponenteVazio(categoria, atual.componentes.length)],
     }));
+  }
+
+  function adicionarComponenteComPreset(categoria: ComponenteCategoria, preset: PresetAcao) {
+    setDraft((atual) => ({
+      ...atual,
+      componentes: [
+        ...atual.componentes,
+        { ...criarComponenteVazio(categoria, atual.componentes.length), ...preset.criar() },
+      ],
+    }));
+    setPresetPickerCategoria(null);
   }
 
   function aplicarComponenteDaBiblioteca(templateId: string) {
@@ -106,7 +107,7 @@ export function BestiarioManager({ criaturasIniciais, templates }: Props) {
     if (!template) return;
     setDraft((atual) => ({
       ...atual,
-      componentes: [...atual.componentes, aplicarTemplate(template, atual, atual.componentes.length)],
+      componentes: [...atual.componentes, aplicarTemplate(template, atual.componentes.length)],
     }));
   }
 
@@ -202,55 +203,85 @@ export function BestiarioManager({ criaturasIniciais, templates }: Props) {
     }
   }
 
-  if (visualizacao === "lista") {
+  if (wizardAberto) {
     return (
-      <div className="bestiario-lista-view">
-        <div className="bestiario-lista-toolbar">
-          <div className="bestiario-lista-busca">
-            <i className="fas fa-magnifying-glass" />
-            <input
-              placeholder="Buscar por nome ou categoria..."
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-            />
+      <WizardCriatura
+        criaturas={criaturas}
+        templates={templates}
+        linhagens={linhagens}
+        onCriada={aoTerminarWizard}
+        onCancelar={() => setWizardAberto(false)}
+      />
+    );
+  }
+
+  if (visualizacao === "lista") {
+    const selecionada = criaturas.find((c) => c.id === selecionadaId) ?? null;
+
+    return (
+      <div className="bestiario-split">
+        <div className="bestiario-lista-view">
+          <div className="bestiario-lista-toolbar">
+            <div className="bestiario-lista-busca">
+              <i className="fas fa-magnifying-glass" />
+              <input
+                placeholder="Buscar por nome ou categoria..."
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+              />
+            </div>
+            <select value={filtroCategoria} onChange={(e) => setFiltroCategoria(e.target.value)}>
+              <option value="">Todas as categorias</option>
+              {categorias.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+            <Link href="/bestiario/biblioteca" className="bestiario-btn-biblioteca">
+              <i className="fas fa-book" /> Biblioteca de traits
+            </Link>
+            <Link href="/bestiario/encontros" className="bestiario-btn-biblioteca">
+              <i className="fas fa-people-group" /> Esquadrões e Encontros
+            </Link>
+            <button type="button" className="bestiario-btn-nova" onClick={abrirNova}>
+              <i className="fas fa-plus" /> Nova criatura
+            </button>
           </div>
-          <select value={filtroCategoria} onChange={(e) => setFiltroCategoria(e.target.value)}>
-            <option value="">Todas as categorias</option>
-            {categorias.map((cat) => (
-              <option key={cat} value={cat}>
-                {cat}
-              </option>
-            ))}
-          </select>
-          <Link href="/bestiario/biblioteca" className="bestiario-btn-biblioteca">
-            <i className="fas fa-book" /> Biblioteca de traits
-          </Link>
-          <Link href="/bestiario/encontros" className="bestiario-btn-biblioteca">
-            <i className="fas fa-people-group" /> Esquadrões e Encontros
-          </Link>
-          <button type="button" className="bestiario-btn-nova" onClick={abrirNova}>
-            <i className="fas fa-plus" /> Nova criatura
-          </button>
+
+          {criaturas.length === 0 ? (
+            <p className="bestiario-vazio">Nenhuma criatura cadastrada ainda.</p>
+          ) : criaturasFiltradas.length === 0 ? (
+            <p className="bestiario-vazio">Nenhuma criatura bate com esse filtro.</p>
+          ) : (
+            <div className="bestiario-grade-cards">
+              {criaturasFiltradas.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={"bestiario-card-item" + (c.id === selecionadaId ? " active" : "")}
+                  onClick={() => abrirFicha(c)}
+                >
+                  <span className="bestiario-card-nome">{c.nome}</span>
+                  <span className="bestiario-card-meta">
+                    ND {c.nd} · {c.categoria || "sem categoria"}
+                  </span>
+                  {c.tags.length > 0 && (
+                    <span className="bestiario-card-tags">{c.tags.join(", ")}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
-        {criaturas.length === 0 ? (
-          <p className="bestiario-vazio">Nenhuma criatura cadastrada ainda.</p>
-        ) : criaturasFiltradas.length === 0 ? (
-          <p className="bestiario-vazio">Nenhuma criatura bate com esse filtro.</p>
-        ) : (
-          <div className="bestiario-grade-cards">
-            {criaturasFiltradas.map((c) => (
-              <button key={c.id} type="button" className="bestiario-card-item" onClick={() => abrirEdicao(c)}>
-                <span className="bestiario-card-nome">{c.nome}</span>
-                <span className="bestiario-card-meta">
-                  ND {c.nd} · {c.categoria || "sem categoria"}
-                </span>
-                {c.tags.length > 0 && (
-                  <span className="bestiario-card-tags">{c.tags.join(", ")}</span>
-                )}
-              </button>
-            ))}
-          </div>
+        {selecionada && (
+          <FichaCriaturaView
+            key={selecionada.id}
+            criatura={selecionada}
+            onEditar={() => abrirEdicao(selecionada)}
+            onFechar={fecharFicha}
+          />
         )}
       </div>
     );
@@ -271,13 +302,16 @@ export function BestiarioManager({ criaturasIniciais, templates }: Props) {
               </button>
             )}
             <button type="button" className="bestiario-btn-salvar" onClick={salvar} disabled={salvando}>
+              <i className={`fas ${salvando ? "fa-spinner fa-spin" : "fa-floppy-disk"}`} />
               {salvando ? "Salvando..." : "Salvar"}
             </button>
           </div>
         </div>
 
         <div className="bestiario-secao">
-          <h3>Identidade</h3>
+          <h3>
+            <i className="fas fa-id-card" /> Identidade
+          </h3>
           <div className="bestiario-grid">
             <label>
               Nome
@@ -317,7 +351,9 @@ export function BestiarioManager({ criaturasIniciais, templates }: Props) {
         </div>
 
         <div className="bestiario-secao">
-          <h3>Nível e defesas</h3>
+          <h3>
+            <i className="fas fa-shield-halved" /> Nível e defesas
+          </h3>
           <div className="bestiario-grid">
             <label>
               ND
@@ -362,7 +398,9 @@ export function BestiarioManager({ criaturasIniciais, templates }: Props) {
         </div>
 
         <div className="bestiario-secao">
-          <h3>Atributos</h3>
+          <h3>
+            <i className="fas fa-dumbbell" /> Atributos
+          </h3>
           <div className="bestiario-grid bestiario-grid--atributos">
             {(["forca", "destreza", "constituicao", "sabedoria", "presenca", "vontade"] as const).map((attr) => (
               <label key={attr}>
@@ -374,7 +412,9 @@ export function BestiarioManager({ criaturasIniciais, templates }: Props) {
         </div>
 
         <div className="bestiario-secao">
-          <h3>Deslocamento</h3>
+          <h3>
+            <i className="fas fa-person-running" /> Deslocamento
+          </h3>
           <div className="bestiario-grid">
             <label>
               Terrestre (m)
@@ -392,7 +432,9 @@ export function BestiarioManager({ criaturasIniciais, templates }: Props) {
         </div>
 
         <div className="bestiario-secao">
-          <h3>Perícias, salvaguardas e sentidos</h3>
+          <h3>
+            <i className="fas fa-check-double" /> Perícias, salvaguardas e sentidos
+          </h3>
           <div className="bestiario-lista-linhas">
             {draft.caracteristicas.pericias.map((p, i) => (
               <div key={p.id} className="bestiario-linha-bonus">
@@ -429,7 +471,7 @@ export function BestiarioManager({ criaturasIniciais, templates }: Props) {
               </div>
             ))}
             <button type="button" className="bestiario-btn-add" onClick={adicionarPericia}>
-              + Perícia
+              <i className="fas fa-plus" /> Perícia
             </button>
           </div>
 
@@ -473,7 +515,7 @@ export function BestiarioManager({ criaturasIniciais, templates }: Props) {
               </div>
             ))}
             <button type="button" className="bestiario-btn-add" onClick={adicionarSalvaguarda}>
-              + Salvaguarda
+              <i className="fas fa-plus" /> Salvaguarda
             </button>
           </div>
 
@@ -497,7 +539,9 @@ export function BestiarioManager({ criaturasIniciais, templates }: Props) {
         </div>
 
         <div className="bestiario-secao">
-          <h3>Resistências, imunidades e vulnerabilidades</h3>
+          <h3>
+            <i className="fas fa-shield" /> Resistências, imunidades e vulnerabilidades
+          </h3>
           <div className="bestiario-grid">
             <label className="bestiario-span-2">
               Resistência a dano (vírgula)
@@ -534,18 +578,22 @@ export function BestiarioManager({ criaturasIniciais, templates }: Props) {
         </div>
 
         <div className="bestiario-secao">
-          <h3>Componentes</h3>
+          <h3>
+            <i className="fas fa-bolt" /> Componentes
+          </h3>
           <datalist id="tipos-dano-sugeridos">
             {TIPOS_DANO_SUGERIDOS.map((t) => (
               <option key={t} value={t} />
             ))}
           </datalist>
-          {CATEGORIAS_COMPONENTE.map(({ key, label }) => {
+          {CATEGORIAS_COMPONENTE.map(({ key, label, icone }) => {
             const itens = draft.componentes.filter((c) => c.categoria === key);
             return (
               <div key={key} className="bestiario-componente-grupo">
                 <div className="bestiario-componente-header">
-                  <strong>{label}</strong>
+                  <strong>
+                    <i className={`fas ${icone}`} /> {label}
+                  </strong>
                   <div className="bestiario-componente-header-acoes">
                     {templates.some((t) => t.categoria === key) && (
                       <select
@@ -568,168 +616,34 @@ export function BestiarioManager({ criaturasIniciais, templates }: Props) {
                           ))}
                       </select>
                     )}
-                    <button type="button" className="bestiario-btn-add" onClick={() => adicionarComponente(key)}>
-                      + {label}
+                    <button
+                      type="button"
+                      className="bestiario-btn-add"
+                      onClick={() =>
+                        key === "condicao" ? adicionarComponente(key) : setPresetPickerCategoria(key)
+                      }
+                    >
+                      <i className="fas fa-plus" /> {label}
                     </button>
                   </div>
                 </div>
+                {presetPickerCategoria === key && (
+                  <PickerAcaoPreset
+                    onEscolher={(preset) => adicionarComponenteComPreset(key, preset)}
+                    onPular={() => {
+                      adicionarComponente(key);
+                      setPresetPickerCategoria(null);
+                    }}
+                  />
+                )}
                 {itens.map((item) => (
-                  <div key={item.id} className="bestiario-componente-card">
-                    <div className="bestiario-grid">
-                      <label>
-                        Nome
-                        <input value={item.nome} onChange={(e) => atualizarComponente(item.id, { nome: e.target.value })} />
-                      </label>
-                      <label>
-                        Alcance
-                        <input
-                          value={item.alcance}
-                          placeholder="1,5 metro / 9-15 metros"
-                          onChange={(e) => atualizarComponente(item.id, { alcance: e.target.value })}
-                        />
-                      </label>
-                      <label>
-                        Custo
-                        <input
-                          value={item.custo}
-                          placeholder="1 PP / 5-6 / 3 por dia"
-                          onChange={(e) => atualizarComponente(item.id, { custo: e.target.value })}
-                        />
-                      </label>
-                      <label>
-                        Como acerta
-                        <select
-                          value={item.modoResolucao}
-                          onChange={(e) => atualizarComponente(item.id, { modoResolucao: e.target.value as ComponentePayload["modoResolucao"] })}
-                        >
-                          <option value="nenhum">Nenhum (passivo)</option>
-                          <option value="ataque">Jogada de ataque</option>
-                          <option value="salvaguarda">Salvaguarda do alvo</option>
-                        </select>
-                      </label>
-
-                      {item.modoResolucao === "ataque" && (
-                        <label>
-                          Bônus de ataque
-                          <input
-                            value={item.bonusAtaque}
-                            placeholder="+5"
-                            onChange={(e) => atualizarComponente(item.id, { bonusAtaque: e.target.value })}
-                          />
-                        </label>
-                      )}
-
-                      {item.modoResolucao === "salvaguarda" && (
-                        <>
-                          <label>
-                            Atributo da salvaguarda
-                            <select
-                              value={item.salvaguardaAtributo}
-                              onChange={(e) =>
-                                atualizarComponente(item.id, {
-                                  salvaguardaAtributo: e.target.value as ComponentePayload["salvaguardaAtributo"],
-                                })
-                              }
-                            >
-                              {["forca", "destreza", "constituicao", "sabedoria", "presenca", "vontade"].map((a) => (
-                                <option key={a} value={a}>
-                                  {a}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            CD
-                            <NumeroInput allowNull value={item.cd} onChange={(v) => atualizarComponente(item.id, { cd: v })} />
-                          </label>
-                        </>
-                      )}
-
-                      <label>
-                        Área (opcional)
-                        <select
-                          value={item.area.forma}
-                          onChange={(e) =>
-                            atualizarComponente(item.id, { area: { ...item.area, forma: e.target.value as ComponentePayload["area"]["forma"] } })
-                          }
-                        >
-                          {FORMAS_AREA.map((f) => (
-                            <option key={f.key} value={f.key}>
-                              {f.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      {item.area.forma !== "nenhuma" && (
-                        <label>
-                          Tamanho da área
-                          <input
-                            value={item.area.tamanho}
-                            placeholder="15 metros"
-                            onChange={(e) => atualizarComponente(item.id, { area: { ...item.area, tamanho: e.target.value } })}
-                          />
-                        </label>
-                      )}
-                    </div>
-
-                    <div className="bestiario-lista-linhas">
-                      <span className="bestiario-sublabel">
-                        Dano — uma linha por tipo de dano diferente (ex: “1d6 Cortante” + “1d6 Veneno” = 2 linhas).
-                        Vários tipos numa mesma linha (separados por vírgula) significam escolha entre eles, não soma
-                        (ex: “Contundente, Cortante ou Perfurante”).
-                      </span>
-                      {item.danos.map((d) => (
-                        <div key={d.id} className="bestiario-linha-dano">
-                          <input
-                            value={d.formula}
-                            placeholder="2d10, ou só 2 pra bônus fixo"
-                            onChange={(e) =>
-                              atualizarComponente(item.id, {
-                                danos: item.danos.map((x) => (x.id === d.id ? { ...x, formula: e.target.value } : x)),
-                              })
-                            }
-                          />
-                          <ListaTextoInput
-                            list="tipos-dano-sugeridos"
-                            placeholder="Cortante"
-                            value={d.tipos}
-                            onChange={(v) =>
-                              atualizarComponente(item.id, {
-                                danos: item.danos.map((x) => (x.id === d.id ? { ...x, tipos: v } : x)),
-                              })
-                            }
-                          />
-                          <button
-                            type="button"
-                            onClick={() =>
-                              atualizarComponente(item.id, { danos: item.danos.filter((x) => x.id !== d.id) })
-                            }
-                          >
-                            <i className="fas fa-xmark" />
-                          </button>
-                        </div>
-                      ))}
-                      <button
-                        type="button"
-                        className="bestiario-btn-add"
-                        onClick={() => atualizarComponente(item.id, { danos: [...item.danos, novoDano()] })}
-                      >
-                        + Dano (outro tipo/composto)
-                      </button>
-                    </div>
-
-                    <label>
-                      Descrição
-                      <textarea
-                        className="bestiario-textarea-descricao"
-                        value={item.descricao}
-                        onChange={(e) => atualizarComponente(item.id, { descricao: e.target.value })}
-                      />
-                    </label>
-                    <button type="button" className="bestiario-btn-remover-item" onClick={() => removerComponente(item.id)}>
-                      <i className="fas fa-trash" /> Remover
-                    </button>
-                  </div>
+                  <ComponenteEditor
+                    key={item.id}
+                    item={item}
+                    condicoesDisponiveis={condicoesDisponiveis}
+                    onAtualizar={(patch) => atualizarComponente(item.id, patch)}
+                    onRemover={() => removerComponente(item.id)}
+                  />
                 ))}
               </div>
             );
@@ -737,7 +651,9 @@ export function BestiarioManager({ criaturasIniciais, templates }: Props) {
         </div>
 
         <div className="bestiario-secao">
-          <h3>Notas do narrador</h3>
+          <h3>
+            <i className="fas fa-feather" /> Notas do narrador
+          </h3>
           <div className="bestiario-grid">
             <label className="bestiario-span-2">
               Anotações privadas

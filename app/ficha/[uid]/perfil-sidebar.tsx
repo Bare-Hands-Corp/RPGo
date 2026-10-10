@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useOptimistic, useRef, useState, useTransition } from "react";
-import Link from "next/link";
 import Swal from "sweetalert2";
+import { BotaoVoltar } from "@/components/botao-voltar";
 import { EditableStat } from "./editable-stat";
 import { EditFichaModal } from "./edit-ficha-modal";
 import { AvatarUploadModal } from "./avatar-upload-modal";
@@ -1390,9 +1390,9 @@ export function PerfilSidebar({
         })}
       </div>
 
-      <Link href="/dashboard" className="btn-voltar-ficha">
+      <BotaoVoltar fallbackHref="/dashboard" className="btn-voltar-ficha">
         ← Voltar
-      </Link>
+      </BotaoVoltar>
 
       {modalNivel && (
         <NivelModal

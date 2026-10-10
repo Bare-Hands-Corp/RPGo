@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { usuarioDaRequest } from "@/lib/supabase/server";
@@ -9,6 +8,7 @@ import {
 import { CalendarioView } from "./calendario-view";
 import { CalendarioRealtime } from "./realtime-refresher";
 import { ThemeButton } from "@/components/temas/theme-button";
+import { BotaoVoltar } from "@/components/botao-voltar";
 import "./calendario.css";
 
 type Params = { params: Promise<{ mesaId: string }> };
@@ -43,14 +43,14 @@ export default async function CalendarioPage({ params }: Params) {
       <CalendarioRealtime mesaId={mesaId} calendarioId={calendario.id} />
 
       <div className="cal-page-topbar">
-        <Link
-          href={isNarrador ? `/narrador/${mesaId}` : "/dashboard"}
+        <BotaoVoltar
+          fallbackHref={isNarrador ? `/narrador/${mesaId}` : "/dashboard"}
           className="cal-page-voltar"
           title={isNarrador ? "Voltar pro painel da mesa" : "Voltar pro painel"}
           aria-label={isNarrador ? "Voltar pro painel da mesa" : "Voltar pro painel"}
         >
           <i className="fas fa-arrow-left" />
-        </Link>
+        </BotaoVoltar>
         <div className="cal-page-titulo">
           <span className="cal-kicker">Calendário da mesa</span>
           <h1>{mesa.nome}</h1>

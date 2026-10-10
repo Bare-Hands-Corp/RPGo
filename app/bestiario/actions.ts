@@ -17,6 +17,18 @@ function validarCriatura(payload: CriaturaPayload) {
   if (!payload.categoria.trim()) throw new Error("Categoria é obrigatória.");
 }
 
+// Linhagem é digitada por nome (texto livre + datalist de sugestões) — não
+// existe seletor de id no formulário. Acha a linhagem existente do narrador
+// com esse nome ou cria uma nova; nome vazio = sem linhagem (null).
+async function resolverLinhagemId(userId: string, nomeLinhagem: string): Promise<string | null> {
+  const nome = nomeLinhagem.trim();
+  if (!nome) return null;
+  const existente = await prisma.linhagem.findFirst({ where: { userId, nome } });
+  if (existente) return existente.id;
+  const nova = await prisma.linhagem.create({ data: { userId, nome } });
+  return nova.id;
+}
+
 function normalizarPayload(payload: CriaturaPayload) {
   return {
     nome: payload.nome.trim(),
@@ -25,6 +37,7 @@ function normalizarPayload(payload: CriaturaPayload) {
     imagemUrl: payload.imagemUrl || null,
     tags: payload.tags,
     personalidade: payload.personalidade || null,
+    ordemTier: payload.ordemTier,
     nd: payload.nd,
     ndValor: ndParaValor(payload.nd),
     xp: payload.xp,
@@ -60,12 +73,9 @@ function componentesParaCreate(payload: CriaturaPayload) {
     ordem: indice,
     textoRenderizado: c.descricao,
     parametrosResolvidos: {
-      modoResolucao: c.modoResolucao,
-      bonusAtaque: c.bonusAtaque,
-      salvaguardaAtributo: c.salvaguardaAtributo,
-      cd: c.cd,
-      danos: c.danos.map((d) => ({ formula: d.formula, tipos: d.tipos })),
-      area: c.area,
+      efeitos: c.efeitos,
+      usos: c.usos,
+      recarga: c.recarga,
       alcance: c.alcance,
       custo: c.custo,
     },
@@ -80,14 +90,16 @@ export async function criarCriatura(payload: CriaturaPayload) {
   const user = await autorizarNarrador();
   validarCriatura(payload);
   const dados = normalizarPayload(payload);
+  const linhagemId = await resolverLinhagemId(user.id, payload.linhagem);
 
   const criatura = await prisma.criatura.create({
     data: {
       ...dados,
+      linhagemId,
       userId: user.id,
       componentes: { create: componentesParaCreate(payload) },
     },
-    include: { componentes: true },
+    include: { componentes: true, linhagem: true },
   });
 
   revalidar();
@@ -98,6 +110,7 @@ export async function atualizarCriatura(criaturaId: string, payload: CriaturaPay
   const user = await autorizarNarrador();
   validarCriatura(payload);
   const dados = normalizarPayload(payload);
+  const linhagemId = await resolverLinhagemId(user.id, payload.linhagem);
 
   const existente = await prisma.criatura.findUnique({ where: { id: criaturaId }, select: { userId: true } });
   if (!existente) throw new Error("Criatura não encontrada.");
@@ -107,12 +120,13 @@ export async function atualizarCriatura(criaturaId: string, payload: CriaturaPay
     where: { id: criaturaId },
     data: {
       ...dados,
+      linhagemId,
       componentes: {
         deleteMany: {},
         create: componentesParaCreate(payload),
       },
     },
-    include: { componentes: true },
+    include: { componentes: true, linhagem: true },
   });
 
   revalidar();
