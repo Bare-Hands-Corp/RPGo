@@ -306,15 +306,28 @@ export function RecursosSidebar({
               </div>
             </div>
             <div className="recurso-card-corpo">
-              <button
-                type="button"
-                className="recurso-btn"
-                onClick={() => alterarValor(r, -1)}
-                disabled={r.valorAtual <= 0}
-                aria-label="Diminuir"
-              >
-                −
-              </button>
+              {/* Atalhos nas pontas: zerar e encher de uma vez. */}
+              <span className="recurso-btns">
+                <button
+                  type="button"
+                  className="recurso-btn recurso-btn-ponta"
+                  onClick={() => alterarValor(r, -r.valorAtual)}
+                  disabled={r.valorAtual <= 0}
+                  title="Zerar"
+                  aria-label={`Zerar ${r.nome}`}
+                >
+                  <i className="fas fa-angles-left" />
+                </button>
+                <button
+                  type="button"
+                  className="recurso-btn"
+                  onClick={() => alterarValor(r, -1)}
+                  disabled={r.valorAtual <= 0}
+                  aria-label="Diminuir"
+                >
+                  −
+                </button>
+              </span>
               <span className="recurso-card-valor">
                 <strong>{r.valorAtual}</strong>
                 <span
@@ -325,15 +338,27 @@ export function RecursosSidebar({
                   / {r.valorMax}
                 </span>
               </span>
-              <button
-                type="button"
-                className="recurso-btn"
-                onClick={() => alterarValor(r, +1)}
-                disabled={r.valorAtual >= r.valorMax}
-                aria-label="Aumentar"
-              >
-                +
-              </button>
+              <span className="recurso-btns">
+                <button
+                  type="button"
+                  className="recurso-btn"
+                  onClick={() => alterarValor(r, +1)}
+                  disabled={r.valorAtual >= r.valorMax}
+                  aria-label="Aumentar"
+                >
+                  +
+                </button>
+                <button
+                  type="button"
+                  className="recurso-btn recurso-btn-ponta"
+                  onClick={() => alterarValor(r, r.valorMax - r.valorAtual)}
+                  disabled={r.valorAtual >= r.valorMax}
+                  title="Encher"
+                  aria-label={`Encher ${r.nome}`}
+                >
+                  <i className="fas fa-angles-right" />
+                </button>
+              </span>
             </div>
             <div className="progress-track">
               <div

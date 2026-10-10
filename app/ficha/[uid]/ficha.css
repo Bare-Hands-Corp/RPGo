@@ -7787,3 +7787,18 @@ form > .turno-campo,
 .movimento.sem .movimento-icone {
   color: var(--sidebar-text-sec);
 }
+
+/* ─── Recurso: atalhos de zerar e encher nas pontas ────────── */
+.recurso-btns {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.recurso-btn.recurso-btn-ponta {
+  width: 22px;
+  border-color: transparent;
+  background: none;
+  color: var(--sidebar-text-sec);
+  font-size: 0.65rem;
+}
