@@ -268,7 +268,9 @@ export function bloqueiosDevolver(
 }
 
 /** Habilidade ligada a vários nós fica liberada se qualquer um estiver comprado. */
-export function habilidadesTravadas(nos: NoArvore[]): Set<string> {
+export function habilidadesTravadas(
+  nos: Pick<NoArvore, "habilidadeId" | "rankAtual">[],
+): Set<string> {
   const travadas = new Set<string>();
   const liberadas = new Set<string>();
   for (const n of nos) {

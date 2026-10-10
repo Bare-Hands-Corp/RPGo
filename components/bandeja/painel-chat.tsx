@@ -357,9 +357,133 @@ function MensagemView({
     );
   }
 
+  if ((msg.tipo === "dano" || msg.tipo === "cura") && msg.detalhes) {
+    return <VidaMensagemView msg={msg} hora={hora} />;
+  }
+
+  if (msg.tipo === "turno" && msg.detalhes) {
+    return <TurnoMensagemView msg={msg} hora={hora} />;
+  }
+
   return (
     <div className="chat-message">
       {hora} <strong>{nome}</strong>: {msg.mensagem}
+    </div>
+  );
+}
+
+// Dano recebido ou cura manual, gravados pela ficha (lib/dano.ts).
+function VidaMensagemView({ msg, hora }: { msg: MensagemSerializada; hora: string }) {
+  const d = msg.detalhes as {
+    partes?: { texto: string }[];
+    final?: number;
+    absorvido?: number;
+    hpTemp?: [number, number];
+    hpAtual?: [number, number];
+    hpMax?: number;
+    pvNegativos?: [number, number];
+    caiu?: boolean;
+    morreu?: boolean;
+    concentracao?: { nome: string; cd: number } | null;
+    perdeuConcentracao?: string | null;
+    acabaram?: string[];
+  };
+  const dano = msg.tipo === "dano";
+  const total = msg.total ?? 0;
+  const [pvAntes, pvDepois] = d.hpAtual ?? [0, 0];
+  const [tempAntes, tempDepois] = d.hpTemp ?? [0, 0];
+  const [negAntes, negDepois] = d.pvNegativos ?? [0, 0];
+  return (
+    <div className={`chat-message roll-message vida-message ${dano ? "dano" : "cura"}`}>
+      <div className="roll-header">
+        {hora} <strong>{msg.nome}</strong> {dano ? "recebeu dano" : "recuperou PV"}
+      </div>
+      <div className="roll-box">
+        <div className="roll-total">{dano ? `−${total}` : `+${total}`}</div>
+        <div className="vida-linhas">
+          {(d.partes ?? []).map((p, i) => (
+            <div key={i}>{p.texto}</div>
+          ))}
+          {dano && tempAntes !== tempDepois && (
+            <div>
+              PV temporário {tempAntes} → {tempDepois}
+            </div>
+          )}
+          {pvAntes !== pvDepois && (
+            <div>
+              PV {pvAntes} → {pvDepois}
+              {d.hpMax ? ` / ${d.hpMax}` : ""}
+            </div>
+          )}
+          {dano && negDepois > 0 && (
+            <div>
+              PV negativos {negAntes} → {negDepois}
+              {d.hpMax ? ` / ${d.hpMax}` : ""}
+            </div>
+          )}
+          {d.morreu ? (
+            <div className="vida-caiu">Morreu</div>
+          ) : d.caiu ? (
+            <div className="vida-caiu">Ficou incapacitado</div>
+          ) : null}
+          {(d.acabaram ?? []).map((nome) => (
+            <div key={nome}>{nome} acabou</div>
+          ))}
+          {d.perdeuConcentracao && <div>Perdeu a concentração em {d.perdeuConcentracao}</div>}
+          {d.concentracao && (
+            <div>
+              Concentração em {d.concentracao.nome}: salvaguarda de CON, CD {d.concentracao.cd}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Passar turno, gravado pela ficha (lib/turno.ts).
+function TurnoMensagemView({ msg, hora }: { msg: MensagemSerializada; hora: string }) {
+  const d = msg.detalhes as {
+    linhas?: { fonte: string; texto: string }[];
+    hpAtual?: [number, number];
+    hpMax?: number;
+    caiu?: boolean;
+    morreu?: boolean;
+    perdeuConcentracao?: string | null;
+    testes?: { nome: string; cds: number[] } | null;
+  };
+  const [pvAntes, pvDepois] = d.hpAtual ?? [0, 0];
+  return (
+    <div className="chat-message roll-message vida-message turno">
+      <div className="roll-header">
+        {hora} <strong>{msg.nome}</strong> passou o turno
+      </div>
+      <div className="roll-box">
+        <div className="vida-linhas">
+          {(d.linhas ?? []).map((l, i) => (
+            <div key={i}>
+              {l.fonte}: {l.texto}
+            </div>
+          ))}
+          {pvAntes !== pvDepois && (
+            <div>
+              PV {pvAntes} → {pvDepois}
+              {d.hpMax ? ` / ${d.hpMax}` : ""}
+            </div>
+          )}
+          {d.morreu ? (
+            <div className="vida-caiu">Morreu</div>
+          ) : d.caiu ? (
+            <div className="vida-caiu">Ficou incapacitado</div>
+          ) : null}
+          {d.perdeuConcentracao && <div>Perdeu a concentração em {d.perdeuConcentracao}</div>}
+          {d.testes?.cds.map((cd, i) => (
+            <div key={`cd-${i}`}>
+              Concentração em {d.testes!.nome}: salvaguarda de CON, CD {cd}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -398,6 +522,7 @@ function TesteMensagemView({
     modosPorAlvo?: Record<string, "normal" | "vantagem" | "desvantagem">;
     bonusPorAlvo?: Record<string, number>;
     bonusDetalhesPorAlvo?: Record<string, string>;
+    dadosPorAlvo?: Record<string, Array<{ faces: number; sinal: 1 | -1 }>>;
   };
   const [rolando, setRolando] = useState(false);
   const [acompanhamentoAberto, setAcompanhamentoAberto] = useState(false);
@@ -422,6 +547,8 @@ function TesteMensagemView({
   const modoAtual = personagemId ? detalhes.modosPorAlvo?.[personagemId] ?? "normal" : "normal";
   const bonusAtual = personagemId ? detalhes.bonusPorAlvo?.[personagemId] ?? 0 : 0;
   const bonusDetalhado = personagemId ? detalhes.bonusDetalhesPorAlvo?.[personagemId] ?? null : null;
+  // Dados a mais dos efeitos (ex.: +1d4 em testes), rolados junto do d20.
+  const dadosExtras = personagemId ? detalhes.dadosPorAlvo?.[personagemId] ?? [] : [];
   const cdInterna =
     typeof detalhes.cdInterna === "number"
       ? detalhes.cdInterna
@@ -444,7 +571,7 @@ function TesteMensagemView({
     if (rolando || !isAlvo || jaRolou) return;
     setRolando(true);
     try {
-      const resultado = rolarDados([{ faces: 20, sinal: 1 }], bonusAtual, modoAtual);
+      const resultado = rolarDados([{ faces: 20, sinal: 1 }, ...dadosExtras], bonusAtual, modoAtual);
       const sucesso = typeof cdInterna === "number" ? resultado.total >= cdInterna : null;
       const mensagem = await registrarRolagem(
         sessionId,

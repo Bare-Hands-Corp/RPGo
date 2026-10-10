@@ -6,13 +6,12 @@ import { ehTemporario, exigir, idTemporario } from "@/lib/acoes";
 import {
   ATRIBUTOS,
   PERICIAS,
-  atributoDeCalculo,
-  bonusPericia,
-  bonusSalvaguarda,
   formatarMod,
   lerProficiencias,
   modificador,
+  exaustaoQueConta,
   penalidadeD20Exaustao,
+  resolverTeste,
   slugPericiaCustom,
   type Atributo,
   type EfeitosAgregados,
@@ -136,7 +135,7 @@ export function PericiasTab({
   // salvaguarda. Reflete já no número exibido (amarelo) e no que vai pro Rolador.
   // Otimista: atualiza na hora quando o ExaustaoControle muda o nível.
   const exaustao = useExaustaoOtimista(exaustaoServer);
-  const penD20 = penalidadeD20Exaustao(exaustao);
+  const penD20 = penalidadeD20Exaustao(exaustaoQueConta(exaustao, efeitosAgregados));
 
   // DES reduzida pela armadura (só pra testes/CR): reduzir a pontuação em 2× a
   // penalidade do modificador reduz o modificador em exatamente a penalidade.
@@ -145,8 +144,27 @@ export function PericiasTab({
     ...atributos,
     destreza: atributos.destreza + 2 * penalidadeDesArmadura,
   };
-  const subs = efeitosAgregados.substituicoesAtributo;
   const desReduz = penalidadeDesArmadura < 0;
+
+  // Tooltip das fontes de um teste resolvido.
+  function fontesDoTeste(
+    t: ReturnType<typeof resolverTeste>,
+    desReduzEste: boolean,
+  ): string {
+    return [
+      t.substituicao && `Usa ${t.atributo.toUpperCase().slice(0, 3)} por ${t.substituicao.join(", ")}`,
+      t.profPorEfeito &&
+        `Proficiência${t.profPorEfeito.dobrada ? " dobrada" : ""}: ${t.profPorEfeito.fontes.join(", ")}`,
+      t.bonusPorEfeito &&
+        `${formatarMod(t.bonusPorEfeito.valor)} de ${t.bonusPorEfeito.fontes.join(", ")}`,
+      t.bonusAmplo.fontes.length > 0 &&
+        `${formatarMod(t.bonusAmplo.valor)} de ${t.bonusAmplo.fontes.join(", ")}`,
+      desReduzEste && `−${Math.abs(penalidadeDesArmadura)} de DES (armadura)`,
+      penD20 > 0 && `−${penD20} de exaustão`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
   const inicial = lerProficiencias(proficienciasRaw);
   const [prof, aplicarPatch] = useOptimistic(inicial, aplicar);
   const [custom, aplicarCustomPatch] = useOptimistic(periciasCustom, aplicarCustom);
@@ -317,31 +335,25 @@ export function PericiasTab({
         </div>
         <div className="prof-grid">
           {ATRIBUTOS.map((a) => {
-            const profPorHab = efeitosAgregados.proficienciasSalvaguarda[a.slug];
-            const proficiente =
-              prof.salvaguardas.includes(a.slug) || !!profPorHab;
             const outros = prof.outrosSalvaguardas[a.slug] ?? 0;
-            const bonusHab = efeitosAgregados.bonusSalvaguarda[a.slug];
-            const outrosTotal = outros + (bonusHab?.valor ?? 0);
-            const sub = atributoDeCalculo(`salv-${a.slug}`, a.slug, subs);
-            const desReduzEste = sub.atributo === "destreza" && desReduz;
-            const bonus =
-              bonusSalvaguarda({
-                valorAtributo: atributosParaTeste[sub.atributo],
-                nivel,
-                proficiente,
-                outros: outrosTotal,
-              }) - penD20;
+            const t = resolverTeste({
+              tipo: "salvaguarda",
+              slug: a.slug,
+              atributoPadrao: a.slug,
+              nivel,
+              atributos: atributosParaTeste,
+              proficiente: prof.salvaguardas.includes(a.slug),
+              dobrado: false,
+              outros,
+              agg: efeitosAgregados,
+            });
+            const profPorHab = t.profPorEfeito;
+            const proficiente = t.proficiente;
+            const bonusHab = t.bonusPorEfeito ?? (t.bonusAmplo.fontes.length ? t.bonusAmplo : undefined);
+            const desReduzEste = t.atributo === "destreza" && desReduz;
+            const bonus = t.bonus - penD20;
             const exausto = penD20 > 0 || desReduzEste;
-            const tituloFontes = [
-              sub.substituido && `Usa ${sub.atributo.toUpperCase().slice(0, 3)} por ${sub.fontes.join(", ")}`,
-              profPorHab && `Proficiência: ${profPorHab.fontes.join(", ")}`,
-              bonusHab && `${formatarMod(bonusHab.valor)} de ${bonusHab.fontes.join(", ")}`,
-              desReduzEste && `−${Math.abs(penalidadeDesArmadura)} de DES (armadura)`,
-              penD20 > 0 && `−${penD20} de exaustão`,
-            ]
-              .filter(Boolean)
-              .join("\n");
+            const tituloFontes = fontesDoTeste(t, desReduzEste);
             return (
               <label
                 key={a.slug}
@@ -402,37 +414,27 @@ export function PericiasTab({
               </div>
               <div className="prof-grid">
                 {lista.map((p) => {
-                  const profPorHab = efeitosAgregados.proficienciasPericia[p.slug];
-                  const proficiente =
-                    prof.pericias.includes(p.slug) || !!profPorHab;
-                  const dobradoPorHab = !!profPorHab?.dobrada;
-                  const dobrado = prof.periciasDobradas.includes(p.slug) || dobradoPorHab;
                   const outros = prof.outrosPericias[p.slug] ?? 0;
-                  const bonusHab = efeitosAgregados.bonusPericia[p.slug];
-                  const outrosTotal = outros + (bonusHab?.valor ?? 0);
-                  const sub = atributoDeCalculo(p.slug, a.slug, subs);
-                  const desReduzEste = sub.atributo === "destreza" && desReduz;
+                  const t = resolverTeste({
+                    tipo: "pericia",
+                    slug: p.slug,
+                    atributoPadrao: a.slug,
+                    nivel,
+                    atributos: atributosParaTeste,
+                    proficiente: prof.pericias.includes(p.slug),
+                    dobrado: prof.periciasDobradas.includes(p.slug),
+                    outros,
+                    agg: efeitosAgregados,
+                  });
+                  const profPorHab = t.profPorEfeito;
+                  const proficiente = t.proficiente;
+                  const dobradoPorHab = !!profPorHab?.dobrada;
+                  const dobrado = t.dobrado;
+                  const bonusHab = t.bonusPorEfeito ?? (t.bonusAmplo.fontes.length ? t.bonusAmplo : undefined);
+                  const desReduzEste = t.atributo === "destreza" && desReduz;
                   const exausto = penD20 > 0 || desReduzEste;
-                  const bonus =
-                    bonusPericia({
-                      valorAtributo: atributosParaTeste[sub.atributo],
-                      nivel,
-                      proficiente,
-                      dobrado,
-                      outros: outrosTotal,
-                    }) - penD20;
-                  const tituloFontes = [
-                    sub.substituido &&
-                      `Usa ${sub.atributo.toUpperCase().slice(0, 3)} por ${sub.fontes.join(", ")}`,
-                    profPorHab &&
-                      `Proficiência${dobradoPorHab ? " dobrada" : ""}: ${profPorHab.fontes.join(", ")}`,
-                    bonusHab &&
-                      `${formatarMod(bonusHab.valor)} de ${bonusHab.fontes.join(", ")}`,
-                    desReduzEste && `−${Math.abs(penalidadeDesArmadura)} de DES (armadura)`,
-                    penD20 > 0 && `−${penD20} de exaustão`,
-                  ]
-                    .filter(Boolean)
-                    .join("\n");
+                  const bonus = t.bonus - penD20;
+                  const tituloFontes = fontesDoTeste(t, desReduzEste);
                   return (
                     <label
                       key={p.slug}
@@ -455,6 +457,7 @@ export function PericiasTab({
                           empilharD20(bonus, p.nome, {
                             tipo: "pericia",
                             pericia: p.slug,
+                            atributo: t.atributo,
                           });
                         }}
                       >
@@ -512,34 +515,26 @@ export function PericiasTab({
           <div className="prof-grid prof-grid-custom">
             {custom.map((c) => {
               const at = (c.atributo as Atributo) ?? "forca";
-              const profPorHab = efeitosAgregados.proficienciasPericia[c.slug];
-              const proficiente = c.proficiente || !!profPorHab;
+              const t = resolverTeste({
+                tipo: "pericia",
+                slug: c.slug,
+                atributoPadrao: at,
+                nivel,
+                atributos: atributosParaTeste,
+                proficiente: c.proficiente,
+                dobrado: c.dobrada,
+                outros: c.bonusOutros,
+                agg: efeitosAgregados,
+              });
+              const profPorHab = t.profPorEfeito;
+              const proficiente = t.proficiente;
               const dobradoPorHab = !!profPorHab?.dobrada;
-              const dobrado = c.dobrada || dobradoPorHab;
-              const bonusHab = efeitosAgregados.bonusPericia[c.slug];
-              const outrosTotal = c.bonusOutros + (bonusHab?.valor ?? 0);
-              const sub = atributoDeCalculo(c.slug, at, subs);
-              const desReduzEste = sub.atributo === "destreza" && desReduz;
+              const dobrado = t.dobrado;
+              const bonusHab = t.bonusPorEfeito ?? (t.bonusAmplo.fontes.length ? t.bonusAmplo : undefined);
+              const desReduzEste = t.atributo === "destreza" && desReduz;
               const exausto = penD20 > 0 || desReduzEste;
-              const bonus =
-                bonusPericia({
-                  valorAtributo: atributosParaTeste[sub.atributo],
-                  nivel,
-                  proficiente,
-                  dobrado,
-                  outros: outrosTotal,
-                }) - penD20;
-              const tituloFontes = [
-                sub.substituido &&
-                  `Usa ${sub.atributo.toUpperCase().slice(0, 3)} por ${sub.fontes.join(", ")}`,
-                profPorHab &&
-                  `Proficiência${dobradoPorHab ? " dobrada" : ""}: ${profPorHab.fontes.join(", ")}`,
-                bonusHab && `${formatarMod(bonusHab.valor)} de ${bonusHab.fontes.join(", ")}`,
-                desReduzEste && `−${Math.abs(penalidadeDesArmadura)} de DES (armadura)`,
-                penD20 > 0 && `−${penD20} de exaustão`,
-              ]
-                .filter(Boolean)
-                .join("\n");
+              const bonus = t.bonus - penD20;
+              const tituloFontes = fontesDoTeste(t, desReduzEste);
               return (
                 <div
                   key={c.id}
@@ -558,7 +553,7 @@ export function PericiasTab({
                     className={`prof-bonus prof-rolar ${exausto ? "valor-exausto" : ""}`}
                     title={`Empilhar ${c.nome} no Rolador`}
                     onClick={() =>
-                      empilharD20(bonus, c.nome, { tipo: "pericia", pericia: c.slug })
+                      empilharD20(bonus, c.nome, { tipo: "pericia", pericia: c.slug, atributo: t.atributo })
                     }
                   >
                     {formatarMod(bonus)}

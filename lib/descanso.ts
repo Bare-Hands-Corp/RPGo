@@ -1,4 +1,4 @@
-// Regras de descanso (padrão D&D 5e; redução de exaustão confirmada no livro).
+// Regras de descanso (cap. 11 do livro).
 
 export type TipoDescanso = "curto" | "longo";
 
@@ -12,25 +12,31 @@ export const TIPOS_DESCANSO: {
     slug: "curto",
     nome: "Descanso Curto",
     icone: "fa-mug-hot",
-    resumo: "Recupera o que recarrega em descanso curto. Permite gastar Dados de Vida.",
+    resumo:
+      "Recupera o que recarrega por encontro ou em descanso curto. Permite gastar Dados de Vida.",
   },
   {
     slug: "longo",
     nome: "Descanso Longo",
     icone: "fa-bed",
     resumo:
-      "PV e PP cheios, PV temporário zera, exaustão −1, metade dos Dados de Vida volta, e recupera tudo que recarrega em descanso curto ou longo.",
+      "PV e PP cheios (com exaustão, só metade do PP), PV temporário zera, exaustão −1, metade dos Dados de Vida volta, e recupera tudo que recarrega por encontro ou em descanso.",
   },
 ];
 
-/** Descanso longo contém um curto. */
+/** PP ao fim do descanso longo: cheio, ou metade do máximo se estava exausto. */
+export function ppDoDescansoLongo(atual: number, max: number, exaustao: number): number {
+  if (exaustao <= 0) return max;
+  return Math.min(max, atual + Math.floor(max / 2));
+}
+
+/** Descanso longo contém um curto; o que volta a cada encontro volta nos dois. */
 export function recuperaNoDescanso(
   gatilho: string | null | undefined,
   tipo: TipoDescanso,
 ): boolean {
-  if (gatilho === "descansoCurto") return true; // vale nos dois
+  if (gatilho === "descansoCurto" || gatilho === "encontro") return true;
   if (gatilho === "descansoLongo") return tipo === "longo";
-  // "manual" e "encontro" têm gatilhos próprios — descanso não mexe.
   return false;
 }
 
@@ -52,17 +58,20 @@ export type ResumoDescanso = {
   habilidades: string[];
   pvRestaurado: number;
   ppRestaurado: number;
+  ppPelaMetade: boolean;
   pvTempPerdido: number;
-  exaustaoReduzida: boolean;
+  exaustaoRecuperada: number;
   dadosVidaDevolvidos: number;
 };
 
 export function descreverDescanso(r: ResumoDescanso): string[] {
   const linhas: string[] = [];
   if (r.pvRestaurado > 0) linhas.push(`+${r.pvRestaurado} PV`);
-  if (r.ppRestaurado > 0) linhas.push(`+${r.ppRestaurado} PP`);
+  if (r.ppRestaurado > 0) {
+    linhas.push(`+${r.ppRestaurado} PP${r.ppPelaMetade ? " (metade, por exaustão)" : ""}`);
+  }
   if (r.pvTempPerdido > 0) linhas.push(`${r.pvTempPerdido} PV temporário perdido`);
-  if (r.exaustaoReduzida) linhas.push("Exaustão −1");
+  if (r.exaustaoRecuperada > 0) linhas.push(`Exaustão −${r.exaustaoRecuperada}`);
   if (r.dadosVidaDevolvidos > 0) {
     linhas.push(`${r.dadosVidaDevolvidos} Dado(s) de Vida de volta`);
   }

@@ -2,7 +2,9 @@
 // Sem estado, sem I/O — podem ser usados em Server Component, Client Component
 // ou Server Action.
 
-import { parseFormulaDados, type Dado } from "./dice";
+import { faixaDaRolagem, parseFormulaDados, type Dado } from "./dice";
+import { avaliarFormula, formulaUsaGrau, formulaVariavel } from "./formula";
+import { cobre, lerCobertura } from "./dano";
 
 export function modificador(valor: number): number {
   return Math.floor((valor - 10) / 2);
@@ -33,16 +35,6 @@ export function crBase(destreza: number, outros = 0): number {
 // Iniciativa = mod_DES (+ outros bônus aplicados pela mesa).
 export function iniciativa(destreza: number): number {
   return modificador(destreza);
-}
-
-// Percepção passiva = 10 + mod_VON (+ bônus_prof se proficiente em Percepção).
-export function percepcaoPassiva(opts: {
-  vontade: number;
-  nivel: number;
-  proficienteEmPercepcao: boolean;
-}): number {
-  const base = 10 + modificador(opts.vontade);
-  return opts.proficienteEmPercepcao ? base + bonusProficiencia(opts.nivel) : base;
 }
 
 // Capacidade de carga em kg = valor_FOR × 10. Multiplicador de tamanho
@@ -86,29 +78,100 @@ const SIGLA_PARA_SLUG: Record<string, Atributo> = {
   PRE: "presenca",
 };
 
-// Resolve siglas de atributo (FOR, DES, CON…) numa fórmula livre pro modificador
-// somado dos modificadores correspondentes. Complementa `parseFormulaDados` (que
-// cuida de dados + constantes numéricas e ignora palavras): aqui pegamos só os
-// termos de atributo, pra empilhar uma rolagem tipo "1d8+CON" já resolvida.
-// Só siglas MAIÚSCULAS casam (convenção da ficha) — evita falso positivo com
-// palavras tipo "concentração". `usados` alimenta tooltip ("CON +3").
-export function resolverAtributosNaFormula(
-  expr: string,
+export type FormulaResolvida = {
+  dados: Dado[];
+  modificador: number;
+  // Siglas resolvidas, pro tooltip ("CON +3").
+  usados: { sigla: string; mod: number }[];
+};
+
+// Valor de uma sigla canônica da fórmula.
+function valorDaSigla(
+  sigla: string,
   atributos: Record<Atributo, number>,
-): { modificador: number; usados: { sigla: string; mod: number }[] } {
-  const usados: { sigla: string; mod: number }[] = [];
-  let total = 0;
-  if (!expr) return { modificador: 0, usados };
-  const re = /([+-]?)\s*\b(FOR|DES|CON|SAB|VON|PRE)\b/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(expr))) {
-    const sinal = m[1] === "-" ? -1 : 1;
-    const sigla = m[2];
-    const mod = sinal * modificador(atributos[SIGLA_PARA_SLUG[sigla]]);
-    total += mod;
-    usados.push({ sigla, mod });
+  nivel: number,
+  grau: number,
+): number {
+  if (sigla === "PROF") return bonusProficiencia(nivel);
+  if (sigla === "NIVEL") return nivel;
+  if (sigla === "GRAU") return grau;
+  const slug = SIGLA_PARA_SLUG[sigla];
+  return slug ? modificador(atributos[slug]) : 0;
+}
+
+// Resolve uma fórmula (lib/formula.ts): dados, conta, siglas (FOR…PRE =
+// modificador, PROF, NIVEL, GRAU) e min/max/POR_NIVEL. Mal escrita, fica com os
+// dados e números soltos.
+export function resolverFormula(
+  bruta: string,
+  atributos: Record<Atributo, number>,
+  nivel: number,
+  { grau = 0 }: { grau?: number } = {},
+): FormulaResolvida {
+  const r = avaliarFormula(bruta, {
+    nivel,
+    valor: (sigla) => valorDaSigla(sigla, atributos, nivel, grau),
+  });
+  if (r.ok) {
+    return {
+      dados: r.rolagem.dados,
+      modificador: r.rolagem.modificador,
+      usados: r.usados.map((u) => ({ sigla: u.sigla, mod: u.valor })),
+    };
   }
-  return { modificador: total, usados };
+  const p = parseFormulaDados(bruta);
+  return { dados: p.dados, modificador: p.modificador, usados: [] };
+}
+
+// Prévia da edição: a fórmula resolvida ("2d10+3") ou o erro dela.
+export function conferirFormula(
+  bruta: string,
+  atributos: Record<Atributo, number>,
+  nivel: number,
+  { grau = 0 }: { grau?: number } = {},
+): { ok: true; texto: string } | { ok: false; erro: string } {
+  const r = avaliarFormula(bruta, {
+    nivel,
+    valor: (sigla) => valorDaSigla(sigla, atributos, nivel, grau),
+  });
+  if (!r.ok) return r;
+  return { ok: true, texto: formulaAgrupada(r.rolagem.dados, r.rolagem.modificador) };
+}
+
+// Valor de cada sigla pro personagem (autocompletar e atalhos).
+export function valoresDasSiglas(
+  atributos: Record<Atributo, number>,
+  nivel: number,
+  grau?: number,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const a of ATRIBUTOS) out[a.sigla] = formatarMod(modificador(atributos[a.slug]));
+  out.PROF = formatarMod(bonusProficiencia(nivel));
+  out.NIVEL = String(nivel);
+  if (grau !== undefined) out.GRAU = grau > 0 ? String(grau) : "—";
+  return out;
+}
+
+// Número de uma fórmula sem dados ("PROF/2+1", "3*NIVEL", "12").
+export function valorDaFormula(
+  formula: string,
+  atributos: Record<Atributo, number>,
+  nivel: number,
+  extras: { grau?: number } = {},
+): number {
+  return resolverFormula(formula, atributos, nivel, extras).modificador;
+}
+
+// Fórmula com as siglas e funções resolvidas ("2d10+CON" → "2d10+3"); sem elas, fica igual.
+export function formulaResolvidaTexto(
+  bruta: string,
+  atributos: Record<Atributo, number>,
+  nivel: number,
+  extras: { grau?: number } = {},
+): string {
+  if (!formulaVariavel(bruta)) return bruta.trim();
+  const r = resolverFormula(bruta, atributos, nivel, extras);
+  return formulaAgrupada(r.dados, r.modificador);
 }
 
 // Slug = identificador estável usado em DB. Não traduz — em PT-BR sem acentos.
@@ -248,16 +311,24 @@ export function bonusPericia(opts: {
   return mod + prof + extra;
 }
 
-// Bônus total de uma salvaguarda.
+// Bônus total de uma salvaguarda (dobrada: ex. Força Colossal dos Gigantes).
 export function bonusSalvaguarda(opts: {
   valorAtributo: number;
   nivel: number;
   proficiente: boolean;
+  dobrado?: boolean;
   outros?: number;
 }): number {
   const mod = modificador(opts.valorAtributo);
   const extra = opts.outros ?? 0;
-  return opts.proficiente ? mod + bonusProficiencia(opts.nivel) + extra : mod + extra;
+  if (!opts.proficiente) return mod + extra;
+  return mod + bonusProficiencia(opts.nivel) * (opts.dobrado ? 2 : 1) + extra;
+}
+
+// Teste passivo: 10 + bônus do teste; vantagem +5, desvantagem −5.
+export function testePassivo(bonus: number, vantagem: boolean, desvantagem: boolean): number {
+  const ajuste = vantagem && !desvantagem ? 5 : desvantagem && !vantagem ? -5 : 0;
+  return 10 + bonus + ajuste;
 }
 
 // ─── Progressão de nível (PE) ─────────────────────────────────────────
@@ -424,36 +495,60 @@ export function resolverAtaqueArma(opts: {
   atributos: Record<Atributo, number>;
   nivel: number;
   efeitosAgregados: EfeitosAgregados;
+  // Rolagem de técnica (senão, ataque comum).
+  tecnica?: boolean;
 }): { atributo: Atributo; bonus: number; fontes: string[]; alcance: AlcanceArma } | null {
   const alcance: AlcanceArma = ALCANCES_ARMA_VALIDOS.has(opts.alcanceRaw)
     ? (opts.alcanceRaw as AlcanceArma)
     : "corpo_a_corpo";
+  const agg = opts.efeitosAgregados;
+  const propriedades = lerPropriedadesArma(opts.propriedadesRaw);
+  // Sem atributo escolhido na arma, um efeito pode trocar o do ataque.
+  let override = (opts.atributoOverride as Atributo | null) || null;
+  if (!override) {
+    const padrao = melhorAtributo(atributosCandidatos(alcance, propriedades), opts.atributos);
+    if (padrao) {
+      const sub = atributoDeCalculo(
+        alcance === "corpo_a_corpo" ? "ataque-cc" : "ataque-distancia",
+        padrao,
+        agg.substituicoesAtributo,
+        opts.atributos,
+      );
+      if (sub.substituido) override = sub.atributo;
+    }
+  }
   const base = bonusAtaqueArma({
     alcance,
-    propriedades: lerPropriedadesArma(opts.propriedadesRaw),
-    atributoOverride: (opts.atributoOverride as Atributo | null) || null,
+    propriedades,
+    atributoOverride: override,
     atributos: opts.atributos,
     nivel: opts.nivel,
     modificadorArma: opts.modificadorArma,
     proficiente: opts.proficiente,
   });
   if (!base) return null;
-  // Bônus de habilidade: genérico (Ataque) + específico do alcance.
-  const generico = opts.efeitosAgregados.bonusAtaque;
-  const doAlcance =
-    alcance === "corpo_a_corpo"
-      ? opts.efeitosAgregados.bonusAtaqueCC
-      : opts.efeitosAgregados.bonusAtaqueDistancia;
-  const fontes = [
-    ...generico.fontes,
-    ...doAlcance.fontes.filter((f) => !generico.fontes.includes(f)),
-  ];
+  // Bônus de habilidade: genérico, do alcance, técnica/comum e todas as jogadas.
+  const extra = bonusDeAtaque(agg, alcance, !!opts.tecnica);
   return {
     atributo: base.atributo,
-    bonus: base.bonus + generico.valor + doAlcance.valor,
-    fontes,
+    bonus: base.bonus + extra.valor,
+    fontes: extra.fontes,
     alcance,
   };
+}
+
+// Bônus de efeito num ataque: geral, do alcance, técnica/comum e todas as jogadas.
+export function bonusDeAtaque(
+  agg: EfeitosAgregados,
+  alcance: AlcanceArma,
+  tecnica: boolean,
+): FonteValor {
+  return somarFontes(
+    agg.bonusAtaque,
+    alcance === "corpo_a_corpo" ? agg.bonusAtaqueCC : agg.bonusAtaqueDistancia,
+    tecnica ? agg.bonusAtaqueTecnica : agg.bonusAtaqueComum,
+    agg.bonusQualquer,
+  );
 }
 
 // ─── Passos de dano e desconto de técnica (Meito, cap. 8) ────────────
@@ -480,10 +575,51 @@ function subirUmPasso(formula: string): string {
   return formula.slice(0, m.index) + novo + formula.slice(m.index + m[0].length);
 }
 
-// Custo com desconto, nunca abaixo da metade (arredondada pra baixo).
-export function custoComDesconto(custo: number, desconto: number): number {
-  if (custo <= 0 || desconto <= 0) return custo;
-  return Math.max(Math.floor(custo / 2), custo - desconto);
+// Custo com os descontos que valem pro grau: as reduções somam e o piso é o
+// maior mínimo entre elas (sem mínimo, a metade do custo). "De graça" zera.
+export function custoComDescontos(
+  base: number,
+  custo: "pp" | "pa",
+  grau: number,
+  descontos: DescontoTecnica[],
+  ctx: ContextoFormula | null,
+): { final: number; fontes: string[] } {
+  if (base <= 0) return { final: base, fontes: [] };
+  const validos = descontos.filter(
+    (d) => d.custo === custo && (!d.graus?.length || d.graus.includes(grau)),
+  );
+  const zero = validos.filter((d) => d.modo === "zero");
+  if (zero.length) return { final: 0, fontes: dedup(zero.map((d) => d.fonte)) };
+  let reducao = 0;
+  let piso = 0;
+  const fontes: string[] = [];
+  for (const d of validos) {
+    const r =
+      d.modo === "metade"
+        ? base - Math.floor(base / 2)
+        : d.formula
+          ? ctx
+            ? valorDaFormula(d.formula, ctx.atributos, ctx.nivel, { grau })
+            : 0
+          : d.valor;
+    if (r <= 0) continue;
+    reducao += r;
+    piso = Math.max(piso, d.minimo ?? (d.modo === "metade" ? 0 : Math.floor(base / 2)));
+    fontes.push(d.fonte);
+  }
+  if (reducao <= 0) return { final: base, fontes: [] };
+  return { final: Math.min(base, Math.max(piso, base - reducao)), fontes: dedup(fontes) };
+}
+
+// O maior entre o dado da arma e o dado fixo por efeito (máximo possível).
+export function maiorDado(dano: string | null, fixo: string | null | undefined): string {
+  const base = dano?.trim() ?? "";
+  if (!fixo) return base;
+  const maximo = (x: string) => {
+    const d = parseFormulaDados(x);
+    return faixaDaRolagem(d.dados, d.modificador).max;
+  };
+  return !base || maximo(fixo) > maximo(base) ? fixo : base;
 }
 
 // Parcela do dano composto (tooltip).
@@ -508,20 +644,32 @@ export function resolverDanoArma(opts: {
   somaAtributo: boolean;
   atributoDano: Atributo | null;
   atributos: Record<Atributo, number>;
+  nivel: number;
   // Bônus de proficiência a somar; 0 quando a arma não soma.
   proficiencia?: number;
   alcance: AlcanceArma;
   efeitosAgregados: EfeitosAgregados;
+  // Dano de técnica (senão, de ataque comum).
+  tecnica?: boolean;
+  // Dado da arma fixo por efeito ("1d10"): vale o maior.
+  dadoFixo?: string | null;
 }): DanoArmaResolvido | null {
   const partes: ParteDano[] = [];
   const dados: Dado[] = [];
   let total = 0;
 
-  const bruto = opts.danoBase?.trim() ?? "";
+  const bruto = maiorDado(opts.danoBase?.trim() ?? "", opts.dadoFixo);
   if (bruto) {
     const passos = opts.passos ?? 0;
-    const base = passos > 0 ? subirPassosDano(bruto, passos) : bruto;
-    const p = parseFormulaDados(base);
+    // Com função (POR_NIVEL…), o passo sobe o dado já resolvido.
+    const base =
+      passos > 0
+        ? subirPassosDano(
+            formulaVariavel(bruto) ? formulaResolvidaTexto(bruto, opts.atributos, opts.nivel) : bruto,
+            passos,
+          )
+        : bruto;
+    const p = resolverFormula(base, opts.atributos, opts.nivel);
     dados.push(...p.dados);
     total += p.modificador;
     partes.push({
@@ -532,7 +680,7 @@ export function resolverDanoArma(opts: {
 
   const bonus = opts.danoBonus?.trim() ?? "";
   if (bonus) {
-    const p = parseFormulaDados(bonus);
+    const p = resolverFormula(bonus, opts.atributos, opts.nivel);
     dados.push(...p.dados);
     total += p.modificador;
     partes.push({ rotulo: "Dano bônus", texto: bonus });
@@ -555,13 +703,13 @@ export function resolverDanoArma(opts: {
   }
 
   const agg = opts.efeitosAgregados;
-  const doAlcance =
-    opts.alcance === "corpo_a_corpo" ? agg.bonusDanoCC : agg.bonusDanoDistancia;
-  const extra = agg.bonusDano.valor + doAlcance.valor;
-  const fontes = [
-    ...agg.bonusDano.fontes,
-    ...doAlcance.fontes.filter((f) => !agg.bonusDano.fontes.includes(f)),
-  ];
+  const somado = somarFontes(
+    agg.bonusDano,
+    opts.alcance === "corpo_a_corpo" ? agg.bonusDanoCC : agg.bonusDanoDistancia,
+    opts.tecnica ? agg.bonusDanoTecnica : agg.bonusDanoComum,
+  );
+  const extra = somado.valor;
+  const fontes = somado.fontes;
   if (extra !== 0) {
     total += extra;
     partes.push({
@@ -600,6 +748,9 @@ function formulaAgrupada(dados: Dado[], mod: number): string {
 
 // ─── Técnicas / Ações ─────────────────────────────────────────────────
 
+// Nível que libera cada grau de técnica (índice = grau − 1).
+export const NIVEL_DO_GRAU = [1, 3, 6, 9, 12, 16, 20];
+
 // CD de uma técnica/salvaguarda forçada = 8 + bônus_prof + mod_atributo_primário.
 export function cdTecnica(opts: {
   nivel: number;
@@ -637,19 +788,29 @@ export const EXAUSTAO_EFEITOS: {
   { nivel: 6, d20: -10, deslocamento: -9, desmaio: true },
 ];
 
-// Teto de atributo: 20 é o limite do Aprimoramento, não um teto duro (vai até 30).
-// A ficha só avisa. `teto-<atributo>` eleva o limite.
+// Teto de atributo: limite do Aprimoramento, não um teto duro (vai até 30).
+// A ficha só avisa. `teto-<atributo>` leva o limite a 20 + N.
 export const TETO_ATRIBUTO_BASE = 20;
 
+// Teto do Aprimoramento pelo nível: 20, 22 a partir do 12º, 24 a partir do 16º.
+export function tetoDoNivel(nivel: number): number {
+  if (nivel >= 16) return 24;
+  if (nivel >= 12) return 22;
+  return TETO_ATRIBUTO_BASE;
+}
+
+// Vale o maior entre o teto do nível e o dos efeitos.
 export function tetoAtributo(
   bonusTeto: Partial<Record<Atributo, FonteValor>>,
   atributo: Atributo,
+  nivel: number,
 ): { valor: number; fontes: string[] } {
   const b = bonusTeto[atributo];
-  return {
-    valor: TETO_ATRIBUTO_BASE + (b?.valor ?? 0),
-    fontes: b?.fontes ?? [],
-  };
+  const doEfeito = TETO_ATRIBUTO_BASE + (b?.valor ?? 0);
+  const doNivel = tetoDoNivel(nivel);
+  return doEfeito > doNivel
+    ? { valor: doEfeito, fontes: b?.fontes ?? [] }
+    : { valor: doNivel, fontes: [] };
 }
 
 // Deslocamento efetivo em metros: (base + bônus de habilidade) − 1,5 m por
@@ -726,7 +887,7 @@ export const RECARGAS_HABILIDADE: { slug: RecargaHabilidade; nome: string }[] = 
   { slug: "manual", nome: "Manual" },
 ];
 
-// 22 tipos de efeito. Estruturados ao máximo possível pra automação
+// Tipos de efeito. Estruturados ao máximo possível pra automação
 // conseguir aplicar diretamente em cálculos (perícias, salvaguardas, CR,
 // crítico expandido, reroll, floor de d20, etc). Slugs ficam estáveis no
 // banco; rótulos podem evoluir.
@@ -742,6 +903,7 @@ export type TipoEfeito =
   | "condicao_aplicar"
   | "resistencia"
   | "imunidade"
+  | "vulnerabilidade"
   | "deslocamento"
   | "multiplicador"
   | "substituir_atributo"
@@ -762,10 +924,23 @@ export type TipoEfeito =
   | "passo_dano"
   | "desconto_tecnica"
   | "dano_melhor_de"
+  | "dano_extra"
+  | "dados_extra"
+  | "valor_fixo"
+  | "falha_auto"
+  | "reducao_dano"
+  | "dano_maximo"
+  | "piso_dado"
+  | "critico_extra"
+  | "ataque_poderoso"
+  | "ignora_exaustao"
+  | "descanso"
+  | "por_turno"
   | "livre";
 
 export type EfeitoHabilidade =
-  | { tipo: "modificador"; alvo: string; valor: number; quando?: string }
+  // `formula` (ex: "PROF/2+1", "3*NIVEL") vale no lugar de `valor` quando existe.
+  | { tipo: "modificador"; alvo: string; valor: number; formula?: string; quando?: string }
   | { tipo: "vantagem"; alvo: string; quando?: string }
   | { tipo: "desvantagem"; alvo: string; quando?: string }
   | { tipo: "proficiencia"; alvo: string; dobrada?: boolean }
@@ -776,21 +951,23 @@ export type EfeitoHabilidade =
   | { tipo: "condicao_aplicar"; condicao: string; cd?: number; duracao?: string }
   | { tipo: "resistencia"; tipoDano: string }
   | { tipo: "imunidade"; tipoDano: string }
+  // Recebe o dobro do tipo de dano (depois da resistência).
+  | { tipo: "vulnerabilidade"; tipoDano: string }
   | { tipo: "deslocamento"; tipoMov: string; valor: number }
   | { tipo: "multiplicador"; alvo: string; fator: number }
-  // Faz um cálculo derivado (CR, iniciativa, salvaguarda, perícia) usar outro
-  // atributo no lugar do padrão. Ex: "Revestimento Interno" → CR usa Força.
-  | { tipo: "substituir_atributo"; alvo: string; atributo: Atributo }
+  // Faz um cálculo derivado (CR, iniciativa, salvaguarda, perícia, ataque) usar
+  // outro atributo no lugar do padrão; `seMaior` só troca quando é melhor.
+  | { tipo: "substituir_atributo"; alvo: string; atributo: Atributo; seMaior?: boolean }
   | { tipo: "rolagem"; formula: string; quando?: string }
   | { tipo: "trigger"; gatilho: string; efeito: string }
   // Faixa de crítico expandida (19-20, 18-20…). minimo = 19 significa
-  // crítico em 19 e 20. Padrão sem efeito = 20.
-  | { tipo: "crit_range"; minimo: number }
+  // crítico em 19 e 20. `alvo` = em qual ataque (ausente = qualquer).
+  | { tipo: "crit_range"; minimo: number; alvo?: string }
   // Rerrola uma jogada do contexto `gatilho`; `usos` por descanso longo.
   | { tipo: "reroll"; gatilho: string; usos: number }
-  // Floor no d20: resultados ≤ minimo são tratados como minimo.
-  // Ex: minimo=10 ⇒ qualquer 1-10 vira 10.
-  | { tipo: "floor_d20"; minimo: number }
+  // Floor no d20: resultados ≤ minimo são tratados como minimo, nas jogadas
+  // de `alvo` (slug contextual; ausente = qualquer d20).
+  | { tipo: "floor_d20"; minimo: number; alvo?: string }
   // Sentido especial (visão no escuro, sentir presença, percepção sísmica…).
   // alcance opcional em metros — 0 = sem alcance explícito (passivo).
   | { tipo: "sentido"; sentido: string; alcance: number }
@@ -802,7 +979,7 @@ export type EfeitoHabilidade =
   // Piso de dano: garante metade do dano MÁXIMO da fórmula rolada (arredonda
   // pra cima). Ex: "Preparação pra Batalha". Sem parâmetro — o piso depende da
   // fórmula, calculado no Rolador. `quando` é descritivo opcional.
-  | { tipo: "dano_min"; quando?: string }
+  | ({ tipo: "dano_min"; quando?: string; em?: string } & FiltroDano)
   // Soma metros ao alcance de uma arma. DESCRITIVO: anota a fonte no chip de
   // ataque (não há campo numérico de alcance — `Item.alcanceMetros` é texto livre).
   | { tipo: "alcance"; valor: number; quando?: string }
@@ -820,11 +997,56 @@ export type EfeitoHabilidade =
   | { tipo: "margem_critico"; valor: number }
   // Sobe o dado de dano da arma ou das técnicas.
   | { tipo: "passo_dano"; passos: number; alvo: "arma" | "tecnica" }
-  // Desconto no custo de técnica (mínimo: metade).
-  | { tipo: "desconto_tecnica"; valor: number; custo: "pp" | "pa" }
+  // Desconto no custo de técnica: `valor` (ou `formula`, com GRAU) a menos, pela
+  // metade ou de graça. `graus` limita aos graus dados; sem `minimo`, para na metade.
+  | {
+      tipo: "desconto_tecnica";
+      valor: number;
+      custo: "pp" | "pa";
+      formula?: string;
+      modo?: "metade" | "zero";
+      minimo?: number;
+      graus?: number[];
+    }
   // Rola o dano N vezes e fica com o maior.
   | { tipo: "dano_melhor_de"; vezes: number; usos: number; quando?: string }
+  // Soma uma fórmula numa rolagem ("1d10 fogo", "NIVELd4", "1d4"). Sem `sempre`,
+  // nasce desligado no Rolador. `em` = dano (ausente = todo dano) ou jogada de d20.
+  | ({ tipo: "dano_extra"; formula: string; sempre?: boolean; em?: string } & FiltroDano)
+  // Mais dados iguais ao dado do dano ("2", "GRAU").
+  | ({ tipo: "dados_extra"; quantidade: string; sempre?: boolean; em?: string } & FiltroDano)
+  // O valor vira um número (vale o maior): CR, deslocamentos ou o dado da arma.
+  | { tipo: "valor_fixo"; alvo: string; valor: string }
+  // Falha automática no tipo de jogada `alvo`.
+  | { tipo: "falha_auto"; alvo: string; quando?: string }
+  // Reduz o dano recebido; `tipos` vazio = todos.
+  | { tipo: "reducao_dano"; valor: number; formula?: string; tipos?: string; quando?: string }
+  // Dados do dano no máximo. `apartir` liga sozinho com esse d20 (ou mais) no ataque.
+  | ({ tipo: "dano_maximo"; em?: string; sempre?: boolean; apartir?: number } & FiltroDano)
+  // Dado de dano que rolar até `ate` vira `vira` (0 = o máximo do dado).
+  | ({ tipo: "piso_dado"; ate: number; vira: number; em?: string } & FiltroDano)
+  // No crítico, os dados rolam `vezes` vezes e somam `dados` a mais.
+  | ({ tipo: "critico_extra"; dados: number; vezes: number; em?: string } & FiltroDano)
+  // Troca acerto por dano: −`penalidade` no ataque, +`bonus` no dano.
+  | { tipo: "ataque_poderoso"; penalidade: number; bonus: number; alvo?: string }
+  // Ignora os efeitos da exaustão até o nível `ate` (6 = todos).
+  | { tipo: "ignora_exaustao"; ate: number }
+  // Recupera a mais no descanso: níveis de exaustão, PP (fórmula) e Dados de Vida.
+  | { tipo: "descanso"; em: "curto" | "longo" | "ambos"; exaustao: number; pp: string; dv: number }
+  // Repete a cada turno (botão Passar turno): cura, PV temporário, dano em quem
+  // tem o efeito ou recurso (PP, exaustão ou custom; `gasta` tira).
+  | {
+      tipo: "por_turno";
+      o: OQuePorTurno;
+      valor: string;
+      recurso?: string;
+      gasta?: boolean;
+      tipoDano?: string;
+    }
   | { tipo: "livre"; texto: string };
+
+export type OQuePorTurno = "cura" | "pv_temp" | "dano" | "recurso";
+const O_POR_TURNO = new Set<string>(["cura", "pv_temp", "dano", "recurso"]);
 
 export const META_EFEITOS: Record<
   TipoEfeito,
@@ -839,8 +1061,9 @@ export const META_EFEITOS: Record<
   condicao_imune:   { nome: "Imune a",           icone: "fa-shield",         cor: "var(--color-defesa)" },
   condicao_remover: { nome: "Remove",            icone: "fa-broom",          cor: "var(--color-bonus)" },
   condicao_aplicar: { nome: "Aplica",            icone: "fa-bolt",           cor: "var(--color-power)" },
-  resistencia:      { nome: "Resistência",       icone: "fa-shield-halved",  cor: "var(--color-defesa)" },
-  imunidade:        { nome: "Imunidade",         icone: "fa-shield",         cor: "var(--color-defesa)" },
+  resistencia:      { nome: "Resistência",       icone: "fa-shield-halved",  cor: "var(--color-react)" },
+  imunidade:        { nome: "Imunidade",         icone: "fa-shield",         cor: "var(--color-react)" },
+  vulnerabilidade:  { nome: "Vulnerabilidade",   icone: "fa-heart-crack",    cor: "#e74c3c" },
   deslocamento:     { nome: "Deslocamento",      icone: "fa-person-running", cor: "var(--primary)" },
   multiplicador:    { nome: "Multiplica",        icone: "fa-xmark",          cor: "var(--color-power)" },
   substituir_atributo: { nome: "Trocar Atributo", icone: "fa-right-left",    cor: "var(--primary)" },
@@ -861,6 +1084,18 @@ export const META_EFEITOS: Record<
   passo_dano:       { nome: "Passo de Dano",      icone: "fa-angles-up",      cor: "var(--color-power)" },
   desconto_tecnica: { nome: "Desconto em Técnica", icone: "fa-tag",           cor: "var(--color-bonus)" },
   dano_melhor_de:   { nome: "Melhor no Dano",     icone: "fa-dice",           cor: "var(--color-bonus)" },
+  dano_extra:       { nome: "Dano Extra",         icone: "fa-plus",           cor: "var(--color-power)" },
+  dados_extra:      { nome: "Dados Extras",       icone: "fa-dice-d6",        cor: "var(--color-power)" },
+  valor_fixo:       { nome: "Valor Fixo",         icone: "fa-equals",         cor: "var(--primary)" },
+  falha_auto:       { nome: "Falha Auto",         icone: "fa-xmark",          cor: "#e74c3c" },
+  reducao_dano:     { nome: "Redução de Dano",    icone: "fa-shield-halved",  cor: "var(--color-react)" },
+  dano_maximo:      { nome: "Dano Máximo",        icone: "fa-maximize",       cor: "var(--color-power)" },
+  piso_dado:        { nome: "Dado Mínimo",        icone: "fa-dice-five",      cor: "var(--color-power)" },
+  critico_extra:    { nome: "Crítico Maior",      icone: "fa-skull-crossbones", cor: "var(--color-power)" },
+  ataque_poderoso:  { nome: "Acerto por Dano",    icone: "fa-scale-unbalanced", cor: "var(--color-power)" },
+  ignora_exaustao:  { nome: "Ignora Exaustão",    icone: "fa-battery-full",   cor: "var(--color-bonus)" },
+  descanso:         { nome: "No Descanso",        icone: "fa-bed",            cor: "var(--color-bonus)" },
+  por_turno:        { nome: "A Cada Turno",       icone: "fa-clock-rotate-left", cor: "var(--color-bonus)" },
   livre:            { nome: "Livre",             icone: "fa-feather",        cor: "var(--text-sec)" },
 };
 
@@ -925,6 +1160,15 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     criar: () => ({ tipo: "modificador", alvo: "", valor: 0 }),
   },
   {
+    id: "dado_em",
+    nome: "Dado em…",
+    descricao: "Soma dados num ataque, teste ou salvaguarda (+1d4)",
+    icone: "fa-dice-four",
+    cor: "var(--primary)",
+    grupo: "ajuste",
+    criar: () => ({ tipo: "dano_extra", formula: "", em: "teste", sempre: true }),
+  },
+  {
     id: "multiplicador",
     nome: "Multiplica…",
     descricao: "Dobra capacidade de carga, etc",
@@ -932,6 +1176,24 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     cor: "var(--color-power)",
     grupo: "ajuste",
     criar: () => ({ tipo: "multiplicador", alvo: "", fator: 2 }),
+  },
+  {
+    id: "valor_fixo",
+    nome: "Valor Fixo",
+    descricao: "CR, deslocamento, atributo ou dado da arma vira um número",
+    icone: "fa-equals",
+    cor: "var(--primary)",
+    grupo: "ajuste",
+    criar: () => ({ tipo: "valor_fixo", alvo: "cr", valor: "" }),
+  },
+  {
+    id: "descanso",
+    nome: "No Descanso",
+    descricao: "Recupera mais exaustão, PP ou Dados de Vida",
+    icone: "fa-bed",
+    cor: "var(--color-bonus)",
+    grupo: "ajuste",
+    criar: () => ({ tipo: "descanso", em: "longo", exaustao: 1, pp: "", dv: 0 }),
   },
   {
     id: "substituir_atributo",
@@ -989,6 +1251,24 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     grupo: "defesa",
     criar: () => ({ tipo: "imunidade", tipoDano: "" }),
   },
+  {
+    id: "vulnerabilidade",
+    nome: "Vulnerável a…",
+    descricao: "Recebe o dobro de um tipo de dano",
+    icone: "fa-heart-crack",
+    cor: "#e74c3c",
+    grupo: "defesa",
+    criar: () => ({ tipo: "vulnerabilidade", tipoDano: "" }),
+  },
+  {
+    id: "reducao_dano",
+    nome: "Redução de Dano",
+    descricao: "Recebe menos dano (−5)",
+    icone: "fa-shield-halved",
+    cor: "var(--color-react)",
+    grupo: "defesa",
+    criar: () => ({ tipo: "reducao_dano", valor: 5 }),
+  },
   // ─ Condição ─
   {
     id: "condicao_imune",
@@ -1016,6 +1296,15 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     cor: "var(--color-power)",
     grupo: "condicao",
     criar: () => ({ tipo: "condicao_aplicar", condicao: "" }),
+  },
+  {
+    id: "ignora_exaustao",
+    nome: "Ignora Exaustão",
+    descricao: "Exaustão não pesa nos testes nem no deslocamento",
+    icone: "fa-battery-full",
+    cor: "var(--color-bonus)",
+    grupo: "condicao",
+    criar: () => ({ tipo: "ignora_exaustao", ate: 5 }),
   },
   // ─ Movimento ─
   {
@@ -1058,11 +1347,11 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   {
     id: "desconto_tecnica",
     nome: "Desconto em Técnica",
-    descricao: "Técnicas custam menos PP ou PA, até a metade",
+    descricao: "Técnicas custam menos PP ou PA",
     icone: "fa-tag",
     cor: "var(--color-bonus)",
     grupo: "ativo",
-    criar: () => ({ tipo: "desconto_tecnica", valor: 1, custo: "pp" }),
+    criar: () => ({ tipo: "desconto_tecnica", valor: 1, custo: "pp", minimo: 1 }),
   },
   {
     id: "dano_melhor_de",
@@ -1074,9 +1363,63 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     criar: () => ({ tipo: "dano_melhor_de", vezes: 2, usos: 0 }),
   },
   {
+    id: "dano_extra",
+    nome: "Dano Extra",
+    descricao: "Soma dados no dano (+1d4, +1d10 fogo)",
+    icone: "fa-plus",
+    cor: "var(--color-power)",
+    grupo: "ativo",
+    criar: () => ({ tipo: "dano_extra", formula: "" }),
+  },
+  {
+    id: "dados_extra",
+    nome: "Dados Extras",
+    descricao: "Mais dados iguais aos do dano (+2 dados)",
+    icone: "fa-dice-d6",
+    cor: "var(--color-power)",
+    grupo: "ativo",
+    criar: () => ({ tipo: "dados_extra", quantidade: "1" }),
+  },
+  {
+    id: "dano_maximo",
+    nome: "Dano Máximo",
+    descricao: "Os dados do dano saem no máximo",
+    icone: "fa-maximize",
+    cor: "var(--color-power)",
+    grupo: "ativo",
+    criar: () => ({ tipo: "dano_maximo" }),
+  },
+  {
+    id: "piso_dado",
+    nome: "Dado Mínimo",
+    descricao: "Dado de dano baixo vira o máximo (1-2 vira 6)",
+    icone: "fa-dice-five",
+    cor: "var(--color-power)",
+    grupo: "ativo",
+    criar: () => ({ tipo: "piso_dado", ate: 2, vira: 0 }),
+  },
+  {
+    id: "critico_extra",
+    nome: "Crítico Maior",
+    descricao: "Mais dados no crítico, ou crítico ×3",
+    icone: "fa-skull-crossbones",
+    cor: "var(--color-power)",
+    grupo: "ativo",
+    criar: () => ({ tipo: "critico_extra", dados: 1, vezes: 2 }),
+  },
+  {
+    id: "ataque_poderoso",
+    nome: "Acerto por Dano",
+    descricao: "−5 no ataque, +10 no dano",
+    icone: "fa-scale-unbalanced",
+    cor: "var(--color-power)",
+    grupo: "ativo",
+    criar: () => ({ tipo: "ataque_poderoso", penalidade: 5, bonus: 10 }),
+  },
+  {
     id: "reroll",
     nome: "Rolar de Novo",
-    descricao: "Re-rolar testes/ataques por descanso",
+    descricao: "Rerrola um teste ou ataque",
     icone: "fa-rotate",
     cor: "var(--color-bonus)",
     grupo: "ativo",
@@ -1089,7 +1432,16 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     icone: "fa-circle-up",
     cor: "var(--primary)",
     grupo: "ativo",
-    criar: () => ({ tipo: "floor_d20", minimo: 10 }),
+    criar: () => ({ tipo: "floor_d20", minimo: 10, alvo: "teste" }),
+  },
+  {
+    id: "por_turno",
+    nome: "A cada turno",
+    descricao: "Cura, dano ou gasto que se repete todo turno",
+    icone: "fa-clock-rotate-left",
+    cor: "var(--color-bonus)",
+    grupo: "ativo",
+    criar: () => ({ tipo: "por_turno", o: "cura", valor: "" }),
   },
   {
     id: "recurso_delta",
@@ -1126,6 +1478,15 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     cor: "var(--color-bonus)",
     grupo: "buff",
     criar: () => ({ tipo: "sucesso_auto", alvo: "" }),
+  },
+  {
+    id: "falha_auto",
+    nome: "Falha Automática",
+    descricao: "Falha sem rolar em algum teste",
+    icone: "fa-xmark",
+    cor: "#e74c3c",
+    grupo: "buff",
+    criar: () => ({ tipo: "falha_auto", alvo: "" }),
   },
   {
     id: "dano_min",
@@ -1176,8 +1537,8 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   // ─ Avançado ─
   {
     id: "rolagem",
-    nome: "Rolagem Extra",
-    descricao: "Adiciona dados (ex: +1d4 dano)",
+    nome: "Rolagem à Parte",
+    descricao: "Botão no card pra rolar (ex: 12d12)",
     icone: "fa-dice",
     cor: "var(--primary)",
     grupo: "avancado",
@@ -1229,6 +1590,21 @@ export function lerEfeitos(raw: unknown): EfeitoHabilidade[] {
   return out;
 }
 
+// Graus de técnica (1º–7º), sem repetir e em ordem.
+function lerGraus(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.map((g) => Math.trunc(Number(g))))]
+    .filter((g) => g >= 1 && g <= 7)
+    .sort((a, b) => a - b);
+}
+
+// Graus e tipos de dano em que um efeito de dano vale; vazio = todos.
+function lerFiltroDano(obj: Record<string, unknown>): FiltroDano {
+  const graus = lerGraus(obj.graus);
+  const tipos = typeof obj.tipos === "string" ? obj.tipos.trim().slice(0, 80) : "";
+  return { ...(graus.length ? { graus } : {}), ...(tipos ? { tipos } : {}) };
+}
+
 // Normaliza um único efeito vindo do form/banco. Retorna null se for inválido.
 // Não joga erro — efeitos malformados são silenciosamente descartados pra que
 // um efeito ruim não derrube a habilidade inteira.
@@ -1240,14 +1616,19 @@ export function normalizarEfeito(
   const num = (v: unknown) =>
     typeof v === "number" && Number.isFinite(v) ? v : Number(v) || 0;
   switch (tipo) {
-    case "modificador":
+    case "modificador": {
       if (!str(obj.alvo)) return null;
+      // Fórmula que é só número vira `valor`.
+      const formula = str(obj.formula).trim();
+      const numerica = formula !== "" && Number.isFinite(Number(formula));
       return {
         tipo,
         alvo: str(obj.alvo),
-        valor: Math.trunc(num(obj.valor)),
+        valor: Math.trunc(numerica ? Number(formula) : num(obj.valor)),
+        ...(formula && !numerica ? { formula } : {}),
         ...(str(obj.quando) ? { quando: str(obj.quando) } : {}),
       };
+    }
     case "vantagem":
     case "desvantagem":
       if (!str(obj.alvo)) return null;
@@ -1296,6 +1677,7 @@ export function normalizarEfeito(
     }
     case "resistencia":
     case "imunidade":
+    case "vulnerabilidade":
       if (!str(obj.tipoDano)) return null;
       return { tipo, tipoDano: str(obj.tipoDano) };
     case "deslocamento":
@@ -1308,7 +1690,7 @@ export function normalizarEfeito(
       const alvo = str(obj.alvo);
       const atributo = str(obj.atributo);
       if (!alvo || !ATRIBUTOS_SET.has(atributo)) return null;
-      return { tipo, alvo, atributo: atributo as Atributo };
+      return { tipo, alvo, atributo: atributo as Atributo, ...(obj.seMaior ? { seMaior: true } : {}) };
     }
     case "rolagem":
       if (!str(obj.formula)) return null;
@@ -1324,7 +1706,7 @@ export function normalizarEfeito(
       const minimo = Math.trunc(num(obj.minimo));
       // Faixa válida: 2-20. Default 20 (sem efeito) se vier lixo.
       const clamp = Math.min(20, Math.max(2, minimo || 20));
-      return { tipo, minimo: clamp };
+      return { tipo, minimo: clamp, ...(str(obj.alvo) ? { alvo: str(obj.alvo) } : {}) };
     }
     case "reroll": {
       const gatilho = str(obj.gatilho) || "ataque";
@@ -1335,7 +1717,7 @@ export function normalizarEfeito(
       const minimo = Math.trunc(num(obj.minimo));
       // Floor faz sentido entre 1 e 19. 0 = sem efeito.
       const clamp = Math.min(19, Math.max(0, minimo));
-      return { tipo, minimo: clamp };
+      return { tipo, minimo: clamp, ...(str(obj.alvo) ? { alvo: str(obj.alvo) } : {}) };
     }
     case "sentido": {
       const sentido = str(obj.sentido);
@@ -1359,7 +1741,12 @@ export function normalizarEfeito(
       };
     }
     case "dano_min":
-      return { tipo, ...(str(obj.quando) ? { quando: str(obj.quando) } : {}) };
+      return {
+        tipo,
+        ...(str(obj.quando) ? { quando: str(obj.quando) } : {}),
+        ...(str(obj.em) ? { em: str(obj.em) } : {}),
+        ...lerFiltroDano(obj),
+      };
     case "alcance":
       return {
         tipo,
@@ -1383,12 +1770,21 @@ export function normalizarEfeito(
         passos: Math.min(6, Math.max(1, Math.trunc(num(obj.passos)) || 1)),
         alvo: obj.alvo === "tecnica" ? "tecnica" : "arma",
       };
-    case "desconto_tecnica":
+    case "desconto_tecnica": {
+      const formula = str(obj.formula).trim();
+      const numerica = formula !== "" && Number.isFinite(Number(formula));
+      const graus = lerGraus(obj.graus);
+      const semMinimo = obj.minimo === undefined || obj.minimo === null || obj.minimo === "";
       return {
         tipo,
-        valor: Math.max(1, Math.trunc(num(obj.valor)) || 1),
+        valor: Math.max(1, Math.trunc(numerica ? Number(formula) : num(obj.valor)) || 1),
         custo: obj.custo === "pa" ? "pa" : "pp",
+        ...(formula && !numerica ? { formula } : {}),
+        ...(obj.modo === "metade" || obj.modo === "zero" ? { modo: obj.modo } : {}),
+        ...(semMinimo ? {} : { minimo: Math.max(0, Math.trunc(num(obj.minimo))) }),
+        ...(graus.length ? { graus } : {}),
       };
+    }
     case "dano_melhor_de":
       return {
         tipo,
@@ -1396,6 +1792,108 @@ export function normalizarEfeito(
         usos: Math.max(0, Math.trunc(num(obj.usos))),
         ...(str(obj.quando) ? { quando: str(obj.quando) } : {}),
       };
+    case "dano_extra":
+      if (!str(obj.formula).trim()) return null;
+      return {
+        tipo,
+        formula: str(obj.formula).trim(),
+        ...(obj.sempre ? { sempre: true } : {}),
+        ...(str(obj.em) ? { em: str(obj.em) } : {}),
+        ...lerFiltroDano(obj),
+      };
+    case "dados_extra":
+      if (!str(obj.quantidade).trim() && !num(obj.quantidade)) return null;
+      return {
+        tipo,
+        quantidade: str(obj.quantidade).trim() || String(Math.trunc(num(obj.quantidade))),
+        ...(obj.sempre ? { sempre: true } : {}),
+        ...(str(obj.em) ? { em: str(obj.em) } : {}),
+        ...lerFiltroDano(obj),
+      };
+    case "valor_fixo":
+      if (!str(obj.alvo) || !str(obj.valor).trim()) return null;
+      return { tipo, alvo: str(obj.alvo), valor: str(obj.valor).trim() };
+    case "falha_auto":
+      if (!str(obj.alvo)) return null;
+      return {
+        tipo,
+        alvo: str(obj.alvo),
+        ...(str(obj.quando) ? { quando: str(obj.quando) } : {}),
+      };
+    case "reducao_dano": {
+      const formula = str(obj.formula).trim();
+      const numerica = formula !== "" && Number.isFinite(Number(formula));
+      return {
+        tipo,
+        valor: Math.max(0, Math.trunc(numerica ? Number(formula) : num(obj.valor))),
+        ...(formula && !numerica ? { formula } : {}),
+        ...(str(obj.tipos).trim() ? { tipos: str(obj.tipos).trim() } : {}),
+        ...(str(obj.quando) ? { quando: str(obj.quando) } : {}),
+      };
+    }
+    case "dano_maximo": {
+      const apartir = Math.trunc(num(obj.apartir));
+      return {
+        tipo,
+        ...(str(obj.em) ? { em: str(obj.em) } : {}),
+        ...(obj.sempre ? { sempre: true } : {}),
+        ...(apartir >= 2 && apartir <= 20 ? { apartir } : {}),
+        ...lerFiltroDano(obj),
+      };
+    }
+    case "piso_dado":
+      return {
+        tipo,
+        ate: Math.min(20, Math.max(1, Math.trunc(num(obj.ate)) || 1)),
+        vira: Math.min(100, Math.max(0, Math.trunc(num(obj.vira)))),
+        ...(str(obj.em) ? { em: str(obj.em) } : {}),
+        ...lerFiltroDano(obj),
+      };
+    case "critico_extra":
+      return {
+        tipo,
+        dados: Math.min(10, Math.max(0, Math.trunc(num(obj.dados)))),
+        vezes: Math.min(4, Math.max(2, Math.trunc(num(obj.vezes)) || 2)),
+        ...(str(obj.em) ? { em: str(obj.em) } : {}),
+        ...lerFiltroDano(obj),
+      };
+    case "ataque_poderoso":
+      return {
+        tipo,
+        penalidade: Math.min(20, Math.max(0, Math.trunc(num(obj.penalidade)))),
+        bonus: Math.min(50, Math.max(0, Math.trunc(num(obj.bonus)))),
+        ...(str(obj.alvo) ? { alvo: str(obj.alvo) } : {}),
+      };
+    case "ignora_exaustao":
+      return { tipo, ate: Math.min(6, Math.max(1, Math.trunc(num(obj.ate)) || 5)) };
+    case "descanso": {
+      const exaustao = Math.min(6, Math.max(0, Math.trunc(num(obj.exaustao))));
+      const pp = str(obj.pp).trim();
+      const dv = Math.min(20, Math.max(0, Math.trunc(num(obj.dv))));
+      if (!exaustao && !pp && !dv) return null;
+      return {
+        tipo,
+        em: obj.em === "curto" || obj.em === "ambos" ? obj.em : "longo",
+        exaustao,
+        pp,
+        dv,
+      };
+    }
+    case "por_turno": {
+      const o = str(obj.o);
+      const valor = str(obj.valor).trim();
+      if (!O_POR_TURNO.has(o) || !valor) return null;
+      const recurso = str(obj.recurso).trim();
+      if (o === "recurso" && !recurso) return null;
+      return {
+        tipo,
+        o: o as OQuePorTurno,
+        valor,
+        ...(o === "recurso" ? { recurso } : {}),
+        ...(o === "recurso" && obj.gasta ? { gasta: true } : {}),
+        ...(o === "dano" && str(obj.tipoDano).trim() ? { tipoDano: str(obj.tipoDano).trim().slice(0, 40) } : {}),
+      };
+    }
     case "livre":
       if (!str(obj.texto)) return null;
       return { tipo, texto: str(obj.texto) };
@@ -1411,17 +1909,26 @@ export function normalizarEfeito(
 // em nenhum cálculo). Útil pra exibir como datalist no editor.
 export const ALVOS_AGREGAVEIS: { slug: string; nome: string; grupo: string }[] = [
   ...PERICIAS.map((p) => ({ slug: p.slug, nome: p.nome, grupo: "Perícia" })),
+  { slug: "teste", nome: "Testes (todos)", grupo: "Testes" },
+  ...ATRIBUTOS.map((a) => ({
+    slug: `teste-${a.slug}`,
+    nome: `Testes de ${a.nome}`,
+    grupo: "Testes",
+  })),
+  { slug: "salvaguarda", nome: "Salvaguardas (todas)", grupo: "Salvaguarda" },
   ...ATRIBUTOS.map((a) => ({
     slug: `salv-${a.slug}`,
     nome: `Salv. ${a.nome}`,
     grupo: "Salvaguarda",
   })),
+  { slug: "concentracao", nome: "Concentração", grupo: "Salvaguarda" },
   ...ATRIBUTOS.map((a) => ({ slug: a.slug, nome: a.nome, grupo: "Atributo" })),
   ...ATRIBUTOS.map((a) => ({
     slug: `teto-${a.slug}`,
     nome: `Limite ${a.nome}`,
     grupo: "Limite de Atributo",
   })),
+  { slug: "qualquer", nome: "Todas as jogadas", grupo: "Geral" },
   { slug: "cr", nome: "Classe de Resistência", grupo: "Geral" },
   { slug: "iniciativa", nome: "Iniciativa", grupo: "Geral" },
   { slug: "percepcao-passiva", nome: "Percepção Passiva", grupo: "Geral" },
@@ -1433,9 +1940,13 @@ export const ALVOS_AGREGAVEIS: { slug: string; nome: string; grupo: string }[] =
   { slug: "ataque", nome: "Ataque (geral)", grupo: "Combate" },
   { slug: "ataque-cc", nome: "Ataque CC", grupo: "Combate" },
   { slug: "ataque-distancia", nome: "Ataque à Distância", grupo: "Combate" },
+  { slug: "ataque-tecnica", nome: "Ataque de técnica", grupo: "Combate" },
+  { slug: "ataque-comum", nome: "Ataque comum", grupo: "Combate" },
   { slug: "dano", nome: "Dano (geral)", grupo: "Combate" },
   { slug: "dano-cc", nome: "Dano CC", grupo: "Combate" },
   { slug: "dano-distancia", nome: "Dano à Distância", grupo: "Combate" },
+  { slug: "dano-tecnica", nome: "Dano de técnica", grupo: "Combate" },
+  { slug: "dano-comum", nome: "Dano de ataque comum", grupo: "Combate" },
   { slug: "cd-tecnicas", nome: "CD das Técnicas", grupo: "Combate" },
 ];
 
@@ -1449,30 +1960,40 @@ export const ALVOS_CONTEXTUAIS: { slug: string; nome: string; grupo: string }[] 
   { slug: "ataque", nome: "Ataque (qualquer)", grupo: "Combate" },
   { slug: "ataque-cc", nome: "Ataque CC", grupo: "Combate" },
   { slug: "ataque-distancia", nome: "Ataque à Distância", grupo: "Combate" },
+  { slug: "ataque-tecnica", nome: "Ataque de técnica", grupo: "Combate" },
+  { slug: "ataque-comum", nome: "Ataque comum", grupo: "Combate" },
   { slug: "iniciativa", nome: "Iniciativa", grupo: "Combate" },
-  { slug: "salvaguarda", nome: "Salv. (qualquer)", grupo: "Salvaguarda" },
+  { slug: "salvaguarda", nome: "Salvaguardas (todas)", grupo: "Salvaguarda" },
   ...ATRIBUTOS.map((a) => ({
     slug: `salv-${a.slug}`,
     nome: `Salv. ${a.nome}`,
     grupo: "Salvaguarda",
   })),
-  { slug: "teste", nome: "Teste (qualquer)", grupo: "Teste de Atributo" },
+  { slug: "concentracao", nome: "Concentração", grupo: "Salvaguarda" },
+  { slug: "teste", nome: "Testes (todos)", grupo: "Testes" },
   ...ATRIBUTOS.map((a) => ({
     slug: `teste-${a.slug}`,
-    nome: `Teste ${a.nome}`,
-    grupo: "Teste de Atributo",
+    nome: `Testes de ${a.nome}`,
+    grupo: "Testes",
   })),
   ...PERICIAS.map((p) => ({ slug: p.slug, nome: p.nome, grupo: "Perícia" })),
 ];
 
 const ALVOS_CONTEXTUAIS_SET = new Set(ALVOS_CONTEXTUAIS.map((a) => a.slug));
 
-// Cálculos cujo atributo pode ser trocado por um efeito `substituir_atributo`.
-// Só os derivados que usam um atributo fixo (CR/iniciativa via DES) ou testes
-// (salvaguardas, perícias). Ataque/CD já têm seletor de atributo na própria Ação.
+// Cálculos cujo atributo pode ser trocado por um efeito `substituir_atributo`:
+// CR, iniciativa, testes, salvaguardas, perícias e ataque com arma (sem atributo
+// escolhido na arma). Técnica já tem seletor de atributo na própria Ação.
 export const ALVOS_SUBSTITUIVEIS: { slug: string; nome: string; grupo: string }[] = [
   { slug: "cr", nome: "Classe de Resistência", grupo: "Geral" },
   { slug: "iniciativa", nome: "Iniciativa", grupo: "Geral" },
+  { slug: "ataque-cc", nome: "Ataque CC com arma", grupo: "Combate" },
+  { slug: "ataque-distancia", nome: "Ataque à distância com arma", grupo: "Combate" },
+  ...ATRIBUTOS.map((a) => ({
+    slug: `teste-${a.slug}`,
+    nome: `Testes de ${a.nome}`,
+    grupo: "Testes",
+  })),
   ...ATRIBUTOS.map((a) => ({
     slug: `salv-${a.slug}`,
     nome: `Salv. ${a.nome}`,
@@ -1481,24 +2002,87 @@ export const ALVOS_SUBSTITUIVEIS: { slug: string; nome: string; grupo: string }[
   ...PERICIAS.map((p) => ({ slug: p.slug, nome: p.nome, grupo: "Perícia" })),
 ];
 
-// Resolve o atributo efetivo de um cálculo derivado: se uma habilidade
-// substituiu o atributo daquele alvo, usa o novo; senão, o padrão.
+// Em qual ataque (crítico expandido).
+export const ALVOS_ATAQUE = ALVOS_CONTEXTUAIS.filter((a) => a.slug.startsWith("ataque"));
+
+// Em qual dano (dano extra, dados extras, piso de dano).
+export const ALVOS_DANO: { slug: string; nome: string; grupo: string }[] = [
+  { slug: "dano", nome: "Todo dano", grupo: "Dano" },
+  { slug: "dano-cc", nome: "Dano CC", grupo: "Dano" },
+  { slug: "dano-distancia", nome: "Dano à distância", grupo: "Dano" },
+  { slug: "dano-tecnica", nome: "Dano de técnica", grupo: "Dano" },
+  { slug: "dano-comum", nome: "Dano de ataque comum", grupo: "Dano" },
+];
+
+const ALVOS_DANO_SET = new Set(ALVOS_DANO.map((a) => a.slug));
+
+// Cura de PV como alvo de dado a mais (soma sempre, na hora do uso).
+const ALVO_CURA = { slug: "cura", nome: "Cura de PV", grupo: "Cura" };
+
+// Em qual rolagem um dado extra soma: dano, cura de PV ou jogada de d20.
+export const ALVOS_DADO_EXTRA: { slug: string; nome: string; grupo: string }[] = [
+  ...ALVOS_DANO,
+  ALVO_CURA,
+  ...ALVOS_CONTEXTUAIS,
+];
+
+// Dado extra que soma no dano (sem alvo = todo dano).
+export function extraNoDano(em: string | undefined): boolean {
+  const alvo = (em ?? "").trim().toLowerCase();
+  return !alvo || ALVOS_DANO_SET.has(alvo);
+}
+
+// Nome do efeito no card; Dano Extra numa jogada de d20 vira "Dado Extra".
+export function nomeDoEfeito(e: EfeitoHabilidade): string {
+  if (e.tipo === "dano_extra" && !extraNoDano(e.em)) return "Dado Extra";
+  return META_EFEITOS[e.tipo].nome;
+}
+
+// Alvo de bônus que cai numa rolagem (teste, ataque ou dano), não num valor fixo.
+export function alvoDeRolagem(alvoRaw: string, slugsPericiaCustom: Set<string> = new Set()): boolean {
+  const alvo = alvoRaw.trim().toLowerCase();
+  return ALVOS_CONTEXTUAIS_SET.has(alvo) || ALVOS_DANO_SET.has(alvo) || slugsPericiaCustom.has(alvo);
+}
+
+// O que um `valor_fixo` pode definir.
+export const ALVOS_VALOR_FIXO: { slug: string; nome: string; grupo: string }[] = [
+  { slug: "cr", nome: "Classe de Resistência", grupo: "Geral" },
+  { slug: "deslocamento", nome: "Deslocamento", grupo: "Deslocamento" },
+  { slug: "nadar", nome: "Nadar", grupo: "Deslocamento" },
+  { slug: "voar", nome: "Voar", grupo: "Deslocamento" },
+  { slug: "escalar", nome: "Escalar", grupo: "Deslocamento" },
+  { slug: "cavar", nome: "Cavar", grupo: "Deslocamento" },
+  ...ATRIBUTOS.map((a) => ({ slug: a.slug, nome: a.nome, grupo: "Atributo" })),
+  { slug: "dado-arma", nome: "Dado da arma", grupo: "Combate" },
+];
+
+export type Substituicao = { atributo: Atributo; fontes: string[]; seMaior?: boolean };
+
+// Resolve o atributo efetivo de um cálculo derivado: a primeira substituição
+// que existe entre os alvos (ex: perícia, depois "Testes de X"); com `seMaior`,
+// só troca quando o modificador novo é maior.
 export function atributoDeCalculo(
-  alvo: string,
+  alvo: string | string[],
   padrao: Atributo,
-  subs: Partial<Record<string, { atributo: Atributo; fontes: string[] }>>,
+  subs: Partial<Record<string, Substituicao>>,
+  atributos?: Record<Atributo, number>,
 ): { atributo: Atributo; fontes: string[]; substituido: boolean } {
-  const s = subs[alvo.trim().toLowerCase()];
-  return s
-    ? { atributo: s.atributo, fontes: s.fontes, substituido: true }
-    : { atributo: padrao, fontes: [], substituido: false };
+  for (const a of Array.isArray(alvo) ? alvo : [alvo]) {
+    const s = subs[a.trim().toLowerCase()];
+    if (!s) continue;
+    if (s.seMaior && atributos && modificador(atributos[s.atributo]) <= modificador(atributos[padrao])) {
+      continue;
+    }
+    return { atributo: s.atributo, fontes: s.fontes, substituido: true };
+  }
+  return { atributo: padrao, fontes: [], substituido: false };
 }
 
 // Rótulo amigável de um slug de alvo canônico (perícia, salvaguarda, pool…),
 // pra chips/resumos não vazarem o slug cru ("hp-temp"). Cobre os dois catálogos
 // (agregáveis + contextuais); cai pro próprio slug se for texto livre.
 const ROTULO_ALVO = new Map<string, string>(
-  [...ALVOS_AGREGAVEIS, ...ALVOS_CONTEXTUAIS].map((a) => [a.slug, a.nome]),
+  [...ALVOS_AGREGAVEIS, ...ALVOS_CONTEXTUAIS, ALVO_CURA].map((a) => [a.slug, a.nome]),
 );
 export function rotuloAlvo(slug: string): string {
   return ROTULO_ALVO.get(slug.trim().toLowerCase()) ?? slug;
@@ -1508,15 +2092,29 @@ export function rotuloAlvo(slug: string): string {
 // monta um `ContextoRolagem`, e `casaContexto(alvo, ctx)` decide se o
 // efeito daquele alvo se aplica.
 export type ContextoRolagem =
-  | { tipo: "ataque"; alcance: "corpo_a_corpo" | "distancia" }
-  | { tipo: "salvaguarda"; atributo: Atributo }
+  // `municao`: item que o ataque gasta ao rolar.
+  | {
+      tipo: "ataque";
+      alcance: "corpo_a_corpo" | "distancia";
+      tecnica?: boolean;
+      municao?: { id: string; nome: string };
+    }
+  // `concentracao`: a salvaguarda de CON pra manter a concentração.
+  | { tipo: "salvaguarda"; atributo: Atributo; concentracao?: boolean }
   // `pericia` é string livre: cobre as 18 canônicas e perícias customizadas
-  // (slug por-personagem, fora do set canônico).
-  | { tipo: "pericia"; pericia: string }
+  // (slug por-personagem, fora do set canônico). `atributo` = o usado no teste.
+  | { tipo: "pericia"; pericia: string; atributo?: Atributo }
   | { tipo: "teste-atributo"; atributo: Atributo }
   | { tipo: "iniciativa" }
-  // Rolagem de dano (não é d20): só valem os efeitos de dano.
-  | { tipo: "dano"; alcance: "corpo_a_corpo" | "distancia" };
+  // Rolagem de dano (não é d20): só valem os efeitos de dano. `tiposDano` = os
+  // tipos escritos no dano (vazio = não se sabe).
+  | {
+      tipo: "dano";
+      alcance: "corpo_a_corpo" | "distancia";
+      tecnica?: boolean;
+      grau?: number;
+      tiposDano?: string[];
+    };
 
 // Verifica se um alvo (slug salvo no efeito) casa com o contexto da
 // rolagem. Slugs livres (fora de ALVOS_CONTEXTUAIS) NUNCA casam — viram
@@ -1535,26 +2133,83 @@ export function casaContexto(alvoRaw: string, ctx: ContextoRolagem): boolean {
       if (alvo === "ataque") return true;
       if (alvo === "ataque-cc" && ctx.alcance === "corpo_a_corpo") return true;
       if (alvo === "ataque-distancia" && ctx.alcance === "distancia") return true;
+      if (alvo === "ataque-tecnica") return !!ctx.tecnica;
+      if (alvo === "ataque-comum") return !ctx.tecnica;
       return false;
     case "salvaguarda":
       if (!ALVOS_CONTEXTUAIS_SET.has(alvo)) return false;
       if (alvo === "salvaguarda") return true;
+      if (alvo === "concentracao") return !!ctx.concentracao;
       return alvo === `salv-${ctx.atributo}`;
     case "pericia":
       // Casa por igualdade exata com o slug rolado — não exige presença no set
       // canônico, então perícias customizadas (slug por-personagem) também casam.
       // Sem risco de falso-positivo: ctx.pericia é sempre uma perícia que existe.
       if (alvo === "teste") return true;
+      if (ctx.atributo && alvo === `teste-${ctx.atributo}`) return true;
       return alvo === ctx.pericia;
     case "teste-atributo":
       if (alvo === "teste") return true;
       return alvo === `teste-${ctx.atributo}`;
     case "iniciativa":
-      return alvo === "iniciativa";
+      // Iniciativa é um Teste de Destreza.
+      return alvo === "iniciativa" || alvo === "teste" || alvo === "teste-destreza";
   }
 }
 
+// Grau e tipo do efeito contra o dano rolado: "talvez" quando a técnica não tem
+// grau ou o dano não diz o tipo (o chip nasce desligado e o jogador decide).
+export function filtroDeDano(x: FiltroDano, ctx: ContextoRolagem): "sim" | "talvez" | "nao" {
+  if (ctx.tipo !== "dano") return "nao";
+  let talvez = false;
+  if (x.graus?.length) {
+    if (!ctx.tecnica) return "nao";
+    if (!ctx.grau) talvez = true;
+    else if (!x.graus.includes(ctx.grau)) return "nao";
+  }
+  if (x.tipos?.trim()) {
+    const tipos = ctx.tiposDano ?? [];
+    const cob = lerCobertura(x.tipos);
+    if (tipos.length === 0) talvez = true;
+    else if (!tipos.some((t) => cobre(cob, t, false))) return "nao";
+  }
+  return talvez ? "talvez" : "sim";
+}
+
+// "só no 1º–4º grau, em cortante".
+export function textoFiltroDano(x: FiltroDano): string | undefined {
+  const partes: string[] = [];
+  if (x.graus?.length) {
+    const g = x.graus;
+    const seguidos = g.every((v, i) => i === 0 || v === g[i - 1] + 1);
+    partes.push(
+      g.length === 1
+        ? `no ${g[0]}º grau`
+        : seguidos
+          ? `do ${g[0]}º ao ${g[g.length - 1]}º grau`
+          : `nos graus ${g.map((v) => `${v}º`).join(", ")}`,
+    );
+  }
+  if (x.tipos?.trim()) partes.push(`em ${x.tipos.trim()}`);
+  return partes.length ? `só ${partes.join(", ")}` : undefined;
+}
+
+// Efeito de dano (`em`) casa com a rolagem de dano. Vazio = todo dano.
+export function casaDano(emRaw: string | undefined, ctx: ContextoRolagem): boolean {
+  if (ctx.tipo !== "dano") return false;
+  const em = (emRaw ?? "").trim().toLowerCase();
+  if (!em || em === "dano") return true;
+  if (em === "dano-cc") return ctx.alcance === "corpo_a_corpo";
+  if (em === "dano-distancia") return ctx.alcance === "distancia";
+  if (em === "dano-tecnica") return !!ctx.tecnica;
+  if (em === "dano-comum") return !ctx.tecnica;
+  return false;
+}
+
 type FonteValor = { valor: number; fontes: string[] };
+// Efeito que gasta os usos da habilidade que o dá. `livre`: alguma fonte não
+// tem limite; senão `gasta` é a habilidade que perde 1 uso e `usos` o saldo.
+export type UsoLimitado = { fontes: string[]; livre: boolean; gasta?: string; usos?: string };
 // Defesa agregada pro painel da sidebar. `passiva` marca se ALGUMA fonte é
 // passiva (traço permanente → sempre ligada). Defesa que só vem de habilidade
 // ativável só entra no agregado quando a habilidade está LIGADA (o gate é o
@@ -1588,11 +2243,57 @@ type FonteProficiencia = FonteLista & { dobrada: boolean };
 // atual (ataque CC, perícia X…). Diferente de crit_range/floor_d20 (globais) e
 // reroll (por gatilho), que já têm bucket próprio.
 export type EfeitoContextual = {
-  tipo: "vantagem" | "desvantagem" | "sucesso_auto";
+  tipo: "vantagem" | "desvantagem" | "sucesso_auto" | "falha_auto";
   alvo: string;
   fonte: string;
   quando?: string;
 };
+
+// Desconto de técnica cru; o custo sai de `custoComDescontos` com o grau da ação.
+export type DescontoTecnica = {
+  custo: "pp" | "pa";
+  valor: number;
+  formula?: string;
+  modo?: "metade" | "zero";
+  minimo?: number;
+  graus?: number[];
+  fonte: string;
+};
+
+// Nível e atributos com que as fórmulas dos efeitos são resolvidas.
+export type ContextoFormula = { nivel: number; atributos: Record<Atributo, number> };
+
+// Dano extra ou dados extras guardados crus. `gasta` = habilidade de Usar que o
+// chip gasta ao rolar (dano sob demanda, tipo Heat); `usos` e `custo` vão pro tooltip.
+export type ExtraDano = FiltroDano & {
+  chave: string;
+  tipo: "dano_extra" | "dados_extra";
+  formula: string;
+  sempre: boolean;
+  em: string;
+  fonte: string;
+  gasta?: string;
+  usos?: string;
+  custo?: string;
+};
+
+// Efeito de "a cada turno" agregado, com a fonte.
+export type PorTurno = {
+  o: OQuePorTurno;
+  valor: string;
+  recurso?: string;
+  gasta?: boolean;
+  tipoDano?: string;
+  fonte: string;
+  habilidadeId?: string;
+};
+
+// Efeito de dano só em certos graus de técnica ou tipos de dano.
+export type FiltroDano = { graus?: number[]; tipos?: string };
+
+function filtroDe(e: FiltroDano): FiltroDano {
+  return { ...(e.graus?.length ? { graus: e.graus } : {}), ...(e.tipos ? { tipos: e.tipos } : {}) };
+}
 
 // Agregação de todos os efeitos `modificador` e `proficiencia` das habilidades
 // do personagem. Resultado é "frio": pode ser calculado em qualquer momento
@@ -1608,7 +2309,7 @@ export type EfeitosAgregados = {
   // Campo segue `bonusTetoAtributo` / slug `teto-` (identificadores estáveis).
   bonusTetoAtributo: Partial<Record<Atributo, FonteValor>>;
   proficienciasPericia: Partial<Record<string, FonteProficiencia>>;
-  proficienciasSalvaguarda: Partial<Record<Atributo, FonteLista>>;
+  proficienciasSalvaguarda: Partial<Record<Atributo, FonteProficiencia>>;
   bonusCR: FonteValor;
   bonusIniciativa: FonteValor;
   bonusPercepcaoPassiva: FonteValor;
@@ -1624,13 +2325,27 @@ export type EfeitosAgregados = {
   bonusDanoCC: FonteValor;
   bonusDanoDistancia: FonteValor;
   bonusCdTecnicas: FonteValor;
-  // Crítico expandido — menor "minimo" observado entre todas as habilidades.
-  // 20 = sem efeito (crítico só no 20). 19 = crítico em 19-20. Etc.
-  critRangeMinimo: FonteValor;
-  // Floor no d20 — maior "minimo" observado. 0 = sem efeito.
-  floorD20: FonteValor;
+  // Alvos largos: todas as salvaguardas, todos os testes, testes de um
+  // atributo (perícias dele + teste puro), todas as jogadas de d20.
+  bonusSalvaguardaTodas: FonteValor;
+  bonusTesteTodos: FonteValor;
+  bonusTesteAtributo: Partial<Record<Atributo, FonteValor>>;
+  bonusQualquer: FonteValor;
+  // A mais no teste de concentração (salvaguarda de CON ao tomar dano).
+  bonusConcentracao: FonteValor;
+  // Ataque/dano só de técnica ou só de ataque comum.
+  bonusAtaqueTecnica: FonteValor;
+  bonusAtaqueComum: FonteValor;
+  bonusDanoTecnica: FonteValor;
+  bonusDanoComum: FonteValor;
+  // Nível e atributos usados pelas fórmulas dos efeitos (null = sem fórmula).
+  ctxFormula: ContextoFormula | null;
+  // Crítico expandido por alvo de ataque; na jogada vale o menor que casa.
+  critsFaixa: { minimo: number; alvo: string; fonte: string }[];
+  // Mínimos no d20 por alvo; na jogada vale o maior que casa.
+  floorsD20: { minimo: number; alvo: string; fonte: string }[];
   // Rerrolagens por gatilho (ataque/salvaguarda/teste). Usos somam.
-  rerolls: Partial<Record<string, FonteValor>>;
+  rerolls: Partial<Record<string, UsoLimitado>>;
   // Sentidos especiais (visão escuro, sentir presença…). Indexado por nome
   // do sentido; o maior alcance vence.
   sentidos: Partial<Record<string, FonteValor>>;
@@ -1648,11 +2363,43 @@ export type EfeitosAgregados = {
   contextuais: EfeitoContextual[];
   // Substituição de atributo por cálculo (CR/iniciativa/salvaguarda/perícia).
   // Indexado pelo slug do alvo; a primeira habilidade a definir vence.
-  substituicoesAtributo: Partial<Record<string, { atributo: Atributo; fontes: string[] }>>;
+  substituicoesAtributo: Partial<Record<string, Substituicao>>;
   // ─ Contextuais de dano/ataque (etapa 3.5) ─
-  // Piso de dano (metade do MÁXIMO da fórmula). Presença = ativo; sem valor —
-  // o piso depende da fórmula rolada, então é calculado no Rolador. Fontes somam.
-  danoMinMetade: FonteLista;
+  // Piso de dano (metade do MÁXIMO da fórmula), por dano (`em`). O piso depende
+  // da fórmula rolada, então é calculado no Rolador.
+  danosMin: (FiltroDano & { em: string; fonte: string; quando?: string })[];
+  // Bônus com `quando` numa rolagem: chip desligado no Rolador, fora dos totais.
+  situacionais: { alvo: string; valor: number; fonte: string; quando: string }[];
+  // Dano máximo por dano; `gasta` = habilidade de Usar (sob demanda).
+  danosMaximos: (FiltroDano & {
+    em: string;
+    sempre: boolean;
+    apartir: number;
+    fonte: string;
+    gasta?: string;
+    usos?: string;
+    custo?: string;
+  })[];
+  // Dado de dano mínimo.
+  pisosDado: (FiltroDano & { ate: number; vira: number; em: string; fonte: string })[];
+  // Crítico maior: multiplicador dos dados e dados a mais.
+  critsExtra: (FiltroDano & { dados: number; vezes: number; em: string; fonte: string })[];
+  // Acerto por dano (alvo de ataque).
+  ataquesPoderosos: { penalidade: number; bonus: number; alvo: string; fonte: string }[];
+  // Redução de dano recebido (painel de defesas).
+  reducoesDano: { valor: number; tipos: string; quando?: string; fonte: string; passiva: boolean }[];
+  // Maior nível de exaustão ignorado.
+  ignoraExaustao: { ate: number; fontes: string[] } | null;
+  // A mais em cada descanso.
+  descansoExtra: Record<"curto" | "longo", { exaustao: number; pp: number; dv: number; fontes: string[] }>;
+  // Dano extra e dados extras, crus; o Rolador resolve (com o grau da técnica).
+  extrasDano: ExtraDano[];
+  // O que acontece a cada turno; `habilidadeId` = ligada que desliga se o gasto zerar.
+  porTurno: PorTurno[];
+  // Valor fixo por alvo (CR, deslocamentos): vale o maior.
+  valoresFixos: Partial<Record<string, FonteValor>>;
+  // Dado da arma fixo (vale o maior).
+  dadoArmaFixo: { formula: string; fontes: string[] } | null;
   // Troca de tipo de dano. Primeira habilidade a definir vence; fontes acumulam.
   trocaDano: { tipoDano: string; fontes: string[] } | null;
   // Defesas ignoradas (resistência/imunidade/reação/cobertura). Indexado pelo
@@ -1669,16 +2416,17 @@ export type EfeitosAgregados = {
   // Passos no dado da arma e no dado das técnicas (somam).
   passosDanoArma: FonteValor;
   passosDanoTecnica: FonteValor;
-  // Desconto no custo de técnica, por tipo de custo (somam).
-  descontoTecnica: Record<"pp" | "pa", FonteValor>;
+  // Descontos no custo de técnica.
+  descontos: DescontoTecnica[];
   // Melhor de N no dano (maior N vence; usos somam).
-  danoMelhorDe: { vezes: number; usos: number; fontes: string[] } | null;
+  danoMelhorDe: (UsoLimitado & { vezes: number }) | null;
   // ─ Defesas (painel read-only da sidebar) ─
   // Resistências e imunidades a tipo de dano + imunidades a condição. Indexados
   // pelo nome (casing preservado). Agregam de QUALQUER tipo de habilidade (é
   // traço, não rolagem); de fonte ativável entram como condicional. Só exibição.
   resistencias: Partial<Record<string, DefesaAgregada>>;
   imunidades: Partial<Record<string, DefesaAgregada>>;
+  vulnerabilidades: Partial<Record<string, DefesaAgregada>>;
   condicoesImunes: Partial<Record<string, DefesaAgregada>>;
 };
 
@@ -1705,15 +2453,40 @@ function vazio(): EfeitosAgregados {
     bonusDanoCC: { valor: 0, fontes: [] },
     bonusDanoDistancia: { valor: 0, fontes: [] },
     bonusCdTecnicas: { valor: 0, fontes: [] },
-    critRangeMinimo: { valor: 20, fontes: [] },
-    floorD20: { valor: 0, fontes: [] },
+    bonusSalvaguardaTodas: { valor: 0, fontes: [] },
+    bonusTesteTodos: { valor: 0, fontes: [] },
+    bonusTesteAtributo: {},
+    bonusQualquer: { valor: 0, fontes: [] },
+    bonusConcentracao: { valor: 0, fontes: [] },
+    bonusAtaqueTecnica: { valor: 0, fontes: [] },
+    bonusAtaqueComum: { valor: 0, fontes: [] },
+    bonusDanoTecnica: { valor: 0, fontes: [] },
+    bonusDanoComum: { valor: 0, fontes: [] },
+    ctxFormula: null,
+    critsFaixa: [],
+    floorsD20: [],
     rerolls: {},
     sentidos: {},
     deslocamentosExtra: {},
     multiplicadores: {},
     contextuais: [],
     substituicoesAtributo: {},
-    danoMinMetade: { fontes: [] },
+    danosMin: [],
+    situacionais: [],
+    danosMaximos: [],
+    pisosDado: [],
+    critsExtra: [],
+    ataquesPoderosos: [],
+    reducoesDano: [],
+    ignoraExaustao: null,
+    descansoExtra: {
+      curto: { exaustao: 0, pp: 0, dv: 0, fontes: [] },
+      longo: { exaustao: 0, pp: 0, dv: 0, fontes: [] },
+    },
+    extrasDano: [],
+    porTurno: [],
+    valoresFixos: {},
+    dadoArmaFixo: null,
     trocaDano: null,
     ignora: {},
     bonusAlcance: { valor: 0, fontes: [] },
@@ -1721,10 +2494,11 @@ function vazio(): EfeitosAgregados {
     margemCritico: { valor: 0, fontes: [] },
     passosDanoArma: { valor: 0, fontes: [] },
     passosDanoTecnica: { valor: 0, fontes: [] },
-    descontoTecnica: { pp: { valor: 0, fontes: [] }, pa: { valor: 0, fontes: [] } },
+    descontos: [],
     danoMelhorDe: null,
     resistencias: {},
     imunidades: {},
+    vulnerabilidades: {},
     condicoesImunes: {},
   };
 }
@@ -1777,14 +2551,72 @@ function aplicarDefesa(
 // `modificador` em pools temporários e `recurso_delta` viram aqui. Usado
 // tanto pelo server (Server Action) quanto pelo client (otimismo cross-tab).
 // Recursos custom ficam indexados pelo id (UUID) que vive em `e.recurso`.
+// `hpTemp` é a maior concessão de PV temporário: não soma com o que já tem.
 export type DeltasInstantaneos = {
   hpAtual: number;
   hpTemp: number;
   ppAtual: number;
   hpMax: number;
   ppMax: number;
+  // Níveis de exaustão (recurso "exaustao").
+  exaustao: number;
   recursos: Record<string, number>;
 };
+
+export type AlvoCura = "hp" | "hp-temp" | "pp";
+
+// Pool da cura; aliases antigos (pv, ppv, pv-temp, hptemp) caem no canônico.
+export function alvoDaCura(e: { alvoCura?: string }): AlvoCura {
+  const onde = (e.alvoCura ?? "hp").trim().toLowerCase();
+  if (onde === "pp") return "pp";
+  if (onde === "hp-temp" || onde === "hptemp" || onde === "pv-temp" || onde === "ppv") return "hp-temp";
+  return "hp";
+}
+
+// Valor de cura fixo ("10"); null quando é fórmula ("2d10+CON").
+export function curaFixa(valor: string): number | null {
+  const t = valor.trim();
+  const n = Number(t);
+  return t !== "" && Number.isFinite(n) ? Math.trunc(n) : null;
+}
+
+// Curas que rolam no cliente ao usar, pelo índice do efeito: as com fórmula e,
+// com dado a mais na cura, também as de PV com valor fixo.
+export function curasComFormula(
+  efeitos: EfeitoHabilidade[],
+  comDadoNaCura = false,
+): { idx: number; valor: string; alvo: AlvoCura }[] {
+  const out: { idx: number; valor: string; alvo: AlvoCura }[] = [];
+  efeitos.forEach((e, idx) => {
+    if (e.tipo !== "cura") return;
+    const alvo = alvoDaCura(e);
+    if (curaFixa(e.valor) === null || (comDadoNaCura && alvo === "hp")) {
+      out.push({ idx, valor: e.valor, alvo });
+    }
+  });
+  return out;
+}
+
+// Dados a mais que valem sempre na cura de PV ("+1d6"), já resolvidos.
+export type ExtraDeCura = { dados: Dado[]; modificador: number; texto: string; fontes: string[] };
+
+export function extrasDeCura(
+  agg: Pick<EfeitosAgregados, "extrasDano" | "ctxFormula">,
+): ExtraDeCura {
+  const dados: Dado[] = [];
+  let modificador = 0;
+  const fontes: string[] = [];
+  const f = agg.ctxFormula;
+  for (const x of agg.extrasDano) {
+    if (x.tipo !== "dano_extra" || !x.sempre || x.gasta || x.em !== "cura") continue;
+    const r = f ? resolverFormula(x.formula, f.atributos, f.nivel) : parseFormulaDados(x.formula);
+    dados.push(...r.dados);
+    modificador += r.modificador;
+    if (!fontes.includes(x.fonte)) fontes.push(x.fonte);
+  }
+  const texto = dados.length || modificador ? formulaAgrupada(dados, modificador) : "";
+  return { dados, modificador, texto, fontes };
+}
 
 export function computarDeltasInstantaneos(
   efeitos: EfeitoHabilidade[],
@@ -1792,45 +2624,201 @@ export function computarDeltasInstantaneos(
   // uma habilidade sustentada: bônus de PV/PP máximo são revertíveis, então
   // vivem no agregado (bonusHpMax/bonusPpMax enquanto ligada) em vez de baterem
   // permanentemente no valor armazenado. cura/PV-temp/recurso seguem instantâneos.
-  { incluirMax = true }: { incluirMax?: boolean } = {},
+  // `rolagens`: total rolado de cada cura com fórmula, pelo índice do efeito.
+  // `ctx`: nível, atributos e grau da técnica pras fórmulas (ex: PV temporário
+  // "2d10+CON" já rolado, ou "10*NIVEL" fixo).
+  {
+    incluirMax = true,
+    rolagens = {},
+    ctx = null,
+  }: {
+    incluirMax?: boolean;
+    rolagens?: Record<number, number>;
+    ctx?: (ContextoFormula & { grau?: number }) | null;
+  } = {},
 ): DeltasInstantaneos {
+  const valorDe = (e: { valor: number; formula?: string }) =>
+    e.formula
+      ? ctx
+        ? valorDaFormula(e.formula, ctx.atributos, ctx.nivel, { grau: ctx.grau ?? 0 })
+        : 0
+      : e.valor;
   const d: DeltasInstantaneos = {
     hpAtual: 0,
     hpTemp: 0,
     ppAtual: 0,
     hpMax: 0,
     ppMax: 0,
+    exaustao: 0,
     recursos: {},
   };
   // Slugs canônicos de pool: hp (PV atual), hp-temp, hp-max, pp (PP atual),
   // pp-max. Aliases antigos (pv, ppv, pv-temp, hpMax, hptemp…) são tolerados
   // aqui pra não quebrar habilidades já salvas no banco.
-  for (const e of efeitos) {
+  efeitos.forEach((e, idx) => {
     if (e.tipo === "cura") {
-      const n = Number(e.valor);
-      if (!Number.isFinite(n) || n <= 0) continue;
+      // O total rolado vale mais que o fixo (cura fixa com dado a mais também rola).
+      const n = rolagens[idx] ?? curaFixa(e.valor);
+      if (n == null || !Number.isFinite(n) || n <= 0) return;
       const v = Math.trunc(n);
-      const onde = (e.alvoCura ?? "hp").trim().toLowerCase();
+      const onde = alvoDaCura(e);
       if (onde === "pp") d.ppAtual += v;
-      else if (onde === "hp-temp" || onde === "hptemp" || onde === "pv-temp" || onde === "ppv")
-        d.hpTemp += v;
-      else d.hpAtual += v; // hp / pv / vazio
+      else if (onde === "hp-temp") d.hpTemp = Math.max(d.hpTemp, v);
+      else d.hpAtual += v;
     } else if (e.tipo === "modificador") {
       const alvo = e.alvo.trim().toLowerCase();
-      if (alvo === "hp-temp" || alvo === "hptemp") d.hpTemp += Math.trunc(e.valor);
-      else if (incluirMax && (alvo === "hp-max" || alvo === "hpmax")) d.hpMax += Math.trunc(e.valor);
-      else if (incluirMax && (alvo === "pp-max" || alvo === "ppmax")) d.ppMax += Math.trunc(e.valor);
+      const v = Math.trunc(valorDe(e));
+      if (alvo === "hp-temp" || alvo === "hptemp") d.hpTemp = Math.max(d.hpTemp, v);
+      else if (incluirMax && (alvo === "hp-max" || alvo === "hpmax")) d.hpMax += v;
+      else if (incluirMax && (alvo === "pp-max" || alvo === "ppmax")) d.ppMax += v;
     } else if (e.tipo === "recurso_delta") {
       const v = Math.trunc(e.valor);
-      if (!v) continue;
+      if (!v) return;
       const k = e.recurso.trim(); // pode ser UUID de recurso custom (case-sensitive)
       // PV Máx legado já vem como `modificador`.
       if (k === "pp") d.ppAtual += v;
-      else if (k === "pa") continue; // PA não é pool rastreável (legado)
+      else if (k === "exaustao") d.exaustao += v;
+      else if (k === "pa") return; // PA não é pool rastreável (legado)
       else d.recursos[k] = (d.recursos[k] ?? 0) + v;
     }
-  }
+  });
   return d;
+}
+
+// Máximos efetivos de PV e PP: (base + bônus) × fator, arredondado pra baixo.
+export function poolsEfetivos(
+  base: { hpMax: number; ppMax: number },
+  agg: Pick<EfeitosAgregados, "bonusHpMax" | "bonusPpMax" | "multiplicadores">,
+): { hpMax: number; ppMax: number } {
+  const hp = base.hpMax + agg.bonusHpMax.valor;
+  const pp = base.ppMax + agg.bonusPpMax.valor;
+  const mHp = agg.multiplicadores["hp-max"]?.fator;
+  const mPp = agg.multiplicadores["pp-max"]?.fator;
+  return {
+    hpMax: Math.max(1, mHp ? Math.floor(hp * mHp) : hp),
+    ppMax: Math.max(0, mPp ? Math.floor(pp * mPp) : pp),
+  };
+}
+
+// Atributos com o bônus dos efeitos; o valor fixo vale se for maior.
+export function atributosEfetivos(
+  base: Record<Atributo, number>,
+  agg: Pick<EfeitosAgregados, "bonusAtributo" | "valoresFixos">,
+): Record<Atributo, number> {
+  const out = {} as Record<Atributo, number>;
+  for (const a of ATRIBUTOS) {
+    const somado = base[a.slug] + (agg.bonusAtributo[a.slug]?.valor ?? 0);
+    out[a.slug] = Math.max(somado, agg.valoresFixos[a.slug]?.valor ?? 0);
+  }
+  return out;
+}
+
+// Teste de perícia ou salvaguarda com proficiência, bônus e troca de atributo
+// vindos dos efeitos. `atributos` já vem com a penalidade de DES da armadura.
+// Sem a exaustão (quem rola desconta; teste passivo não).
+export function resolverTeste(opts: {
+  tipo: "pericia" | "salvaguarda";
+  // Slug da perícia (canônica ou custom) ou atributo da salvaguarda.
+  slug: string;
+  atributoPadrao: Atributo;
+  nivel: number;
+  atributos: Record<Atributo, number>;
+  proficiente: boolean;
+  dobrado: boolean;
+  outros: number;
+  agg: Pick<
+    EfeitosAgregados,
+    | "proficienciasPericia"
+    | "proficienciasSalvaguarda"
+    | "bonusPericia"
+    | "bonusSalvaguarda"
+    | "substituicoesAtributo"
+    | "bonusSalvaguardaTodas"
+    | "bonusTesteTodos"
+    | "bonusTesteAtributo"
+    | "bonusQualquer"
+  >;
+}): {
+  bonus: number;
+  // Parcelas do bônus: mod + prof + outros.
+  mod: number;
+  prof: number;
+  outros: number;
+  atributo: Atributo;
+  substituicao: string[] | null;
+  proficiente: boolean;
+  dobrado: boolean;
+  profPorEfeito: FonteProficiencia | undefined;
+  bonusPorEfeito: FonteValor | undefined;
+  // Bônus de alvos largos (todas as salvaguardas, testes, todas as jogadas).
+  bonusAmplo: FonteValor;
+} {
+  const ehSalv = opts.tipo === "salvaguarda";
+  const profPorEfeito = ehSalv
+    ? opts.agg.proficienciasSalvaguarda[opts.slug as Atributo]
+    : opts.agg.proficienciasPericia[opts.slug];
+  const bonusPorEfeito = ehSalv
+    ? opts.agg.bonusSalvaguarda[opts.slug as Atributo]
+    : opts.agg.bonusPericia[opts.slug];
+  const proficiente = opts.proficiente || !!profPorEfeito;
+  const dobrado = proficiente && (opts.dobrado || !!profPorEfeito?.dobrada);
+  const sub = atributoDeCalculo(
+    ehSalv ? `salv-${opts.slug}` : [opts.slug, `teste-${opts.atributoPadrao}`],
+    opts.atributoPadrao,
+    opts.agg.substituicoesAtributo,
+    opts.atributos,
+  );
+  const bonusAmplo = ehSalv
+    ? somarFontes(opts.agg.bonusSalvaguardaTodas, opts.agg.bonusQualquer)
+    : bonusTesteAmplo(opts.agg, sub.atributo);
+  const outros = opts.outros + (bonusPorEfeito?.valor ?? 0) + bonusAmplo.valor;
+  const valorAtributo = opts.atributos[sub.atributo];
+  const bonus = ehSalv
+    ? bonusSalvaguarda({ valorAtributo, nivel: opts.nivel, proficiente, dobrado, outros })
+    : bonusPericia({ valorAtributo, nivel: opts.nivel, proficiente, dobrado, outros });
+  const mod = modificador(valorAtributo);
+  return {
+    bonus,
+    mod,
+    prof: bonus - mod - outros,
+    outros,
+    atributo: sub.atributo,
+    substituicao: sub.substituido ? sub.fontes : null,
+    proficiente,
+    dobrado,
+    profPorEfeito,
+    bonusPorEfeito,
+    bonusAmplo,
+  };
+}
+
+// Efeitos de d20 que valem sempre na jogada (os com `quando` ficam de fora).
+export function modoDosEfeitos(
+  contextuais: EfeitoContextual[],
+  ctx: ContextoRolagem,
+): { vantagem: string[]; desvantagem: string[]; sucesso: string[]; falha: string[] } {
+  const out = { vantagem: [] as string[], desvantagem: [] as string[], sucesso: [] as string[], falha: [] as string[] };
+  for (const c of contextuais) {
+    if (c.quando?.trim() || !casaContexto(c.alvo, ctx)) continue;
+    if (c.tipo === "vantagem") out.vantagem.push(c.fonte);
+    else if (c.tipo === "desvantagem") out.desvantagem.push(c.fonte);
+    else if (c.tipo === "sucesso_auto") out.sucesso.push(c.fonte);
+    else out.falha.push(c.fonte);
+  }
+  return {
+    vantagem: dedup(out.vantagem),
+    desvantagem: dedup(out.desvantagem),
+    sucesso: dedup(out.sucesso),
+    falha: dedup(out.falha),
+  };
+}
+
+// Nível de exaustão que pesa nas jogadas e no deslocamento (0 se ignorado).
+export function exaustaoQueConta(
+  exaustao: number,
+  agg: Pick<EfeitosAgregados, "ignoraExaustao">,
+): number {
+  return exaustao <= (agg.ignoraExaustao?.ate ?? 0) ? 0 : exaustao;
 }
 
 // Um efeito é "sustentado" quando o agregador o transforma num traço/bônus
@@ -1854,6 +2842,7 @@ export function efeitoEhSustentado(e: EfeitoHabilidade): boolean {
     case "proficiencia":
     case "resistencia":
     case "imunidade":
+    case "vulnerabilidade":
     case "condicao_imune":
     case "crit_imune":
     case "multiplicador":
@@ -1868,10 +2857,29 @@ export function efeitoEhSustentado(e: EfeitoHabilidade): boolean {
     case "passo_dano":
     case "desconto_tecnica":
     case "dano_melhor_de":
+    case "valor_fixo":
+    case "falha_auto":
+    case "reducao_dano":
+    case "piso_dado":
+    case "critico_extra":
+    case "ataque_poderoso":
+    case "ignora_exaustao":
+    case "descanso":
+    case "por_turno":
       return true;
     default:
       return false;
   }
+}
+
+// Efeito que acontece na hora do uso (não fica valendo).
+export function efeitoInstantaneo(e: EfeitoHabilidade): boolean {
+  if (e.tipo === "cura" || e.tipo === "recurso_delta") return true;
+  if (e.tipo === "modificador") {
+    const a = e.alvo.trim().toLowerCase();
+    return a === "hp-temp" || a === "hptemp";
+  }
+  return false;
 }
 
 // Habilidade ativável (ativa/reativa) com ≥1 efeito sustentado ganha toggle
@@ -1893,9 +2901,13 @@ const ALVOS_ROLAGEM_ARMA = new Set([
   "ataque",
   "ataque-cc",
   "ataque-distancia",
+  "ataque-tecnica",
+  "ataque-comum",
   "dano",
   "dano-cc",
   "dano-distancia",
+  "dano-tecnica",
+  "dano-comum",
 ]);
 
 // Efeito de rolagem de arma: numa arma, vale só nas rolagens com ela.
@@ -1908,6 +2920,8 @@ export function efeitoDeRolagemDeArma(e: EfeitoHabilidade): boolean {
       return e.alvo.trim().toLowerCase().startsWith("ataque");
     case "reroll":
       return e.gatilho.trim().toLowerCase().startsWith("ataque");
+    case "floor_d20":
+      return (e.alvo ?? "").trim().toLowerCase().startsWith("ataque");
     case "crit_range":
     case "margem_critico":
     case "passo_dano":
@@ -1917,7 +2931,15 @@ export function efeitoDeRolagemDeArma(e: EfeitoHabilidade): boolean {
     case "alcance":
     case "ignora":
     case "trocar_dano":
+    case "dano_extra":
+    case "dados_extra":
+    case "dano_maximo":
+    case "piso_dado":
+    case "critico_extra":
+    case "ataque_poderoso":
       return true;
+    case "valor_fixo":
+      return e.alvo === "dado-arma";
     default:
       return false;
   }
@@ -1940,6 +2962,15 @@ export function fontesDeEfeitoDeItens(
     .filter((f) => f.efeitos.length > 0);
 }
 
+// Habilidade que um aliado ligou neste personagem: vale como passiva, sem os instantâneos.
+export function fonteDeAliado(h: { nome: string; de: string; efeitos: unknown }): FonteEfeito {
+  return {
+    nome: `${h.nome} de ${h.de}`,
+    tipo: "passiva",
+    efeitos: lerEfeitos(h.efeitos).filter((e) => !efeitoInstantaneo(e)),
+  };
+}
+
 // Agregado da ficha + efeitos de rolagem da arma.
 export function efeitosComArma(
   ficha: EfeitosAgregados,
@@ -1951,35 +2982,212 @@ export function efeitosComArma(
   return agregarEfeitos([{ nome: arma.nome, tipo: "passiva", efeitos: proprios }], new Set(), ficha);
 }
 
-// Maior desconto de técnica entre os agregados da ação.
-export function melhorDesconto(
-  aggs: EfeitosAgregados[],
+// Custo da ação: ficha + armas equipadas que a desferem ou concedem (vale o menor).
+export function custoDaAcao(
+  ficha: EfeitosAgregados,
+  armas: { nome: string; tipo: string; equipado: boolean; efeitos: unknown }[],
   custo: "pp" | "pa",
-): { valor: number; fontes: string[] } {
-  let melhor = { valor: 0, fontes: [] as string[] };
+  base: number,
+  grau: number,
+): { final: number; fontes: string[] } {
+  const equipadas = armas.filter((a) => a.tipo === "arma" && a.equipado);
+  const aggs = equipadas.length ? equipadas.map((a) => efeitosComArma(ficha, a)) : [ficha];
+  let melhor = { final: base, fontes: [] as string[] };
   for (const a of aggs) {
-    if (a.descontoTecnica[custo].valor > melhor.valor) melhor = a.descontoTecnica[custo];
+    const c = custoComDescontos(base, custo, grau, a.descontos, a.ctxFormula);
+    if (c.final < melhor.final) melhor = c;
   }
   return melhor;
+}
+
+// Sobrecarga (cap. 3): técnica de grau 1–5 sem PP custa exaustão = grau, sem
+// passar do 5º nível. Devolve o motivo quando não dá.
+export function motivoSemSobrecarga(
+  acao: { tecnica: boolean; grau: number },
+  exaustao: number,
+): string | null {
+  if (!acao.tecnica || acao.grau < 1) return "PP insuficiente.";
+  if (acao.grau > 5) return "PP insuficiente. Técnica de 6º ou 7º grau não aceita Sobrecarga.";
+  if (exaustao + acao.grau > 5) {
+    return "PP insuficiente. A Sobrecarga passaria do 5º nível de exaustão.";
+  }
+  return null;
+}
+
+// Fonte de efeito do agregador. `id`, `alternavel` e usos servem pro dano sob
+// demanda (habilidade de Usar com dano extra); `aliado` vai pra outro personagem.
+export type HabilidadeFonte = {
+  nome: string;
+  tipo: string;
+  efeitos: unknown;
+  ligada?: boolean;
+  id?: string;
+  alternavel?: boolean;
+  aliado?: boolean;
+  usos?: number | null;
+  usosAtual?: number | null;
+  usosFormula?: string | null;
+  custoPp?: number;
+  custoRecursoId?: string | null;
+  custoRecursoValor?: number;
+};
+
+// Recurso do personagem, pro custo dos chips sob demanda (ex.: Dados Brutais).
+export type RecursoFonte = { id: string; nome: string; valorAtual: number; valorMax: number };
+
+const agrega = (h: { tipo: string; ligada?: boolean }) => h.tipo === "passiva" || h.ligada === true;
+
+// Limite de usos da habilidade que dá o efeito (null = sem limite).
+function limiteDeUso(
+  h: HabilidadeFonte,
+  f: ContextoFormula | null,
+): { gasta: string; usos: string } | "esgotado" | null {
+  const max = usosMaximos(h, f);
+  if (max == null || !h.id) return null;
+  const atual = h.usosAtual ?? max;
+  if (atual <= 0) return "esgotado";
+  return { gasta: h.id, usos: `${atual}/${max}` };
+}
+
+// Junta uma fonte num efeito de uso limitado; uma fonte sem limite o deixa livre.
+function somarUsoLimitado(
+  atual: UsoLimitado | undefined,
+  fonte: string,
+  limite: { gasta: string; usos: string } | null,
+): UsoLimitado {
+  const out: UsoLimitado = atual
+    ? { ...atual, fontes: [...atual.fontes] }
+    : { fontes: [], livre: false };
+  if (!out.fontes.includes(fonte)) out.fontes.push(fonte);
+  if (!limite) out.livre = true;
+  else if (!out.gasta) {
+    out.gasta = limite.gasta;
+    out.usos = limite.usos;
+  }
+  return out;
+}
+
+// Atributos com os bônus e valores fixos sem fórmula das fontes que agregam.
+function atributosComBonusFixos(
+  habilidades: HabilidadeFonte[],
+  base: Record<Atributo, number>,
+): Record<Atributo, number> {
+  const out = { ...base };
+  const fixos: Partial<Record<Atributo, number>> = {};
+  for (const h of habilidades) {
+    if (!agrega(h) || h.aliado) continue;
+    for (const e of lerEfeitos(h.efeitos)) {
+      if (e.tipo === "modificador" && !e.formula) {
+        const a = e.alvo.trim().toLowerCase();
+        if (ATRIBUTOS_SET.has(a)) out[a as Atributo] += e.valor;
+      } else if (e.tipo === "valor_fixo" && ATRIBUTOS_SET.has(e.alvo) && /^\d+$/.test(e.valor)) {
+        const a = e.alvo as Atributo;
+        fixos[a] = Math.max(fixos[a] ?? 0, Number(e.valor));
+      }
+    }
+  }
+  for (const [a, v] of Object.entries(fixos) as [Atributo, number][]) out[a] = Math.max(out[a], v);
+  return out;
+}
+
+// Máximo de usos: a fórmula (com nível/atributos) ou o número salvo.
+export function usosMaximos(
+  h: { usos?: number | null; usosFormula?: string | null },
+  ctx: ContextoFormula | null,
+): number | null {
+  if (h.usosFormula && ctx) return Math.max(0, valorDaFormula(h.usosFormula, ctx.atributos, ctx.nivel));
+  return h.usos ?? null;
 }
 
 // Agrega os efeitos sustentados de habilidades passivas ou ligadas.
 // Instantâneos ficam com `computarDeltasInstantaneos`.
 export function agregarEfeitos(
-  habilidades: { nome: string; tipo: string; efeitos: unknown; ligada?: boolean }[],
+  habilidades: HabilidadeFonte[],
   // Slugs de perícias customizadas do personagem. Permite que `modificador` e
   // `proficiencia` mirando uma perícia custom caiam em bonusPericia/
   // proficienciasPericia em vez de virarem efeito descritivo sem dono.
   slugsPericiaCustom: Set<string> = new Set(),
   // Agregado de partida (copiado, não muda).
   base?: EfeitosAgregados,
+  // Nível e atributos base pras fórmulas; `grau` = grau da técnica; `recursos`
+  // dão o saldo do custo dos chips sob demanda.
+  ctx?: {
+    nivel?: number;
+    atributos?: Record<Atributo, number>;
+    grau?: number;
+    recursos?: RecursoFonte[];
+  },
 ): EfeitosAgregados {
   const out = base ? structuredClone(base) : vazio();
+  if (!base && ctx?.nivel != null && ctx.atributos) {
+    out.ctxFormula = {
+      nivel: ctx.nivel,
+      atributos: atributosComBonusFixos(habilidades, ctx.atributos),
+    };
+  }
+  const grau = ctx?.grau ?? 0;
+  const f = out.ctxFormula;
+  const numero = (formula: string) =>
+    f ? valorDaFormula(formula, f.atributos, f.nivel, { grau }) : Number(formula) || 0;
+  const novoExtra = (x: Omit<ExtraDano, "chave">) =>
+    out.extrasDano.push({ ...x, chave: `extra-${out.extrasDano.length}` });
+
   for (const h of habilidades) {
+    // Efeito em aliado vale no aliado, não em quem usa.
+    if (h.aliado) continue;
     const ehPassiva = h.tipo === "passiva";
-    // Habilidade não-passiva só agrega enquanto ligada. Passiva sempre agrega.
-    if (!ehPassiva && h.ligada !== true) continue;
     const efeitos = lerEfeitos(h.efeitos);
+    // Habilidade não-passiva só agrega enquanto ligada. As de Usar oferecem o
+    // dano extra e o dano máximo sob demanda (o chip gasta um uso).
+    if (!agrega(h)) {
+      if (!h.id || h.alternavel || temEfeitoSustentado(efeitos)) continue;
+      const max = usosMaximos(h, f);
+      const atual = h.usosAtual ?? max;
+      if (max != null && (atual ?? 0) <= 0) continue;
+      // Custo por uso: recurso (sem saldo, o chip some) e PP.
+      const custoRecurso = h.custoRecursoValor ?? 0;
+      const recurso =
+        h.custoRecursoId && custoRecurso > 0
+          ? ctx?.recursos?.find((r) => r.id === h.custoRecursoId)
+          : undefined;
+      if (recurso && recurso.valorAtual < custoRecurso) continue;
+      const custo = [
+        (h.custoPp ?? 0) > 0 ? `${h.custoPp} PP` : null,
+        recurso ? `${custoRecurso} ${recurso.nome} (${recurso.valorAtual}/${recurso.valorMax})` : null,
+      ]
+        .filter(Boolean)
+        .join(" e ");
+      const usos = {
+        ...(max != null ? { usos: `${atual}/${max}` } : {}),
+        ...(custo ? { custo } : {}),
+      };
+      for (const e of efeitos) {
+        if (e.tipo === "dano_maximo") {
+          out.danosMaximos.push({
+            em: e.em ?? "dano",
+            sempre: false,
+            apartir: 0,
+            fonte: h.nome,
+            gasta: h.id,
+            ...usos,
+            ...filtroDe(e),
+          });
+          continue;
+        }
+        if (e.tipo !== "dano_extra" && e.tipo !== "dados_extra") continue;
+        novoExtra({
+          tipo: e.tipo,
+          formula: e.tipo === "dano_extra" ? e.formula : e.quantidade,
+          sempre: false,
+          em: e.em ?? "dano",
+          fonte: h.nome,
+          gasta: h.id,
+          ...usos,
+          ...filtroDe(e),
+        });
+      }
+      continue;
+    }
     for (const e of efeitos) {
       // Defesas (resistência/imunidade/imune a condição/imune a crítico) são
       // traços; `passiva` marca se a fonte é permanente (vs. condicional ao
@@ -1992,6 +3200,10 @@ export function agregarEfeitos(
         aplicarDefesa(out.imunidades, e.tipoDano, h.nome, ehPassiva);
         continue;
       }
+      if (e.tipo === "vulnerabilidade") {
+        aplicarDefesa(out.vulnerabilidades, e.tipoDano, h.nome, ehPassiva);
+        continue;
+      }
       if (e.tipo === "condicao_imune") {
         aplicarDefesa(out.condicoesImunes, e.condicao, h.nome, ehPassiva);
         continue;
@@ -2001,26 +3213,42 @@ export function agregarEfeitos(
         continue;
       }
       if (e.tipo === "modificador") {
-        aplicarModificador(out, e.alvo, e.valor, h.nome, slugsPericiaCustom);
+        const valor = e.formula ? numero(e.formula) : e.valor;
+        // Com `quando`, bônus de rolagem vira chip desligado (fora dos totais).
+        if (e.quando?.trim() && alvoDeRolagem(e.alvo, slugsPericiaCustom)) {
+          if (valor) {
+            out.situacionais.push({
+              alvo: e.alvo.trim().toLowerCase(),
+              valor,
+              fonte: h.nome,
+              quando: e.quando.trim(),
+            });
+          }
+        } else {
+          aplicarModificador(out, e.alvo, valor, h.nome, slugsPericiaCustom);
+        }
       } else if (e.tipo === "proficiencia") {
         aplicarProficiencia(out, e.alvo, !!e.dobrada, h.nome, slugsPericiaCustom);
       } else if (e.tipo === "crit_range") {
-        // Menor "minimo" vence (faixa mais ampla).
-        if (e.minimo < out.critRangeMinimo.valor) out.critRangeMinimo.valor = e.minimo;
-        if (!out.critRangeMinimo.fontes.includes(h.nome)) {
-          out.critRangeMinimo.fontes.push(h.nome);
+        if (e.minimo < 20) {
+          out.critsFaixa.push({
+            minimo: e.minimo,
+            alvo: (e.alvo ?? "ataque").trim().toLowerCase() || "ataque",
+            fonte: h.nome,
+          });
         }
       } else if (e.tipo === "floor_d20") {
-        // Maior "minimo" vence (floor mais alto).
-        if (e.minimo > out.floorD20.valor) out.floorD20.valor = e.minimo;
-        if (!out.floorD20.fontes.includes(h.nome)) {
-          out.floorD20.fontes.push(h.nome);
+        if (e.minimo > 0) {
+          out.floorsD20.push({
+            minimo: e.minimo,
+            alvo: (e.alvo ?? "qualquer").trim().toLowerCase() || "qualquer",
+            fonte: h.nome,
+          });
         }
       } else if (e.tipo === "reroll") {
-        const atual = out.rerolls[e.gatilho] ?? { valor: 0, fontes: [] };
-        atual.valor += e.usos;
-        if (!atual.fontes.includes(h.nome)) atual.fontes.push(h.nome);
-        out.rerolls[e.gatilho] = atual;
+        const limite = limiteDeUso(h, f);
+        if (limite === "esgotado") continue;
+        out.rerolls[e.gatilho] = somarUsoLimitado(out.rerolls[e.gatilho], h.nome, limite);
       } else if (e.tipo === "sentido") {
         const key = e.sentido.trim().toLowerCase();
         if (!key) continue;
@@ -2043,7 +3271,11 @@ export function agregarEfeitos(
           const atual = out.substituicoesAtributo[alvo];
           if (!atual) {
             // Primeira habilidade a definir a substituição vence.
-            out.substituicoesAtributo[alvo] = { atributo: e.atributo, fontes: [h.nome] };
+            out.substituicoesAtributo[alvo] = {
+              atributo: e.atributo,
+              fontes: [h.nome],
+              ...(e.seMaior ? { seMaior: true } : {}),
+            };
           } else if (!atual.fontes.includes(h.nome)) {
             atual.fontes.push(h.nome);
           }
@@ -2051,14 +3283,112 @@ export function agregarEfeitos(
       } else if (
         e.tipo === "vantagem" ||
         e.tipo === "desvantagem" ||
-        e.tipo === "sucesso_auto"
+        e.tipo === "sucesso_auto" ||
+        e.tipo === "falha_auto"
       ) {
         const alvo = e.alvo.trim().toLowerCase();
         if (alvo) {
           out.contextuais.push({ tipo: e.tipo, alvo, fonte: h.nome, quando: e.quando });
         }
       } else if (e.tipo === "dano_min") {
-        if (!out.danoMinMetade.fontes.includes(h.nome)) out.danoMinMetade.fontes.push(h.nome);
+        out.danosMin.push({
+          em: (e.em ?? "dano").trim().toLowerCase() || "dano",
+          fonte: h.nome,
+          ...(e.quando?.trim() ? { quando: e.quando.trim() } : {}),
+          ...filtroDe(e),
+        });
+      } else if (e.tipo === "dano_maximo") {
+        out.danosMaximos.push({
+          em: (e.em ?? "dano").trim().toLowerCase() || "dano",
+          sempre: !!e.sempre,
+          apartir: e.apartir ?? 0,
+          fonte: h.nome,
+          ...filtroDe(e),
+        });
+      } else if (e.tipo === "piso_dado") {
+        out.pisosDado.push({
+          ate: e.ate,
+          vira: e.vira,
+          em: (e.em ?? "dano").trim().toLowerCase() || "dano",
+          fonte: h.nome,
+          ...filtroDe(e),
+        });
+      } else if (e.tipo === "critico_extra") {
+        out.critsExtra.push({
+          dados: e.dados,
+          vezes: e.vezes,
+          em: (e.em ?? "dano").trim().toLowerCase() || "dano",
+          fonte: h.nome,
+          ...filtroDe(e),
+        });
+      } else if (e.tipo === "ataque_poderoso") {
+        if (e.penalidade || e.bonus) {
+          out.ataquesPoderosos.push({
+            penalidade: e.penalidade,
+            bonus: e.bonus,
+            alvo: (e.alvo ?? "ataque").trim().toLowerCase() || "ataque",
+            fonte: h.nome,
+          });
+        }
+      } else if (e.tipo === "reducao_dano") {
+        const valor = e.formula ? numero(e.formula) : e.valor;
+        if (valor > 0) {
+          out.reducoesDano.push({
+            valor,
+            tipos: e.tipos ?? "",
+            ...(e.quando?.trim() ? { quando: e.quando.trim() } : {}),
+            fonte: h.nome,
+            passiva: ehPassiva,
+          });
+        }
+      } else if (e.tipo === "ignora_exaustao") {
+        const atual = out.ignoraExaustao ?? { ate: 0, fontes: [] };
+        atual.ate = Math.max(atual.ate, e.ate);
+        if (!atual.fontes.includes(h.nome)) atual.fontes.push(h.nome);
+        out.ignoraExaustao = atual;
+      } else if (e.tipo === "descanso") {
+        const pp = e.pp ? numero(e.pp) : 0;
+        for (const tipo of e.em === "ambos" ? (["curto", "longo"] as const) : [e.em]) {
+          const d = out.descansoExtra[tipo];
+          d.exaustao += e.exaustao;
+          d.pp += Math.max(0, pp);
+          d.dv += e.dv;
+          if (!d.fontes.includes(h.nome)) d.fontes.push(h.nome);
+        }
+      } else if (e.tipo === "por_turno") {
+        out.porTurno.push({
+          o: e.o,
+          valor: e.valor,
+          ...(e.recurso ? { recurso: e.recurso } : {}),
+          ...(e.gasta ? { gasta: true } : {}),
+          ...(e.tipoDano ? { tipoDano: e.tipoDano } : {}),
+          fonte: h.nome,
+          ...(!ehPassiva && h.id ? { habilidadeId: h.id } : {}),
+        });
+      } else if (e.tipo === "dano_extra" || e.tipo === "dados_extra") {
+        novoExtra({
+          tipo: e.tipo,
+          formula: e.tipo === "dano_extra" ? e.formula : e.quantidade,
+          sempre: !!e.sempre,
+          em: (e.em ?? "dano").trim().toLowerCase() || "dano",
+          fonte: h.nome,
+          ...filtroDe(e),
+        });
+      } else if (e.tipo === "valor_fixo") {
+        const alvo = e.alvo.trim().toLowerCase();
+        if (alvo === "dado-arma") {
+          const maximo = (x: string) => {
+            const d = parseFormulaDados(x);
+            return faixaDaRolagem(d.dados, d.modificador).max;
+          };
+          if (!out.dadoArmaFixo || maximo(e.valor) > maximo(out.dadoArmaFixo.formula)) {
+            out.dadoArmaFixo = { formula: e.valor, fontes: [h.nome] };
+          }
+        } else if (alvo) {
+          const v = numero(e.valor);
+          const atual = out.valoresFixos[alvo];
+          if (!atual || v > atual.valor) out.valoresFixos[alvo] = { valor: v, fontes: [h.nome] };
+        }
       } else if (e.tipo === "alcance") {
         if (e.valor) somarBucketSimples(out.bonusAlcance, e.valor, h.nome);
       } else if (e.tipo === "ignora") {
@@ -2080,13 +3410,20 @@ export function agregarEfeitos(
           h.nome,
         );
       } else if (e.tipo === "desconto_tecnica") {
-        somarBucketSimples(out.descontoTecnica[e.custo], e.valor, h.nome);
+        out.descontos.push({
+          custo: e.custo,
+          valor: e.valor,
+          ...(e.formula ? { formula: e.formula } : {}),
+          ...(e.modo ? { modo: e.modo } : {}),
+          ...(e.minimo != null ? { minimo: e.minimo } : {}),
+          ...(e.graus?.length ? { graus: e.graus } : {}),
+          fonte: h.nome,
+        });
       } else if (e.tipo === "dano_melhor_de") {
-        const atual = out.danoMelhorDe ?? { vezes: 0, usos: 0, fontes: [] };
-        atual.vezes = Math.max(atual.vezes, e.vezes);
-        atual.usos += e.usos;
-        if (!atual.fontes.includes(h.nome)) atual.fontes.push(h.nome);
-        out.danoMelhorDe = atual;
+        const limite = limiteDeUso(h, f);
+        if (limite === "esgotado") continue;
+        const atual = somarUsoLimitado(out.danoMelhorDe ?? undefined, h.nome, limite);
+        out.danoMelhorDe = { ...atual, vezes: Math.max(out.danoMelhorDe?.vezes ?? 0, e.vezes) };
       } else if (e.tipo === "deslocamento") {
         const tipo = e.tipoMov.trim().toLowerCase();
         if (tipo && e.valor) {
@@ -2107,15 +3444,50 @@ export function agregarEfeitos(
   return out;
 }
 
+// Agregado das rolagens de uma técnica: a base (ficha ou ficha + arma) com os
+// efeitos próprios dela, resolvendo GRAU pelo grau da técnica.
+export function efeitosDaTecnica(
+  base: EfeitosAgregados,
+  acao: { nome: string; efeitos: unknown; grau: number },
+): EfeitosAgregados {
+  const proprios = lerEfeitos(acao.efeitos).filter((e) => !efeitoInstantaneo(e));
+  if (proprios.length === 0) return base;
+  return agregarEfeitos([{ nome: acao.nome, tipo: "passiva", efeitos: proprios }], new Set(), base, {
+    grau: acao.grau,
+  });
+}
+
+// Soma de buckets (valor + fontes sem repetir).
+function somarFontes(...fvs: (FonteValor | undefined)[]): FonteValor {
+  const out: FonteValor = { valor: 0, fontes: [] };
+  for (const fv of fvs) {
+    if (!fv) continue;
+    out.valor += fv.valor;
+    for (const f of fv.fontes) if (!out.fontes.includes(f)) out.fontes.push(f);
+  }
+  return out;
+}
+
+// Bônus dos alvos largos num teste de atributo puro (e na iniciativa, que é de DES).
+export function bonusTesteAmplo(
+  agg: Pick<EfeitosAgregados, "bonusTesteTodos" | "bonusTesteAtributo" | "bonusQualquer">,
+  atributo: Atributo,
+): FonteValor {
+  return somarFontes(agg.bonusTesteTodos, agg.bonusTesteAtributo[atributo], agg.bonusQualquer);
+}
+
 // Chip aplicável a uma rolagem específica — derivado do agregado + contexto.
 // O Rolador (Bandeja) renderiza um por chip com toggle de override. Mecânicos
 // (vantagem/desvantagem/crit_range/floor_d20) mudam o d20; informativos
 // (sucesso_auto/reroll) só anotam na string da rolagem.
 export type ChipContexto = {
+  // Identifica o chip no Rolador (o toggle é por chave).
+  chave: string;
   tipo:
     | "vantagem"
     | "desvantagem"
     | "sucesso_auto"
+    | "falha_auto"
     | "crit_range"
     | "floor_d20"
     | "reroll"
@@ -2123,15 +3495,32 @@ export type ChipContexto = {
     | "trocar_dano"
     | "ignora"
     | "alcance"
-    | "melhor_de";
+    | "melhor_de"
+    | "critico"
+    | "dano_extra"
+    | "dados_extra"
+    | "bonus"
+    | "dano_maximo"
+    | "piso_dado"
+    | "ataque_poderoso"
+    | "dano_poderoso";
   rotulo: string;
   fontes: string[];
-  // Parâmetro do efeito (mínimo do crit/floor, rerrolagens, metros).
+  // Parâmetro do efeito (mínimo do crit/floor, rerrolagens, metros, dados,
+  // vezes do crítico, bônus; no dano máximo, o d20 que liga sozinho).
   valor?: number;
   // Nasce desligado (uso limitado).
   opcional?: boolean;
   // Complemento do tooltip (ex: usos por descanso).
   detalhe?: string;
+  // Dados que o chip soma ao dano (dano extra).
+  dados?: Dado[];
+  // Dados a mais no crítico.
+  extras?: number;
+  // Dado mínimo: até quanto e no que vira (0 = o máximo).
+  piso?: { ate: number; vira: number };
+  // Habilidade de Usar que o chip gasta ao rolar.
+  gasta?: string;
 };
 
 // Subconjunto do agregado que o Rolador precisa pra montar os chips — evita
@@ -2139,31 +3528,52 @@ export type ChipContexto = {
 export type EfeitosContexto = Pick<
   EfeitosAgregados,
   | "contextuais"
-  | "critRangeMinimo"
+  | "critsFaixa"
   | "margemCritico"
-  | "floorD20"
+  | "floorsD20"
   | "rerolls"
-  | "danoMinMetade"
+  | "danosMin"
   | "trocaDano"
   | "ignora"
   | "bonusAlcance"
   | "danoMelhorDe"
+  | "extrasDano"
+  | "ctxFormula"
+  | "situacionais"
+  | "danosMaximos"
+  | "pisosDado"
+  | "critsExtra"
+  | "ataquesPoderosos"
 >;
 
 export function efeitosDoContexto(agg: EfeitosAgregados): EfeitosContexto {
   return {
     contextuais: agg.contextuais,
-    critRangeMinimo: agg.critRangeMinimo,
+    critsFaixa: agg.critsFaixa,
     margemCritico: agg.margemCritico,
-    floorD20: agg.floorD20,
+    floorsD20: agg.floorsD20,
     rerolls: agg.rerolls,
-    danoMinMetade: agg.danoMinMetade,
+    danosMin: agg.danosMin,
     trocaDano: agg.trocaDano,
     ignora: agg.ignora,
     bonusAlcance: agg.bonusAlcance,
     danoMelhorDe: agg.danoMelhorDe,
+    extrasDano: agg.extrasDano,
+    ctxFormula: agg.ctxFormula,
+    situacionais: agg.situacionais,
+    danosMaximos: agg.danosMaximos,
+    pisosDado: agg.pisosDado,
+    critsExtra: agg.critsExtra,
+    ataquesPoderosos: agg.ataquesPoderosos,
   };
 }
+
+const ROTULO_CONTEXTUAL: Record<EfeitoContextual["tipo"], string> = {
+  vantagem: "Vantagem",
+  desvantagem: "Desvantagem",
+  sucesso_auto: "Sucesso automático",
+  falha_auto: "Falha automática",
+};
 
 export function chipsDoContexto(
   agg: EfeitosContexto,
@@ -2172,88 +3582,274 @@ export function chipsDoContexto(
   const chips: ChipContexto[] = [];
   const ehDano = ctx.tipo === "dano";
 
+  // Dano extra e dados extras (no dano) e dado extra (em jogada de d20); os sob
+  // demanda gastam a habilidade ao rolar.
+  const empilharExtras = () => {
+    const f = agg.ctxFormula;
+    const grau = ctx.tipo === "dano" ? (ctx.grau ?? 0) : 0;
+    for (const x of agg.extrasDano) {
+      const filtro = ehDano ? filtroDeDano(x, ctx) : "sim";
+      const casa = ehDano
+        ? casaDano(x.em, ctx) && filtro !== "nao"
+        : x.tipo === "dano_extra" && !extraNoDano(x.em) && casaContexto(x.em, ctx);
+      if (!casa) continue;
+      const r = f
+        ? resolverFormula(x.formula, f.atributos, f.nivel, { grau })
+        : { ...parseFormulaDados(x.formula), usados: [] };
+      const talvez = filtro === "talvez";
+      const detalhe = juntarDetalhes(detalheDoGasto(x), talvez ? textoFiltroDano(x) : undefined);
+      if (x.tipo === "dano_extra") {
+        if (r.dados.length === 0 && r.modificador === 0) continue;
+        const texto = formulaVariavel(x.formula)
+          ? formulaAgrupada(r.dados, r.modificador)
+          : x.formula.trim();
+        chips.push({
+          chave: x.chave,
+          tipo: "dano_extra",
+          rotulo: `+${texto.replace(/^\+\s*/, "")}`,
+          fontes: [x.fonte],
+          opcional: !x.sempre || talvez,
+          dados: r.dados,
+          valor: r.modificador,
+          gasta: x.gasta,
+          detalhe,
+        });
+      } else {
+        const n = r.modificador;
+        if (n <= 0) continue;
+        chips.push({
+          chave: x.chave,
+          tipo: "dados_extra",
+          rotulo: `+${n} dado${n > 1 ? "s" : ""}`,
+          fontes: [x.fonte],
+          opcional: !x.sempre || talvez,
+          valor: n,
+          gasta: x.gasta,
+          detalhe,
+        });
+      }
+    }
+  };
+
   // ─ Efeitos de d20 — só em rolagens de d20 (não em dano) ─
   if (!ehDano) {
-    // Vantagem/desvantagem/sucesso_auto: agrupa por tipo as fontes que casam.
-    const grupos: Partial<Record<EfeitoContextual["tipo"], string[]>> = {};
-    for (const c of agg.contextuais) {
-      if (!casaContexto(c.alvo, ctx)) continue;
-      (grupos[c.tipo] ??= []).push(c.fonte);
+    // Vantagem, desvantagem, sucesso e falha automáticos: um chip ligado com as
+    // fontes que valem sempre e um desligado por fonte com `quando`.
+    for (const tipo of ["vantagem", "desvantagem", "sucesso_auto", "falha_auto"] as const) {
+      const casados = agg.contextuais.filter((c) => c.tipo === tipo && casaContexto(c.alvo, ctx));
+      const sempre = casados.filter((c) => !c.quando?.trim());
+      if (sempre.length) {
+        chips.push({
+          chave: tipo,
+          tipo,
+          rotulo: ROTULO_CONTEXTUAL[tipo],
+          fontes: dedup(sempre.map((c) => c.fonte)),
+        });
+      }
+      casados
+        .filter((c) => c.quando?.trim())
+        .forEach((c, i) =>
+          chips.push({
+            chave: `${tipo}-quando-${i}`,
+            tipo,
+            rotulo: ROTULO_CONTEXTUAL[tipo],
+            fontes: [c.fonte],
+            opcional: true,
+            detalhe: `quando: ${c.quando!.trim()}`,
+          }),
+        );
     }
-    if (grupos.vantagem)
-      chips.push({ tipo: "vantagem", rotulo: "Vantagem", fontes: dedup(grupos.vantagem) });
-    if (grupos.desvantagem)
-      chips.push({ tipo: "desvantagem", rotulo: "Desvantagem", fontes: dedup(grupos.desvantagem) });
-    if (grupos.sucesso_auto)
-      chips.push({ tipo: "sucesso_auto", rotulo: "Sucesso automático", fontes: dedup(grupos.sucesso_auto) });
 
-    // Crítico expandido só em ataque; a margem soma à faixa.
+    // Crítico expandido só em ataque: o menor mínimo que casa, menos a margem.
     if (ctx.tipo === "ataque") {
-      const minimo = Math.max(2, agg.critRangeMinimo.valor - agg.margemCritico.valor);
+      const casados = agg.critsFaixa.filter((c) => casaContexto(c.alvo, ctx));
+      const faixa = casados.length ? Math.min(...casados.map((c) => c.minimo)) : 20;
+      const minimo = Math.max(2, faixa - agg.margemCritico.valor);
       if (minimo < 20) {
         chips.push({
+          chave: "crit_range",
           tipo: "crit_range",
           rotulo: `Crítico ${minimo}-20`,
-          fontes: dedup([...agg.critRangeMinimo.fontes, ...agg.margemCritico.fontes]),
+          fontes: dedup([...casados.map((c) => c.fonte), ...agg.margemCritico.fontes]),
           valor: minimo,
         });
       }
     }
-    // Floor no d20 vale pra qualquer rolagem de d20.
-    if (agg.floorD20.valor > 0) {
+    // Mínimo no d20: vale o maior entre os que casam com a jogada.
+    const floors = agg.floorsD20.filter((f) => casaContexto(f.alvo, ctx));
+    if (floors.length) {
+      const minimo = Math.max(...floors.map((f) => f.minimo));
       chips.push({
+        chave: "floor_d20",
         tipo: "floor_d20",
-        rotulo: `Mínimo ${agg.floorD20.valor} no d20`,
-        fontes: agg.floorD20.fontes,
-        valor: agg.floorD20.valor,
+        rotulo: `Mínimo ${minimo} no d20`,
+        fontes: dedup(floors.filter((f) => f.minimo === minimo).map((f) => f.fonte)),
+        valor: minimo,
       });
     }
-    // Reroll: nasce desligado e vale 1 rerrolagem por jogada.
-    let usosReroll = 0;
-    const fontesReroll: string[] = [];
-    for (const [gatilho, fv] of Object.entries(agg.rerolls)) {
-      if (fv && fv.valor > 0 && casaContexto(gatilho, ctx)) {
-        usosReroll += fv.valor;
-        fontesReroll.push(...fv.fontes);
-      }
-    }
-    if (usosReroll > 0) {
+    // Reroll: nasce desligado e vale 1 rerrolagem por jogada; com uso limitado,
+    // gasta 1 uso da habilidade ao rerrolar.
+    const rerolls = Object.entries(agg.rerolls).flatMap(([gatilho, r]) =>
+      r && casaContexto(gatilho, ctx) ? [r] : [],
+    );
+    if (rerolls.length > 0) {
+      const limitado = rerolls.some((r) => r.livre) ? undefined : rerolls.find((r) => r.gasta);
       chips.push({
+        chave: "reroll",
         tipo: "reroll",
         rotulo: "Rerrolar",
-        fontes: dedup(fontesReroll),
+        fontes: dedup(rerolls.flatMap((r) => r.fontes)),
         valor: 1,
         opcional: true,
-        detalhe: `${usosReroll} uso${usosReroll > 1 ? "s" : ""} por descanso longo`,
+        ...(limitado ? { gasta: limitado.gasta, detalhe: detalheDoGasto(limitado) } : {}),
+      });
+    }
+    empilharExtras();
+    // Acerto por dano: só em ataque, nasce desligado.
+    if (ctx.tipo === "ataque") {
+      agg.ataquesPoderosos.forEach((a, i) => {
+        if (!casaContexto(a.alvo, ctx)) return;
+        chips.push({
+          chave: `poderoso-${i}`,
+          tipo: "ataque_poderoso",
+          rotulo: `−${a.penalidade} no ataque`,
+          fontes: [a.fonte],
+          valor: a.penalidade,
+          opcional: true,
+          detalhe: `+${a.bonus} no dano se acertar`,
+        });
       });
     }
   }
 
-  // ─ Efeitos de dano/ataque (etapa 3.5) ─
-  // Piso de dano: só em rolagem de dano. Sem valor — o Rolador calcula a partir
-  // da fórmula (metade do máximo dos dados).
-  if (ehDano && agg.danoMinMetade.fontes.length) {
+  // Bônus com `quando`: desligados, somam no modificador.
+  agg.situacionais.forEach((s, i) => {
+    const casa = ehDano ? s.alvo.startsWith("dano") && casaDano(s.alvo, ctx) : casaContexto(s.alvo, ctx);
+    if (!casa) return;
     chips.push({
+      chave: `bonus-${i}`,
+      tipo: "bonus",
+      rotulo: `${formatarMod(s.valor)} ${s.quando}`,
+      fontes: [s.fonte],
+      valor: s.valor,
+      opcional: true,
+      detalhe: `quando: ${s.quando}`,
+    });
+  });
+
+  // ─ Efeitos de dano/ataque (etapa 3.5) ─
+  if (ehDano) {
+    // Crítico: multiplica os dados (×2 no padrão) e soma os dados a mais.
+    const crits = agg.critsExtra.filter(
+      (c) => casaDano(c.em, ctx) && filtroDeDano(c, ctx) !== "nao",
+    );
+    const vezes = Math.max(2, ...crits.map((c) => c.vezes));
+    const extras = crits.reduce((s, c) => s + c.dados, 0);
+    chips.push({
+      chave: "critico",
+      tipo: "critico",
+      rotulo: "Crítico",
+      fontes: dedup(crits.map((c) => c.fonte)),
+      opcional: true,
+      valor: vezes,
+      extras,
+      detalhe: [
+        vezes === 2 ? "dobra os dados" : vezes === 3 ? "triplica os dados" : `dados ×${vezes}`,
+        extras ? `+${extras} dado${extras > 1 ? "s" : ""}` : null,
+      ]
+        .filter(Boolean)
+        .join(", "),
+    });
+    // Dano máximo (sob demanda gasta a habilidade ao rolar).
+    agg.danosMaximos.forEach((d, i) => {
+      const filtro = filtroDeDano(d, ctx);
+      if (!casaDano(d.em, ctx) || filtro === "nao") return;
+      chips.push({
+        chave: `maximo-${i}`,
+        tipo: "dano_maximo",
+        rotulo: "Dano máximo",
+        fontes: [d.fonte],
+        opcional: !d.sempre || filtro === "talvez",
+        valor: d.apartir,
+        gasta: d.gasta,
+        detalhe: juntarDetalhes(
+          d.apartir ? `liga com ${d.apartir}+ no d20 do ataque, sem crítico` : undefined,
+          detalheDoGasto(d),
+          filtro === "talvez" ? textoFiltroDano(d) : undefined,
+        ),
+      });
+    });
+    // Dado mínimo: vale sempre (desligado se o dano não diz o grau ou o tipo).
+    agg.pisosDado.forEach((p, i) => {
+      const filtro = filtroDeDano(p, ctx);
+      if (!casaDano(p.em, ctx) || filtro === "nao") return;
+      chips.push({
+        chave: `piso-${i}`,
+        tipo: "piso_dado",
+        rotulo: `${p.ate === 1 ? "1" : `1-${p.ate}`} vira ${p.vira || "o máximo"}`,
+        fontes: [p.fonte],
+        piso: { ate: p.ate, vira: p.vira },
+        ...(filtro === "talvez" ? { opcional: true, detalhe: textoFiltroDano(p) } : {}),
+      });
+    });
+    // Acerto por dano: o bônus no dano; liga sozinho se o ataque usou.
+    agg.ataquesPoderosos.forEach((a, i) => {
+      if (!casaDano(a.alvo.replace(/^ataque/, "dano"), ctx)) return;
+      chips.push({
+        chave: `poderoso-dano-${i}`,
+        tipo: "dano_poderoso",
+        rotulo: `+${a.bonus} no dano`,
+        fontes: [a.fonte],
+        valor: a.bonus,
+        opcional: true,
+      });
+    });
+    empilharExtras();
+  }
+  // Piso de dano: só em rolagem de dano. Sem valor — o Rolador calcula a partir
+  // da fórmula (metade do máximo dos dados). Com `quando`, nasce desligado.
+  const pisos = ehDano
+    ? agg.danosMin.filter((d) => casaDano(d.em, ctx) && filtroDeDano(d, ctx) !== "nao")
+    : [];
+  const pisoCerto = (d: (typeof pisos)[number]) => !d.quando && filtroDeDano(d, ctx) === "sim";
+  const pisosSempre = pisos.filter(pisoCerto);
+  if (pisosSempre.length) {
+    chips.push({
+      chave: "dano_min",
       tipo: "dano_min",
       rotulo: "Dano mín. (½ do máx)",
-      fontes: agg.danoMinMetade.fontes,
+      fontes: dedup(pisosSempre.map((d) => d.fonte)),
     });
   }
+  pisos
+    .filter((d) => !pisoCerto(d))
+    .forEach((d, i) =>
+      chips.push({
+        chave: `dano_min-quando-${i}`,
+        tipo: "dano_min",
+        rotulo: "Dano mín. (½ do máx)",
+        fontes: [d.fonte],
+        opcional: true,
+        detalhe: juntarDetalhes(d.quando ? `quando: ${d.quando}` : undefined, textoFiltroDano(d)),
+      }),
+    );
   // Melhor de N: só em dano, nasce desligado.
   if (ehDano && agg.danoMelhorDe) {
-    const { vezes, usos, fontes } = agg.danoMelhorDe;
+    const m = agg.danoMelhorDe;
     chips.push({
+      chave: "melhor_de",
       tipo: "melhor_de",
-      rotulo: `Melhor de ${vezes} no dano`,
-      fontes,
-      valor: vezes,
+      rotulo: `Melhor de ${m.vezes} no dano`,
+      fontes: m.fontes,
+      valor: m.vezes,
       opcional: true,
-      detalhe: usos > 0 ? `${usos} uso${usos > 1 ? "s" : ""} por descanso longo` : undefined,
+      ...(!m.livre && m.gasta ? { gasta: m.gasta, detalhe: detalheDoGasto(m) } : {}),
     });
   }
   // Troca de tipo de dano: só em dano.
   if (ehDano && agg.trocaDano) {
     chips.push({
+      chave: "trocar_dano",
       tipo: "trocar_dano",
       rotulo: `Dano vira ${agg.trocaDano.tipoDano}`,
       fontes: agg.trocaDano.fontes,
@@ -2262,12 +3858,15 @@ export function chipsDoContexto(
   // Ignora defesa: vale em ataque e em dano (anotação informativa).
   if (ctx.tipo === "ataque" || ehDano) {
     for (const [alvo, fl] of Object.entries(agg.ignora)) {
-      if (fl) chips.push({ tipo: "ignora", rotulo: `Ignora ${alvo}`, fontes: fl.fontes });
+      if (fl) {
+        chips.push({ chave: `ignora-${alvo}`, tipo: "ignora", rotulo: `Ignora ${alvo}`, fontes: fl.fontes });
+      }
     }
   }
   // Alcance extra: descritivo, só no chip de ataque.
   if (ctx.tipo === "ataque" && agg.bonusAlcance.valor > 0) {
     chips.push({
+      chave: "alcance",
       tipo: "alcance",
       rotulo: `+${agg.bonusAlcance.valor} m de alcance`,
       fontes: agg.bonusAlcance.fontes,
@@ -2280,6 +3879,16 @@ export function chipsDoContexto(
 
 function dedup(xs: string[]): string[] {
   return Array.from(new Set(xs));
+}
+
+function juntarDetalhes(...partes: (string | undefined)[]): string | undefined {
+  return partes.filter(Boolean).join(" · ") || undefined;
+}
+
+// "gasta 1 uso (7/9), 1 Dados Brutais (4/8)" do chip sob demanda.
+function detalheDoGasto(x: { usos?: string; custo?: string }): string | undefined {
+  const partes = [x.usos ? `1 uso (${x.usos})` : null, x.custo ?? null].filter(Boolean);
+  return partes.length ? `gasta ${partes.join(", ")}` : undefined;
 }
 
 // Aplica um único bônus num bucket FonteValor simples (não-indexado).
@@ -2312,6 +3921,13 @@ function aplicarModificador(
     const at = alvo.slice(5);
     if (ATRIBUTOS_SET.has(at)) {
       somarFonteValor(out.bonusTetoAtributo, at, valor, fonte);
+    }
+    return;
+  }
+  if (alvo.startsWith("teste-")) {
+    const at = alvo.slice(6);
+    if (ATRIBUTOS_SET.has(at)) {
+      somarFonteValor(out.bonusTesteAtributo, at, valor, fonte);
     }
     return;
   }
@@ -2354,6 +3970,14 @@ const BUCKETS_SIMPLES: Record<string, (o: EfeitosAgregados) => FonteValor> = {
   "dano-distancia": (o) => o.bonusDanoDistancia,
   "cd-tecnicas": (o) => o.bonusCdTecnicas,
   cd_tecnicas: (o) => o.bonusCdTecnicas,
+  salvaguarda: (o) => o.bonusSalvaguardaTodas,
+  concentracao: (o) => o.bonusConcentracao,
+  teste: (o) => o.bonusTesteTodos,
+  qualquer: (o) => o.bonusQualquer,
+  "ataque-tecnica": (o) => o.bonusAtaqueTecnica,
+  "ataque-comum": (o) => o.bonusAtaqueComum,
+  "dano-tecnica": (o) => o.bonusDanoTecnica,
+  "dano-comum": (o) => o.bonusDanoComum,
 };
 
 function aplicarProficiencia(
@@ -2365,41 +3989,87 @@ function aplicarProficiencia(
 ) {
   const alvo = alvoRaw.trim().toLowerCase();
   if (!alvo) return;
-  if (PERICIAS_SET.has(alvo) || slugsPericiaCustom.has(alvo)) {
-    const atual = out.proficienciasPericia[alvo] ?? { fontes: [], dobrada: false };
+  const marcar = (bucket: Partial<Record<string, FonteProficiencia>>, chave: string) => {
+    const atual = bucket[chave] ?? { fontes: [], dobrada: false };
     if (!atual.fontes.includes(fonte)) atual.fontes.push(fonte);
     if (dobrada) atual.dobrada = true;
-    out.proficienciasPericia[alvo] = atual;
+    bucket[chave] = atual;
+  };
+  if (PERICIAS_SET.has(alvo) || slugsPericiaCustom.has(alvo)) {
+    marcar(out.proficienciasPericia, alvo);
     return;
   }
-  // Salvaguarda não dobra — `dobrada` só vale pra perícia.
   if (alvo.startsWith("salv-")) {
     const at = alvo.slice(5);
-    if (ATRIBUTOS_SET.has(at)) {
-      adicionarFonteLista(out.proficienciasSalvaguarda, at, fonte);
-    }
+    if (ATRIBUTOS_SET.has(at)) marcar(out.proficienciasSalvaguarda, at);
   }
 }
 
-// Resumo curto do efeito pro chip; `nomeRecurso` traduz id de recurso.
+// Nível, atributos e grau com que o resumo mostra as fórmulas já resolvidas;
+// `graus` (das técnicas do personagem) resolve GRAU em faixa fora da técnica.
+export type ContextoResumo = {
+  nivel: number;
+  atributos: Record<Atributo, number>;
+  grau?: number;
+  graus?: number[];
+};
+
+// Resumo curto do efeito pro chip; `nomeRecurso` traduz id de recurso. Com `ctx`,
+// as fórmulas saem resolvidas ("+PROF/2" → "+2"); sem grau, GRAU fica escrito.
 export function resumoEfeito(
   e: EfeitoHabilidade,
   nomeRecurso?: (id: string) => string | undefined,
+  ctx?: ContextoResumo,
 ): string {
+  const quando = (q?: string) => (q?.trim() ? ` · ${q.trim()}` : "");
+  // Efeitos que resolvem GRAU com o grau de cada técnica; fora dela, faixa dos graus.
+  const porTecnica =
+    e.tipo === "dano_extra" || e.tipo === "dados_extra" || e.tipo === "desconto_tecnica";
+  // Graus com que a fórmula resolve; null = fica a fórmula.
+  const grausDe = (f: string): number[] | null => {
+    if (!ctx || !formulaVariavel(f)) return null;
+    if (!formulaUsaGrau(f)) return [0];
+    if (ctx.grau !== undefined) return [ctx.grau];
+    return porTecnica && ctx.graus?.length ? [...new Set(ctx.graus)].sort((a, b) => a - b) : null;
+  };
+  // Um valor por grau: iguais viram um, diferentes viram "menor a maior".
+  const porGrau = (f: string, calc: (grau: number) => string): string | null => {
+    const graus = grausDe(f);
+    if (!graus) return null;
+    const valores = [...new Set(graus.map(calc))];
+    return valores.length === 1 ? valores[0] : `${valores[0]} a ${valores[valores.length - 1]}`;
+  };
+  // Número de uma fórmula sem dados, ou o texto dela quando não dá pra resolver.
+  const numero = (f: string) =>
+    porGrau(f, (grau) => String(valorDaFormula(f, ctx!.atributos, ctx!.nivel, { grau }))) ?? f;
+  // Fórmula com dados ("2d10+CON" → "2d10+3").
+  const texto = (f: string) =>
+    porGrau(f, (grau) => formulaResolvidaTexto(f, ctx!.atributos, ctx!.nivel, { grau })) ?? f;
   switch (e.tipo) {
-    case "modificador":
-      return `${formatarMod(e.valor)} ${rotuloAlvo(e.alvo)}`;
+    case "modificador": {
+      const f = e.formula;
+      const valor = f
+        ? (porGrau(f, (grau) => formatarMod(valorDaFormula(f, ctx!.atributos, ctx!.nivel, { grau }))) ??
+          (/^[+-]/.test(f) ? f : `+${f}`))
+        : formatarMod(e.valor);
+      return `${valor} ${rotuloAlvo(e.alvo)}${quando(e.quando)}`;
+    }
     case "vantagem":
     case "desvantagem":
-      return rotuloAlvo(e.alvo);
+      return `${rotuloAlvo(e.alvo)}${quando(e.quando)}`;
     case "proficiencia":
       return `${rotuloAlvo(e.alvo)}${e.dobrada ? " (2×)" : ""}`;
     case "recurso_delta": {
-      const lbl = e.recurso === "pp" ? "PP" : (nomeRecurso?.(e.recurso) ?? "recurso");
+      const lbl =
+        e.recurso === "pp"
+          ? "PP"
+          : e.recurso === "exaustao"
+            ? "exaustão"
+            : (nomeRecurso?.(e.recurso) ?? "recurso");
       return `${formatarMod(e.valor)} ${lbl}`;
     }
     case "cura":
-      return e.valor;
+      return texto(e.valor);
     case "condicao_imune":
     case "condicao_remover":
       return e.condicao;
@@ -2407,6 +4077,7 @@ export function resumoEfeito(
       return e.cd ? `${e.condicao} (CD ${e.cd})` : e.condicao;
     case "resistencia":
     case "imunidade":
+    case "vulnerabilidade":
       return e.tipoDano;
     case "deslocamento":
       return `${e.tipoMov} ${e.valor}m`;
@@ -2414,26 +4085,27 @@ export function resumoEfeito(
       return `${e.alvo} ×${e.fator}`;
     case "substituir_atributo": {
       const sigla = ATRIBUTOS.find((a) => a.slug === e.atributo)?.sigla ?? e.atributo;
-      return `${rotuloAlvo(e.alvo)} → ${sigla}`;
+      return `${rotuloAlvo(e.alvo)} → ${sigla}${e.seMaior ? " se maior" : ""}`;
     }
     case "rolagem":
-      return e.formula;
+      return texto(e.formula);
     case "trigger":
       return e.gatilho || e.efeito;
     case "crit_range":
-      return `${e.minimo}-20`;
+      return `${e.minimo}-20${e.alvo && e.alvo !== "ataque" ? ` · ${rotuloAlvo(e.alvo)}` : ""}`;
     case "reroll":
-      return `${rotuloAlvo(e.gatilho)} · ${e.usos}×/descanso`;
+      return rotuloAlvo(e.gatilho);
     case "floor_d20":
-      return `≤${e.minimo} ⇒ ${e.minimo}`;
+      return `≤${e.minimo} ⇒ ${e.minimo} · ${rotuloAlvo(e.alvo ?? "qualquer")}`;
     case "sentido":
       return e.alcance > 0 ? `${e.sentido} ${e.alcance}m` : e.sentido;
     case "acao_extra":
       return e.quantidade > 1 ? `${e.quantidade}× ${e.acao}` : e.acao;
     case "sucesso_auto":
-      return rotuloAlvo(e.alvo);
+    case "falha_auto":
+      return `${rotuloAlvo(e.alvo)}${quando(e.quando)}`;
     case "dano_min":
-      return "metade do máx";
+      return `metade do máx${e.em && e.em !== "dano" ? ` · ${rotuloAlvo(e.em)}` : ""}${quando(e.quando)}`;
     case "alcance":
       return `+${e.valor} m alcance`;
     case "ignora":
@@ -2446,11 +4118,73 @@ export function resumoEfeito(
       return `+${e.valor}`;
     case "passo_dano":
       return `+${e.passos} ${e.alvo === "tecnica" ? "nas técnicas" : "na arma"}`;
-    case "desconto_tecnica":
-      return `−${e.valor} ${e.custo === "pa" ? "PA" : "PP"}`;
+    case "desconto_tecnica": {
+      const sigla = e.custo === "pa" ? "PA" : "PP";
+      const quanto =
+        e.modo === "zero"
+          ? `sem ${sigla}`
+          : e.modo === "metade"
+            ? `${sigla} pela metade`
+            : `−${e.formula ? numero(e.formula) : e.valor} ${sigla}`;
+      const graus = e.graus?.length ? ` · ${e.graus.map((g) => `${g}º`).join(", ")}` : "";
+      return `${quanto}${graus}`;
+    }
     case "dano_melhor_de":
-      return `${e.vezes} rolagens${e.usos > 0 ? ` · ${e.usos}×/descanso` : ""}`;
+      return `${e.vezes} rolagens`;
+    case "dano_extra":
+      return `+${texto(e.formula).replace(/^\+\s*/, "")}${e.em && e.em !== "dano" ? ` · ${rotuloAlvo(e.em)}` : ""}`;
+    case "dados_extra": {
+      const qtd = numero(e.quantidade);
+      return `+${qtd} dado${qtd === "1" ? "" : "s"}${e.em && e.em !== "dano" ? ` · ${rotuloAlvo(e.em)}` : ""}`;
+    }
+    case "valor_fixo":
+      return `${ALVOS_VALOR_FIXO.find((a) => a.slug === e.alvo)?.nome ?? e.alvo} vira ${texto(e.valor)}`;
+    case "reducao_dano":
+      return `−${e.formula ? numero(e.formula) : e.valor}${e.tipos ? ` ${e.tipos}` : ""}${quando(e.quando)}`;
+    case "dano_maximo":
+      return `${e.em && e.em !== "dano" ? rotuloAlvo(e.em) : "todo dano"}${e.apartir ? ` · d20 ${e.apartir}+` : ""}`;
+    case "piso_dado":
+      return `${e.ate === 1 ? "1" : `1-${e.ate}`} vira ${e.vira || "o máximo"}${e.em && e.em !== "dano" ? ` · ${rotuloAlvo(e.em)}` : ""}`;
+    case "critico_extra":
+      return [e.vezes > 2 ? `×${e.vezes}` : null, e.dados ? `+${e.dados} dado${e.dados > 1 ? "s" : ""}` : null]
+        .filter(Boolean)
+        .join(", ");
+    case "ataque_poderoso":
+      return `−${e.penalidade} ataque, +${e.bonus} dano${e.alvo && e.alvo !== "ataque" ? ` · ${rotuloAlvo(e.alvo)}` : ""}`;
+    case "ignora_exaustao":
+      return e.ate >= 6 ? "toda" : `até o ${e.ate}º nível`;
+    case "descanso": {
+      const partes = [
+        e.exaustao ? `−${e.exaustao} exaustão` : null,
+        e.pp ? `+${numero(e.pp)} PP` : null,
+        e.dv ? `+${e.dv} Dado${e.dv > 1 ? "s" : ""} de Vida` : null,
+      ].filter(Boolean);
+      const qual = e.em === "ambos" ? "curto e longo" : e.em;
+      return `${partes.join(", ")} · ${qual}`;
+    }
+    case "por_turno":
+      return resumoPorTurno(e, texto, numero, nomeRecurso);
     case "livre":
       return e.texto;
   }
+}
+
+// "cura 1d6+3", "+5 PV temporário", "1d6 fogo em você", "−1 PP".
+function resumoPorTurno(
+  e: Extract<EfeitoHabilidade, { tipo: "por_turno" }>,
+  texto: (f: string) => string,
+  numero: (f: string) => string,
+  nomeRecurso?: (id: string) => string | undefined,
+): string {
+  if (e.o === "cura") return `cura ${texto(e.valor)}`;
+  if (e.o === "pv_temp") return `${texto(e.valor)} PV temporário`;
+  if (e.o === "dano") return `${texto(e.valor)}${e.tipoDano ? ` ${e.tipoDano.toLowerCase()}` : ""} em você`;
+  return `${e.gasta ? "−" : "+"}${numero(e.valor)} ${nomeDoPool(e.recurso ?? "", nomeRecurso)}`;
+}
+
+// Nome de um pool de recurso (PP, exaustão ou recurso custom).
+export function nomeDoPool(id: string, nomeRecurso?: (id: string) => string | undefined): string {
+  if (id === "pp") return "PP";
+  if (id === "exaustao") return "exaustão";
+  return nomeRecurso?.(id) ?? "recurso";
 }

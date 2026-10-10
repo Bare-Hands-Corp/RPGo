@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useOptimistic, useState, useTransition } from "react";
+import { useEffect, useEffectEvent, useMemo, useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { ehTemporario, exigir, idTemporario } from "@/lib/acoes";
+import { useRefreshAgrupado } from "@/lib/use-refresh-agrupado";
 import {
   alternarHabilidade,
   atualizarHabilidade,
@@ -14,14 +15,21 @@ import {
   ORIGENS_HABILIDADE,
   RECARGAS_HABILIDADE,
   TIPOS_HABILIDADE,
+  alvoDaCura,
   alvosPericiaCustom,
   computarDeltasInstantaneos,
+  curasComFormula,
+  extrasDeCura,
   formatarMod,
+  formulaResolvidaTexto,
   lerEfeitos,
-  resolverAtributosNaFormula,
+  resolverFormula,
   temEfeitoSustentado,
+  usosMaximos,
+  valorDaFormula,
   type Atributo,
   type EfeitoHabilidade,
+  type EfeitosAgregados,
   type OrigemHabilidade,
   type TipoHabilidade,
 } from "@/lib/op-rpg";
@@ -29,14 +37,30 @@ import { SeletorUnico } from "./seletor-multiplo";
 import {
   AlvosCustomContext,
   ChipEfeito,
+  FormulaContext,
   NomesRecursoContext,
   DatalistAlvos,
   EfeitosEditor,
   type RecursoMinimo,
 } from "./efeitos-editor";
-import { type Dado, parseFormulaDados } from "@/lib/dice";
-import { empilharRolagem } from "@/lib/empilhar-rolagem";
+import type { Dado } from "@/lib/dice";
+import { empilharRolagem, rolarCuras } from "@/lib/empilhar-rolagem";
 import { TagChip, TagsEditor } from "./estilo-cor-picker";
+import { useEscolherAlvo } from "./escolher-alvo";
+import { DuracaoCampo } from "./duracao-campo";
+import { CustosCampo } from "./custos-campo";
+import { CampoFormula } from "./campo-formula";
+import {
+  anunciarConcentracao,
+  lerDuracao,
+  pedeConcentracao,
+  textoDuracao,
+  textoTurnosRestantes,
+  turnosDaDuracao,
+  type Duracao,
+} from "@/lib/duracao";
+import { EVENTO_TURNOS } from "@/lib/turno";
+import type { Tripulante } from "./tripulacao-tab";
 import {
   lerEstilosTag,
   podarEstilosTag,
@@ -64,6 +88,12 @@ type Habilidade = {
   efeitos: unknown;
   ligada: boolean;
   itemId: string | null;
+  alternavel: boolean;
+  usosFormula: string | null;
+  aliado: boolean;
+  alvoPersonagemId: string | null;
+  duracao?: unknown;
+  turnosRestantes?: number | null;
 };
 
 // Item que pode conceder habilidade.
@@ -74,11 +104,18 @@ type Props = {
   habilidades: Habilidade[];
   recursos: RecursoMinimo[];
   atributos: Record<Atributo, number>;
+  nivel: number;
   periciasCustom: { slug: string; nome: string }[];
   /** IDs de habilidade presas a um nó de árvore ainda não liberado. */
   travadas?: string[];
   /** Itens do personagem. */
   itens: ItemRef[];
+  /** Personagens da mesa (inclui o próprio). */
+  tripulantes: Tripulante[];
+  /** Agregado da ficha (dado a mais na cura). */
+  efeitosAgregados: EfeitosAgregados;
+  /** Graus das técnicas do personagem (GRAU nos chips). */
+  grausTecnicas: number[];
 };
 
 type Patch =
@@ -116,13 +153,20 @@ export function HabilidadesTab({
   habilidades,
   recursos,
   atributos,
+  nivel,
   periciasCustom,
   travadas = [],
   itens,
+  tripulantes,
+  efeitosAgregados,
+  grausTecnicas,
 }: Props) {
   const travadasSet = useMemo(() => new Set(travadas), [travadas]);
+  const alvo = useEscolherAlvo(tripulantes, personagemId);
+  const nomeDoTripulante = (id: string | null) => tripulantes.find((t) => t.id === id)?.nome;
   const [otimistas, aplicar] = useOptimistic(habilidades, aplicarPatch);
   const [, startTransition] = useTransition();
+  const atualizar = useRefreshAgrupado(0);
   const alvosCustom = useMemo(() => alvosPericiaCustom(periciasCustom), [periciasCustom]);
   const [modalAberto, setModalAberto] = useState(false);
   const [edit, setEdit] = useState<Habilidade | null>(null);
@@ -141,6 +185,13 @@ export function HabilidadesTab({
     return m;
   }, [recursos]);
 
+  const ctxFormula = useMemo(() => ({ nivel, atributos }), [nivel, atributos]);
+  const ctxChips = useMemo(
+    () => ({ nivel, atributos, graus: grausTecnicas }),
+    [nivel, atributos, grausTecnicas],
+  );
+  const extraCura = useMemo(() => extrasDeCura(efeitosAgregados), [efeitosAgregados]);
+
   const filtradas = useMemo(() => {
     if (filtro === "todas") return otimistas;
     if (filtro === "sem_custo") {
@@ -149,14 +200,41 @@ export function HabilidadesTab({
           h.custoPp === 0 &&
           h.custoPa === 0 &&
           (!h.custoRecursoId || h.custoRecursoValor === 0) &&
-          h.usos == null,
+          usosMaximos(h, ctxFormula) == null,
       );
     }
     // disponíveis: tem usos (ou não consome) e não está esgotada.
-    return otimistas.filter((h) => h.usos == null || (h.usosAtual ?? 0) > 0);
-  }, [otimistas, filtro]);
+    return otimistas.filter((h) => {
+      const max = usosMaximos(h, ctxFormula);
+      return max == null || (h.usosAtual ?? max) > 0;
+    });
+  }, [otimistas, filtro, ctxFormula]);
 
   const favoritas = filtradas.filter((h) => h.favorita);
+
+  // Turnos que faltam, contados pelo Passar turno antes do servidor responder.
+  const [turnosOverlay, setTurnosOverlay] = useState<Record<string, number>>({});
+  const [habsAnterior, setHabsAnterior] = useState(habilidades);
+  if (habsAnterior !== habilidades) {
+    setHabsAnterior(habilidades);
+    setTurnosOverlay({});
+  }
+  useEffect(() => {
+    function ouvir(e: Event) {
+      const det = (e as CustomEvent<Record<string, number>>).detail;
+      if (det) setTurnosOverlay((o) => ({ ...o, ...det }));
+    }
+    window.addEventListener(EVENTO_TURNOS, ouvir);
+    return () => window.removeEventListener(EVENTO_TURNOS, ouvir);
+  }, []);
+  // Ligada: o que o servidor contou ou, recém-ligada, a duração inteira.
+  const turnosDe = (h: Habilidade): number | null => {
+    if (!h.ligada) return null;
+    if (h.id in turnosOverlay) return turnosOverlay[h.id];
+    const doServidor = habilidades.find((x) => x.id === h.id);
+    if (doServidor?.ligada && doServidor.turnosRestantes != null) return doServidor.turnosRestantes;
+    return turnosDaDuracao(lerDuracao(h.duracao));
+  };
 
   function abrirNova() {
     setEdit(null);
@@ -232,12 +310,44 @@ export function HabilidadesTab({
         `<b>${h.custoRecursoValor}</b> ${recursoNomePorId.get(h.custoRecursoId) ?? "recurso"}`,
       );
     }
-    if (h.usos != null) custos.push(`<b>1</b> uso`);
+    if (usosMaximos(h, ctxFormula) != null) custos.push(`<b>1</b> uso`);
+    const efeitos = lerEfeitos(h.efeitos);
+    const curas = efeitos.flatMap((e) =>
+      e.tipo === "cura"
+        ? [
+            formulaResolvidaTexto(e.valor, atributos, nivel) +
+              (extraCura.texto && alvoDaCura(e) === "hp" ? ` + ${extraCura.texto}` : ""),
+          ]
+        : [],
+    );
+    const exaustao = efeitos.reduce(
+      (soma, e) => soma + (e.tipo === "recurso_delta" && e.recurso === "exaustao" ? e.valor : 0),
+      0,
+    );
+    const linhas = [
+      custos.length > 0 ? `Vai consumir: ${custos.join(", ")}.` : null,
+      curas.length > 0 ? `Cura: <b>${curas.join(" + ")}</b>.` : null,
+      exaustao ? `Exaustão: <b>${formatarMod(exaustao)}</b>.` : null,
+    ].filter((l): l is string => !!l);
+
+    // Em aliado: escolher quem já confirma.
+    if (h.aliado) {
+      if (!alvo.temAliados) {
+        mostrarErro(new Error("Nenhum aliado na mesa."));
+        return;
+      }
+      const alvoId = await alvo.escolher(`${ligar ? "Ligar" : "Usar"} ${h.nome} em quem?`, {
+        detalhe: linhas.map((l) => l.replace(/<\/?b>/g, "")).join(" "),
+      });
+      if (alvoId) executarUso(h, ligar, alvoId);
+      return;
+    }
+
     const c = await Swal.fire({
       title: ligar ? `Ligar ${h.nome}?` : `Usar ${h.nome}?`,
       html:
-        custos.length > 0
-          ? `Vai consumir: ${custos.join(", ")}.`
+        linhas.length > 0
+          ? linhas.join("<br>")
           : ligar
             ? "Sem custo configurado — só liga a habilidade."
             : "Sem custo configurado — só marca a habilidade como usada.",
@@ -249,21 +359,39 @@ export function HabilidadesTab({
       color: "var(--text-main)",
     });
     if (!c.isConfirmed) return;
+    executarUso(h, ligar);
+  }
+
+  // Debita e aplica (Usar ou Ligar), com otimismo; `ligar` null = Usar. Com
+  // `alvoId` (aliado), PV, PP e exaustão dos efeitos vão pra ele.
+  function executarUso(h: Habilidade, ligar: boolean | null, alvoId?: string) {
+    // Cura com fórmula rola aqui; o resultado vai pra action e, se ela passar, pro chat.
+    const efeitos = lerEfeitos(h.efeitos);
+    const { rolagens, publicar } = rolarCuras(
+      curasComFormula(efeitos, !!extraCura.texto),
+      (valor) => resolverFormula(valor, atributos, nivel),
+      h.nome,
+      extraCura,
+    );
 
     // Otimismo cross-tab: dispara deltas pra sidebar (HP/PP) e RecursosSidebar
     // refletirem antes do server. Mirror da lógica do server — ao LIGAR,
     // hp-max/pp-max ficam de fora (incluirMax:false): são bônus sustentados que
     // vêm do agregado (a sidebar recomputa com o `ligada` otimista via
     // rpgo:toggle-habilidade), não deltas instantâneos.
-    const deltas = computarDeltasInstantaneos(lerEfeitos(h.efeitos), {
+    const deltas = computarDeltasInstantaneos(efeitos, {
       incluirMax: !ligar,
+      rolagens,
+      ctx: ctxFormula,
     });
+    const noAliado = !!alvoId;
     const deltaPersonagem = {
-      deltaHpAtual: deltas.hpAtual || undefined,
-      deltaHpTemp: deltas.hpTemp || undefined,
-      deltaPpAtual: (deltas.ppAtual - h.custoPp) || undefined,
-      deltaHpMax: deltas.hpMax || undefined,
-      deltaPpMax: deltas.ppMax || undefined,
+      deltaHpAtual: (!noAliado && deltas.hpAtual) || undefined,
+      concedeHpTemp: (!noAliado && deltas.hpTemp) || undefined,
+      deltaPpAtual: ((noAliado ? 0 : deltas.ppAtual) - h.custoPp) || undefined,
+      deltaHpMax: (!noAliado && deltas.hpMax) || undefined,
+      deltaPpMax: (!noAliado && deltas.ppMax) || undefined,
+      deltaExaustao: (!noAliado && deltas.exaustao) || undefined,
     };
     if (Object.values(deltaPersonagem).some((v) => v !== undefined)) {
       window.dispatchEvent(
@@ -287,18 +415,44 @@ export function HabilidadesTab({
         }),
       );
     }
+    if (pedeConcentracao(h.duracao)) {
+      anunciarConcentracao({ tipo: "habilidade", id: h.id, nome: h.nome });
+    }
 
     startTransition(async () => {
       aplicar({ kind: "usar", id: h.id });
-      if (ligar) aplicar({ kind: "update", id: h.id, patch: { ligada: true } });
+      if (ligar) {
+        aplicar({
+          kind: "update",
+          id: h.id,
+          patch: { ligada: true, ...(alvoId ? { alvoPersonagemId: alvoId } : {}) },
+        });
+      }
       try {
-        if (ligar) exigir(await alternarHabilidade(personagemId, h.id, true));
-        else exigir(await usarHabilidade(personagemId, h.id));
+        if (ligar) exigir(await alternarHabilidade(personagemId, h.id, true, rolagens, alvoId));
+        else exigir(await usarHabilidade(personagemId, h.id, rolagens, alvoId));
+        publicar();
       } catch (err) {
+        // Recarrega a página pra desfazer o otimismo.
+        atualizar();
         mostrarErro(err);
       }
     });
   }
+
+  // Chip de dano sob demanda do Rolador gasta a habilidade, sem confirmar.
+  const gastarPeloRolador = useEffectEvent((id: string) => {
+    const h = otimistas.find((x) => x.id === id);
+    if (h) executarUso(h, null);
+  });
+  useEffect(() => {
+    function ouvir(e: Event) {
+      const id = (e as CustomEvent<{ id: string }>).detail?.id;
+      if (id) gastarPeloRolador(id);
+    }
+    window.addEventListener("rpgo:gastar-habilidade", ouvir);
+    return () => window.removeEventListener("rpgo:gastar-habilidade", ouvir);
+  }, []);
 
   function salvarForm(dados: HabilidadeFormDados) {
     const editandoId = edit?.id ?? null;
@@ -317,6 +471,7 @@ export function HabilidadesTab({
           favorita: false,
           ordem: 0,
           ligada: false,
+          alvoPersonagemId: null,
           ...dados,
           efeitos: dados.efeitos,
         };
@@ -333,6 +488,7 @@ export function HabilidadesTab({
   return (
     <AlvosCustomContext.Provider value={alvosCustom}>
       <NomesRecursoContext.Provider value={recursoNomePorId}>
+      <FormulaContext.Provider value={ctxChips}>
         <div
           style={{
             display: "flex",
@@ -386,6 +542,9 @@ export function HabilidadesTab({
                   itemOrigem={h.itemId ? itemPorId.get(h.itemId) : undefined}
                   recursoNomePorId={recursoNomePorId}
                   atributos={atributos}
+                  nivel={nivel}
+                  nomeDoAlvo={nomeDoTripulante(h.alvoPersonagemId)}
+                  turnosRestantes={turnosDe(h)}
                   onEdit={() => abrirEdit(h)}
                   onApagar={() => apagar(h.id, h.nome)}
                   onUsar={() => acionar(h, null)}
@@ -418,6 +577,9 @@ export function HabilidadesTab({
                     itemOrigem={h.itemId ? itemPorId.get(h.itemId) : undefined}
                     recursoNomePorId={recursoNomePorId}
                     atributos={atributos}
+                    nivel={nivel}
+                    nomeDoAlvo={nomeDoTripulante(h.alvoPersonagemId)}
+                    turnosRestantes={turnosDe(h)}
                     onEdit={() => abrirEdit(h)}
                     onApagar={() => apagar(h.id, h.nome)}
                     onUsar={() => acionar(h, null)}
@@ -444,15 +606,20 @@ export function HabilidadesTab({
           </p>
         )}
 
+        {alvo.modal}
+
         {modalAberto && (
           <HabilidadeModal
             inicial={edit}
             recursos={recursos}
             itens={itens}
+            atributos={atributos}
+            nivel={nivel}
             onCancelar={() => setModalAberto(false)}
             onSalvar={salvarForm}
           />
         )}
+      </FormulaContext.Provider>
       </NomesRecursoContext.Provider>
     </AlvosCustomContext.Provider>
   );
@@ -465,6 +632,9 @@ function CardHabilidade({
   itemOrigem,
   recursoNomePorId,
   atributos,
+  nivel,
+  nomeDoAlvo,
+  turnosRestantes,
   onEdit,
   onApagar,
   onUsar,
@@ -476,6 +646,11 @@ function CardHabilidade({
   itemOrigem?: ItemRef;
   recursoNomePorId: Map<string, string>;
   atributos: Record<Atributo, number>;
+  nivel: number;
+  // Aliado em que está ligada.
+  nomeDoAlvo?: string;
+  // Ligada com duração em turnos: quanto falta.
+  turnosRestantes?: number | null;
   onEdit: () => void;
   onApagar: () => void;
   onUsar: () => void;
@@ -491,35 +666,34 @@ function CardHabilidade({
   const ehAtivavel = habilidade.tipo !== "passiva";
   // Habilidade ativável com efeito sustentado ganha switch on/off (estado
   // `ligada`); sem efeito sustentado (cura pura etc.) mantém o "Usar" pontual.
-  const mostrarToggle = ehAtivavel && temEfeitoSustentado(efeitos);
+  const mostrarToggle = ehAtivavel && (habilidade.alternavel || temEfeitoSustentado(efeitos));
   const mostrarUsar = ehAtivavel && !mostrarToggle;
+  const ligadaAtiva = mostrarToggle && habilidade.ligada;
+  const usosMax = usosMaximos(habilidade, { nivel, atributos });
 
-  // Efeitos com fórmula de dado viram links "rolar" que empilham na Bandeja
-  // (separado do "Usar", que só debita custos + aplica deltas instantâneos).
-  // `cura` só é rolável quando a fórmula tem dado (ex: "1d8+CON"); cura inteira
-  // ("10") já entra como delta instantâneo. Siglas de atributo (CON…) na fórmula
-  // são resolvidas pro modificador do personagem e somadas ao mod empilhado.
+  // Efeitos com fórmula de dado viram links "rolar" que empilham na Bandeja.
+  // Cura só vira link em passiva: nas outras o "Usar"/"Ligar" já rola e aplica.
+  // Siglas (FOR…PRE, PROF, NIVEL) são resolvidas pro valor do personagem.
   const rolagens: {
     formula: string;
+    texto: string;
     dados: Dado[];
     modificador: number;
-    nota: string;
   }[] = [];
   for (const e of efeitos) {
-    const fonte = e.tipo === "rolagem" ? e.formula : e.tipo === "cura" ? e.valor : null;
+    const fonte =
+      e.tipo === "rolagem" ? e.formula : e.tipo === "cura" && !ehAtivavel ? e.valor : null;
     if (fonte == null) continue;
-    const p = parseFormulaDados(fonte);
-    const attr = resolverAtributosNaFormula(fonte, atributos);
-    const modTotal = p.modificador + attr.modificador;
-    // rolagem: rola se tem dado OU modificador resultante; cura: só com dado
-    // (cura inteira pura já é delta instantâneo, não vale rolar um número fixo).
+    const f = resolverFormula(fonte, atributos, nivel);
     const rolavel =
-      e.tipo === "rolagem" ? p.dados.length > 0 || modTotal !== 0 : p.dados.length > 0;
+      e.tipo === "rolagem" ? f.dados.length > 0 || f.modificador !== 0 : f.dados.length > 0;
     if (!rolavel) continue;
-    const nota = attr.usados
-      .map((u) => `${u.sigla} ${formatarMod(u.mod)}`)
-      .join(", ");
-    rolagens.push({ formula: fonte, dados: p.dados, modificador: modTotal, nota });
+    rolagens.push({
+      formula: fonte,
+      texto: formulaResolvidaTexto(fonte, atributos, nivel),
+      dados: f.dados,
+      modificador: f.modificador,
+    });
   }
 
   const custos: string[] = [];
@@ -543,7 +717,6 @@ function CardHabilidade({
       ? "type-padrao"
       : "type-comum";
 
-  const ligadaAtiva = mostrarToggle && habilidade.ligada;
   const pendente = ehTemporario(habilidade.id);
 
   return (
@@ -589,10 +762,12 @@ function CardHabilidade({
               <i className={`fas ${tipoMeta.icone}`} /> {tipoMeta.nome}
             </span>
           )}
-          {habilidade.usos != null && (
-            <span className="acao-stat">
-              <i className="fas fa-bolt-lightning" /> {habilidade.usosAtual ?? 0}/
-              {habilidade.usos}
+          {usosMax != null && (
+            <span
+              className="acao-stat"
+              title={habilidade.usosFormula ? `Máximo: ${habilidade.usosFormula}` : undefined}
+            >
+              <i className="fas fa-bolt-lightning" /> {habilidade.usosAtual ?? usosMax}/{usosMax}
             </span>
           )}
           {habilidade.recarga && (
@@ -600,6 +775,23 @@ function CardHabilidade({
               <i className="fas fa-rotate" />{" "}
               {RECARGAS_HABILIDADE.find((r) => r.slug === habilidade.recarga)?.nome ??
                 habilidade.recarga}
+            </span>
+          )}
+          {textoDuracao(lerDuracao(habilidade.duracao)) && (
+            <span
+              className="acao-stat"
+              title={ligadaAtiva && turnosRestantes != null ? textoDuracao(lerDuracao(habilidade.duracao)) ?? undefined : undefined}
+            >
+              <i className="fas fa-hourglass-half" />{" "}
+              {ligadaAtiva && turnosRestantes != null
+                ? textoTurnosRestantes(turnosRestantes)
+                : textoDuracao(lerDuracao(habilidade.duracao))}
+            </span>
+          )}
+          {habilidade.aliado && (
+            <span className="acao-stat acao-aliado">
+              <i className="fas fa-hand-holding-heart" />{" "}
+              {ligadaAtiva && nomeDoAlvo ? `em ${nomeDoAlvo}` : "Em aliado"}
             </span>
           )}
         </div>
@@ -662,16 +854,16 @@ function CardHabilidade({
               key={`r${i}`}
               type="button"
               className="hab-rolar"
-              title={`Empilhar ${r.formula} no Rolador${r.nota ? ` · ${r.nota}` : ""}`}
+              title={`Empilhar ${r.texto} no Rolador${r.texto !== r.formula ? ` · ${r.formula}` : ""}`}
               onClick={() =>
                 empilharRolagem({
                   dados: r.dados,
                   modificador: r.modificador,
-                  nomePreset: `${habilidade.nome}: ${r.formula}`,
+                  nomePreset: `${habilidade.nome}: ${r.texto}`,
                 })
               }
             >
-              <i className="fas fa-dice" /> {r.formula}
+              <i className="fas fa-dice" /> {r.texto}
             </button>
           ))}
           {mostrarUsar && (
@@ -712,23 +904,31 @@ type HabilidadeFormDados = {
   custoRecursoValor: number;
   usos: number | null;
   usosAtual: number | null;
+  usosFormula: string | null;
   recarga: string | null;
   tags: string | null;
   tagsEstilo: MapaEstilosTag;
   efeitos: EfeitoHabilidade[];
   itemId: string | null;
+  alternavel: boolean;
+  aliado: boolean;
+  duracao: Duracao | null;
 };
 
 function HabilidadeModal({
   inicial,
   recursos,
   itens,
+  atributos,
+  nivel,
   onCancelar,
   onSalvar,
 }: {
   inicial: Habilidade | null;
   recursos: RecursoMinimo[];
   itens: ItemRef[];
+  atributos: Record<Atributo, number>;
+  nivel: number;
   onCancelar: () => void;
   onSalvar: (d: HabilidadeFormDados) => void;
 }) {
@@ -743,16 +943,18 @@ function HabilidadeModal({
   const [custoPp, setCustoPp] = useState(
     inicial?.custoPp ? String(inicial.custoPp) : "",
   );
-  const [custoPa, setCustoPa] = useState(
-    inicial?.custoPa ? String(inicial.custoPa) : "",
-  );
   const [custoRecursoId, setCustoRecursoId] = useState(
     inicial?.custoRecursoId ?? "",
   );
   const [custoRecursoValor, setCustoRecursoValor] = useState(
     inicial?.custoRecursoValor ? String(inicial.custoRecursoValor) : "",
   );
-  const [usos, setUsos] = useState(inicial?.usos != null ? String(inicial.usos) : "");
+  const [usos, setUsos] = useState(
+    inicial?.usosFormula ?? (inicial?.usos != null ? String(inicial.usos) : ""),
+  );
+  const [alternavel, setAlternavel] = useState(inicial?.alternavel ?? false);
+  const [aliado, setAliado] = useState(inicial?.aliado ?? false);
+  const [duracao, setDuracao] = useState<Duracao | null>(lerDuracao(inicial?.duracao));
   const [recarga, setRecarga] = useState(inicial?.recarga ?? "");
   const [tags, setTags] = useState(inicial?.tags ?? "");
   const [tagsEstilo, setTagsEstilo] = useState<MapaEstilosTag>(
@@ -762,6 +964,9 @@ function HabilidadeModal({
     lerEfeitos(inicial?.efeitos),
   );
   const [itemId, setItemId] = useState(inicial?.itemId ?? "");
+  // Com efeito que fica valendo, a habilidade só pode ser de Liga e desliga.
+  const temSustentado = temEfeitoSustentado(efeitos);
+  const ligaDesliga = alternavel || temSustentado;
   function submit(e: React.FormEvent) {
     e.preventDefault();
     const nomeLimpo = nome.trim();
@@ -775,24 +980,35 @@ function HabilidadeModal({
       });
       return;
     }
-    const usosNum = usos === "" ? null : Math.max(0, Number(usos) || 0);
+    // Máximo de usos: número ou fórmula (salva o valor de agora como reserva).
+    const usosTexto = usos.trim();
+    const usosNumerico = usosTexto !== "" && Number.isFinite(Number(usosTexto));
+    const usosFormula = usosTexto && !usosNumerico ? usosTexto : null;
+    const usosNum =
+      usosTexto === ""
+        ? null
+        : Math.max(0, usosFormula ? valorDaFormula(usosFormula, atributos, nivel) : Number(usosTexto) || 0);
     onSalvar({
       nome: nomeLimpo,
       origem,
       tipo,
       descricao,
       custoPp: Number(custoPp) || 0,
-      custoPa: Number(custoPa) || 0,
+      custoPa: inicial?.custoPa ?? 0,
       custoRecursoId: custoRecursoId || null,
       custoRecursoValor: Number(custoRecursoValor) || 0,
       usos: usosNum,
       // Edição preserva o tanque atual; criação começa cheio (= usos).
       usosAtual: inicial ? inicial.usosAtual : usosNum,
+      usosFormula,
       recarga: recarga || null,
       tags: tags.trim() || null,
       tagsEstilo: podarEstilosTag(tagsEstilo, tags),
       efeitos,
       itemId: itemId || null,
+      alternavel: tipo !== "passiva" && alternavel,
+      aliado: tipo !== "passiva" && aliado,
+      duracao: tipo !== "passiva" ? duracao : null,
     });
   }
 
@@ -838,6 +1054,58 @@ function HabilidadeModal({
             ))}
           </div>
 
+          {tipo !== "passiva" && (
+            <>
+              <label>Uso</label>
+              <div className="tipo-cards tipo-cards-2">
+                <button
+                  type="button"
+                  className={`tipo-card ${!ligaDesliga ? "ativo" : ""}`}
+                  style={{ "--tipo-cor": "var(--color-power)" } as React.CSSProperties}
+                  aria-pressed={!ligaDesliga}
+                  disabled={temSustentado}
+                  title={temSustentado ? "Tem efeito que fica valendo" : undefined}
+                  onClick={() => setAlternavel(false)}
+                >
+                  <i className="fas fa-play tipo-card-icone" />
+                  <span className="tipo-card-titulo">Usar</span>
+                </button>
+                <button
+                  type="button"
+                  className={`tipo-card ${ligaDesliga ? "ativo" : ""}`}
+                  style={{ "--tipo-cor": "var(--color-power)" } as React.CSSProperties}
+                  aria-pressed={ligaDesliga}
+                  onClick={() => setAlternavel(true)}
+                >
+                  <i className="fas fa-toggle-on tipo-card-icone" />
+                  <span className="tipo-card-titulo">Liga e desliga</span>
+                </button>
+              </div>
+
+              <label>Efeitos em</label>
+              <div className="origem-pills">
+                {(
+                  [
+                    [false, "Você", "fa-user"],
+                    [true, "Aliado", "fa-hand-holding-heart"],
+                  ] as const
+                ).map(([valor, rotulo, icone]) => (
+                  <button
+                    type="button"
+                    key={rotulo}
+                    className={`origem-pill ${aliado === valor ? "ativo" : ""}`}
+                    aria-pressed={aliado === valor}
+                    onClick={() => setAliado(valor)}
+                  >
+                    <i className={`fas ${icone}`} /> {rotulo}
+                  </button>
+                ))}
+              </div>
+
+              <DuracaoCampo valor={duracao} onChange={setDuracao} />
+            </>
+          )}
+
           <label>Nome</label>
           <input
             type="text"
@@ -870,88 +1138,36 @@ function HabilidadeModal({
           />
           <details
             className="modal-secao-detalhe"
-            open={!!(custoPp || custoPa || custoRecursoId)}
+            open={!!(custoPp || custoRecursoId)}
           >
             <summary>
-              <i className="fas fa-coins" /> Custos (opcional)
+              <i className="fas fa-coins" /> Custos
             </summary>
             <div className="modal-secao-corpo">
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div>
-                  <label>PP</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={custoPp}
-                    onChange={(e) => setCustoPp(e.target.value)}
-                    placeholder="0"
-                  />
-                </div>
-                <div>
-                  <label>PA</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={custoPa}
-                    onChange={(e) => setCustoPa(e.target.value)}
-                    placeholder="0"
-                  />
-                </div>
-              </div>
-              {recursos.length > 0 && (
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "2fr 1fr",
-                    gap: 10,
-                    marginTop: 10,
-                  }}
-                >
-                  <div>
-                    <label>Recurso customizado</label>
-                    <select
-                      value={custoRecursoId}
-                      onChange={(e) => setCustoRecursoId(e.target.value)}
-                    >
-                      <option value="">—</option>
-                      {recursos.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.nome}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label>Quantidade</label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={custoRecursoValor}
-                      onChange={(e) => setCustoRecursoValor(e.target.value)}
-                      placeholder="0"
-                    />
-                  </div>
-                </div>
-              )}
+              <CustosCampo
+                pp={custoPp}
+                onPp={setCustoPp}
+                recursos={recursos}
+                recursoId={custoRecursoId}
+                onRecursoId={setCustoRecursoId}
+                recursoValor={custoRecursoValor}
+                onRecursoValor={setCustoRecursoValor}
+              />
             </div>
           </details>
 
           <details className="modal-secao-detalhe" open={!!(usos || recarga)}>
             <summary>
-              <i className="fas fa-bolt-lightning" /> Usos limitados (opcional)
+              <i className="fas fa-bolt-lightning" /> Usos limitados
             </summary>
             <div className="modal-secao-corpo">
               <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10 }}>
-                <div>
-                  <label>Máximo</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={usos}
-                    onChange={(e) => setUsos(e.target.value)}
-                    placeholder="—"
-                  />
-                </div>
+                <CampoFormula
+                  label="Máximo"
+                  valor={usos}
+                  onChange={setUsos}
+                  placeholder="3, PROF, NIVEL…"
+                />
                 <div>
                   <label>Recarga</label>
                   <select

@@ -4,7 +4,12 @@ import { type CSSProperties, useCallback, useEffect, useRef, useState } from "re
 import { PainelRolador } from "./painel-rolador";
 import { PainelChat, type PainelChatHandle } from "./painel-chat";
 import type { MensagemSerializada } from "@/lib/mensagens";
-import { EVENTO_EMPILHAR, type EmpilharRolagemDetail } from "@/lib/empilhar-rolagem";
+import {
+  EVENTO_EMPILHAR,
+  EVENTO_MENSAGEM,
+  EVENTO_PUBLICAR,
+  type EmpilharRolagemDetail,
+} from "@/lib/empilhar-rolagem";
 import type { EfeitosContexto } from "@/lib/op-rpg";
 import "./bandeja.css";
 
@@ -181,8 +186,17 @@ export function Bandeja({
       setAba("rolador");
       if (det.abrirAuto !== false) setCollapsed(false);
     }
+    // Rolagem feita na ficha também abre o Rolador, pra mostrar o resultado.
+    function abrir() {
+      setAba("rolador");
+      setCollapsed(false);
+    }
     window.addEventListener(EVENTO_EMPILHAR, ouvir);
-    return () => window.removeEventListener(EVENTO_EMPILHAR, ouvir);
+    window.addEventListener(EVENTO_PUBLICAR, abrir);
+    return () => {
+      window.removeEventListener(EVENTO_EMPILHAR, ouvir);
+      window.removeEventListener(EVENTO_PUBLICAR, abrir);
+    };
   }, []);
 
   const className =
@@ -220,6 +234,16 @@ export function Bandeja({
     if (!mensagemExternaCriada) return;
     chatRef.current?.appendLocal(mensagemExternaCriada);
   }, [mensagemExternaCriada]);
+
+  // Mensagem gravada por uma action da ficha (dano, cura).
+  useEffect(() => {
+    function ouvir(e: Event) {
+      const msg = (e as CustomEvent<MensagemSerializada>).detail;
+      if (msg) chatRef.current?.appendLocal(msg);
+    }
+    window.addEventListener(EVENTO_MENSAGEM, ouvir);
+    return () => window.removeEventListener(EVENTO_MENSAGEM, ouvir);
+  }, []);
 
   return (
     <div ref={bandejaRef} className={className} style={style} id="bandeja">

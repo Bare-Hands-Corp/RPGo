@@ -129,6 +129,8 @@ model Personagem {
   hpAtual       Int     @default(0) @map("hp_atual")
   hpMax         Int     @default(0) @map("hp_max")
   hpTemp        Int     @default(0) @map("hp_temp")
+  // Dano sofrido a 0 PV; vale só com hpAtual ≤ 0 (lib/dano.ts).
+  pvNegativos   Int     @default(0) @map("pv_negativos")
   ppAtual       Int     @default(0) @map("pp_atual")
   ppMax         Int     @default(0) @map("pp_max")
   exaustao      Int     @default(0)
@@ -166,6 +168,12 @@ model Personagem {
   sabedoria    Int @default(0)
   vontade      Int @default(0)
   presenca     Int @default(0)
+
+  // Em que está concentrando: { tipo: "habilidade" | "acao", id, nome } (lib/duracao.ts).
+  concentracao Json?
+
+  // Tipos de dano digitados ao receber dano, pra sugerir de novo (lib/dano.ts).
+  tiposDano Json @default("[]") @map("tipos_dano")
 
   // Proficiências (perícias e salvaguardas). Estrutura:
   // { pericias: string[], periciasDobradas: string[], salvaguardas: string[] }
@@ -304,6 +312,9 @@ model Item {
   // Soma a proficiência no dano da arma e das técnicas com ela.
   danoSomaProficiencia Boolean @default(false) @map("dano_soma_proficiencia")
 
+  // Munição que a arma gasta a cada ataque (Item.id do tipo "municao", sem FK).
+  municaoId String? @map("municao_id")
+
   // Efeitos do item (formato de Habilidade.efeitos), valem enquanto equipado.
   efeitos Json @default("[]")
 
@@ -343,6 +354,19 @@ model Acao {
   // Habilidades de onde a ação deriva (Habilidade.id[], sem FK).
   habilidadeIds Json @default("[]") @map("habilidade_ids")
 
+  // Técnica: separa dos ataques comuns nos efeitos. Grau 1–7; 0 = sem grau.
+  tecnica Boolean @default(false)
+  grau    Int     @default(0)
+
+  // Efeitos próprios (formato de Habilidade.efeitos): valem só nas rolagens desta ação.
+  efeitos Json @default("[]")
+
+  // Efeitos na hora do uso vão pra um aliado da mesa.
+  aliado Boolean @default(false)
+
+  // { unidade, quantidade?, concentracao? } (lib/duracao.ts); null = não informada.
+  duracao Json?
+
   @@map("acoes")
 }
 
@@ -371,6 +395,8 @@ model Habilidade {
   // Usos limitados. null = ilimitado; usosAtual conta o que sobrou.
   usos      Int?
   usosAtual Int?    @map("usos_atual")
+  // Máximo de usos por fórmula ("PROF", "NIVEL"); null = vale `usos`.
+  usosFormula String? @map("usos_formula")
   // "descansoCurto" | "descansoLongo" | "encontro" | "manual"
   recarga   String?
 
@@ -384,6 +410,18 @@ model Habilidade {
   // Enquanto true, os efeitos sustentados entram no agregador como uma passiva.
   // Habilidade só-instantânea (cura pura) não usa esse campo (continua no "Usar").
   ligada Boolean @default(false)
+  // Liga e desliga mesmo sem efeito sustentado.
+  alternavel Boolean @default(false)
+  // Turnos que faltam enquanto ligada (duração em turnos/minutos); null = não conta.
+  turnosRestantes Int? @map("turnos_restantes")
+
+  // Efeitos vão pra um aliado da mesa, escolhido ao usar/ligar.
+  aliado           Boolean @default(false)
+  // Aliado que recebe os efeitos enquanto ligada (sem FK).
+  alvoPersonagemId String? @map("alvo_personagem_id")
+
+  // { unidade, quantidade?, concentracao? } (lib/duracao.ts); null = não informada.
+  duracao Json?
 
   // Item que concede esta habilidade (sem FK); travada se não estiver equipado.
   itemId String? @map("item_id")
@@ -394,6 +432,7 @@ model Habilidade {
   criadoEm DateTime @default(now()) @map("criado_em")
 
   @@index([personagemId])
+  @@index([alvoPersonagemId])
   @@map("habilidades")
 }
 

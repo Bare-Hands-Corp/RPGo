@@ -1,21 +1,38 @@
 "use client";
 
-import { useOptimistic, useState, useTransition } from "react";
+import { useEffect, useEffectEvent, useMemo, useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { ehTemporario, exigir, idTemporario } from "@/lib/acoes";
 import { EditableStat } from "./editable-stat";
-import { atualizarItem, criarItem, deletarItem, patchPersonagem } from "./actions";
+import {
+  atualizarItem,
+  criarItem,
+  deletarItem,
+  gastarMunicao,
+  patchPersonagem,
+  usarItem,
+} from "./actions";
+import { useRefreshAgrupado } from "@/lib/use-refresh-agrupado";
 import {
   ALCANCES_ARMA,
   ATRIBUTOS,
   CATEGORIAS_ARMA,
   PROPRIEDADES_ARMA,
   alvosPericiaCustom,
+  alvoDaCura,
   bonusProficiencia,
+  computarDeltasInstantaneos,
+  curasComFormula,
+  efeitoInstantaneo,
   efeitosComArma,
   efeitosDoContexto,
+  exaustaoQueConta,
+  extrasDeCura,
+  formulaResolvidaTexto,
   lerEfeitos,
   penalidadeD20Exaustao,
+  resolverFormula,
+  resumoEfeito,
   resolverAtaqueArma,
   resolverDanoArma,
   formatarBerries,
@@ -29,16 +46,32 @@ import {
   type EfeitosContexto,
   type PropriedadeArma,
 } from "@/lib/op-rpg";
-import { empilharD20, empilharRolagem } from "@/lib/empilhar-rolagem";
+import { empilharD20, empilharRolagem, rolarCuras } from "@/lib/empilhar-rolagem";
+import { juntarTipos, tiposDoDano } from "@/lib/dano";
 import {
   AlvosCustomContext,
   ChipEfeito,
+  FormulaContext,
   NomesRecursoContext,
   DatalistAlvos,
   EfeitosEditor,
   type RecursoMinimo,
 } from "./efeitos-editor";
 import { useExaustaoOtimista } from "./use-exaustao-otimista";
+import { useGastoMunicao } from "./use-municao";
+import { SeletorUnico } from "./seletor-multiplo";
+import { CampoPasso } from "./campos-modal";
+import { CampoFormula } from "./campo-formula";
+import {
+  EVENTO_GASTAR_MUNICAO,
+  danoComMunicao,
+  municaoDaArma,
+  textoMunicao,
+  type GastoMunicao,
+  type MunicaoDaArma,
+} from "@/lib/municao";
+import { useEscolherAlvo } from "./escolher-alvo";
+import type { Tripulante } from "./tripulacao-tab";
 import { MarcaExausto } from "./marca-exausto";
 import { TagChip, TagsEditor } from "./estilo-cor-picker";
 import {
@@ -73,7 +106,13 @@ type Item = {
   danoSomaProficiencia: boolean;
   efeitos: unknown;
   quantidade: number;
+  municaoId?: string | null;
 };
+
+// Unidades do item; só a munição pode ficar em zero.
+function quantidadeDe(i: { tipo: string; quantidade: number }): number {
+  return i.tipo === "municao" ? Math.max(0, i.quantidade) : Math.max(1, i.quantidade || 1);
+}
 
 // Ação/habilidade concedida por um item.
 type Concedido = { id: string; nome: string; itemId: string | null };
@@ -97,6 +136,10 @@ type Props = {
   acoes: Concedido[];
   /** Habilidades concedidas por itens. */
   habilidades: Concedido[];
+  /** Personagens da mesa (inclui o próprio). */
+  tripulantes: Tripulante[];
+  /** Graus das técnicas do personagem (GRAU nos chips). */
+  grausTecnicas: number[];
 };
 
 function lerPropriedades(raw: unknown): PropriedadeArma[] {
@@ -222,7 +265,7 @@ const SIGLA_ATRIBUTO: Record<Atributo, string> = {
 type Categoria = "arsenal" | "armaria" | "mochila";
 
 function categoriaDoItem(tipo: string): Categoria {
-  if (tipo === "arma") return "arsenal";
+  if (tipo === "arma" || tipo === "municao") return "arsenal";
   if (tipo === "armadura") return "armaria";
   return "mochila";
 }
@@ -250,6 +293,7 @@ type FormState = {
   danoSomaProficiencia: boolean;
   efeitos: EfeitoHabilidade[];
   quantidade: string;
+  municaoId: string;
 };
 
 const FORM_VAZIO: FormState = {
@@ -275,6 +319,7 @@ const FORM_VAZIO: FormState = {
   danoSomaProficiencia: false,
   efeitos: [],
   quantidade: "1",
+  municaoId: "",
 };
 
 export function InventarioTab({
@@ -291,10 +336,20 @@ export function InventarioTab({
   periciasCustom,
   acoes,
   habilidades,
+  tripulantes,
+  grausTecnicas,
 }: Props) {
   // Penalidade de exaustão (−2 × nível) some no acerto da arma (teste de d20).
   const exaustao = useExaustaoOtimista(exaustaoServer);
-  const penD20 = penalidadeD20Exaustao(exaustao);
+  const penD20 = penalidadeD20Exaustao(exaustaoQueConta(exaustao, efeitosAgregados));
+  const alvo = useEscolherAlvo(tripulantes, personagemId);
+  const atualizar = useRefreshAgrupado(0);
+  const nomesRecurso = new Map(recursos.map((r) => [r.id, r.nome]));
+  const ctxFormula = useMemo(
+    () => ({ nivel, atributos, graus: grausTecnicas }),
+    [nivel, atributos, grausTecnicas],
+  );
+  const extraCura = useMemo(() => extrasDeCura(efeitosAgregados), [efeitosAgregados]);
 
   // DES reduzida pela armadura: armas que usam DES leem a pontuação ajustada.
   const atributosParaTeste: Record<Atributo, number> = {
@@ -328,6 +383,40 @@ export function InventarioTab({
     return state.filter((i) => i.id !== p.id);
   });
 
+  // Munição gasta pelo Rolador: some na hora e grava no servidor.
+  const gastoMunicao = useGastoMunicao(itens);
+  const gravarGastoMunicao = useEffectEvent((d: GastoMunicao) => {
+    startTransition(async () => {
+      try {
+        exigir(await gastarMunicao(personagemId, d.id, d.quantidade));
+      } catch (err) {
+        atualizar();
+        mostrarErro(err);
+      }
+    });
+  });
+  useEffect(() => {
+    function ouvir(e: Event) {
+      const d = (e as CustomEvent<GastoMunicao>).detail;
+      if (d?.id) gravarGastoMunicao(d);
+    }
+    window.addEventListener(EVENTO_GASTAR_MUNICAO, ouvir);
+    return () => window.removeEventListener(EVENTO_GASTAR_MUNICAO, ouvir);
+  }, []);
+
+  // −/+ no card da munição.
+  function mudarQuantidade(item: Item, n: number) {
+    const gasto = gastoMunicao(item.id);
+    startTransition(async () => {
+      aplicarOtimista({ kind: "update", id: item.id, patch: { quantidade: n + gasto } });
+      try {
+        exigir(await atualizarItem(personagemId, item.id, { tipo: "municao", quantidade: n }));
+      } catch (err) {
+        mostrarErro(err);
+      }
+    });
+  }
+
   function abrirNovo() {
     setForm(FORM_VAZIO);
     setModalAberto(true);
@@ -360,7 +449,8 @@ export function InventarioTab({
       danoSomaAtributo: item.danoSomaAtributo,
       danoSomaProficiencia: item.danoSomaProficiencia,
       efeitos: lerEfeitos(item.efeitos),
-      quantidade: String(item.quantidade || 1),
+      quantidade: String(quantidadeDe(item)),
+      municaoId: item.municaoId ?? "",
     });
     setModalAberto(true);
   }
@@ -397,6 +487,7 @@ export function InventarioTab({
     }
 
     const ehArma = form.tipo === "arma";
+    const ehMunicao = form.tipo === "municao";
     const payload = {
       nome: form.nome,
       peso: Number(form.peso) || 0,
@@ -404,7 +495,7 @@ export function InventarioTab({
       tags: form.tags,
       tagsEstilo: podarEstilosTag(form.tagsEstilo, form.tags),
       descricao: form.descricao,
-      dano: ehArma ? form.dano : "",
+      dano: ehArma || ehMunicao ? form.dano : "",
       modificador: ehArma ? Number(form.modificador) || 0 : 0,
       ca: form.tipo === "armadura" ? Number(form.ca) || 0 : 0,
       penalidadeDes: form.tipo === "armadura" ? Number(form.penalidadeDes) || 0 : 0,
@@ -419,7 +510,10 @@ export function InventarioTab({
       danoSomaProficiencia: ehArma ? form.danoSomaProficiencia : false,
       // Efeitos valem pra qualquer tipo de item.
       efeitos: form.efeitos,
-      quantidade: Math.max(1, Number(form.quantidade) || 1),
+      quantidade: ehMunicao
+        ? Math.max(0, Math.trunc(Number(form.quantidade) || 0))
+        : Math.max(1, Number(form.quantidade) || 1),
+      municaoId: ehArma && form.propriedades.includes("municao") && form.municaoId ? form.municaoId : null,
     };
 
     const editandoId = form.id;
@@ -459,6 +553,7 @@ export function InventarioTab({
           danoSomaProficiencia: payload.danoSomaProficiencia,
           efeitos: payload.efeitos,
           quantidade: payload.quantidade,
+          municaoId: payload.municaoId,
         };
         aplicarOtimista({ kind: "create", item: novoItem });
         try {
@@ -546,9 +641,91 @@ export function InventarioTab({
     });
   }
 
+  // Usa 1 unidade: os efeitos na hora vão pra quem usa ou pra um aliado da mesa.
+  async function usar(item: Item) {
+    const efeitos = lerEfeitos(item.efeitos).filter(efeitoInstantaneo);
+    if (efeitos.length === 0) return;
+    const qtd = Math.max(1, item.quantidade || 1);
+    const detalhe = [
+      efeitos
+        .map((e) =>
+          e.tipo === "cura"
+            ? `Cura ${formulaResolvidaTexto(e.valor, atributos, nivel)}${
+                extraCura.texto && alvoDaCura(e) === "hp" ? ` + ${extraCura.texto}` : ""
+              }`
+            : resumoEfeito(e, (id) => nomesRecurso.get(id), { nivel, atributos }),
+        )
+        .join(", ") + ".",
+      qtd > 1 ? `Sobram ${qtd - 1}.` : "É o último.",
+    ].join(" ");
+
+    let alvoId: string | undefined;
+    if (alvo.temAliados) {
+      const escolhido = await alvo.escolher(`Usar ${item.nome} em quem?`, { comVoce: true, detalhe });
+      if (!escolhido) return;
+      if (escolhido !== personagemId) alvoId = escolhido;
+    } else {
+      const c = await Swal.fire({
+        title: `Usar ${item.nome}?`,
+        text: detalhe,
+        icon: "question",
+        showCancelButton: true,
+        confirmButtonText: "Usar",
+        cancelButtonText: "Cancelar",
+        background: "var(--bg-card)",
+        color: "var(--text-main)",
+      });
+      if (!c.isConfirmed) return;
+    }
+
+    // Cura com fórmula rola aqui; vai pra action e, se ela passar, pro chat.
+    const { rolagens, publicar } = rolarCuras(
+      curasComFormula(efeitos, !!extraCura.texto),
+      (valor) => resolverFormula(valor, atributos, nivel),
+      item.nome,
+      extraCura,
+    );
+    const deltas = computarDeltasInstantaneos(efeitos, {
+      incluirMax: false,
+      rolagens,
+      ctx: efeitosAgregados.ctxFormula,
+    });
+    if (!alvoId) {
+      const deltaPersonagem = {
+        deltaHpAtual: deltas.hpAtual || undefined,
+        concedeHpTemp: deltas.hpTemp || undefined,
+        deltaPpAtual: deltas.ppAtual || undefined,
+        deltaExaustao: deltas.exaustao || undefined,
+      };
+      if (Object.values(deltaPersonagem).some((v) => v !== undefined)) {
+        window.dispatchEvent(new CustomEvent("rpgo:patch-personagem", { detail: deltaPersonagem }));
+      }
+    }
+    if (Object.keys(deltas.recursos).length > 0) {
+      window.dispatchEvent(new CustomEvent("rpgo:patch-recurso", { detail: deltas.recursos }));
+    }
+
+    startTransition(async () => {
+      aplicarOtimista(
+        qtd > 1
+          ? { kind: "update", id: item.id, patch: { quantidade: qtd - 1 } }
+          : { kind: "delete", id: item.id },
+      );
+      try {
+        exigir(await usarItem(personagemId, item.id, rolagens, alvoId));
+        publicar();
+      } catch (err) {
+        // Recarrega a página pra desfazer o otimismo.
+        atualizar();
+        mostrarErro(err);
+      }
+    });
+  }
+
   // Acerto e dano da arma (o dano usa o atributo do acerto).
   function calcArma(item: Item): ArmaResolvida {
     if (item.tipo !== "arma") return null;
+    const municao = municaoDaArma(item, itensOtimistas, gastoMunicao);
     // Ficha + efeitos de rolagem da arma.
     const agg = efeitosComArma(efeitosAgregados, item);
     const r = resolverAtaqueArma({
@@ -563,15 +740,17 @@ export function InventarioTab({
     });
     if (!r) return null;
     const dano = resolverDanoArma({
-      danoBase: item.dano,
+      danoBase: danoComMunicao(item.dano, municao),
       danoBonus: item.danoBonus,
       passos: agg.passosDanoArma.valor,
       somaAtributo: item.danoSomaAtributo,
       atributoDano: r.atributo,
       atributos: atributosParaTeste,
+      nivel,
       proficiencia: item.danoSomaProficiencia ? bonusProficiencia(nivel) : 0,
       alcance: r.alcance,
       efeitosAgregados: agg,
+      dadoFixo: agg.dadoArmaFixo?.formula,
     });
     return {
       ataque: {
@@ -583,6 +762,7 @@ export function InventarioTab({
       dano,
       alcance: r.alcance,
       efeitos: efeitosDoContexto(agg),
+      municao,
     };
   }
 
@@ -602,7 +782,7 @@ export function InventarioTab({
 
   // Carga conta cada unidade da pilha.
   const pesoTotal = itensOtimistas.reduce(
-    (acc, i) => acc + (Number(i.peso) || 0) * Math.max(1, i.quantidade || 1),
+    (acc, i) => acc + (Number(i.peso) || 0) * (quantidadeDe(i) - gastoMunicao(i.id)),
     0,
   );
   // Carga base + bônus aditivos × fator multiplicativo (Espécie Gigante etc).
@@ -641,6 +821,7 @@ export function InventarioTab({
   return (
     <AlvosCustomContext.Provider value={alvosPericiaCustom(periciasCustom)}>
     <NomesRecursoContext.Provider value={new Map(recursos.map((r) => [r.id, r.nome]))}>
+    <FormulaContext.Provider value={ctxFormula}>
       <div>
       <div className="tab-topo">
         <h1 style={{ marginRight: "auto" }}>Inventário</h1>
@@ -707,8 +888,11 @@ export function InventarioTab({
                 concedidos={concedidosPorItem.get(item.id)}
                 onToggleFavorito={() => toggleFavorito(item)}
                 onToggleEquipar={() => toggleEquipar(item)}
+                onUsar={() => usar(item)}
                 onEdit={() => abrirEdit(item)}
                 onDelete={() => apagar(item.id)}
+                onQuantidade={(n) => mudarQuantidade(item, n)}
+                gasto={gastoMunicao(item.id)}
               />
             ))}
           </div>
@@ -743,7 +927,7 @@ export function InventarioTab({
         icone="fa-fist-raised"
         itens={arsenal}
         visivel={mostrarEquipados || categoria === "arsenal"}
-        callbacks={{ toggleFavorito, toggleEquipar, abrirEdit, apagar }}
+        callbacks={{ toggleFavorito, toggleEquipar, usar, abrirEdit, apagar, mudarQuantidade, gastoMunicao }}
         calcArma={calcArma}
         concedidosPorItem={concedidosPorItem}
       />
@@ -752,7 +936,7 @@ export function InventarioTab({
         icone="fa-shield-alt"
         itens={armaria}
         visivel={mostrarEquipados || categoria === "armaria"}
-        callbacks={{ toggleFavorito, toggleEquipar, abrirEdit, apagar }}
+        callbacks={{ toggleFavorito, toggleEquipar, usar, abrirEdit, apagar, mudarQuantidade, gastoMunicao }}
         calcArma={calcArma}
         concedidosPorItem={concedidosPorItem}
       />
@@ -761,7 +945,7 @@ export function InventarioTab({
         icone="fa-shopping-bag"
         itens={mochila}
         visivel={mostrarEquipados || categoria === "mochila"}
-        callbacks={{ toggleFavorito, toggleEquipar, abrirEdit, apagar }}
+        callbacks={{ toggleFavorito, toggleEquipar, usar, abrirEdit, apagar, mudarQuantidade, gastoMunicao }}
         calcArma={calcArma}
         concedidosPorItem={concedidosPorItem}
       />
@@ -772,6 +956,8 @@ export function InventarioTab({
         </p>
       )}
 
+      {alvo.modal}
+
       {modalAberto && (
         <div className="modal-overlay" onClick={fechar}>
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
@@ -780,11 +966,12 @@ export function InventarioTab({
             </button>
             <h2>{form.id ? "Editar Item" : "Novo Item"}</h2>
 
-            <div className="tipo-cards">
+            <div className="tipo-cards tipo-cards-2">
               {(
                 [
                   ["comum", "fa-bag-shopping", "Item Comum", "Mochila, ferramenta, consumível"],
                   ["arma", "fa-khanda", "Arma", "Define ataque, dano, propriedades"],
+                  ["municao", "fa-circle-dot", "Munição", "Flecha, bala, dardo"],
                   ["armadura", "fa-shield-alt", "Armadura", "Soma CA na sua CR"],
                 ] as const
               ).map(([slug, icone, titulo, sub]) => (
@@ -813,7 +1000,9 @@ export function InventarioTab({
                 placeholder={
                   form.tipo === "arma"
                     ? "Ex: Espada Longa"
-                    : form.tipo === "armadura"
+                    : form.tipo === "municao"
+                      ? "Ex: Flecha"
+                      : form.tipo === "armadura"
                       ? "Ex: Cota de Malha"
                       : "Ex: Poção de Cura"
                 }
@@ -834,13 +1023,27 @@ export function InventarioTab({
                   <label>Quantidade</label>
                   <input
                     type="number"
-                    min={1}
+                    min={form.tipo === "municao" ? 0 : 1}
                     value={form.quantidade}
                     onChange={(e) => set("quantidade", e.target.value)}
                     placeholder="1"
                   />
                 </div>
               </div>
+
+              {form.tipo === "municao" && (
+                <>
+                  <div style={{ marginTop: 10 }}>
+                    <CampoFormula
+                      label="Dano da munição"
+                      valor={form.dano}
+                      onChange={(v) => set("dano", v)}
+                      placeholder="1d6 perfurante"
+                      dados
+                    />
+                  </div>
+                </>
+              )}
 
               {form.tipo === "arma" && (
                 <>
@@ -932,24 +1135,20 @@ export function InventarioTab({
                   </label>
 
                   <div className="campo-duo" style={{ marginTop: 12 }}>
-                    <div>
-                      <label>Dado de Dano</label>
-                      <input
-                        type="text"
-                        value={form.dano}
-                        onChange={(e) => set("dano", e.target.value)}
-                        placeholder="1d8"
-                      />
-                    </div>
-                    <div>
-                      <label>Dano bônus</label>
-                      <input
-                        type="text"
-                        value={form.danoBonus}
-                        onChange={(e) => set("danoBonus", e.target.value)}
-                        placeholder="Ex: 1d6 fogo"
-                      />
-                    </div>
+                    <CampoFormula
+                      label="Dado de Dano"
+                      valor={form.dano}
+                      onChange={(v) => set("dano", v)}
+                      placeholder={form.propriedades.includes("municao") ? "Da munição" : "1d8"}
+                      dados
+                    />
+                    <CampoFormula
+                      label="Dano bônus"
+                      valor={form.danoBonus}
+                      onChange={(v) => set("danoBonus", v)}
+                      placeholder="Ex: 1d6 fogo"
+                      dados
+                    />
                   </div>
 
                   <label
@@ -1008,6 +1207,27 @@ export function InventarioTab({
                       );
                     })}
                   </div>
+
+                  {form.propriedades.includes("municao") && (
+                    <>
+                      <label style={{ marginTop: 12 }}>Munição</label>
+                      <SeletorUnico
+                        rotulo="munição"
+                        vazio="Nenhuma munição no inventário."
+                        marcado={form.municaoId}
+                        onChange={(id) => set("municaoId", id)}
+                        opcoes={itensOtimistas
+                          .filter((i) => i.tipo === "municao")
+                          .map((i) => ({
+                            id: i.id,
+                            nome: i.nome,
+                            icone: "fa-circle-dot",
+                            detalhe: [i.dano, `×${quantidadeDe(i)}`].filter(Boolean).join(" · "),
+                            inativo: quantidadeDe(i) <= 0,
+                          }))}
+                      />
+                    </>
+                  )}
                 </>
               )}
 
@@ -1085,6 +1305,7 @@ export function InventarioTab({
         </div>
       )}
       </div>
+    </FormulaContext.Provider>
     </NomesRecursoContext.Provider>
     </AlvosCustomContext.Provider>
   );
@@ -1095,8 +1316,11 @@ export function InventarioTab({
 type CardCallbacks = {
   toggleFavorito: (i: Item) => void;
   toggleEquipar: (i: Item) => void;
+  usar: (i: Item) => void;
   abrirEdit: (i: Item) => void;
   apagar: (id: string) => void;
+  mudarQuantidade: (i: Item, n: number) => void;
+  gastoMunicao: (id: string) => number;
 };
 
 type Ataque = {
@@ -1113,6 +1337,7 @@ type ArmaResolvida = {
   alcance: "corpo_a_corpo" | "distancia";
   // Efeitos que viajam com a rolagem até o Rolador (ficha + arma).
   efeitos: EfeitosContexto;
+  municao: MunicaoDaArma;
 } | null;
 
 type Concedidos = { acoes: string[]; habilidades: string[] };
@@ -1171,8 +1396,11 @@ function SecaoItens({
             concedidos={concedidosPorItem.get(item.id)}
             onToggleFavorito={() => callbacks.toggleFavorito(item)}
             onToggleEquipar={() => callbacks.toggleEquipar(item)}
+            onUsar={() => callbacks.usar(item)}
             onEdit={() => callbacks.abrirEdit(item)}
             onDelete={() => callbacks.apagar(item.id)}
+            onQuantidade={(n) => callbacks.mudarQuantidade(item, n)}
+            gasto={callbacks.gastoMunicao(item.id)}
           />
         ))}
       </div>
@@ -1186,33 +1414,47 @@ function CardItem({
   concedidos,
   onToggleFavorito,
   onToggleEquipar,
+  onUsar,
   onEdit,
   onDelete,
+  onQuantidade,
+  gasto,
 }: {
   item: Item;
   arma: ArmaResolvida;
   concedidos?: Concedidos;
   onToggleFavorito: () => void;
   onToggleEquipar: () => void;
+  onUsar: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onQuantidade: (n: number) => void;
+  // Munição gasta que o servidor ainda não contou.
+  gasto: number;
 }) {
   const efeitos = lerEfeitos(item.efeitos);
+  // Efeito na hora (cura, PV temporário, recurso) é de usar e gastar; o resto vale equipado.
+  const usavel = efeitos.some(efeitoInstantaneo);
+  const nEquipado = efeitos.filter((e) => !efeitoInstantaneo(e)).length;
   const nConcedido =
     (concedidos?.acoes.length ?? 0) + (concedidos?.habilidades.length ?? 0);
   // Arma e armadura sempre equipam; item comum, se tiver efeito ou concessão.
   const equipavel =
     item.tipo === "arma" ||
     item.tipo === "armadura" ||
-    efeitos.length > 0 ||
+    nEquipado > 0 ||
     nConcedido > 0;
   // Efeitos e concessões só valem equipados; desequipado o card mostra apagado.
-  const inativo = equipavel && !item.equipado && (efeitos.length > 0 || nConcedido > 0);
+  const inativo = equipavel && !item.equipado && (nEquipado > 0 || nConcedido > 0);
   const estilosTag = lerEstilosTag(item.tagsEstilo);
-  const qtd = Math.max(1, item.quantidade || 1);
+  const ehMunicao = item.tipo === "municao";
+  const qtd = quantidadeDe(item) - (ehMunicao ? gasto : 0);
   const ataque = arma?.ataque ?? null;
   const dano = arma?.dano ?? null;
   const tracos = item.tipo === "arma" ? tracosDaArma(item) : [];
+  const municao = arma?.municao;
+  // Arma de munição sem munição não ataca.
+  const semMunicao = !!municao?.usa && (!municao.item || municao.restante <= 0);
   return (
     <div
       className={`action-card type-comum ${item.equipado ? "item-equipado" : ""} ${item.favorito ? "item-favorito" : ""} ${ehTemporario(item.id) ? "item-pendente" : ""}`}
@@ -1229,13 +1471,13 @@ function CardItem({
             <i className="fas fa-star" />
           </button>
           {item.nome}{" "}
-          {qtd > 1 && <span className="item-qtd">×{qtd}</span>}{" "}
+          {qtd > 1 && !ehMunicao && <span className="item-qtd">×{qtd}</span>}{" "}
           {item.equipado && (
             <i className="fas fa-check-circle" style={{ color: "var(--primary)", marginLeft: 5 }} />
           )}
         </div>
         <div style={{ fontSize: "0.8rem", color: "var(--text-sec)", fontWeight: "bold", whiteSpace: "nowrap" }}>
-          {qtd > 1 ? (item.peso * qtd).toFixed(1) : item.peso} PC
+          {qtd === 1 ? item.peso : Number((item.peso * qtd).toFixed(1))} PC
         </div>
       </div>
 
@@ -1245,9 +1487,10 @@ function CardItem({
             <button
               type="button"
               className={`acao-stat acao-rolar ${ataque.exausto ? "valor-exausto" : ""}`}
+              disabled={semMunicao}
               title={
                 [
-                  "Empilhar ataque no Rolador",
+                  semMunicao ? "Sem munição" : "Empilhar ataque no Rolador",
                   ataque.fontesHab?.length ? `inclui bônus de ${ataque.fontesHab.join(", ")}` : null,
                   ataque.exausto ? "reduzido por penalidade ativa (exaustão/armadura)" : null,
                 ]
@@ -1258,7 +1501,11 @@ function CardItem({
                 empilharD20(
                   ataque.bonus,
                   `Atacar ${item.nome}`,
-                  { tipo: "ataque", alcance: arma?.alcance ?? "corpo_a_corpo" },
+                  {
+                    tipo: "ataque",
+                    alcance: arma?.alcance ?? "corpo_a_corpo",
+                    ...(municao?.item ? { municao: { id: municao.item.id, nome: municao.item.nome } } : {}),
+                  },
                   arma?.efeitos,
                 )
               }
@@ -1283,7 +1530,14 @@ function CardItem({
                     dados: dano.dados,
                     modificador: dano.modificador,
                     nomePreset: `Dano ${item.nome}`,
-                    contexto: { tipo: "dano", alcance: arma?.alcance ?? "corpo_a_corpo" },
+                    contexto: {
+                      tipo: "dano",
+                      alcance: arma?.alcance ?? "corpo_a_corpo",
+                      tiposDano: juntarTipos(
+                        tiposDoDano((municao ? danoComMunicao(item.dano, municao) : item.dano) ?? ""),
+                        tiposDoDano(item.danoBonus ?? ""),
+                      ),
+                    },
                     efeitos: arma?.efeitos,
                   })
                 }
@@ -1301,6 +1555,30 @@ function CardItem({
               <i className="fas fa-ruler-horizontal" /> {item.alcanceMetros}
             </span>
           )}
+          {municao?.usa && (
+            <span
+              className={`acao-stat${semMunicao ? " sem-municao" : ""}`}
+              title={municao.item ? "Munição desta arma" : "Escolha a munição na edição da arma"}
+            >
+              <i className="fas fa-circle-dot" /> {textoMunicao(municao)}
+            </span>
+          )}
+        </div>
+      )}
+      {ehMunicao && (
+        <div className="acao-stats municao-stats" style={{ marginTop: 8 }}>
+          {item.dano && (
+            <span className="acao-stat">
+              <i className="fas fa-burst" /> {item.dano}
+            </span>
+          )}
+          <CampoPasso
+            valor={qtd}
+            min={0}
+            max={99999}
+            rotulo={`Quantidade de ${item.nome}`}
+            onChange={onQuantidade}
+          />
         </div>
       )}
       {tracos.length > 0 && (
@@ -1377,6 +1655,11 @@ function CardItem({
       )}
 
       <div className="item-card-actions">
+        {usavel && (
+          <button type="button" className="hab-usar" onClick={onUsar}>
+            <i className="fas fa-play" /> Usar
+          </button>
+        )}
         {equipavel && (
           <button
             type="button"
