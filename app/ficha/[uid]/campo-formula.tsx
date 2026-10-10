@@ -13,6 +13,7 @@ import {
   type FaixaNivel,
 } from "@/lib/formula";
 import { conferirFormula, valoresDasSiglas, type Atributo } from "@/lib/op-rpg";
+import { Sugestoes } from "./campos-modal";
 
 // Nível e atributos pros chips e a prévia mostrarem as fórmulas já resolvidas.
 export const FormulaContext = createContext<{
@@ -84,6 +85,7 @@ export function CampoFormula({
   const [escolha, setEscolha] = useState(0);
   const [fechouSugestoes, setFechouSugestoes] = useState(false);
   const [faixas, setFaixas] = useState<FaixaNivel[] | null>(null);
+  const [atalhosAbertos, setAtalhosAbertos] = useState(false);
   const usaGrau = comGrau || grau !== undefined;
 
   const valores = ctx ? valoresDasSiglas(ctx.atributos, ctx.nivel, usaGrau ? (grau ?? 0) : undefined) : {};
@@ -162,6 +164,8 @@ export function CampoFormula({
     }
   }
 
+  const siglas = SIGLAS_FORMULA.filter((s) => s.sigla !== "GRAU" || usaGrau);
+
   // Clique num atalho não tira o foco do campo.
   const manterFoco = (e: React.MouseEvent) => e.preventDefault();
 
@@ -224,19 +228,13 @@ export function CampoFormula({
       </div>
       {previa && <div className={`formula-previa${previa.erro ? " erro" : ""}`}>{previa.texto}</div>}
       {focado && !faixas && (
-        <div className="sugestoes formula-atalhos">
-          {SIGLAS_FORMULA.filter((s) => s.sigla !== "GRAU" || usaGrau).map((s) => (
-            <button
-              type="button"
-              key={s.sigla}
-              className="sugestao"
-              title={valores[s.sigla] ? `${s.nome}: ${valores[s.sigla]}` : s.nome}
-              onMouseDown={manterFoco}
-              onClick={() => atalho(s.sigla)}
-            >
-              {s.sigla}
-            </button>
-          ))}
+        // À vista ficam os dados (ou as siglas); o resto abre no "ver mais".
+        <Sugestoes
+          className="formula-atalhos"
+          limite={dados ? DADOS.length : siglas.length}
+          aberto={atalhosAbertos}
+          onAberto={setAtalhosAbertos}
+        >
           {dados &&
             DADOS.map((f) => (
               <button
@@ -249,6 +247,18 @@ export function CampoFormula({
                 d{f}
               </button>
             ))}
+          {siglas.map((s) => (
+            <button
+              type="button"
+              key={s.sigla}
+              className="sugestao"
+              title={valores[s.sigla] ? `${s.nome}: ${valores[s.sigla]}` : s.nome}
+              onMouseDown={manterFoco}
+              onClick={() => atalho(s.sigla)}
+            >
+              {s.sigla}
+            </button>
+          ))}
           {FUNCOES_FORMULA.map((f) => (
             <button
               type="button"
@@ -261,7 +271,7 @@ export function CampoFormula({
               {f.rotulo}
             </button>
           ))}
-        </div>
+        </Sugestoes>
       )}
       {faixas && (
         <div className="formula-por-nivel">

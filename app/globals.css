@@ -32,8 +32,34 @@
   --color-react:  #2ecc71;
   --color-livre:  #9b59b6;
 
+  /* Semânticas: mudam com o tema claro/escuro (html.dark-mode, abaixo). */
+  --color-danger:  #e74c3c;
+  --color-success: #27ae60;
+  --color-warning: #b7791f;
+
+  /* Efeitos da ficha, por sentido; o neutro segue a cor do tema. */
+  --efeito-neutro:   var(--primary);
+  --efeito-bom:      var(--color-success);
+  --efeito-ruim:     var(--color-danger);
+  --efeito-defesa:   var(--color-padrao);
+  --efeito-ataque:   var(--color-power);
+  --efeito-condicao: var(--color-livre);
+
+  /* Semânticas: mudam com o tema claro/escuro (html.dark-mode, abaixo). */
+  --color-danger:  #e74c3c;
+  --color-success: #27ae60;
+  --color-warning: #b7791f;
+
+  /* Efeitos da ficha, por sentido; o neutro segue a cor do tema. */
+  --efeito-neutro:   var(--primary);
+  --efeito-bom:      var(--color-success);
+  --efeito-ruim:     var(--color-danger);
+  --efeito-defesa:   var(--color-padrao);
+  --efeito-ataque:   var(--color-power);
+  --efeito-condicao: var(--color-livre);
+
   /* Barras e valores de combate — dashboard, ficha e narrador */
-  --bar-hp:       #d32f2f;
+  --bar-hp: #d32f2f;
   --bar-hp-temp:  #f1c40f;
   --bar-pp:       #1976d2;
   --bar-recurso:  var(--accent);
@@ -54,6 +80,9 @@
 
 html.dark-mode {
   color-scheme: dark;
+  --color-danger:  #f0705f;
+  --color-success: #3ecf7e;
+  --color-warning: #e0a000;
 }
 
 * {

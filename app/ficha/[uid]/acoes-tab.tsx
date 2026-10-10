@@ -3,13 +3,26 @@
 import { Fragment, useMemo, useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { ehTemporario, exigir, idTemporario } from "@/lib/acoes";
-import { atualizarAcao, criarAcao, deletarAcao, usarAcao } from "./actions";
+import {
+  adicionarDaPasta,
+  atualizarAcao,
+  criarAcao,
+  deletarAcao,
+  guardarNaPasta,
+  usarAcao,
+} from "./actions";
+import { BarraFiltros, casaBusca, pastasDe } from "./barra-filtros";
+import { useConfirmarUso } from "./usar-modal";
+import { doModelo, type ModeloView } from "@/lib/pastas";
+import { BotaoGuardar, BotaoPastas } from "./pastas";
 import { useRefreshAgrupado } from "@/lib/use-refresh-agrupado";
 import {
   ATRIBUTOS,
+  RECARGAS_HABILIDADE,
   bonusAtaqueTecnica,
   bonusDeAtaque,
   bonusProficiencia,
+  casaContexto,
   cdTecnica,
   computarDeltasInstantaneos,
   alvoDaCura,
@@ -24,6 +37,7 @@ import {
   formatarMod,
   formulaResolvidaTexto,
   lerEfeitos,
+  lerNumeroOuFormula,
   maiorDado,
   motivoSemSobrecarga,
   NIVEL_DO_GRAU,
@@ -33,6 +47,7 @@ import {
   resolverDanoArma,
   resolverFormula,
   subirPassosDano,
+  usosMaximos,
   type Atributo,
   type EfeitoHabilidade,
   type EfeitosAgregados,
@@ -41,9 +56,13 @@ import { empilharD20, empilharRolagem, rolarCuras } from "@/lib/empilhar-rolagem
 import {
   ChipEfeito,
   DatalistAlvos,
+  EfeitoDeAcaoContext,
   EfeitosEditor,
   FormulaContext,
   NomesRecursoContext,
+  PassosProgressivos,
+  StatsPorTurno,
+  useContagemDoRolador,
 } from "./efeitos-editor";
 import { useExaustaoOtimista, usePpOtimista } from "./use-exaustao-otimista";
 import { useEscolherAlvo } from "./escolher-alvo";
@@ -52,11 +71,11 @@ import { MarcaExausto } from "./marca-exausto";
 import { TagChip } from "./estilo-cor-picker";
 import { normalizarEfeitoCor, type EstiloCor } from "@/lib/estilos-cor";
 import { SeletorMultiplo, SeletorUnico, type OpcaoVinculo } from "./seletor-multiplo";
-import { DuracaoCampo } from "./duracao-campo";
-import { Segmentos, type OpcaoSegmento } from "./campos-modal";
+import { DuracaoCampo, comPorTurno, porTurnoDe } from "./duracao-campo";
+import { Segmentos, Sugestoes, TipoDanoCampo, type OpcaoSegmento } from "./campos-modal";
 import { CustosCampo } from "./custos-campo";
 import { CampoFormula } from "./campo-formula";
-import { juntarTipos, tiposDoDano } from "@/lib/dano";
+import { juntarTipos, mesmoTipo, tiposDoDano } from "@/lib/dano";
 import { danoComMunicao, municaoDaArma, textoMunicao } from "@/lib/municao";
 import { useGastoMunicao } from "./use-municao";
 import {
@@ -95,6 +114,7 @@ type Acao = {
   atributoSalv: string | null;
   atributoCd: string | null;
   dano: string | null;
+  tipoDano?: string | null;
   alcance: string | null;
   armaIds: unknown;
   itemId: string | null;
@@ -104,7 +124,26 @@ type Acao = {
   efeitos: unknown;
   aliado: boolean;
   duracao?: unknown;
+  pasta?: string | null;
+  // Ação de que esta é forma alternativa.
+  formaDe?: string | null;
+  // Custo por fórmula; `custoPp` e `custoRecursoValor` já chegam resolvidos.
+  custoPpFormula?: string | null;
+  custoRecursoFormula?: string | null;
+  // Usos limitados (null = ilimitado).
+  usos?: number | null;
+  usosAtual?: number | null;
+  usosFormula?: string | null;
+  recarga?: string | null;
 };
+
+type Filtro = "todas" | "tecnicas" | "sem_custo";
+
+const FILTROS = [
+  ["todas", "Todas"],
+  ["tecnicas", "Técnicas"],
+  ["sem_custo", "Sem custo"],
+] as const;
 
 // Efeitos que cabem numa ação: rolagem dela ou na hora do uso.
 const PRESETS_ACAO = [
@@ -120,6 +159,10 @@ const PRESETS_ACAO = [
   "passo_dano",
   "dano_extra",
   "dados_extra",
+  "potencializacao",
+  "progressivo",
+  "multi_ataque",
+  "explosao",
   "dano_maximo",
   "piso_dado",
   "critico_extra",
@@ -230,6 +273,7 @@ type FormState = {
   atributoSalv: string;
   atributoCd: string;
   dano: string;
+  tipoDano: string;
   alcance: string;
   armaIds: string[];
   itemId: string;
@@ -239,6 +283,13 @@ type FormState = {
   efeitos: EfeitoHabilidade[];
   aliado: boolean;
   duracao: Duracao | null;
+  // Ação de origem da forma alternativa ("" = ação separada).
+  formaDe: string;
+  // Origem oferecida no modal ("" = não oferece).
+  origemForma: string;
+  // Máximo de usos (número ou fórmula; "" = ilimitado) e quando recarrega.
+  usos: string;
+  recarga: string;
 };
 
 const FORM_VAZIO: FormState = {
@@ -254,6 +305,7 @@ const FORM_VAZIO: FormState = {
   atributoSalv: "",
   atributoCd: "",
   dano: "",
+  tipoDano: "",
   alcance: "",
   armaIds: [],
   itemId: "",
@@ -263,6 +315,44 @@ const FORM_VAZIO: FormState = {
   efeitos: [],
   aliado: false,
   duracao: null,
+  formaDe: "",
+  origemForma: "",
+  usos: "",
+  recarga: "",
+};
+
+// Ação recém-trazida de uma pasta, antes do servidor responder.
+const ACAO_BASE: Omit<Acao, "id"> = {
+  nome: "",
+  descricao: "",
+  tipo: "padrao",
+  tag: null,
+  custoPp: 0,
+  custoPa: 0,
+  custoRecursoId: null,
+  custoRecursoValor: 0,
+  atributoAtaque: null,
+  atributoSalv: null,
+  atributoCd: null,
+  dano: null,
+  tipoDano: null,
+  alcance: null,
+  armaIds: [],
+  itemId: null,
+  habilidadeIds: [],
+  tecnica: false,
+  grau: 0,
+  efeitos: [],
+  aliado: false,
+  duracao: null,
+  pasta: null,
+  formaDe: null,
+  custoPpFormula: null,
+  custoRecursoFormula: null,
+  usos: null,
+  usosAtual: null,
+  usosFormula: null,
+  recarga: null,
 };
 
 // Lê um Json de ids vindo do banco com defesa contra lixo/legado.
@@ -379,9 +469,30 @@ export function AcoesTab({
   ];
 
   const [modalAberto, setModalAberto] = useState(false);
+  const [filtro, setFiltro] = useState<Filtro>("todas");
+  const [busca, setBusca] = useState("");
+  const [pastaFiltro, setPastaFiltro] = useState<string | null>(null);
+  const uso = useConfirmarUso();
   const [form, setForm] = useState<FormState>(FORM_VAZIO);
+  // Forma à mostra em cada card (id da ação de origem → id da forma).
+  const [formaAtiva, setFormaAtiva] = useState<Record<string, string>>({});
   const [, startTransition] = useTransition();
   const atualizar = useRefreshAgrupado(0);
+
+  // Formas alternativas ficam dentro do card da ação de origem.
+  const acoesPorId = new Map(acoesOtimistas.map((a) => [a.id, a]));
+  function origemDe(acao: Acao): Acao | undefined {
+    let origem = acao.formaDe && acao.formaDe !== acao.id ? acoesPorId.get(acao.formaDe) : undefined;
+    for (let i = 0; i < 5 && origem?.formaDe && acoesPorId.has(origem.formaDe); i++) {
+      origem = acoesPorId.get(origem.formaDe);
+    }
+    return origem?.id === acao.id ? undefined : origem;
+  }
+  const formasDe = new Map<string, Acao[]>();
+  for (const a of acoesOtimistas) {
+    const origem = origemDe(a);
+    if (origem) formasDe.set(origem.id, [...(formasDe.get(origem.id) ?? []), a]);
+  }
 
   function abrirNova() {
     setForm(FORM_VAZIO);
@@ -389,19 +500,42 @@ export function AcoesTab({
   }
 
   function abrirEdit(acao: Acao) {
+    setForm(formDe(acao));
+    setModalAberto(true);
+  }
+
+  // Duplicar: abre uma ação nova já preenchida; no modal dá pra virar forma alternativa.
+  function abrirCopia(acao: Acao) {
+    const origem = origemDe(acao) ?? acao;
     setForm({
+      ...formDe(acao),
+      id: null,
+      nome: `${acao.nome} (cópia)`,
+      formaDe: "",
+      origemForma: origem.id,
+    });
+    setModalAberto(true);
+  }
+
+  function formDe(acao: Acao): FormState {
+    const origem = origemDe(acao);
+    return {
       id: acao.id,
       nome: acao.nome,
       descricao: acao.descricao,
       tipo: acao.tipo,
       tag: acao.tag || "",
-      custoPp: acao.custoPp ? String(acao.custoPp) : "",
+      custoPp: acao.custoPpFormula ?? (acao.custoPp ? String(acao.custoPp) : ""),
       custoRecursoId: acao.custoRecursoId || "",
-      custoRecursoValor: acao.custoRecursoValor ? String(acao.custoRecursoValor) : "",
+      custoRecursoValor:
+        acao.custoRecursoFormula ?? (acao.custoRecursoValor ? String(acao.custoRecursoValor) : ""),
+      usos: acao.usosFormula ?? (acao.usos != null ? String(acao.usos) : ""),
+      recarga: acao.recarga ?? "",
       atributoAtaque: acao.atributoAtaque || "",
       atributoSalv: acao.atributoSalv || "",
       atributoCd: acao.atributoCd || "",
       dano: acao.dano || "",
+      tipoDano: acao.tipoDano || "",
       alcance: acao.alcance || "",
       armaIds: lerIds(acao.armaIds),
       itemId: acao.itemId || "",
@@ -411,8 +545,9 @@ export function AcoesTab({
       efeitos: lerEfeitos(acao.efeitos),
       aliado: acao.aliado,
       duracao: lerDuracao(acao.duracao),
-    });
-    setModalAberto(true);
+      formaDe: origem?.id ?? "",
+      origemForma: origem?.id ?? "",
+    };
   }
 
   function fecharModal() {
@@ -437,18 +572,32 @@ export function AcoesTab({
       return;
     }
 
+    // Custos e usos: número ou fórmula (o valor de agora vai junto, como reserva).
+    const grau = form.tecnica ? form.grau : 0;
+    const pp = lerNumeroOuFormula(form.custoPp, ctxFormula, grau);
+    const doRecurso = lerNumeroOuFormula(form.custoRecursoId ? form.custoRecursoValor : "", ctxFormula, grau);
+    const usos = form.usos.trim() ? lerNumeroOuFormula(form.usos, ctxFormula) : null;
+    // Edição preserva o que sobrou; ação nova começa cheia.
+    const antes = form.id ? acoesPorId.get(form.id) : undefined;
     const dados = {
       nome: nomeLimpo,
       descricao: form.descricao,
       tipo: form.tipo,
       tag: form.tag,
-      custoPp: Number(form.custoPp) || 0,
+      custoPp: pp.numero,
+      custoPpFormula: pp.formula,
       custoRecursoId: form.custoRecursoId || null,
-      custoRecursoValor: Number(form.custoRecursoValor) || 0,
+      custoRecursoValor: doRecurso.numero,
+      custoRecursoFormula: doRecurso.formula,
+      usos: usos ? usos.numero : null,
+      usosAtual: !usos ? null : antes ? (antes.usosAtual ?? null) : usos.numero,
+      usosFormula: usos?.formula ?? null,
+      recarga: usos && form.recarga ? form.recarga : null,
       atributoAtaque: form.atributoAtaque || null,
       atributoSalv: form.atributoSalv || null,
       atributoCd: form.atributoCd || null,
       dano: form.dano || null,
+      tipoDano: form.dano ? form.tipoDano.trim() || null : null,
       alcance: form.alcance || null,
       armaIds: form.armaIds,
       itemId: form.itemId || null,
@@ -458,6 +607,8 @@ export function AcoesTab({
       efeitos: form.efeitos,
       aliado: form.aliado,
       duracao: form.duracao,
+      // Só vai quando o modal ofereceu a escolha.
+      ...(form.origemForma ? { formaDe: form.formaDe || null } : {}),
     };
 
     const editandoId = form.id;
@@ -492,6 +643,12 @@ export function AcoesTab({
   // Sem PP, técnica de grau 1–5 vai com Sobrecarga (exaustão = grau).
   async function usar(acao: Acao, custoPp: number, recurso: RecursoMinimo | undefined) {
     const instantaneos = lerEfeitos(acao.efeitos).filter(efeitoInstantaneo);
+    const usosMax = usosMaximos(acao, ctxFormula);
+    const usosAtual = acao.usosAtual ?? usosMax ?? 0;
+    if (usosMax != null && usosAtual <= 0) {
+      mostrarErro(new Error("Sem usos restantes."));
+      return;
+    }
     const sobrecarga = custoPp > ppAtual;
     if (sobrecarga) {
       const motivo = motivoSemSobrecarga(acao, exaustao);
@@ -534,17 +691,26 @@ export function AcoesTab({
       if (!escolhido) return;
       alvoId = escolhido;
     } else {
-      const c = await Swal.fire({
-        title: sobrecarga ? `${acao.nome} com Sobrecarga?` : `Usar ${acao.nome}?`,
-        html: linhas.join("<br>"),
-        icon: "question",
-        showCancelButton: true,
-        confirmButtonText: sobrecarga ? "Sobrecarga" : "Usar",
-        cancelButtonText: "Cancelar",
-        background: "var(--bg-card)",
-        color: "var(--text-main)",
+      const ok = await uso.confirmar({
+        titulo: sobrecarga ? "Usar com Sobrecarga" : "Usar",
+        nome: acao.nome,
+        icone: sobrecarga ? "fa-bolt" : "fa-play",
+        botao: sobrecarga ? "Sobrecarga" : "Usar",
+        aviso: sobrecarga ? `Sem PP: recebe ${acao.grau} de exaustão.` : undefined,
+        itens: [
+          {
+            id: acao.id,
+            nome: acao.nome,
+            custos: [
+              ...(pp > 0 ? [{ valor: pp, nome: "PP" }] : []),
+              ...(recurso ? [{ valor: acao.custoRecursoValor, nome: recurso.nome }] : []),
+              ...(usosMax != null ? [{ valor: 1, nome: "uso", proprio: true }] : []),
+            ],
+            faz: [...curas.map((c) => `Cura ${c}`), ...(concentra ? ["Concentração"] : [])],
+          },
+        ],
       });
-      if (!c.isConfirmed) return;
+      if (!ok) return;
     }
 
     // Cura com fórmula rola aqui; vai pra action e, se ela passar, pro chat.
@@ -581,12 +747,63 @@ export function AcoesTab({
       anunciarConcentracao({ tipo: "acao", id: acao.id, nome: acao.nome, ...(turnos ? { turnos } : {}) });
     }
     startTransition(async () => {
+      if (usosMax != null) {
+        aplicarPatch({ kind: "update", id: acao.id, patch: { usosAtual: usosAtual - 1 } });
+      }
       try {
         exigir(await usarAcao(personagemId, acao.id, rolagens, { sobrecarga, alvoId }));
         publicar();
       } catch (err) {
         // Recarrega a página pra desfazer o otimismo.
         atualizar();
+        mostrarErro(err);
+      }
+    });
+  }
+
+  // Traz das pastas: aparece na hora e o servidor cria de verdade.
+  function adicionarDasPastas(modelos: ModeloView[]) {
+    startTransition(async () => {
+      for (const m of modelos) {
+        aplicarPatch({
+          kind: "create",
+          acao: {
+            ...ACAO_BASE,
+            ...doModelo("acao", m.dados, recursos),
+            pasta: m.pasta,
+            id: idTemporario(),
+          } as Acao,
+        });
+      }
+      try {
+        exigir(await adicionarDaPasta(personagemId, modelos.map((m) => m.id)));
+      } catch (err) {
+        mostrarErro(err);
+      }
+    });
+  }
+
+  // Contador do bônus progressivo: muda na hora e grava os efeitos.
+  function mudarEfeitos(acao: Acao, efeitos: EfeitoHabilidade[]) {
+    startTransition(async () => {
+      aplicarPatch({ kind: "update", id: acao.id, patch: { efeitos } });
+      try {
+        exigir(await atualizarAcao(personagemId, acao.id, { efeitos }));
+      } catch (err) {
+        mostrarErro(err);
+      }
+    });
+  }
+  useContagemDoRolador(acoesOtimistas, mudarEfeitos);
+
+  // Põe na pasta (etiqueta + cópia guardada) ou tira a etiqueta.
+  function guardarEmPasta(acao: Acao, pasta: string | null) {
+    startTransition(async () => {
+      aplicarPatch({ kind: "update", id: acao.id, patch: { pasta } });
+      try {
+        if (pasta) exigir(await guardarNaPasta(personagemId, "acao", acao.id, pasta));
+        else exigir(await atualizarAcao(personagemId, acao.id, { pasta: null }));
+      } catch (err) {
         mostrarErro(err);
       }
     });
@@ -617,23 +834,56 @@ export function AcoesTab({
     });
   }
 
+  // Pastas da ficha: filtro e busca.
+  const pastas = pastasDe(acoesOtimistas);
+  const nomesDasPastas = pastas.map((p) => p.nome);
+  const pastaAtiva = pastas.some((p) => p.nome === pastaFiltro) ? pastaFiltro : null;
+  const casaFiltros = (a: Acao) =>
+    (filtro !== "tecnicas" || a.tecnica) &&
+    (filtro !== "sem_custo" ||
+      (a.custoPp === 0 && a.custoPa === 0 && (!a.custoRecursoId || a.custoRecursoValor === 0))) &&
+    (!pastaAtiva || a.pasta === pastaAtiva) &&
+    casaBusca(busca, [a.nome, a.descricao, a.tag, a.pasta, a.dano, a.tipoDano, a.tecnica ? "técnica" : null]);
+  // Um card por ação de origem; aparece se ela ou uma forma dela casar.
+  const visiveis = acoesOtimistas.filter(
+    (a) => !origemDe(a) && [a, ...(formasDe.get(a.id) ?? [])].some(casaFiltros),
+  );
+  const filtrando = filtro !== "todas" || !!pastaAtiva || busca.trim() !== "";
+
   return (
     <NomesRecursoContext.Provider value={new Map(recursos.map((r) => [r.id, r.nome]))}>
     <FormulaContext.Provider value={ctxFormula}>
+    <EfeitoDeAcaoContext.Provider value>
     <div>
       <div className="tab-topo">
         <h1>Ações de Combate</h1>
-        <button
-          type="button"
-          className="btn-rect primary"
-          onClick={abrirNova}
-        >
-          + Nova Ação
-        </button>
+        <div className="tab-topo-botoes">
+          <BotaoPastas tipo="acao" onAdicionar={adicionarDasPastas} />
+          <button
+            type="button"
+            className="btn-rect primary"
+            onClick={abrirNova}
+          >
+            + Nova Ação
+          </button>
+        </div>
       </div>
 
+      <BarraFiltros
+        busca={busca}
+        onBusca={setBusca}
+        rotulo="ação"
+        filtros={FILTROS}
+        filtro={filtro}
+        onFiltro={setFiltro}
+        pastas={pastas}
+        pasta={pastaAtiva}
+        onPasta={setPastaFiltro}
+      />
+
       {GRUPOS.map((grupo) => {
-        const lista = acoesOtimistas.filter((a) => a.tipo === grupo.tipo);
+        const lista = visiveis.filter((a) => a.tipo === grupo.tipo);
+        if (filtrando && lista.length === 0) return null;
         return (
           <section key={grupo.tipo}>
             <div className="section-header">
@@ -642,7 +892,13 @@ export function AcoesTab({
             </div>
             {lista.length > 0 ? (
               <div className="action-grid">
-                {lista.map((acao) => {
+                {lista.map((origem) => {
+                  const formas = [origem, ...(formasDe.get(origem.id) ?? [])];
+                  // A forma escolhida; filtrando, a primeira que casa.
+                  const acao =
+                    formas.find((f) => f.id === formaAtiva[origem.id]) ??
+                    (filtrando ? formas.find(casaFiltros) : undefined) ??
+                    origem;
                   const recursoCusto = recursos.find(
                     (r) => r.id === acao.custoRecursoId,
                   );
@@ -691,6 +947,8 @@ export function AcoesTab({
                     ? itens.find((i) => i.id === acao.itemId)
                     : undefined;
                   const travadaPorItem = !!acao.itemId && !itemOrigem?.equipado;
+                  // Só o item de onde a ação vem trava; arma que ela usa, não.
+                  const travada = travadaPorItem;
                   // Acerto: vem da arma (que já embute o bônus de habilidade do
                   // alcance) ou do cálculo manual da técnica.
                   const bonusAtq = ataqueArma
@@ -701,6 +959,23 @@ export function AcoesTab({
                           valorAtributo: atributosParaTeste[atributoAtq],
                         }) + extraAtaqueSemArma.valor
                       : null;
+                  // Alcance a mais (ou trocado) que vale sempre nesta ação; o opcional fica no Rolador.
+                  const alcancesAcao = (aggAcao.alcances ?? []).filter(
+                    (a) =>
+                      !a.opcional &&
+                      casaContexto(a.alvo, {
+                        tipo: "ataque",
+                        alcance: alcanceContexto,
+                        tecnica: acao.tecnica,
+                      }),
+                  );
+                  const alcanceVira = alcancesAcao.find((a) => a.vira)?.vira;
+                  const alcanceSoma = alcancesAcao.reduce((s, a) => s + (a.vira ? 0 : a.valor), 0);
+                  // Passo de dano da própria ação sobe o dado dela.
+                  const passosProprios = lerEfeitos(acao.efeitos).reduce(
+                    (soma, e) => soma + (e.tipo === "passo_dano" ? e.passos : 0),
+                    0,
+                  );
                   // DES reduzida pela armadura morde o acerto quando ele usa DES.
                   const atributoAcerto = ataqueArma ? ataqueArma.atributo : atributoAtq;
                   const desReduzAtq = atributoAcerto === "destreza" && desReduz;
@@ -712,8 +987,12 @@ export function AcoesTab({
                       ? resolverDanoArma({
                           danoBase: acao.dano,
                           danoBonus: arma?.danoBonus ?? null,
-                          // Passos de técnica só valem em técnica.
-                          passos: acao.tecnica ? agg.passosDanoTecnica.valor : 0,
+                          // Passos de técnica da ficha só valem em técnica; os da ação, sempre.
+                          passos:
+                            (acao.tecnica
+                              ? (arma ? efeitosDa(arma) : efeitosAgregados).passosDanoTecnica.valor
+                              : 0) + passosProprios,
+                          grau: acao.grau,
                           somaAtributo: false,
                           atributoDano: null,
                           atributos: atributosParaTeste,
@@ -728,6 +1007,7 @@ export function AcoesTab({
                       : null;
                     // Tipos escritos no dano da técnica e na arma, pros efeitos só de um tipo.
                     const tiposDano = juntarTipos(
+                      acao.tipoDano ? [acao.tipoDano] : [],
                       tiposDoDano(acao.dano ?? ""),
                       tiposDoDano((arma ? danoComMunicao(arma.dano, municaoDe(arma)) : null) ?? ""),
                       tiposDoDano(arma?.danoBonus ?? ""),
@@ -790,20 +1070,46 @@ export function AcoesTab({
                   const recursoGasto =
                     recursoCusto && acao.custoRecursoValor > 0 ? recursoCusto : undefined;
                   const efeitosAcao = lerEfeitos(acao.efeitos);
+                  const usosMax = usosMaximos(acao, ctxFormula);
+                  const usosAtual = acao.usosAtual ?? usosMax ?? 0;
                   const podeUsar =
                     ppFinal > 0 ||
                     !!recursoGasto ||
+                    usosMax != null ||
                     efeitosAcao.some(efeitoInstantaneo) ||
                     pedeConcentracao(acao.duracao);
                   const duracaoTexto = textoDuracao(lerDuracao(acao.duracao));
+                  const temPorTurno = efeitosAcao.some((e) => e.tipo === "por_turno");
+                  const chipsAcao = efeitosAcao.filter((e) => e.tipo !== "por_turno");
+                  // Tipo escolhido que o texto do dano ainda não diz.
+                  const tipoNoChip =
+                    acao.tipoDano && !tiposDoDano(acao.dano ?? "").some((t) => mesmoTipo(t, acao.tipoDano!))
+                      ? ` ${acao.tipoDano.toLowerCase()}`
+                      : "";
+                  const origens = [...habsDerivadas.map((h) => h.nome), ...(itemOrigem ? [itemOrigem.nome] : [])];
                   return (
                     <div
-                      key={acao.id}
-                      className={`action-card type-${acao.tipo}${travadaPorItem ? " hab-travada" : ""}${
+                      key={origem.id}
+                      className={`action-card com-copia type-${acao.tipo}${travada ? " hab-travada" : ""}${
                         ehTemporario(acao.id) ? " item-pendente" : ""
                       }`}
                       inert={ehTemporario(acao.id)}
                     >
+                      <button
+                        type="button"
+                        className="btn-card-copia"
+                        title="Duplicar"
+                        aria-label={`Duplicar ${acao.nome}`}
+                        onClick={() => abrirCopia(acao)}
+                      >
+                        <i className="fas fa-copy" />
+                      </button>
+                      <BotaoGuardar
+                        origem={{ nome: acao.nome, pasta: acao.pasta ?? null }}
+                        pastasDaFicha={nomesDasPastas}
+                        sugestoes={[...habsDerivadas.map((h) => h.nome), ...(acao.tag ? [acao.tag] : [])]}
+                        onGuardar={(p) => guardarEmPasta(acao, p)}
+                      />
                       <button
                         type="button"
                         className="btn-card-edit"
@@ -822,7 +1128,22 @@ export function AcoesTab({
                       </button>
                       <div>
                         <div className="card-title">{acao.nome}</div>
-                        {(bonusAtq != null || cd != null || atributoSalv || acao.dano || acao.alcance || armasDaAcao.length > 0 || acao.itemId || acao.tecnica || duracaoTexto) && (
+                        {formas.length > 1 && (
+                          <div className="acao-formas" role="group" aria-label="Formas">
+                            {formas.map((f) => (
+                              <button
+                                type="button"
+                                key={f.id}
+                                className={`acao-forma${f.id === acao.id ? " ativo" : ""}`}
+                                aria-pressed={f.id === acao.id}
+                                onClick={() => setFormaAtiva((s) => ({ ...s, [origem.id]: f.id }))}
+                              >
+                                {f.nome}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {(bonusAtq != null || cd != null || atributoSalv || acao.dano || acao.alcance || alcancesAcao.length > 0 || golpes.length > 0 || acao.tecnica || duracaoTexto || temPorTurno || usosMax != null) && (
                           <div className="acao-stats">
                             {acao.tecnica && (
                               <span className="acao-stat acao-tecnica">
@@ -833,6 +1154,25 @@ export function AcoesTab({
                             {duracaoTexto && (
                               <span className="acao-stat">
                                 <i className="fas fa-hourglass-half" /> {duracaoTexto}
+                              </span>
+                            )}
+                            <StatsPorTurno
+                              efeitos={efeitosAcao}
+                              grau={acao.tecnica && acao.grau > 0 ? acao.grau : undefined}
+                            />
+                            {usosMax != null && (
+                              <span
+                                className="acao-stat"
+                                title={acao.usosFormula ? `Máximo: ${acao.usosFormula}` : undefined}
+                              >
+                                <i className="fas fa-bolt-lightning" /> {usosAtual}/{usosMax}
+                              </span>
+                            )}
+                            {usosMax != null && acao.recarga && (
+                              <span className="acao-stat">
+                                <i className="fas fa-rotate" />{" "}
+                                {RECARGAS_HABILIDADE.find((r) => r.slug === acao.recarga)?.nome ??
+                                  acao.recarga}
                               </span>
                             )}
                             {acao.aliado && (
@@ -847,7 +1187,7 @@ export function AcoesTab({
                                     <button
                                       key={arma.id}
                                       type="button"
-                                      disabled={travadaPorItem || semMunicao}
+                                      disabled={travada || semMunicao}
                                       className={`acao-stat acao-rolar ${penD20 > 0 || (atq.atributo === "destreza" && desReduz) ? "valor-exausto" : ""}`}
                                       title={`${semMunicao ? textoMunicao(municao) : `Empilhar ataque com ${arma.nome}`}${
                                         atq.fontes.length
@@ -882,7 +1222,7 @@ export function AcoesTab({
                               : bonusAtq != null && (
                                   <button
                                     type="button"
-                                    disabled={travadaPorItem}
+                                    disabled={travada}
                                     className={`acao-stat acao-rolar ${penD20 > 0 || desReduzAtq ? "valor-exausto" : ""}`}
                                     title={`Empilhar ataque no Rolador${
                                       fontesAtaque.length
@@ -914,10 +1254,11 @@ export function AcoesTab({
                                   <i className="fas fa-burst" />{" "}
                                   {rotulo ? `${rotulo}: ` : ""}
                                   {d.formula}
+                                  {tipoNoChip}
                                   {d.partes.length > 1 && <i className="fas fa-link prof-fonte" />}
                                 </>
                               );
-                              return d.rolavel && !travadaPorItem ? (
+                              return d.rolavel && !travada ? (
                                 <button
                                   key={`d${i}`}
                                   type="button"
@@ -961,50 +1302,30 @@ export function AcoesTab({
                                 {fontesCd.length > 0 && <i className="fas fa-link prof-fonte" />}
                               </span>
                             )}
-                            {acao.alcance && (
-                              <span className="acao-stat"><i className="fas fa-ruler-horizontal" /> {acao.alcance}</span>
-                            )}
-                            {itemOrigem && (
+                            {(acao.alcance || alcancesAcao.length > 0) && (
                               <span
                                 className="acao-stat"
-                                style={travadaPorItem ? { color: "var(--text-sec)" } : undefined}
                                 title={
-                                  travadaPorItem
-                                    ? "Vem de um item que não está equipado"
-                                    : "Vem deste item"
+                                  alcancesAcao.length
+                                    ? `de ${[...new Set(alcancesAcao.map((a) => a.fonte))].join(", ")}`
+                                    : undefined
                                 }
                               >
-                                <i className={`fas ${travadaPorItem ? "fa-lock" : "fa-sack-dollar"}`} />{" "}
-                                {itemOrigem.nome}
+                                <i className="fas fa-ruler-horizontal" /> {alcanceVira ?? acao.alcance}
+                                {alcanceSoma !== 0 ? ` ${formatarMod(alcanceSoma)} m` : ""}
+                                {alcancesAcao.length > 0 && <i className="fas fa-link prof-fonte" />}
                               </span>
                             )}
-                            {armasDaAcao.map((a) => (
-                              <span
-                                key={a.id}
-                                className="acao-stat"
-                                style={a.equipado ? undefined : { color: "var(--text-sec)" }}
-                                title={
-                                  a.equipado
-                                    ? "Arma desta ação"
-                                    : "Arma não equipada"
-                                }
-                              >
-                                <i className={`fas ${a.equipado ? "fa-khanda" : "fa-link-slash"}`} />{" "}
-                                {a.nome}
-                                {a.danoBonus && a.equipado ? ` ${comSinal(a.danoBonus)}` : ""}
-                              </span>
-                            ))}
                           </div>
                         )}
-                        {travadaPorItem && (
+                        {travada && (
                           <div className="hab-travada-nota">
-                            <i className="fas fa-lock" /> vem de{" "}
-                            {itemOrigem?.nome ?? "um item"} — equipe o item pra usar
+                            <i className="fas fa-lock" /> Ação travada · equipe {itemOrigem?.nome ?? "o item"}
                           </div>
                         )}
-                        {efeitosAcao.length > 0 && (
+                        {chipsAcao.length > 0 && (
                           <div className="efeito-chips">
-                            {efeitosAcao.map((e, i) => (
+                            {chipsAcao.map((e, i) => (
                               <ChipEfeito
                                 key={i}
                                 efeito={e}
@@ -1013,9 +1334,15 @@ export function AcoesTab({
                             ))}
                           </div>
                         )}
+                        <PassosProgressivos
+                          efeitos={efeitosAcao}
+                          onChange={(efeitos) => mudarEfeitos(acao, efeitos)}
+                          travado={travada}
+                          grau={acao.tecnica && acao.grau > 0 ? acao.grau : undefined}
+                        />
                         <div className="card-desc">{acao.descricao}</div>
                       </div>
-                      {(custos.length > 0 || podeUsar || acao.tag || habsDerivadas.length > 0) && (
+                      {(custos.length > 0 || podeUsar || acao.tag || acao.pasta || origens.length > 0 || armasDaAcao.length > 0) && (
                         <div className="card-tags">
                           {custos.map((c, i) => (
                             <TagChip
@@ -1030,7 +1357,8 @@ export function AcoesTab({
                             <button
                               type="button"
                               className="hab-usar"
-                              disabled={travadaPorItem}
+                              disabled={travada || (usosMax != null && usosAtual <= 0)}
+                              title={usosMax != null && usosAtual <= 0 ? "Sem usos" : undefined}
                               onClick={() => usar(acao, ppFinal, recursoGasto)}
                             >
                               <i className="fas fa-play" /> Usar
@@ -1039,16 +1367,47 @@ export function AcoesTab({
                           {acao.tag && (
                             <span className="tag tag-damage">{acao.tag}</span>
                           )}
-                          {habsDerivadas.length > 0 && (
+                          {acao.pasta && (
+                            <button
+                              type="button"
+                              className="tag tag-pasta"
+                              title="Filtrar por esta pasta"
+                              onClick={() => setPastaFiltro(acao.pasta!)}
+                            >
+                              <i className="fas fa-folder" /> {acao.pasta}
+                            </button>
+                          )}
+                          {(origens.length > 0 || armasDaAcao.length > 0) && (
+                          <span className="acao-derivas">
+                          {origens.length > 0 && (
                             <span className="acao-deriva">
                               Vem de{" "}
-                              {habsDerivadas.map((h, i) => (
-                                <span key={h.id}>
+                              {origens.map((nome, i) => (
+                                <span key={i}>
                                   {i > 0 && ", "}
-                                  <span className="acao-deriva-nome">{h.nome}</span>
+                                  <span className="acao-deriva-nome">{nome}</span>
                                 </span>
                               ))}
                             </span>
+                          )}
+                          {armasDaAcao.length > 0 && (
+                            <span className="acao-deriva">
+                              Usa{" "}
+                              {armasDaAcao.map((a, i) => (
+                                <span key={a.id}>
+                                  {i > 0 && ", "}
+                                  <span
+                                    className={`acao-deriva-nome${a.equipado ? "" : " fora"}`}
+                                    title={a.equipado ? undefined : "Não equipada"}
+                                  >
+                                    {a.nome}
+                                    {a.danoBonus && a.equipado ? ` ${comSinal(a.danoBonus)}` : ""}
+                                  </span>
+                                </span>
+                              ))}
+                            </span>
+                          )}
+                          </span>
                           )}
                         </div>
                       )}
@@ -1065,7 +1424,10 @@ export function AcoesTab({
         );
       })}
 
+      {filtrando && visiveis.length === 0 && <p className="filtros-vazio">Nada encontrado.</p>}
+
       {alvo.modal}
+      {uso.modal}
 
       {modalAberto && (
         <div className="modal-overlay" onClick={fecharModal}>
@@ -1108,6 +1470,24 @@ export function AcoesTab({
                 placeholder="Ex: Soco Meteoro"
                 autoFocus
               />
+
+              {form.origemForma && acoesPorId.has(form.origemForma) && (
+                <>
+                  <label>Forma alternativa</label>
+                  <Segmentos
+                    rotulo="Forma alternativa"
+                    valor={form.formaDe}
+                    onChange={(v) => setF("formaDe", v)}
+                    opcoes={[
+                      { valor: "", rotulo: "Não" },
+                      {
+                        valor: form.origemForma,
+                        rotulo: `De ${acoesPorId.get(form.origemForma)!.nome}`,
+                      },
+                    ]}
+                  />
+                </>
+              )}
 
               <label>Descrição</label>
               <textarea
@@ -1155,7 +1535,14 @@ export function AcoesTab({
                 </>
               )}
 
-              <DuracaoCampo valor={form.duracao} onChange={(d) => setF("duracao", d)} />
+              <DuracaoCampo
+                valor={form.duracao}
+                onChange={(d) => setF("duracao", d)}
+                porTurno={porTurnoDe(form.efeitos)}
+                onPorTurno={(lista) => setF("efeitos", comPorTurno(form.efeitos, lista))}
+                recursos={recursos}
+                aCadaTurno="concentrando"
+              />
 
               <h3 className="modal-secao">
                 <i className="fas fa-link" /> De onde vem
@@ -1179,7 +1566,11 @@ export function AcoesTab({
                 vazio="Nenhum item no inventário."
               />
 
-              <label style={{ marginTop: 14 }}>Armas</label>
+              <h3 className="modal-secao">
+                <i className="fas fa-khanda" /> Usa
+              </h3>
+
+              <label>Armas</label>
               <SeletorMultiplo
                 opcoes={opcoesArma}
                 marcados={form.armaIds}
@@ -1209,7 +1600,7 @@ export function AcoesTab({
                     onChange={(e) => setF("alcance", e.target.value)}
                     placeholder="Ex: 9 m"
                   />
-                  <div className="sugestoes">
+                  <Sugestoes>
                     {ALCANCES_RAPIDOS.map((a) => (
                       <button
                         type="button"
@@ -1221,9 +1612,12 @@ export function AcoesTab({
                         {a}
                       </button>
                     ))}
-                  </div>
+                  </Sugestoes>
                 </div>
               </div>
+              {form.dano.trim() && (
+                <TipoDanoCampo valor={form.tipoDano} onChange={(t) => setF("tipoDano", t)} />
+              )}
 
               <div className="atrib-grade">
                 {(
@@ -1259,13 +1653,46 @@ export function AcoesTab({
                     onRecursoId={(id) => setF("custoRecursoId", id)}
                     recursoValor={form.custoRecursoValor}
                     onRecursoValor={(v) => setF("custoRecursoValor", v)}
+                    comGrau={form.tecnica}
+                    grau={form.tecnica && form.grau > 0 ? form.grau : undefined}
                   />
                 </div>
               </details>
 
-              <details className="modal-secao-detalhe" open={form.efeitos.length > 0}>
+              <details className="modal-secao-detalhe" open={!!(form.usos || form.recarga)}>
                 <summary>
-                  <i className="fas fa-list-check" /> Efeitos ({form.efeitos.length})
+                  <i className="fas fa-bolt-lightning" /> Usos limitados
+                </summary>
+                <div className="modal-secao-corpo">
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10 }}>
+                    <CampoFormula
+                      label="Máximo"
+                      valor={form.usos}
+                      onChange={(v) => setF("usos", v)}
+                      placeholder="3, PROF, NIVEL…"
+                    />
+                    <div>
+                      <label>Recarga</label>
+                      <select value={form.recarga} onChange={(e) => setF("recarga", e.target.value)}>
+                        <option value="">—</option>
+                        {RECARGAS_HABILIDADE.map((r) => (
+                          <option key={r.slug} value={r.slug}>
+                            {r.nome}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </details>
+
+              <details
+                className="modal-secao-detalhe"
+                open={form.efeitos.some((e) => e.tipo !== "por_turno")}
+              >
+                <summary>
+                  <i className="fas fa-list-check" /> Efeitos (
+                  {form.efeitos.filter((e) => e.tipo !== "por_turno").length})
                 </summary>
                 <div className="modal-secao-corpo">
                   <label>Efeitos na hora em</label>
@@ -1315,6 +1742,7 @@ export function AcoesTab({
         </div>
       )}
     </div>
+    </EfeitoDeAcaoContext.Provider>
     </FormulaContext.Provider>
     </NomesRecursoContext.Provider>
   );

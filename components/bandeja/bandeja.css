@@ -586,16 +586,16 @@
 }
 /* Dano recebido / cura manual. */
 .vida-message.dano {
-  border-left-color: #c0392b;
+  border-left-color: var(--color-danger);
 }
 .vida-message.dano .roll-total {
-  color: #e74c3c;
+  color: var(--color-danger);
 }
 .vida-message.cura {
-  border-left-color: #27ae60;
+  border-left-color: var(--color-success);
 }
 .vida-message.cura .roll-total {
-  color: #27ae60;
+  color: var(--color-success);
 }
 .vida-message.turno {
   border-left-color: var(--color-bonus);
@@ -612,7 +612,7 @@
   color: var(--text-sec);
 }
 .vida-caiu {
-  color: #e74c3c;
+  color: var(--color-danger);
   font-weight: 700;
 }
 .roll-batch-list {

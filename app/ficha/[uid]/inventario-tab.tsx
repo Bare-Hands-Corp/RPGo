@@ -55,8 +55,11 @@ import {
   NomesRecursoContext,
   DatalistAlvos,
   EfeitosEditor,
+  PassosProgressivos,
+  useContagemDoRolador,
   type RecursoMinimo,
 } from "./efeitos-editor";
+import { ACadaTurnoCampo, comPorTurno, porTurnoDe } from "./duracao-campo";
 import { useExaustaoOtimista } from "./use-exaustao-otimista";
 import { useGastoMunicao } from "./use-municao";
 import { SeletorUnico } from "./seletor-multiplo";
@@ -416,6 +419,19 @@ export function InventarioTab({
       }
     });
   }
+
+  // Contador do bônus progressivo do item: muda na hora e grava os efeitos.
+  function mudarEfeitos(item: Item, efeitos: EfeitoHabilidade[]) {
+    startTransition(async () => {
+      aplicarOtimista({ kind: "update", id: item.id, patch: { efeitos } });
+      try {
+        exigir(await atualizarItem(personagemId, item.id, { efeitos }));
+      } catch (err) {
+        mostrarErro(err);
+      }
+    });
+  }
+  useContagemDoRolador(itensOtimistas, mudarEfeitos);
 
   function abrirNovo() {
     setForm(FORM_VAZIO);
@@ -892,6 +908,7 @@ export function InventarioTab({
                 onEdit={() => abrirEdit(item)}
                 onDelete={() => apagar(item.id)}
                 onQuantidade={(n) => mudarQuantidade(item, n)}
+                onEfeitos={(efeitos) => mudarEfeitos(item, efeitos)}
                 gasto={gastoMunicao(item.id)}
               />
             ))}
@@ -927,7 +944,7 @@ export function InventarioTab({
         icone="fa-fist-raised"
         itens={arsenal}
         visivel={mostrarEquipados || categoria === "arsenal"}
-        callbacks={{ toggleFavorito, toggleEquipar, usar, abrirEdit, apagar, mudarQuantidade, gastoMunicao }}
+        callbacks={{ toggleFavorito, toggleEquipar, usar, abrirEdit, apagar, mudarQuantidade, mudarEfeitos, gastoMunicao }}
         calcArma={calcArma}
         concedidosPorItem={concedidosPorItem}
       />
@@ -936,7 +953,7 @@ export function InventarioTab({
         icone="fa-shield-alt"
         itens={armaria}
         visivel={mostrarEquipados || categoria === "armaria"}
-        callbacks={{ toggleFavorito, toggleEquipar, usar, abrirEdit, apagar, mudarQuantidade, gastoMunicao }}
+        callbacks={{ toggleFavorito, toggleEquipar, usar, abrirEdit, apagar, mudarQuantidade, mudarEfeitos, gastoMunicao }}
         calcArma={calcArma}
         concedidosPorItem={concedidosPorItem}
       />
@@ -945,7 +962,7 @@ export function InventarioTab({
         icone="fa-shopping-bag"
         itens={mochila}
         visivel={mostrarEquipados || categoria === "mochila"}
-        callbacks={{ toggleFavorito, toggleEquipar, usar, abrirEdit, apagar, mudarQuantidade, gastoMunicao }}
+        callbacks={{ toggleFavorito, toggleEquipar, usar, abrirEdit, apagar, mudarQuantidade, mudarEfeitos, gastoMunicao }}
         calcArma={calcArma}
         concedidosPorItem={concedidosPorItem}
       />
@@ -1258,7 +1275,8 @@ export function InventarioTab({
 
               <details className="modal-secao-detalhe" open={form.efeitos.length > 0}>
                 <summary>
-                  <i className="fas fa-list-check" /> Efeitos ({form.efeitos.length})
+                  <i className="fas fa-list-check" /> Efeitos (
+                  {form.efeitos.filter((e) => e.tipo !== "por_turno").length})
                 </summary>
                 <div className="modal-secao-corpo">
                   <EfeitosEditor
@@ -1266,6 +1284,11 @@ export function InventarioTab({
                     onChange={(v) => set("efeitos", v)}
                     recursos={recursos}
                     pergunta="O que esse item faz?"
+                  />
+                  <ACadaTurnoCampo
+                    lista={porTurnoDe(form.efeitos)}
+                    onChange={(lista) => set("efeitos", comPorTurno(form.efeitos, lista))}
+                    recursos={recursos}
                   />
                 </div>
               </details>
@@ -1320,6 +1343,7 @@ type CardCallbacks = {
   abrirEdit: (i: Item) => void;
   apagar: (id: string) => void;
   mudarQuantidade: (i: Item, n: number) => void;
+  mudarEfeitos: (i: Item, efeitos: EfeitoHabilidade[]) => void;
   gastoMunicao: (id: string) => number;
 };
 
@@ -1400,6 +1424,7 @@ function SecaoItens({
             onEdit={() => callbacks.abrirEdit(item)}
             onDelete={() => callbacks.apagar(item.id)}
             onQuantidade={(n) => callbacks.mudarQuantidade(item, n)}
+            onEfeitos={(efeitos) => callbacks.mudarEfeitos(item, efeitos)}
             gasto={callbacks.gastoMunicao(item.id)}
           />
         ))}
@@ -1418,6 +1443,7 @@ function CardItem({
   onEdit,
   onDelete,
   onQuantidade,
+  onEfeitos,
   gasto,
 }: {
   item: Item;
@@ -1429,6 +1455,8 @@ function CardItem({
   onEdit: () => void;
   onDelete: () => void;
   onQuantidade: (n: number) => void;
+  // Contador do bônus progressivo mudou.
+  onEfeitos: (efeitos: EfeitoHabilidade[]) => void;
   // Munição gasta que o servidor ainda não contou.
   gasto: number;
 }) {
@@ -1622,6 +1650,7 @@ function CardItem({
               ))}
             </div>
           )}
+          <PassosProgressivos efeitos={efeitos} onChange={onEfeitos} />
           {nConcedido > 0 && (
             <div className="card-tags">
               {concedidos?.acoes.map((n) => (

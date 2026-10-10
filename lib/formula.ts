@@ -43,7 +43,12 @@ export const FUNCOES_FORMULA: { nome: string; rotulo: string; descricao: string;
 ];
 
 // Apelidos → sigla canônica.
-const APELIDOS_SIGLA: Record<string, string> = { "NÍVEL": "NIVEL", NV: "NIVEL" };
+const APELIDOS_SIGLA: Record<string, string> = {
+  "NÍVEL": "NIVEL",
+  NV: "NIVEL",
+  LEVEL: "NIVEL",
+  LVL: "NIVEL",
+};
 const SIGLAS = new Set([...SIGLAS_FORMULA.map((s) => s.sigla), ...Object.keys(APELIDOS_SIGLA)]);
 
 type Funcao = "min" | "max" | "por_nivel";

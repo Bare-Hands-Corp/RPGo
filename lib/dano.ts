@@ -3,6 +3,22 @@
 
 import type { EfeitoHabilidade, EfeitosAgregados } from "@/lib/op-rpg";
 
+// Tipos de dano do livro (cap. 12).
+export const TIPOS_DANO: { nome: string }[] = [
+  { nome: "Contundente" },
+  { nome: "Cortante" },
+  { nome: "Perfurante" },
+  { nome: "Fogo" },
+  { nome: "Frio" },
+  { nome: "Elétrico" },
+  { nome: "Ácido" },
+  { nome: "Veneno" },
+  { nome: "Psíquico" },
+  { nome: "Trovejante" },
+  { nome: "Energia" },
+  { nome: "Verdadeiro" },
+];
+
 // Abreviações do livro ("Cont./Cort./Perf.") e sinônimos comuns.
 const SINONIMOS: Record<string, string> = {
   cont: "contundente",
