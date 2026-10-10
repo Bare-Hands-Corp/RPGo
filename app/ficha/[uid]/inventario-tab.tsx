@@ -638,8 +638,8 @@ export function InventarioTab({
       text: "Tem certeza que quer apagar este item?",
       icon: "warning",
       showCancelButton: true,
-      confirmButtonColor: "#d33",
-      cancelButtonColor: "#3085d6",
+      confirmButtonColor: "var(--danger)",
+      cancelButtonColor: "var(--text-sec)",
       confirmButtonText: "Deletar",
       cancelButtonText: "Cancelar",
       background: "var(--bg-card)",
@@ -807,22 +807,22 @@ export function InventarioTab({
   const maxPeso = multCarga ? maxPesoBase * multCarga.fator : maxPesoBase;
   const pesoPct = Math.min(100, (pesoTotal / maxPeso) * 100);
 
-  let corBarra = "var(--color-react)";
+  let corBarra = "var(--success)";
   let msgSobrecarga: string | null = null;
   if (pesoPct >= 100) {
-    corBarra = "#ff4444";
+    corBarra = "var(--danger)";
     msgSobrecarga = "LIMITE ATINGIDO!";
   } else if (pesoPct >= 90) {
-    corBarra = "#ff4444";
+    corBarra = "var(--danger)";
     msgSobrecarga = "SOBRECARGA";
   } else if (pesoPct >= 75) {
-    corBarra = "orangered";
+    corBarra = "color-mix(in oklch, var(--warning) 30%, var(--danger))";
     msgSobrecarga = "SOBRECARGA";
   } else if (pesoPct > 50) {
-    corBarra = "var(--color-power)";
+    corBarra = "color-mix(in oklch, var(--warning) 60%, var(--danger))";
     msgSobrecarga = "SOBRECARGA";
   } else if (pesoPct >= 25) {
-    corBarra = "var(--color-bonus)";
+    corBarra = "var(--warning)";
   }
 
   const ordenados = [...itensOtimistas].sort((a, b) => a.nome.localeCompare(b.nome));
@@ -892,7 +892,7 @@ export function InventarioTab({
       {/* Favoritos (só quando "Ver Todos") */}
       {!mostrarEquipados && favoritos.length > 0 && (
         <section style={{ marginBottom: 30 }}>
-          <h3 style={{ color: "#d4af37", marginBottom: 20 }}>
+          <h3 style={{ color: "var(--highlight)", marginBottom: 20 }}>
             <i className="fas fa-star" /> DESTAQUES
           </h3>
           <div className="action-grid">
@@ -1619,7 +1619,7 @@ function CardItem({
         </div>
       )}
       {item.tipo === "armadura" && (item.ca > 0 || item.penalidadeDes !== 0) && (
-        <div style={{ fontSize: "0.85rem", color: "var(--color-padrao)", fontWeight: "bold", marginTop: 8 }}>
+        <div style={{ fontSize: "0.85rem", color: "var(--info)", fontWeight: "bold", marginTop: 8 }}>
           {item.ca > 0 && (
             <span><i className="fas fa-shield-alt" /> +{item.ca} CA</span>
           )}
@@ -1707,7 +1707,7 @@ function CardItem({
           className="btn-edit-item"
           onClick={onDelete}
           title="Apagar"
-          style={{ color: "#ff6b6b" }}
+          style={{ color: "var(--danger)" }}
         >
           <i className="fas fa-trash" />
         </button>

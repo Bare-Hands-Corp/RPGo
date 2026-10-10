@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { SeletorCor } from "@/components/cor/seletor-cor";
 import {
   EFEITOS_COR,
   EFEITO_COR_PADRAO,
@@ -13,7 +14,7 @@ import {
   type MapaEstilosTag,
 } from "@/lib/estilos-cor";
 
-// Hex: <input type="color"> não aceita var().
+// Hex: o seletor de cor trabalha em hex, não aceita var().
 export const SWATCHES_COR = [
   "#d4af37", // berries/ouro
   "#1f9eff", // azul
@@ -90,6 +91,7 @@ export function EstiloPicker({
   onChange,
   amostra = "Aa",
   permitirSemCor = true,
+  familiaAmostra = "texto",
 }: {
   cor: string;
   /** 2ª cor do gradiente. "" = derivada da primeira. */
@@ -98,6 +100,8 @@ export function EstiloPicker({
   onChange: (patch: { cor?: string; cor2?: string; efeito?: EfeitoCor }) => void;
   amostra?: string;
   permitirSemCor?: boolean;
+  /** Formato da amostra: igual a onde o estilo vai aparecer (texto solto ou chip). */
+  familiaAmostra?: "texto" | "chip";
 }) {
   const corPrevia = cor || SWATCHES_COR[0];
   const varsPrevia = varsEstiloCor(corPrevia, cor2 || null) ?? undefined;
@@ -116,12 +120,18 @@ export function EstiloPicker({
                 title={e.dica}
                 aria-pressed={efeito === e.slug}
               >
-                <span
-                  className={`fx-texto-solto fx-${e.slug}`}
-                  style={varsPrevia}
-                >
-                  {amostra}
-                </span>
+                {familiaAmostra === "chip" ? (
+                  <span className={`efeito-amostra-chip fx-chip fx-${e.slug}`} style={varsPrevia}>
+                    <span className="fx-texto">{amostra}</span>
+                  </span>
+                ) : (
+                  <span
+                    className={`fx-texto-solto fx-${e.slug}`}
+                    style={varsPrevia}
+                  >
+                    {amostra}
+                  </span>
+                )}
                 <div style={{ marginTop: 4, fontSize: "0.68rem" }}>{e.nome}</div>
               </button>
           ))}
@@ -130,15 +140,12 @@ export function EstiloPicker({
 
       <div>
         <div className="estilo-picker-titulo">
-          {efeito === "gradiente" ? "Cor 1" : "Cor"}
+          {efeito === "gradiente" ? "Cor 1" : efeito === "contorno" ? "Contorno" : "Cor"}
         </div>
         <div className="cor-picker">
-          <input
-            type="color"
-            className="cor-picker-input"
-            value={cor || SWATCHES_COR[0]}
-            onChange={(ev) => onChange({ cor: ev.target.value })}
-            aria-label="Escolher cor"
+          <SeletorCor
+            valor={cor || SWATCHES_COR[0]}
+            onChange={(hex) => onChange({ cor: hex })}
           />
           <div className="cor-swatches">
             {SWATCHES_COR.map((c) => (
@@ -167,16 +174,16 @@ export function EstiloPicker({
         </div>
       </div>
 
-      {efeito === "gradiente" && (
+      {(efeito === "gradiente" || efeito === "contorno") && (
         <div>
-          <div className="estilo-picker-titulo">Cor 2</div>
+          <div className="estilo-picker-titulo">
+            {efeito === "contorno" ? "Preenchimento" : "Cor 2"}
+          </div>
           <div className="cor-picker">
-            <input
-              type="color"
-              className="cor-picker-input"
-              value={cor2 || SWATCHES_COR[1]}
-              onChange={(ev) => onChange({ cor2: ev.target.value })}
-              aria-label="Escolher a segunda cor"
+            <SeletorCor
+              valor={cor2 || SWATCHES_COR[1]}
+              onChange={(hex) => onChange({ cor2: hex })}
+              rotulo={efeito === "contorno" ? "Escolher o preenchimento" : "Escolher a segunda cor"}
             />
             <div className="cor-swatches">
               {SWATCHES_COR.map((c) => (
@@ -196,10 +203,10 @@ export function EstiloPicker({
                 type="button"
                 className={`cor-swatch cor-swatch-limpar ${!cor2 ? "ativo" : ""}`}
                 onClick={() => onChange({ cor2: "" })}
-                title="Automática (combina com a Cor 1)"
-                aria-label="Segunda cor automática"
+                title={efeito === "contorno" ? "Vazado (sem preenchimento)" : "Automática (combina com a Cor 1)"}
+                aria-label={efeito === "contorno" ? "Sem preenchimento" : "Segunda cor automática"}
               >
-                <i className="fas fa-wand-magic-sparkles" />
+                <i className={`fas ${efeito === "contorno" ? "fa-ban" : "fa-wand-magic-sparkles"}`} />
               </button>
             </div>
           </div>

@@ -4,9 +4,9 @@ import Swal from "sweetalert2";
 import { modificador, formatarMod } from "@/lib/op-rpg";
 import { parseFormulaDados, rolarDados, type Dado } from "@/lib/dice";
 import { empilharRolagem } from "@/lib/empilhar-rolagem";
-import { destacarCondicoes } from "./destacar-condicoes";
+import { ChipCondicao, separarCondicoes } from "./destacar-condicoes";
 import { CATEGORIAS_COMPONENTE } from "./types";
-import type { CondicaoEfeito, ComponentePayload, CriaturaSerializada, EfeitoAcao } from "./types";
+import type { AtributoSalvaguarda, CondicaoEfeito, ComponentePayload, CriaturaSerializada, EfeitoAcao } from "./types";
 
 const D6: Dado = { faces: 6, sinal: 1 };
 
@@ -82,6 +82,13 @@ function textoDano(formula: string, tipos: string[]) {
   return t ? `${f} ${t}` : f;
 }
 
+// Custo é texto livre, mas na prática quase sempre é só o número de Pontos
+// de Poder — nesse caso completa com "PP". Se já tiver unidade (ex: "2 PP",
+// "1 uso"), mostra como veio.
+function textoCusto(custo: string) {
+  return /^\d+$/.test(custo) ? `${custo} PP` : custo;
+}
+
 const FORMA_LABEL: Record<string, string> = {
   cone: "Cone",
   linha: "Linha",
@@ -90,7 +97,46 @@ const FORMA_LABEL: Record<string, string> = {
   cilindro: "Cilindro",
 };
 
-function BadgeEfeito({
+const SIGLA_SALV: Record<AtributoSalvaguarda, string> = {
+  forca: "FOR",
+  destreza: "DES",
+  constituicao: "CON",
+  sabedoria: "SAB",
+  presenca: "PRE",
+  vontade: "VON",
+};
+
+// Stat de uma linha do card — mesmo desenho dos `acao-stat` da ficha do
+// jogador (ícone + texto, sem caixa). Vira botão quando dá pra empilhar a
+// rolagem na Bandeja.
+function Stat({
+  icone,
+  titulo,
+  onRolar,
+  children,
+}: {
+  icone: string;
+  titulo?: string;
+  onRolar?: () => void;
+  children: React.ReactNode;
+}) {
+  const miolo = (
+    <>
+      <i className={`fas ${icone}`} /> {children}
+    </>
+  );
+  return onRolar ? (
+    <button type="button" className="bestiario-acao-stat bestiario-acao-rolar" onClick={onRolar} title={titulo}>
+      {miolo}
+    </button>
+  ) : (
+    <span className="bestiario-acao-stat" title={titulo}>
+      {miolo}
+    </span>
+  );
+}
+
+function StatEfeito({
   efeito,
   item,
   nomeCriatura,
@@ -104,83 +150,78 @@ function BadgeEfeito({
   switch (efeito.tipo) {
     case "ataque":
       if (!efeito.bonus.trim()) return null;
-      return permitirRolagem ? (
-        <button
-          type="button"
-          className="bestiario-ficha-badge bestiario-ficha-badge-rolavel"
-          onClick={() => rolarAtaque(nomeCriatura, item, efeito.bonus)}
-          title="Rolar ataque"
+      return (
+        <Stat
+          icone="fa-crosshairs"
+          titulo={permitirRolagem ? "Empilhar ataque no Rolador" : undefined}
+          onRolar={permitirRolagem ? () => rolarAtaque(nomeCriatura, item, efeito.bonus) : undefined}
         >
-          <i className="fas fa-dice" /> Ataque {efeito.bonus.trim()}
-        </button>
-      ) : (
-        <span className="bestiario-ficha-badge">Ataque {efeito.bonus.trim()}</span>
+          Acerto <strong>{efeito.bonus.trim()}</strong>
+        </Stat>
       );
     case "salvaguarda":
       return (
-        <span className="bestiario-ficha-badge">
-          CD {efeito.cd} ({efeito.atributo})
-        </span>
+        <Stat icone="fa-shield-halved">
+          Salv {SIGLA_SALV[efeito.atributo] ?? efeito.atributo} CD <strong>{efeito.cd}</strong>
+        </Stat>
       );
     case "dano": {
-      const texto = textoDano(efeito.formula, efeito.tipos);
-      if (!texto) return null;
-      return permitirRolagem ? (
-        <button
-          type="button"
-          className="bestiario-ficha-badge bestiario-ficha-badge-rolavel"
-          onClick={() => rolarDano(nomeCriatura, item, efeito.formula, efeito.tipos)}
-          title="Rolar dano"
+      if (!textoDano(efeito.formula, efeito.tipos)) return null;
+      const tipo = efeito.tipos.filter(Boolean).join(" ou ");
+      const rolavel = permitirRolagem && !!efeito.formula.trim();
+      return (
+        <Stat
+          icone="fa-burst"
+          titulo={rolavel ? "Empilhar dano no Rolador" : undefined}
+          onRolar={rolavel ? () => rolarDano(nomeCriatura, item, efeito.formula, efeito.tipos) : undefined}
         >
-          <i className="fas fa-dice" /> Dano: {texto}
-        </button>
-      ) : (
-        <span className="bestiario-ficha-badge">Dano: {texto}</span>
+          {efeito.formula.trim() && <strong>{efeito.formula.trim()}</strong>}
+          {tipo && ` ${tipo}`}
+        </Stat>
       );
     }
     case "area":
       if (efeito.forma === "nenhuma") return null;
       return (
-        <span className="bestiario-ficha-badge">
-          Área: {FORMA_LABEL[efeito.forma]}
-          {efeito.tamanho ? ` (${efeito.tamanho})` : ""}
-        </span>
+        <Stat icone="fa-circle-notch">
+          {FORMA_LABEL[efeito.forma]}
+          {efeito.tamanho ? ` ${efeito.tamanho}` : ""}
+        </Stat>
       );
     case "movimento":
       return (
-        <span className="bestiario-ficha-badge">
-          Movimento: {efeito.valor}m {efeito.tipoMov}
+        <Stat icone="fa-person-running">
+          <strong>{efeito.valor}m</strong> {efeito.tipoMov}
           {efeito.duracao ? ` (${efeito.duracao})` : ""}
-        </span>
+        </Stat>
       );
     case "bonus_numerico":
       if (!efeito.alvo.trim()) return null;
       return (
-        <span className="bestiario-ficha-badge">
-          {efeito.alvo}: {formatarMod(efeito.valor)}
+        <Stat icone="fa-plus-minus">
+          {efeito.alvo} <strong>{formatarMod(efeito.valor)}</strong>
           {efeito.duracao ? ` (${efeito.duracao})` : ""}
-        </span>
+        </Stat>
       );
-    case "cura":
+    case "cura": {
       if (!efeito.formula.trim()) return null;
-      return permitirRolagem && temDado(efeito.formula) ? (
-        <button
-          type="button"
-          className="bestiario-ficha-badge bestiario-ficha-badge-rolavel"
-          onClick={() => rolarCura(nomeCriatura, item, efeito.formula)}
-          title="Rolar cura"
+      const rolavel = permitirRolagem && temDado(efeito.formula);
+      return (
+        <Stat
+          icone="fa-heart"
+          titulo={rolavel ? "Empilhar cura no Rolador" : undefined}
+          onRolar={rolavel ? () => rolarCura(nomeCriatura, item, efeito.formula) : undefined}
         >
-          <i className="fas fa-dice" /> Recupera {efeito.formula.trim()} PV
-        </button>
-      ) : (
-        <span className="bestiario-ficha-badge">Recupera {efeito.formula.trim()} PV</span>
+          Recupera <strong>{efeito.formula.trim()}</strong> PV
+        </Stat>
       );
+    }
     case "condicao":
-      // Condições aparecem destacadas no texto da descrição, não como badge.
+      // Condições aparecem destacadas no texto da descrição, não como stat.
       return null;
     case "livre":
       if (!efeito.texto.trim()) return null;
-      return <span className="bestiario-ficha-badge">{efeito.texto.trim()}</span>;
+      return <Stat icone="fa-feather">{efeito.texto.trim()}</Stat>;
   }
 }
 
@@ -452,41 +493,58 @@ export function FichaCriaturaView({ criatura: c, onEditar, onFechar, permitirRol
         </div>
       )}
 
-      {CATEGORIAS_COMPONENTE.map(({ key, label, icone }) => {
+      {CATEGORIAS_COMPONENTE.map(({ key, label, icone, cor }) => {
         const itens = c.componentes.filter((item) => item.categoria === key);
         if (itens.length === 0) return null;
         return (
-          <div key={key} className="bestiario-ficha-secao">
+          <div
+            key={key}
+            className="bestiario-ficha-secao"
+            style={{ "--acao-cor": cor } as React.CSSProperties}
+          >
             <h3>
               <i className={`fas ${icone}`} /> {label}
             </h3>
-            {itens.map((item) => {
-              const condicoes = item.efeitos.filter((e): e is CondicaoEfeito => e.tipo === "condicao");
-              return (
-                <div key={item.id} className="bestiario-ficha-componente">
-                  <div className="bestiario-ficha-componente-topo">
-                    <p className="bestiario-ficha-componente-nome">{item.nome || "(sem nome)"}</p>
-                    {item.usos !== null && <ControleUsos item={item} usosContexto={usosContexto} />}
+            <div className="bestiario-acao-grid">
+              {itens.map((item) => {
+                const condicoes = item.efeitos.filter((e): e is CondicaoEfeito => e.tipo === "condicao");
+                const stats = item.efeitos.map((efeito) => (
+                  <StatEfeito
+                    key={efeito.id}
+                    efeito={efeito}
+                    item={item}
+                    nomeCriatura={c.nome}
+                    permitirRolagem={permitirRolagem}
+                  />
+                ));
+                const alcance = item.alcance.trim();
+                const custo = item.custo.trim();
+                // Condições citadas no texto ficam destacadas nele; as que não
+                // aparecem viram chip no rodapé, junto do custo.
+                const { conteudo: descricao, faltantes } = separarCondicoes(item.descricao, condicoes);
+                return (
+                  <div key={item.id} className="bestiario-acao-card">
+                    <div className="bestiario-acao-topo">
+                      <div className="bestiario-acao-titulo">{item.nome || "(sem nome)"}</div>
+                      {item.usos !== null && <ControleUsos item={item} usosContexto={usosContexto} />}
+                    </div>
+                    <div className="bestiario-acao-stats">
+                      {stats}
+                      {alcance && <Stat icone="fa-ruler-horizontal">{alcance}</Stat>}
+                    </div>
+                    {item.descricao && <div className="bestiario-acao-desc">{descricao}</div>}
+                    {(custo || faltantes.length > 0) && (
+                      <div className="bestiario-acao-tags">
+                        {faltantes.map((cond) => (
+                          <ChipCondicao key={cond.id} cond={cond} />
+                        ))}
+                        {custo && <span className="bestiario-acao-tag-custo">{textoCusto(custo)}</span>}
+                      </div>
+                    )}
                   </div>
-                  <div className="bestiario-ficha-badges">
-                    {item.efeitos.map((efeito) => (
-                      <BadgeEfeito
-                        key={efeito.id}
-                        efeito={efeito}
-                        item={item}
-                        nomeCriatura={c.nome}
-                        permitirRolagem={permitirRolagem}
-                      />
-                    ))}
-                    {item.alcance.trim() && <span className="bestiario-ficha-badge">Alcance: {item.alcance.trim()}</span>}
-                    {item.custo.trim() && <span className="bestiario-ficha-badge">Custo: {item.custo.trim()}</span>}
-                  </div>
-                  {(item.descricao || condicoes.length > 0) && (
-                    <p className="bestiario-ficha-descricao">{destacarCondicoes(item.descricao, condicoes)}</p>
-                  )}
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         );
       })}

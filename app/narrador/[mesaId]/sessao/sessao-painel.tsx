@@ -414,7 +414,7 @@ export function SessaoPainel({ mesaId, sessaoInicial, criaturas, personagensMesa
         <div className="sessao-sem-combate">
           <div className="sessao-topo-acoes">
             <span className="sessao-status">
-              <i className="fas fa-circle" style={{ color: "#4caf50" }} /> Sessão ativa
+              <i className="fas fa-circle" style={{ color: "var(--success)" }} /> Sessão ativa
             </span>
             <button type="button" className="bestiario-btn-remover" onClick={handleEncerrarSessao} disabled={processando}>
               Encerrar sessão

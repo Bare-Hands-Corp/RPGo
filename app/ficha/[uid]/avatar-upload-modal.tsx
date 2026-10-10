@@ -120,7 +120,7 @@ export function AvatarUploadModal({ personagemId, avatarAtual }: Props) {
         className="avatar-circle"
         onClick={() => setAberto(true)}
         title="Alterar foto de perfil"
-        style={{ padding: 0, background: "transparent", border: "3px solid var(--color-power)" }}
+        style={{ padding: 0, background: "transparent", border: "3px solid var(--accent)" }}
       >
         <img src={avatarAtual} alt="Avatar" />
         <span className="avatar-overlay">

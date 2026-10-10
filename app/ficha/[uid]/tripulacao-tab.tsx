@@ -228,7 +228,7 @@ export function TripulacaoTab({
       {/* ─── Navio ──────────────────────────────────────────── */}
       <section style={{ marginTop: 28 }}>
         <div className="section-header">
-          <i className="fas fa-ship" style={{ color: "var(--color-power)" }} />
+          <i className="fas fa-ship" style={{ color: "var(--accent)" }} />
           <h3>Navio</h3>
         </div>
 

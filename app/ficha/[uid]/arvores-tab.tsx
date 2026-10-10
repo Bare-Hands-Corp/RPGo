@@ -127,8 +127,8 @@ async function confirmar(titulo: string, texto: string) {
     showCancelButton: true,
     confirmButtonText: "Apagar",
     cancelButtonText: "Cancelar",
-    confirmButtonColor: "#d33",
-    cancelButtonColor: "#3085d6",
+    confirmButtonColor: "var(--danger)",
+    cancelButtonColor: "var(--text-sec)",
     background: "var(--bg-card)",
     color: "var(--text-main)",
   });
@@ -2596,7 +2596,7 @@ function NoModal({
               <button
                 type="button"
                 className="modal-btn-cancel"
-                style={{ marginRight: "auto", color: "#d33" }}
+                style={{ marginRight: "auto", color: "var(--danger)" }}
                 onClick={onApagar}
               >
                 Apagar

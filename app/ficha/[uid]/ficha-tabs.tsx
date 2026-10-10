@@ -344,6 +344,7 @@ export function FichaTabs({
             isNarrador={isNarradorDaMesa}
             config={calendario.config}
             dataAtualDias={calendario.dataAtualDias}
+            relogio={calendario.relogio}
             eventos={calendario.eventos}
             tiposClima={calendario.tiposClima}
             objetivos={objetivosComPrazo}

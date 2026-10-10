@@ -55,7 +55,7 @@ export function DescansoControle({
       showCancelButton: true,
       confirmButtonText: "Descansar",
       cancelButtonText: "Cancelar",
-      confirmButtonColor: "#3085d6",
+      confirmButtonColor: "var(--primary)",
       background: "var(--bg-card)",
       color: "var(--text-main)",
     });

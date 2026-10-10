@@ -3,8 +3,9 @@
 
 import { prisma } from "@/lib/prisma";
 import { TEMPLATE_GREGORIANO, TIPOS_CLIMA_DEFAULT } from "./templates";
-import { eventoVisivelPraJogador } from "./engine";
+import { diasMaximos, eventoVisivelPraJogador } from "./engine";
 import type { CalendarioConfig } from "./engine";
+import { relogioEfetivo, type AjusteRelogio, type RelogioSerializado } from "./relogio";
 
 export type EventoSerializado = {
   id: string;
@@ -37,7 +38,9 @@ export type ObjetivoPrazo = {
 export type CalendarioCarregado = {
   id: string;
   config: CalendarioConfig;
+  /** Dia efetivo: já inclui a virada de dia do relógio em tempo real. */
   dataAtualDias: number;
+  relogio: RelogioSerializado;
   eventos: EventoSerializado[];
   tiposClima: TipoClimaSerializado[];
 };
@@ -92,16 +95,29 @@ export async function carregarCalendario(
   }
   if (!calendario) return null;
 
+  const config = calendario.config as unknown as CalendarioConfig;
+  const agoraServidorMs = Date.now();
+  const relogio: RelogioSerializado = {
+    dias: calendario.dataAtualDias,
+    segundo: calendario.segundoDoDia,
+    rodandoDesdeMs: calendario.relogioRodandoDesde?.getTime() ?? null,
+    velocidade: calendario.relogioVelocidade,
+    formato12h: calendario.relogioFormato12h,
+    agoraServidorMs,
+    ultimoAjuste: (calendario.ultimoAjusteRelogio as AjusteRelogio | null) ?? null,
+  };
+  // Com o tempo real ligado o dia pode ter virado sem nada ter sido gravado.
+  const dataAtualDias = relogioEfetivo(relogio, agoraServidorMs, diasMaximos(config)).dias;
+
   const eventos = opts.isNarrador
     ? calendario.eventos
-    : calendario.eventos.filter((e) =>
-        eventoVisivelPraJogador(e, calendario!.dataAtualDias),
-      );
+    : calendario.eventos.filter((e) => eventoVisivelPraJogador(e, dataAtualDias));
 
   return {
     id: calendario.id,
-    config: calendario.config as unknown as CalendarioConfig,
-    dataAtualDias: calendario.dataAtualDias,
+    config,
+    dataAtualDias,
+    relogio,
     eventos: eventos.map((e) => ({
       id: e.id,
       tipo: e.tipo as "climatico" | "narrativo",

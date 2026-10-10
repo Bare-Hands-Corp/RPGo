@@ -7,6 +7,7 @@ import {
 } from "@/lib/calendario/carregar";
 import { CalendarioView } from "./calendario-view";
 import { CalendarioRealtime } from "./realtime-refresher";
+import { RelogioMesa } from "./relogio";
 import { ThemeButton } from "@/components/temas/theme-button";
 import { BotaoVoltar } from "@/components/botao-voltar";
 import "./calendario.css";
@@ -55,6 +56,13 @@ export default async function CalendarioPage({ params }: Params) {
           <span className="cal-kicker">Calendário da mesa</span>
           <h1>{mesa.nome}</h1>
         </div>
+        <RelogioMesa
+          mesaId={mesaId}
+          relogio={calendario.relogio}
+          config={calendario.config}
+          dataAtualDias={calendario.dataAtualDias}
+          isNarrador={isNarrador}
+        />
         <div className="cal-page-mesa-chip">
           <i className={isNarrador ? "fas fa-chess-king" : "fas fa-user"} />
           <span className="cal-page-role">{isNarrador ? "Narrador" : "Jogador"}</span>
@@ -67,6 +75,7 @@ export default async function CalendarioPage({ params }: Params) {
         isNarrador={isNarrador}
         config={calendario.config}
         dataAtualDias={calendario.dataAtualDias}
+        relogio={calendario.relogio}
         eventos={calendario.eventos}
         tiposClima={calendario.tiposClima}
         objetivos={objetivos}

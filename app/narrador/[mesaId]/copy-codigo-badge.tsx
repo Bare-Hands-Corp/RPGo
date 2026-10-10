@@ -31,9 +31,13 @@ export function CopyCodigoBadge({ codigo }: { codigo: string }) {
       type="button"
       className="codigo-badge"
       onClick={copiar}
-      title="Clique para copiar"
+      title="Copiar o código que os jogadores usam pra entrar na mesa"
+      aria-label={`Copiar código de convite ${codigo}`}
     >
-      <i className="fas fa-key" /> <span>{codigo}</span>
+      <i className="fas fa-key" />
+      <span>Convite</span>
+      <strong>{codigo}</strong>
+      <i className="fas fa-copy" />
     </button>
   );
 }

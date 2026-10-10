@@ -20,7 +20,7 @@ export const EFEITOS_COR: {
   { slug: "gradiente", nome: "Gradiente", dica: "Duas cores deslizando (a 2ª é escolhível)" },
   { slug: "neon", nome: "Neon", dica: "Texto aceso com halo ao redor" },
   { slug: "metalico", nome: "Metálico", dica: "Cromo polido com brilho passando" },
-  { slug: "contorno", nome: "Contorno", dica: "Só borda e texto, fundo vazado" },
+  { slug: "contorno", nome: "Contorno", dica: "Letra contornada: uma cor no traço, outra no preenchimento" },
   { slug: "holo", nome: "Holo", dica: "Arco-íris deslizando (animado)" },
   { slug: "pulse", nome: "Pulse", dica: "Brilho que respira (animado)" },
 ];
@@ -34,7 +34,8 @@ export function normalizarEfeitoCor(raw: unknown): EfeitoCor {
   return EFEITOS_VALIDOS.has(v) ? (v as EfeitoCor) : EFEITO_COR_PADRAO;
 }
 
-/** `cor` null = padrão do tema. `cor2` só vale no gradiente; null = derivada (+38°). */
+/** `cor` null = padrão do tema. `cor2`: no gradiente, 2ª cor (null = derivada +38°);
+ *  no contorno, preenchimento da letra (null = vazado). */
 export type EstiloCor = {
   cor: string | null;
   cor2?: string | null;
@@ -176,6 +177,8 @@ export function varsEstiloCor(
     "--fx-h2": css({ h: base.h + 180, s: Math.max(s, 65), l: Math.max(base.l, 58) }),
     "--fx-h3": css({ h: base.h + 270, s: Math.max(s, 65), l: Math.max(base.l, 58) }),
   };
+  // Preenchimento do contorno: só a cor2 escolhida de fato (nunca a derivada).
+  if (escolhida) vars["--fx-preenche"] = escolhida;
   return vars as CSSProperties;
 }
 
