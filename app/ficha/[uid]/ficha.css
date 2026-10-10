@@ -79,7 +79,7 @@
 }
 
 .faixa-vital-exausto {
-  color: #e74c3c;
+  color: var(--color-danger);
 }
 
 /* Empurra o botão de topo pro fim da faixa. */
@@ -441,11 +441,11 @@
 
 /* Vulnerabilidade é fraqueza, não defesa. */
 .defesa-grupo.fraqueza {
-  border-left-color: #e74c3c;
+  border-left-color: var(--color-danger);
 }
 
 .defesa-grupo.fraqueza .defesa-rotulo i {
-  color: #e74c3c;
+  color: var(--color-danger);
 }
 
 /* Cada entrada (uma fonte de defesa) empilha: linha de pílulas + legenda opcional
@@ -601,7 +601,7 @@
 
 /* Pisca o saldo ao confirmar: verde quando sobe, vermelho quando desce. */
 @keyframes berries-flash-sobe {
-  0% { color: #2ecc71; transform: scale(1.12); }
+  0% { color: var(--color-success); transform: scale(1.12); }
   100% { color: inherit; transform: scale(1); }
 }
 @keyframes berries-flash-desce {
@@ -643,8 +643,8 @@
 }
 
 .berries-btn:not(:disabled).adicionar:hover {
-  border-color: #2ecc71;
-  color: #2ecc71;
+  border-color: var(--color-success);
+  color: var(--color-success);
   background: rgba(46, 204, 113, 0.12);
 }
 
@@ -1001,12 +1001,12 @@
 }
 
 .exaustao-linha.ativo {
-  border-color: #e74c3c;
-  background: color-mix(in oklch, #e74c3c 6%, var(--bg-surface));
+  border-color: var(--color-danger);
+  background: color-mix(in oklch, var(--color-danger) 6%, var(--bg-surface));
 }
 
 .exaustao-linha.ativo .recurso-icone {
-  color: #e74c3c;
+  color: var(--color-danger);
 }
 
 .exaustao-controles {
@@ -1235,7 +1235,7 @@
 
 .btn-card-trash:hover {
   opacity: 1;
-  color: #e74c3c;
+  color: var(--color-danger);
 }
 
 .btn-card-edit {
@@ -1303,7 +1303,7 @@
 /* ─── PESO/CARGA ───────────────────────────────────────────── */
 .peso-bar { margin: 20px 0; }
 .msg-sobrecarga {
-  color: #e74c3c;
+  color: var(--color-danger);
   font-size: 0.8rem;
   margin-top: 5px;
   font-weight: bold;
@@ -1644,7 +1644,7 @@
 
 /* Arma sem munição: o chip fica em vermelho e o acerto, desligado. */
 .acao-stat.sem-municao {
-  color: #e74c3c;
+  color: var(--color-danger);
 }
 
 .municao-stats {
@@ -2050,8 +2050,8 @@
 }
 
 .picker-preset-fechar:hover {
-  color: #e74c3c;
-  background: color-mix(in oklch, #e74c3c 10%, transparent);
+  color: var(--color-danger);
+  background: color-mix(in oklch, var(--color-danger) 10%, transparent);
 }
 
 .picker-preset-grupo {
@@ -2225,8 +2225,8 @@
 }
 
 .efeito-editor-rm:hover {
-  color: #e74c3c;
-  background: color-mix(in oklch, #e74c3c 10%, transparent);
+  color: var(--color-danger);
+  background: color-mix(in oklch, var(--color-danger) 10%, transparent);
 }
 
 .efeito-editor-corpo {
@@ -2339,7 +2339,7 @@
 
 .tripulante-pv-fill {
   height: 100%;
-  background: var(--color-power, #e74c3c);
+  background: var(--color-power, var(--color-danger));
   transition: width 0.25s;
 }
 
@@ -2389,7 +2389,7 @@
 
 .recebida-rm:hover,
 .recebida-rm:focus-visible {
-  color: #e74c3c;
+  color: var(--color-danger);
 }
 
 /* Exaustão que não pesa agora (efeito "Ignora Exaustão"). */
@@ -2475,8 +2475,8 @@
 }
 
 .navio-btn.rm:hover {
-  color: #e74c3c;
-  border-color: #e74c3c;
+  color: var(--color-danger);
+  border-color: var(--color-danger);
 }
 
 .navio-pv {
@@ -2557,7 +2557,7 @@
 
 .navio-pv-fill {
   height: 100%;
-  background: var(--color-power, #e74c3c);
+  background: var(--color-power, var(--color-danger));
   transition: width 0.25s;
 }
 
@@ -2594,7 +2594,7 @@
 }
 
 .navio-stat-valor.alerta {
-  color: #e0a000;
+  color: var(--color-warning);
 }
 
 .navio-descricao {
@@ -3050,7 +3050,7 @@
 }
 
 .input-acima-teto {
-  border-color: #e0a000 !important;
+  border-color: var(--color-warning) !important;
 }
 
 .attr-teto-aviso {
@@ -3058,13 +3058,13 @@
   font-size: 0.62rem;
   line-height: 1.2;
   font-style: italic;
-  color: #e0a000;
+  color: var(--color-warning);
 }
 
 .attr-acima-teto {
   font-size: 0.62em;
   margin-left: 4px;
-  color: #e0a000;
+  color: var(--color-warning);
   vertical-align: super;
 }
 
@@ -3159,7 +3159,7 @@
 }
 
 .arvore-aviso {
-  color: #e0a000;
+  color: var(--color-warning);
 }
 
 .arvore-barra-acoes {
@@ -3888,7 +3888,7 @@
   gap: 4px;
   font-size: 0.72rem;
   font-style: italic;
-  color: #e0a000;
+  color: var(--color-warning);
 }
 
 /* ─── Item: pilha, traços da arma e concessões ─────────────── */
@@ -3933,7 +3933,7 @@
   margin-bottom: 4px;
   font-size: 0.72rem;
   font-style: italic;
-  color: #e0a000;
+  color: var(--color-warning);
 }
 
 /* Rolar desabilitado (ação travada). */
@@ -4673,19 +4673,19 @@
 }
 
 .vida-botoes .vida-btn:first-child i {
-  color: #e74c3c;
+  color: var(--color-danger);
 }
 
 .vida-botoes .vida-btn:last-child i {
-  color: #27ae60;
+  color: var(--color-success);
 }
 
 .vida-estado {
   margin-left: 6px;
   padding: 1px 6px;
   border-radius: 6px;
-  background: color-mix(in oklch, #e74c3c 18%, transparent);
-  color: #e74c3c;
+  background: color-mix(in oklch, var(--color-danger) 18%, transparent);
+  color: var(--color-danger);
   font-size: 0.68rem;
   font-weight: 700;
 }
@@ -4706,11 +4706,11 @@
 }
 
 .faixa-vital-dano:hover {
-  border-color: #e74c3c;
+  border-color: var(--color-danger);
 }
 
 .faixa-vital-hp .faixa-vital-dano i {
-  color: #e74c3c;
+  color: var(--color-danger);
 }
 
 .vida-modos {
@@ -4742,13 +4742,13 @@
 }
 
 .vida-modo.dano.ativo {
-  background: color-mix(in oklch, #e74c3c 14%, var(--bg-surface));
-  color: #e74c3c;
+  background: color-mix(in oklch, var(--color-danger) 14%, var(--bg-surface));
+  color: var(--color-danger);
 }
 
 .vida-modo.cura.ativo {
-  background: color-mix(in oklch, #27ae60 14%, var(--bg-surface));
-  color: #27ae60;
+  background: color-mix(in oklch, var(--color-success) 14%, var(--bg-surface));
+  color: var(--color-success);
 }
 
 .vida-partes {
@@ -4830,8 +4830,8 @@
 }
 
 .tipo-dano-esquecer:hover {
-  color: #e74c3c;
-  background: color-mix(in oklch, #e74c3c 12%, transparent);
+  color: var(--color-danger);
+  background: color-mix(in oklch, var(--color-danger) 12%, transparent);
 }
 
 .vida-parte-rm {
@@ -4846,8 +4846,8 @@
 }
 
 .vida-parte-rm:hover {
-  border-color: #e74c3c;
-  color: #e74c3c;
+  border-color: var(--color-danger);
+  color: var(--color-danger);
 }
 
 .vida-mais {
@@ -4925,7 +4925,7 @@
   margin-top: 12px;
   padding: 10px 12px;
   border: 1px solid var(--border);
-  border-left: 3px solid #e74c3c;
+  border-left: 3px solid var(--color-danger);
   border-radius: 8px;
   background: var(--bg-surface);
   display: flex;
@@ -4934,18 +4934,18 @@
 }
 
 .vida-previa.cura {
-  border-left-color: #27ae60;
+  border-left-color: var(--color-success);
 }
 
 .vida-previa-total {
   font-size: 1.8rem;
   font-weight: 900;
-  color: #e74c3c;
+  color: var(--color-danger);
   font-variant-numeric: tabular-nums;
 }
 
 .vida-previa.cura .vida-previa-total {
-  color: #27ae60;
+  color: var(--color-success);
 }
 
 .vida-previa-linhas {
@@ -4957,7 +4957,7 @@
 }
 
 .vida-caiu {
-  color: #e74c3c;
+  color: var(--color-danger);
   font-weight: 700;
 }
 
@@ -5253,7 +5253,7 @@
 }
 
 .formula-previa.erro {
-  color: #e74c3c;
+  color: var(--color-danger);
 }
 
 .sugestao.formula-funcao {
@@ -5483,7 +5483,7 @@
   gap: 7px;
   font-size: 0.78rem;
   line-height: 1.4;
-  color: #e0a000;
+  color: var(--color-warning);
   margin: 0;
 }
 
@@ -5610,7 +5610,7 @@
 
 .obj-alerta,
 .obj-alerta strong {
-  color: #e0a000;
+  color: var(--color-warning);
 }
 
 .obj-sem-mesa {
@@ -5740,13 +5740,13 @@
 }
 
 .obj-prazo.vencendo {
-  border-color: color-mix(in oklch, #e0a000 55%, var(--border));
-  color: #e0a000;
+  border-color: color-mix(in oklch, var(--color-warning) 55%, var(--border));
+  color: var(--color-warning);
 }
 
 .obj-prazo.atrasado {
-  border-color: color-mix(in oklch, #e74c3c 55%, var(--border));
-  color: #e74c3c;
+  border-color: color-mix(in oklch, var(--color-danger) 55%, var(--border));
+  color: var(--color-danger);
 }
 
 .obj-prazo-data {
@@ -5862,16 +5862,16 @@
 }
 
 /* ─── Tipo de dano em chips ───────────────────────────────── */
-.tipo-dano-campo {
+.chips-campo {
   margin-top: 12px;
 }
 
-.tipo-dano-campo .sugestoes {
+.chips-campo .sugestoes {
   gap: 5px;
   margin-top: 5px;
 }
 
-.sugestao.tipo-dano-chip {
+.sugestao.chip-opcao {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -5881,18 +5881,18 @@
   transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
 
-.sugestao.tipo-dano-chip:hover {
-  border-color: var(--tipo-cor, var(--primary));
+.sugestao.chip-opcao:hover {
+  border-color: var(--primary);
   color: var(--text-main);
 }
 
-.sugestao.tipo-dano-chip.ativo {
-  border-color: var(--tipo-cor, var(--primary));
-  background: color-mix(in oklch, var(--tipo-cor, var(--primary)) 16%, transparent);
+.sugestao.chip-opcao.ativo {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 16%, transparent);
   color: var(--text-main);
 }
 
-.modal-box .tipo-dano-campo > input {
+.modal-box .chips-campo > input {
   max-width: 220px;
   margin-top: 6px;
 }
@@ -5964,7 +5964,7 @@ form > .turno-campo,
 }
 
 .turno-item .seg,
-.turno-item .tipo-dano-campo {
+.turno-item .chips-campo {
   margin-top: 0;
 }
 
@@ -6070,9 +6070,9 @@ form > .turno-campo,
   gap: 6px;
   margin-top: 4px;
   padding: 3px 8px;
-  border: 1px solid color-mix(in oklch, #e0a000 45%, transparent);
+  border: 1px solid color-mix(in oklch, var(--color-warning) 45%, transparent);
   border-radius: 6px;
-  background: color-mix(in oklch, #e0a000 12%, transparent);
+  background: color-mix(in oklch, var(--color-warning) 12%, transparent);
   font-style: normal;
   font-weight: 600;
 }
@@ -6343,7 +6343,7 @@ form > .turno-campo,
 }
 
 .paleta-limpar:hover {
-  color: #e74c3c;
+  color: var(--color-danger);
 }
 
 @media (max-width: 520px) {
@@ -6481,8 +6481,8 @@ form > .turno-campo,
 }
 
 .pasta-acao.perigo:hover {
-  background: color-mix(in oklch, #e74c3c 10%, transparent);
-  color: #e74c3c;
+  background: color-mix(in oklch, var(--color-danger) 10%, transparent);
+  color: var(--color-danger);
 }
 
 .pasta-itens {
@@ -6993,8 +6993,8 @@ form > .turno-campo,
 }
 
 .guardar-tirar:hover {
-  background: color-mix(in oklch, #e74c3c 10%, transparent);
-  color: #e74c3c;
+  background: color-mix(in oklch, var(--color-danger) 10%, transparent);
+  color: var(--color-danger);
 }
 
 .usar-aviso {
@@ -7003,10 +7003,10 @@ form > .turno-campo,
   gap: 8px;
   margin: 0 0 12px;
   padding: 8px 10px;
-  border: 1px solid color-mix(in oklch, #e0a000 45%, transparent);
+  border: 1px solid color-mix(in oklch, var(--color-warning) 45%, transparent);
   border-radius: 8px;
-  background: color-mix(in oklch, #e0a000 12%, transparent);
-  color: #e0a000;
+  background: color-mix(in oklch, var(--color-warning) 12%, transparent);
+  color: var(--color-warning);
   font-size: 0.82rem;
   font-weight: 600;
 }
@@ -7309,7 +7309,7 @@ form > .turno-campo,
 }
 
 .efeito-editor-resumo.falta {
-  color: #e0a000;
+  color: var(--color-warning);
   font-style: italic;
 }
 
@@ -7330,11 +7330,11 @@ form > .turno-campo,
 }
 
 .efeito-editor-corpo .formula-campo label,
-.efeito-editor-corpo .tipo-dano-campo label {
+.efeito-editor-corpo .chips-campo label {
   margin-top: 0;
 }
 
-.efeito-editor-corpo .tipo-dano-campo {
+.efeito-editor-corpo .chips-campo {
   margin-top: 0;
 }
 
@@ -7422,5 +7422,135 @@ form > .turno-campo,
   .efeito-editor-corpo .seg-opcao {
     padding-inline: 2px;
     font-size: 0.74rem;
+  }
+}
+
+/* ─── Efeito recolhido: só o cabeçalho com o resumo; um aberto por vez ─ */
+.efeito-editor-topo {
+  gap: 4px;
+  padding: 0 6px 0 0;
+}
+
+.efeito-editor:not(.aberto) .efeito-editor-topo {
+  border-bottom-color: transparent;
+}
+
+.efeito-editor-abrir {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px 6px 9px 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.efeito-editor-abrir:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.efeito-editor-abrir > i:first-child {
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+}
+
+.efeito-editor-abrir > strong {
+  flex-shrink: 0;
+}
+
+.efeito-editor-seta {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--text-sec);
+  font-size: 0.7rem;
+  transition: transform 0.2s var(--ease-saida);
+}
+
+.efeito-editor.aberto .efeito-editor-seta {
+  transform: rotate(180deg);
+}
+
+.efeito-editor-acoes {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+}
+
+.efeito-editor-acoes button {
+  margin: 0;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-sec);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition:
+    color var(--dur-rapida) var(--ease-saida),
+    background var(--dur-rapida) var(--ease-saida);
+}
+
+.efeito-editor-acoes button:hover:not(:disabled) {
+  background: var(--bg-card);
+  color: var(--primary);
+}
+
+.efeito-editor-acoes button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.efeito-editor-acoes .efeito-editor-rm:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+}
+
+.efeito-editor.aberto .efeito-editor-corpo {
+  animation: bloco-entra 0.18s var(--ease-saida);
+}
+
+/* ─── Chips de escolha: tipo de dano, condição ─────────────── */
+.chips-campo .seg {
+  margin-top: 5px;
+}
+
+.chips-campo-sub {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-sec);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.efeito-editor-corpo .chips-campo,
+.efeito-detalhes-corpo .chips-campo {
+  margin-top: 0;
+}
+
+@media (max-width: 520px) {
+  /* No celular, mover e duplicar ficam só no efeito aberto. */
+  .efeito-editor:not(.aberto) .efeito-editor-acoes button:not(.efeito-editor-rm) {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .efeito-editor-seta,
+  .efeito-editor-acoes button {
+    transition: none;
+  }
+
+  .efeito-editor.aberto .efeito-editor-corpo {
+    animation: none;
   }
 }

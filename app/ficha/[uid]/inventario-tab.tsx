@@ -1598,7 +1598,7 @@ function CardItem({
         </div>
       )}
       {item.tipo === "armadura" && (item.ca > 0 || item.penalidadeDes !== 0) && (
-        <div style={{ fontSize: "0.85rem", color: "#3498db", fontWeight: "bold", marginTop: 8 }}>
+        <div style={{ fontSize: "0.85rem", color: "var(--color-padrao)", fontWeight: "bold", marginTop: 8 }}>
           {item.ca > 0 && (
             <span><i className="fas fa-shield-alt" /> +{item.ca} CA</span>
           )}

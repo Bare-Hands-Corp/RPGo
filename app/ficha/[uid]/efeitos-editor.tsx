@@ -23,7 +23,7 @@ import {
   type Atributo,
   type EfeitoHabilidade,
 } from "@/lib/op-rpg";
-import { CampoPasso, Segmentos, TipoDanoCampo } from "./campos-modal";
+import { CampoPasso, CondicaoCampo, Segmentos, TipoDanoCampo, TiposDanoCampo } from "./campos-modal";
 import { casaBusca, normalizarBusca } from "./barra-filtros";
 import { CampoFormula, FormulaContext } from "./campo-formula";
 import { SeletorBusca } from "./seletor-busca";
@@ -57,12 +57,37 @@ export function EfeitosEditor({
   presets?: string[];
 }) {
   const [pickerAberto, setPickerAberto] = useState(false);
+  // O "a cada turno" é editado junto da duração: não entra na lista.
+  const visiveis = efeitos.flatMap((e, i) => (e.tipo === "por_turno" ? [] : [i]));
+  // Um efeito aberto por vez; os outros mostram só o resumo.
+  const [aberto, setAberto] = useState<number | null>(() => (visiveis.length === 1 ? visiveis[0] : null));
 
   function adicionar(presetId: string) {
     const preset = PRESETS_EFEITO.find((p) => p.id === presetId);
     if (!preset) return;
     onChange([...efeitos, preset.criar()]);
+    setAberto(efeitos.length);
     setPickerAberto(false);
+  }
+
+  function mover(i: number, passo: -1 | 1) {
+    const j = visiveis[visiveis.indexOf(i) + passo];
+    if (j === undefined) return;
+    const nova = [...efeitos];
+    [nova[i], nova[j]] = [nova[j], nova[i]];
+    onChange(nova);
+    if (aberto === i) setAberto(j);
+    else if (aberto === j) setAberto(i);
+  }
+
+  function duplicar(i: number) {
+    onChange([...efeitos.slice(0, i + 1), structuredClone(efeitos[i]), ...efeitos.slice(i + 1)]);
+    setAberto(i + 1);
+  }
+
+  function remover(i: number) {
+    onChange(efeitos.filter((_, j) => j !== i));
+    setAberto((a) => (a === null || a === i ? null : a > i ? a - 1 : a));
   }
 
   function patch(idx: number, p: Partial<EfeitoHabilidade>) {
@@ -91,18 +116,20 @@ export function EfeitosEditor({
         />
       )}
 
-      {efeitos.map((e, i) =>
-        // O "a cada turno" é editado junto da duração.
-        e.tipo === "por_turno" ? null : (
-          <EditorEfeito
-            key={i}
-            efeito={e}
-            recursos={recursos}
-            onPatch={(p) => patch(i, p)}
-            onRemover={() => onChange(efeitos.filter((_, j) => j !== i))}
-          />
-        ),
-      )}
+      {visiveis.map((i, pos) => (
+        <EditorEfeito
+          key={i}
+          efeito={efeitos[i]}
+          recursos={recursos}
+          aberto={aberto === i}
+          onAlternar={() => setAberto(aberto === i ? null : i)}
+          onPatch={(p) => patch(i, p)}
+          onSubir={pos > 0 ? () => mover(i, -1) : undefined}
+          onDescer={pos < visiveis.length - 1 ? () => mover(i, 1) : undefined}
+          onDuplicar={() => duplicar(i)}
+          onRemover={() => remover(i)}
+        />
+      ))}
     </>
   );
 }
@@ -164,6 +191,9 @@ export function StatsPorTurno({ efeitos, grau }: { efeitos: EfeitoHabilidade[]; 
     );
   });
 }
+
+// Cor do cartão: a do efeito que o preset cria.
+const COR_DO_PRESET = new Map(PRESETS_EFEITO.map((p) => [p.id, META_EFEITOS[p.criar().tipo].cor]));
 
 // Grade de presets de efeito agrupados por tema.
 function PickerPreset({
@@ -232,9 +262,9 @@ function PickerPreset({
                   className="picker-preset-card"
                   onClick={() => onPick(p.id)}
                   title={p.descricao}
-                  style={{ borderLeftColor: p.cor }}
+                  style={{ borderLeftColor: COR_DO_PRESET.get(p.id) }}
                 >
-                  <i className={`fas ${p.icone}`} style={{ color: p.cor }} />
+                  <i className={`fas ${p.icone}`} style={{ color: COR_DO_PRESET.get(p.id) }} />
                   <div className="picker-preset-card-info">
                     <strong>{p.nome}</strong>
                     <span>{p.descricao}</span>
@@ -291,12 +321,23 @@ function SelectAlvo({
 function EditorEfeito({
   efeito,
   recursos,
+  aberto,
+  onAlternar,
   onPatch,
+  onSubir,
+  onDescer,
+  onDuplicar,
   onRemover,
 }: {
   efeito: EfeitoHabilidade;
   recursos: RecursoMinimo[];
+  aberto: boolean;
+  onAlternar: () => void;
   onPatch: (patch: Partial<EfeitoHabilidade>) => void;
+  // Ausente na ponta da lista.
+  onSubir?: () => void;
+  onDescer?: () => void;
+  onDuplicar: () => void;
   onRemover: () => void;
 }) {
   const meta = META_EFEITOS[efeito.tipo];
@@ -310,24 +351,45 @@ function EditorEfeito({
   const resumo = completo
     ? resumoEfeito(efeito, (id) => nomesRecurso.get(id), formula ?? undefined)
     : "falta preencher";
+  const nome = nomeDoEfeito(efeito);
   return (
-    <div className="efeito-editor">
+    <div className={`efeito-editor${aberto ? " aberto" : ""}`}>
       <div className="efeito-editor-topo">
-        <i className={`fas ${meta.icone}`} style={{ color: meta.cor }} />
-        <strong>{nomeDoEfeito(efeito)}</strong>
-        {resumo && (
-          <span className={`efeito-editor-resumo${completo ? "" : " falta"}`}>{resumo}</span>
-        )}
         <button
           type="button"
-          className="efeito-editor-rm"
-          onClick={onRemover}
-          title="Remover efeito"
+          className="efeito-editor-abrir"
+          aria-expanded={aberto}
+          onClick={onAlternar}
         >
-          <i className="fas fa-xmark" />
+          <i className={`fas ${meta.icone}`} style={{ color: meta.cor }} />
+          <strong>{nome}</strong>
+          {resumo && (
+            <span className={`efeito-editor-resumo${completo ? "" : " falta"}`}>{resumo}</span>
+          )}
+          <i className="fas fa-chevron-down efeito-editor-seta" />
         </button>
+        <span className="efeito-editor-acoes">
+          <button type="button" title="Subir" aria-label={`Subir ${nome}`} disabled={!onSubir} onClick={onSubir}>
+            <i className="fas fa-arrow-up" />
+          </button>
+          <button type="button" title="Descer" aria-label={`Descer ${nome}`} disabled={!onDescer} onClick={onDescer}>
+            <i className="fas fa-arrow-down" />
+          </button>
+          <button type="button" title="Duplicar" aria-label={`Duplicar ${nome}`} onClick={onDuplicar}>
+            <i className="fas fa-copy" />
+          </button>
+          <button
+            type="button"
+            className="efeito-editor-rm"
+            title="Remover efeito"
+            aria-label={`Remover ${nome}`}
+            onClick={onRemover}
+          >
+            <i className="fas fa-xmark" />
+          </button>
+        </span>
       </div>
-      {corpo && <div className="efeito-editor-corpo">{corpo}</div>}
+      {aberto && corpo && <div className="efeito-editor-corpo">{corpo}</div>}
     </div>
   );
 }
@@ -413,12 +475,14 @@ function FiltroDanoCampos({
           ))}
         </div>
       </div>
-      <Campo
-        label="Só nos tipos"
-        valor={tipos ?? ""}
-        onChange={(v) => onPatch({ tipos: v || undefined } as Partial<EfeitoHabilidade>)}
-        placeholder="cortante, perfurante…"
-      />
+      <div style={{ gridColumn: "1 / -1" }}>
+        <TiposDanoCampo
+          rotulo="Só nos tipos"
+          vazioETodos
+          valor={tipos ?? ""}
+          onChange={(v) => onPatch({ tipos: v || undefined } as Partial<EfeitoHabilidade>)}
+        />
+      </div>
     </Detalhes>
   );
 }
@@ -585,23 +649,21 @@ function renderCorpo(
     case "condicao_remover":
       return (
         <div style={{ gridColumn: "1 / -1" }}>
-          <Campo
-            label="Condição"
+          <CondicaoCampo
             valor={e.condicao}
             onChange={(v) => onPatch({ condicao: v } as Partial<EfeitoHabilidade>)}
-            placeholder="envenenado, atordoado, agarrado…"
           />
         </div>
       );
     case "condicao_aplicar":
       return (
         <>
-          <Campo
-            label="Condição"
-            valor={e.condicao}
-            onChange={(v) => onPatch({ condicao: v } as Partial<EfeitoHabilidade>)}
-            placeholder="envenenado, atordoado…"
-          />
+          <div style={{ gridColumn: "1 / -1" }}>
+            <CondicaoCampo
+              valor={e.condicao}
+              onChange={(v) => onPatch({ condicao: v } as Partial<EfeitoHabilidade>)}
+            />
+          </div>
           <CampoNum
             label="CD"
             valor={e.cd ?? 0}
@@ -626,11 +688,9 @@ function renderCorpo(
     case "vulnerabilidade":
       return (
         <div style={{ gridColumn: "1 / -1" }}>
-          <Campo
-            label="Tipo de dano"
+          <TiposDanoCampo
             valor={e.tipoDano}
             onChange={(v) => onPatch({ tipoDano: v } as Partial<EfeitoHabilidade>)}
-            placeholder="cortante, fogo, ácido, psíquico…"
           />
         </div>
       );
@@ -1184,12 +1244,13 @@ function renderCorpo(
             onChange={(v) => onPatch(patchDeFormula(v))}
             placeholder="5, PROF…"
           />
-          <Campo
-            label="Tipos de dano"
-            valor={e.tipos ?? ""}
-            onChange={(v) => onPatch({ tipos: v || undefined } as Partial<EfeitoHabilidade>)}
-            placeholder="todos"
-          />
+          <div style={{ gridColumn: "1 / -1" }}>
+            <TiposDanoCampo
+              vazioETodos
+              valor={e.tipos ?? ""}
+              onChange={(v) => onPatch({ tipos: v || undefined } as Partial<EfeitoHabilidade>)}
+            />
+          </div>
           <CampoQuando valor={e.quando} onPatch={onPatch} placeholder="1× por turno…" />
         </>
       );

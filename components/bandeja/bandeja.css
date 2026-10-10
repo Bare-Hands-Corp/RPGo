@@ -393,16 +393,16 @@
   box-shadow: 0 4px 0 #1e8e3e;
 }
 .roll-toggle-btn.desvantagem {
-  color: #c0392b;
+  color: var(--color-danger);
   box-shadow: 0 4px 0 #a93226;
 }
 .roll-toggle-btn.vantagem.active {
-  background: #27ae60;
+  background: var(--color-success);
   color: white;
   box-shadow: 0 4px 0 #1e8e3e;
 }
 .roll-toggle-btn.desvantagem.active {
-  background: #c0392b;
+  background: var(--color-danger);
   color: white;
   box-shadow: 0 4px 0 #a93226;
 }
@@ -509,12 +509,12 @@
   text-overflow: ellipsis;
 }
 .crit-success {
-  color: #27ae60;
+  color: var(--color-success);
   font-weight: 900;
   text-decoration: underline;
 }
 .crit-fail {
-  color: #c0392b;
+  color: var(--color-danger);
   font-weight: 900;
 }
 .dice-discarded {
@@ -556,10 +556,10 @@
   flex-shrink: 0;
 }
 .roll-message.success {
-  border-left-color: #27ae60;
+  border-left-color: var(--color-success);
 }
 .roll-message.fail {
-  border-left-color: #c0392b;
+  border-left-color: var(--color-danger);
 }
 .roll-header {
   font-size: 0.78rem;
@@ -586,16 +586,16 @@
 }
 /* Dano recebido / cura manual. */
 .vida-message.dano {
-  border-left-color: #c0392b;
+  border-left-color: var(--color-danger);
 }
 .vida-message.dano .roll-total {
-  color: #e74c3c;
+  color: var(--color-danger);
 }
 .vida-message.cura {
-  border-left-color: #27ae60;
+  border-left-color: var(--color-success);
 }
 .vida-message.cura .roll-total {
-  color: #27ae60;
+  color: var(--color-success);
 }
 .vida-message.turno {
   border-left-color: var(--color-bonus);
@@ -612,7 +612,7 @@
   color: var(--text-sec);
 }
 .vida-caiu {
-  color: #e74c3c;
+  color: var(--color-danger);
   font-weight: 700;
 }
 .roll-batch-list {
@@ -1195,7 +1195,7 @@
 }
 .turno-efeito.cura .turno-efeito-total,
 .turno-efeito.cura .turno-efeito-fonte i {
-  color: #27ae60;
+  color: var(--color-success);
 }
 .turno-efeito.pv_temp .turno-efeito-total,
 .turno-efeito.pv_temp .turno-efeito-fonte i {
@@ -1203,7 +1203,7 @@
 }
 .turno-efeito.dano .turno-efeito-total,
 .turno-efeito.dano .turno-efeito-fonte i {
-  color: #e74c3c;
+  color: var(--color-danger);
 }
 .turno-efeito.fim .turno-efeito-total {
   font-size: 0.85rem;

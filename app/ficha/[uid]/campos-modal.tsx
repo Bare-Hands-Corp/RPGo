@@ -1,7 +1,7 @@
 "use client";
 
 import { Children, useState } from "react";
-import { TIPOS_DANO, mesmoTipo } from "@/lib/dano";
+import { TIPOS_DANO, lerCobertura, mesmoTipo, tiposDaCobertura } from "@/lib/dano";
 
 export type OpcaoSegmento<T extends string | number> = {
   valor: T;
@@ -148,48 +148,59 @@ export function Sugestoes({
   );
 }
 
-const TIPOS_A_VISTA = 6;
+const CHIPS_A_VISTA = 6;
 
-// Tipo de dano em chips: os do livro e "Outro" pra escrever.
-export function TipoDanoCampo({
+const semAcento = (t: string) =>
+  t
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+
+// Escolha única em chips: as opções conhecidas e "Outro" pra escrever.
+export function ChipsCampo({
+  rotulo,
+  opcoes,
   valor,
   onChange,
-  rotulo = "Tipo de dano",
+  igual = (a, b) => semAcento(a) === semAcento(b),
+  exemplo,
 }: {
+  rotulo: string;
+  opcoes: string[];
   valor: string;
-  onChange: (tipo: string) => void;
-  rotulo?: string;
+  onChange: (v: string) => void;
+  igual?: (a: string, b: string) => boolean;
+  exemplo?: string;
 }) {
-  const indice = TIPOS_DANO.findIndex((t) => mesmoTipo(t.nome, valor));
+  const indice = opcoes.findIndex((o) => igual(o, valor));
   const proprio = valor.trim() !== "" && indice < 0;
   const [escrevendo, setEscrevendo] = useState(proprio);
-  const [aberto, setAberto] = useState(indice >= TIPOS_A_VISTA);
+  const [aberto, setAberto] = useState(indice >= CHIPS_A_VISTA);
   return (
-    <div className="tipo-dano-campo">
+    <div className="chips-campo">
       <label>{rotulo}</label>
-      <Sugestoes limite={TIPOS_A_VISTA} aberto={aberto} onAberto={setAberto} className="tipo-dano-chips">
-        {TIPOS_DANO.map((t, i) => (
+      <Sugestoes limite={CHIPS_A_VISTA} aberto={aberto} onAberto={setAberto}>
+        {opcoes.map((o, i) => (
           <button
             type="button"
-            key={t.nome}
-            className={`sugestao tipo-dano-chip${i === indice ? " ativo" : ""}`}
-            style={{ "--tipo-cor": t.cor } as React.CSSProperties}
+            key={o}
+            className={`sugestao chip-opcao${i === indice ? " ativo" : ""}`}
             aria-pressed={i === indice}
             onClick={() => {
               setEscrevendo(false);
-              onChange(i === indice ? "" : t.nome);
+              onChange(i === indice ? "" : o);
             }}
           >
-            {t.nome}
+            {o}
           </button>
         ))}
         <button
           type="button"
-          className={`sugestao tipo-dano-chip${escrevendo ? " ativo" : ""}`}
+          className={`sugestao chip-opcao${escrevendo ? " ativo" : ""}`}
           aria-pressed={escrevendo}
           onClick={() => {
-            if (escrevendo) onChange("");
-            else if (indice >= 0) onChange("");
+            if (escrevendo || indice >= 0) onChange("");
             setEscrevendo(!escrevendo);
           }}
         >
@@ -203,10 +214,165 @@ export function TipoDanoCampo({
           maxLength={40}
           autoFocus={!proprio}
           aria-label={rotulo}
-          placeholder="Ex: sônico"
+          placeholder={exemplo}
           onChange={(e) => onChange(e.target.value)}
         />
       )}
+    </div>
+  );
+}
+
+const NOMES_DOS_TIPOS = TIPOS_DANO.map((t) => t.nome);
+
+// Um tipo de dano: os do livro ou outro.
+export function TipoDanoCampo({
+  valor,
+  onChange,
+  rotulo = "Tipo de dano",
+}: {
+  valor: string;
+  onChange: (tipo: string) => void;
+  rotulo?: string;
+}) {
+  return (
+    <ChipsCampo
+      rotulo={rotulo}
+      opcoes={NOMES_DOS_TIPOS}
+      valor={valor}
+      onChange={onChange}
+      igual={mesmoTipo}
+      exemplo="Ex: sônico"
+    />
+  );
+}
+
+// Condições do livro (cap. 10.3).
+export const CONDICOES = [
+  "Agarrado",
+  "Amedrontado",
+  "Atordoado",
+  "Caído",
+  "Cego",
+  "Envenenado",
+  "Bêbado",
+  "Doente",
+  "Empoderado",
+  "Enfeitiçado",
+  "Enfraquecido",
+  "Enfurecido",
+  "Estremecido",
+  "Impedido",
+  "Incapacitado",
+  "Inconsciente",
+  "Invisível",
+  "Letárgico",
+  "Paralisado",
+  "Queimado",
+  "Sangramento",
+  "Sonolento",
+  "Sufocado",
+  "Surdo",
+];
+
+export function CondicaoCampo({
+  valor,
+  onChange,
+  rotulo = "Condição",
+}: {
+  valor: string;
+  onChange: (condicao: string) => void;
+  rotulo?: string;
+}) {
+  return <ChipsCampo rotulo={rotulo} opcoes={CONDICOES} valor={valor} onChange={onChange} exemplo="Ex: marcado" />;
+}
+
+const lista = (texto: string) =>
+  texto
+    .split(/[,;]/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+// Tipos de dano que uma defesa ou filtro cobre: alguns, ou todos menos alguns.
+// O valor é o mesmo texto de antes ("Fogo, Frio", "Todos, exceto Psíquico").
+export function TiposDanoCampo({
+  valor,
+  onChange,
+  rotulo = "Tipos de dano",
+  vazioETodos = false,
+}: {
+  valor: string;
+  onChange: (tipos: string) => void;
+  rotulo?: string;
+  // Vazio já quer dizer todos (redução de dano, filtro de efeito).
+  vazioETodos?: boolean;
+}) {
+  const cob = lerCobertura(valor);
+  const [modo, setModo] = useState<"alguns" | "todos">(
+    cob.todos || (vazioETodos && valor.trim() === "") ? "todos" : "alguns",
+  );
+  const chaves = modo === "todos" ? cob.exceto : cob.tipos;
+  const marcados = NOMES_DOS_TIPOS.filter((n) => chaves.some((k) => mesmoTipo(k, n)));
+  // Tipos escritos que não são do livro.
+  const [outros, setOutros] = useState(() =>
+    tiposDaCobertura(valor)
+      .filter((t) => !NOMES_DOS_TIPOS.some((n) => mesmoTipo(n, t)))
+      .join(", "),
+  );
+  const [aberto, setAberto] = useState(marcados.some((n) => NOMES_DOS_TIPOS.indexOf(n) >= CHIPS_A_VISTA));
+
+  function montar(novoModo: "alguns" | "todos", nomes: string[], extras: string) {
+    const tudo = [...nomes, ...lista(extras)];
+    if (novoModo === "alguns") return tudo.join(", ");
+    if (tudo.length > 0) return `Todos, exceto ${tudo.join(", ")}`;
+    return vazioETodos ? "" : "Todos";
+  }
+
+  return (
+    <div className="chips-campo">
+      <label>{rotulo}</label>
+      <Segmentos
+        rotulo={rotulo}
+        valor={modo}
+        opcoes={[
+          { valor: "alguns", rotulo: "Alguns" },
+          { valor: "todos", rotulo: "Todos" },
+        ]}
+        onChange={(m) => {
+          setModo(m);
+          setOutros("");
+          onChange(montar(m, [], ""));
+        }}
+      />
+      {modo === "todos" && <span className="chips-campo-sub">Exceto</span>}
+      <Sugestoes limite={CHIPS_A_VISTA} aberto={aberto} onAberto={setAberto}>
+        {NOMES_DOS_TIPOS.map((n) => {
+          const ativo = marcados.includes(n);
+          return (
+            <button
+              type="button"
+              key={n}
+              className={`sugestao chip-opcao${ativo ? " ativo" : ""}`}
+              aria-pressed={ativo}
+              onClick={() =>
+                onChange(montar(modo, ativo ? marcados.filter((x) => x !== n) : [...marcados, n], outros))
+              }
+            >
+              {n}
+            </button>
+          );
+        })}
+      </Sugestoes>
+      <input
+        type="text"
+        value={outros}
+        maxLength={80}
+        aria-label="Outros tipos"
+        placeholder="Outros tipos"
+        onChange={(e) => {
+          setOutros(e.target.value);
+          onChange(montar(modo, marcados, e.target.value));
+        }}
+      />
     </div>
   );
 }
