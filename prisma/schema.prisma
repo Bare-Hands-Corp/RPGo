@@ -369,6 +369,9 @@ model Acao {
   // Pasta em que a ação está (etiqueta de filtro; lib/pastas.ts).
   pasta String?
 
+  // Ação de que esta é forma alternativa (Acao.id, sem FK).
+  formaDe String? @map("forma_de")
+
   // { unidade, quantidade?, concentracao? } (lib/duracao.ts); null = não informada.
   duracao Json?
 

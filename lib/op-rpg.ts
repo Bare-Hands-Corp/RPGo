@@ -653,10 +653,13 @@ export function resolverDanoArma(opts: {
   tecnica?: boolean;
   // Dado da arma fixo por efeito ("1d10"): vale o maior.
   dadoFixo?: string | null;
+  // Grau da técnica, pro GRAU das fórmulas.
+  grau?: number;
 }): DanoArmaResolvido | null {
   const partes: ParteDano[] = [];
   const dados: Dado[] = [];
   let total = 0;
+  const extras = { grau: opts.grau ?? 0 };
 
   const bruto = maiorDado(opts.danoBase?.trim() ?? "", opts.dadoFixo);
   if (bruto) {
@@ -665,11 +668,13 @@ export function resolverDanoArma(opts: {
     const base =
       passos > 0
         ? subirPassosDano(
-            formulaVariavel(bruto) ? formulaResolvidaTexto(bruto, opts.atributos, opts.nivel) : bruto,
+            formulaVariavel(bruto)
+              ? formulaResolvidaTexto(bruto, opts.atributos, opts.nivel, extras)
+              : bruto,
             passos,
           )
         : bruto;
-    const p = resolverFormula(base, opts.atributos, opts.nivel);
+    const p = resolverFormula(base, opts.atributos, opts.nivel, extras);
     dados.push(...p.dados);
     total += p.modificador;
     partes.push({
@@ -680,7 +685,7 @@ export function resolverDanoArma(opts: {
 
   const bonus = opts.danoBonus?.trim() ?? "";
   if (bonus) {
-    const p = resolverFormula(bonus, opts.atributos, opts.nivel);
+    const p = resolverFormula(bonus, opts.atributos, opts.nivel, extras);
     dados.push(...p.dados);
     total += p.modificador;
     partes.push({ rotulo: "Dano bônus", texto: bonus });
@@ -936,7 +941,14 @@ export type TipoEfeito =
   | "ignora_exaustao"
   | "descanso"
   | "por_turno"
+  | "multi_ataque"
+  | "explosao"
+  | "progressivo"
   | "livre";
+
+// Dano: dado no máximo, dado a partir de um número ou dano total. Ataque:
+// crítico ou d20 a partir de um número.
+export type GatilhoExplosao = "maximo" | "valor" | "total" | "critico";
 
 export type EfeitoHabilidade =
   // `formula` (ex: "PROF/2+1", "3*NIVEL") vale no lugar de `valor` quando existe.
@@ -953,7 +965,8 @@ export type EfeitoHabilidade =
   | { tipo: "imunidade"; tipoDano: string }
   // Recebe o dobro do tipo de dano (depois da resistência).
   | { tipo: "vulnerabilidade"; tipoDano: string }
-  | { tipo: "deslocamento"; tipoMov: string; valor: number }
+  // `igual` copia outro deslocamento (com `metade`, a metade dele).
+  | { tipo: "deslocamento"; tipoMov: string; valor: number; igual?: string; metade?: boolean }
   | { tipo: "multiplicador"; alvo: string; fator: number }
   // Faz um cálculo derivado (CR, iniciativa, salvaguarda, perícia, ataque) usar
   // outro atributo no lugar do padrão; `seMaior` só troca quando é melhor.
@@ -1043,6 +1056,12 @@ export type EfeitoHabilidade =
       gasta?: boolean;
       tipoDano?: string;
     }
+  // Ataca `vezes` de uma vez; com `soma`, são ataques a mais.
+  | { tipo: "multi_ataque"; vezes: number; soma?: boolean; alvo?: string }
+  // No gatilho, rola de novo e soma (dano) ou ataca de novo (ataque), até `limite` vezes.
+  | { tipo: "explosao"; gatilho: GatilhoExplosao; valor?: number; limite: number; em?: string }
+  // Bônus que cresce: `formula` por passo, até `max`; o Rolador conta os passos.
+  | { tipo: "progressivo"; formula: string; max: number; em?: string; por?: string }
   | { tipo: "livre"; texto: string };
 
 export type OQuePorTurno = "cura" | "pv_temp" | "dano" | "recurso";
@@ -1096,6 +1115,9 @@ export const META_EFEITOS: Record<
   ignora_exaustao:  { nome: "Ignora Exaustão",    icone: "fa-battery-full",   cor: "var(--efeito-bom)" },
   descanso:         { nome: "No Descanso",        icone: "fa-bed",            cor: "var(--efeito-neutro)" },
   por_turno:        { nome: "A Cada Turno",       icone: "fa-clock-rotate-left", cor: "var(--efeito-bom)" },
+  multi_ataque:     { nome: "Multiataque",        icone: "fa-layer-group",    cor: "var(--efeito-ataque)" },
+  explosao:         { nome: "Explosão",           icone: "fa-explosion",      cor: "var(--efeito-ataque)" },
+  progressivo:      { nome: "Bônus Progressivo",  icone: "fa-arrow-trend-up", cor: "var(--efeito-ataque)" },
   livre:            { nome: "Texto Livre",             icone: "fa-feather",        cor: "var(--text-sec)" },
 };
 
@@ -1316,6 +1338,15 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     grupo: "movimento",
     criar: () => ({ tipo: "deslocamento", tipoMov: "caminhar", valor: 0 }),
   },
+  {
+    id: "deslocamento_igual",
+    nome: "Deslocamento Igual",
+    descricao: "Nadar, voar ou escalar igual a outro, ou a metade",
+    icone: "fa-equals",
+    cor: "var(--primary)",
+    grupo: "movimento",
+    criar: () => ({ tipo: "deslocamento", tipoMov: "nadar", valor: 0, igual: "caminhar" }),
+  },
   // ─ Ativo / Combate ─
   {
     id: "crit_range",
@@ -1379,6 +1410,42 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     cor: "var(--color-power)",
     grupo: "ativo",
     criar: () => ({ tipo: "dados_extra", quantidade: "1" }),
+  },
+  {
+    id: "potencializacao",
+    nome: "Potencialização",
+    descricao: "Dados de dano a mais pelo grau da técnica",
+    icone: "fa-dice-d6",
+    cor: "var(--color-power)",
+    grupo: "ativo",
+    criar: () => ({ tipo: "dados_extra", quantidade: "GRAU", em: "dano-tecnica", sempre: true }),
+  },
+  {
+    id: "progressivo",
+    nome: "Bônus Progressivo",
+    descricao: "Cresce a cada turno, acerto ou ponto gasto",
+    icone: "fa-arrow-trend-up",
+    cor: "var(--color-power)",
+    grupo: "ativo",
+    criar: () => ({ tipo: "progressivo", formula: "", max: 5 }),
+  },
+  {
+    id: "multi_ataque",
+    nome: "Multiataque",
+    descricao: "Ataca várias vezes de uma vez",
+    icone: "fa-layer-group",
+    cor: "var(--color-power)",
+    grupo: "ativo",
+    criar: () => ({ tipo: "multi_ataque", vezes: 2 }),
+  },
+  {
+    id: "explosao",
+    nome: "Explosão",
+    descricao: "No dado máximo ou no crítico, rola de novo",
+    icone: "fa-explosion",
+    cor: "var(--color-power)",
+    grupo: "ativo",
+    criar: () => ({ tipo: "explosao", gatilho: "maximo", limite: 1 }),
   },
   {
     id: "dano_maximo",
@@ -1671,9 +1738,18 @@ export function normalizarEfeito(
     case "vulnerabilidade":
       if (!str(obj.tipoDano)) return null;
       return { tipo, tipoDano: str(obj.tipoDano) };
-    case "deslocamento":
+    case "deslocamento": {
       if (!str(obj.tipoMov)) return null;
-      return { tipo, tipoMov: str(obj.tipoMov), valor: num(obj.valor) };
+      const igual = str(obj.igual).trim().toLowerCase();
+      const copia = MOVIMENTOS_SET.has(igual) && igual !== str(obj.tipoMov).trim().toLowerCase();
+      return {
+        tipo,
+        tipoMov: str(obj.tipoMov),
+        valor: copia ? 0 : num(obj.valor),
+        ...(copia ? { igual } : {}),
+        ...(copia && obj.metade ? { metade: true } : {}),
+      };
+    }
     case "multiplicador":
       if (!str(obj.alvo)) return null;
       return { tipo, alvo: str(obj.alvo), fator: num(obj.fator) };
@@ -1885,12 +1961,91 @@ export function normalizarEfeito(
         ...(o === "dano" && str(obj.tipoDano).trim() ? { tipoDano: str(obj.tipoDano).trim().slice(0, 40) } : {}),
       };
     }
+    case "multi_ataque": {
+      const soma = !!obj.soma;
+      const minimo = soma ? 1 : 2;
+      return {
+        tipo,
+        vezes: Math.min(20, Math.max(minimo, Math.trunc(num(obj.vezes)) || minimo)),
+        ...(soma ? { soma: true } : {}),
+        ...(str(obj.alvo) ? { alvo: str(obj.alvo) } : {}),
+      };
+    }
+    case "explosao": {
+      const em = str(obj.em).trim().toLowerCase();
+      const noAtaque = em.startsWith("ataque");
+      const g = str(obj.gatilho);
+      const gatilho: GatilhoExplosao = noAtaque
+        ? g === "valor"
+          ? "valor"
+          : "critico"
+        : g === "valor" || g === "total"
+          ? g
+          : "maximo";
+      const comValor = gatilho === "valor" || gatilho === "total";
+      // No d20 o número vai de 2 a 20.
+      const teto = noAtaque ? 20 : 999;
+      const padrao = noAtaque || gatilho === "total" ? 20 : 6;
+      return {
+        tipo,
+        gatilho,
+        ...(comValor
+          ? { valor: Math.min(teto, Math.max(2, Math.trunc(num(obj.valor)) || padrao)) }
+          : {}),
+        limite: Math.min(10, Math.max(1, Math.trunc(num(obj.limite)) || 1)),
+        ...(em && em !== "dano" ? { em } : {}),
+      };
+    }
+    case "progressivo": {
+      const formula = str(obj.formula).trim();
+      if (!formula) return null;
+      const por = str(obj.por).trim().slice(0, 24);
+      return {
+        tipo,
+        formula,
+        max: Math.min(20, Math.max(1, Math.trunc(num(obj.max)) || 5)),
+        ...(str(obj.em) ? { em: str(obj.em) } : {}),
+        ...(por ? { por } : {}),
+      };
+    }
     case "livre":
       if (!str(obj.texto)) return null;
       return { tipo, texto: str(obj.texto) };
     default:
       return null;
   }
+}
+
+// Deslocamentos que um efeito mexe; "caminhar" é o deslocamento base.
+export const MOVIMENTOS: { slug: string; nome: string }[] = [
+  { slug: "caminhar", nome: "Caminhar" },
+  { slug: "nadar", nome: "Nadar" },
+  { slug: "voar", nome: "Voar" },
+  { slug: "escalar", nome: "Escalar" },
+  { slug: "cavar", nome: "Cavar" },
+];
+
+const MOVIMENTOS_SET = new Set(MOVIMENTOS.map((m) => m.slug));
+
+function nomeDoMovimento(slug: string): string {
+  return MOVIMENTOS.find((m) => m.slug === slug.trim().toLowerCase())?.nome ?? slug;
+}
+
+// Deslocamentos já calculados com os "igual a outro" por cima (vale o maior).
+export function comDeslocamentosIguais(
+  base: Record<string, { valor: number; fontes: string[] }>,
+  iguais: { tipo: string; de: string; metade: boolean; fonte: string }[],
+): Record<string, { valor: number; fontes: string[] }> {
+  const out = { ...base };
+  // Duas voltas: uma cópia pode partir de outra.
+  for (let volta = 0; volta < 2; volta++) {
+    for (const c of iguais) {
+      const origem = out[c.de]?.valor ?? 0;
+      const valor = c.metade ? origem / 2 : origem;
+      if (valor > (out[c.tipo]?.valor ?? 0)) out[c.tipo] = { valor, fontes: [c.fonte] };
+    }
+  }
+  return out;
 }
 
 // ─── Alvos canônicos de efeito (slugs que a automação reconhece) ─────
@@ -2389,6 +2544,14 @@ export type EfeitosAgregados = {
   extrasDano: ExtraDano[];
   // O que acontece a cada turno; `habilidadeId` = ligada que desliga se o gasto zerar.
   porTurno: PorTurno[];
+  // Deslocamento igual a outro (ou à metade dele).
+  deslocamentosIguais: { tipo: string; de: string; metade: boolean; fonte: string }[];
+  // Multiataque por alvo de ataque: vale o maior total, mais os ataques a mais.
+  multiAtaques: { vezes: number; soma: boolean; alvo: string; fonte: string }[];
+  // Explosões de dano e de ataque.
+  explosoes: { gatilho: GatilhoExplosao; valor: number; limite: number; em: string; fonte: string }[];
+  // Bônus progressivos, crus; o Rolador conta os passos.
+  progressivos: { formula: string; max: number; em: string; por?: string; fonte: string }[];
   // Valor fixo por alvo (CR, deslocamentos): vale o maior.
   valoresFixos: Partial<Record<string, FonteValor>>;
   // Dado da arma fixo (vale o maior).
@@ -2478,6 +2641,10 @@ function vazio(): EfeitosAgregados {
     },
     extrasDano: [],
     porTurno: [],
+    deslocamentosIguais: [],
+    multiAtaques: [],
+    explosoes: [],
+    progressivos: [],
     valoresFixos: {},
     dadoArmaFixo: null,
     trocaDano: null,
@@ -2859,6 +3026,9 @@ export function efeitoEhSustentado(e: EfeitoHabilidade): boolean {
     case "ignora_exaustao":
     case "descanso":
     case "por_turno":
+    case "multi_ataque":
+    case "explosao":
+    case "progressivo":
       return true;
     default:
       return false;
@@ -2930,6 +3100,9 @@ export function efeitoDeRolagemDeArma(e: EfeitoHabilidade): boolean {
     case "piso_dado":
     case "critico_extra":
     case "ataque_poderoso":
+    case "multi_ataque":
+    case "explosao":
+    case "progressivo":
       return true;
     case "valor_fixo":
       return e.alvo === "dado-arma";
@@ -3111,7 +3284,8 @@ export function agregarEfeitos(
     recursos?: RecursoFonte[];
   },
 ): EfeitosAgregados {
-  const out = base ? structuredClone(base) : vazio();
+  // Base de um render anterior pode não ter os campos mais novos.
+  const out = base ? { ...vazio(), ...structuredClone(base) } : vazio();
   if (!base && ctx?.nivel != null && ctx.atributos) {
     out.ctxFormula = {
       nivel: ctx.nivel,
@@ -3417,6 +3591,34 @@ export function agregarEfeitos(
         if (limite === "esgotado") continue;
         const atual = somarUsoLimitado(out.danoMelhorDe ?? undefined, h.nome, limite);
         out.danoMelhorDe = { ...atual, vezes: Math.max(out.danoMelhorDe?.vezes ?? 0, e.vezes) };
+      } else if (e.tipo === "multi_ataque") {
+        out.multiAtaques.push({
+          vezes: e.vezes,
+          soma: !!e.soma,
+          alvo: (e.alvo ?? "ataque").trim().toLowerCase() || "ataque",
+          fonte: h.nome,
+        });
+      } else if (e.tipo === "explosao") {
+        out.explosoes.push({
+          gatilho: e.gatilho,
+          valor: e.valor ?? 0,
+          limite: e.limite,
+          em: (e.em ?? "dano").trim().toLowerCase() || "dano",
+          fonte: h.nome,
+        });
+      } else if (e.tipo === "progressivo") {
+        out.progressivos.push({
+          formula: e.formula,
+          max: e.max,
+          em: (e.em ?? "dano").trim().toLowerCase() || "dano",
+          ...(e.por ? { por: e.por } : {}),
+          fonte: h.nome,
+        });
+      } else if (e.tipo === "deslocamento" && e.igual) {
+        const tipo = e.tipoMov.trim().toLowerCase();
+        if (tipo) {
+          out.deslocamentosIguais.push({ tipo, de: e.igual, metade: !!e.metade, fonte: h.nome });
+        }
       } else if (e.tipo === "deslocamento") {
         const tipo = e.tipoMov.trim().toLowerCase();
         if (tipo && e.valor) {
@@ -3496,7 +3698,10 @@ export type ChipContexto = {
     | "dano_maximo"
     | "piso_dado"
     | "ataque_poderoso"
-    | "dano_poderoso";
+    | "dano_poderoso"
+    | "multi_ataque"
+    | "explosao"
+    | "progressivo";
   rotulo: string;
   fontes: string[];
   // Parâmetro do efeito (mínimo do crit/floor, rerrolagens, metros, dados,
@@ -3514,6 +3719,11 @@ export type ChipContexto = {
   piso?: { ate: number; vira: number };
   // Habilidade de Usar que o chip gasta ao rolar.
   gasta?: string;
+  // Explosão: quando dispara e quantas vezes.
+  explosao?: { gatilho: GatilhoExplosao; valor: number; limite: number };
+  // Bônus progressivo: teto de passos e a chave que guarda a contagem.
+  max?: number;
+  memoria?: string;
 };
 
 // Subconjunto do agregado que o Rolador precisa pra montar os chips — evita
@@ -3537,6 +3747,9 @@ export type EfeitosContexto = Pick<
   | "pisosDado"
   | "critsExtra"
   | "ataquesPoderosos"
+  | "multiAtaques"
+  | "explosoes"
+  | "progressivos"
 >;
 
 export function efeitosDoContexto(agg: EfeitosAgregados): EfeitosContexto {
@@ -3558,6 +3771,9 @@ export function efeitosDoContexto(agg: EfeitosAgregados): EfeitosContexto {
     pisosDado: agg.pisosDado,
     critsExtra: agg.critsExtra,
     ataquesPoderosos: agg.ataquesPoderosos,
+    multiAtaques: agg.multiAtaques ?? [],
+    explosoes: agg.explosoes ?? [],
+    progressivos: agg.progressivos ?? [],
   };
 }
 
@@ -3574,6 +3790,9 @@ export function chipsDoContexto(
 ): ChipContexto[] {
   const chips: ChipContexto[] = [];
   const ehDano = ctx.tipo === "dano";
+  const multiAtaques = agg.multiAtaques ?? [];
+  const explosoes = agg.explosoes ?? [];
+  const progressivos = agg.progressivos ?? [];
 
   // Dano extra e dados extras (no dano) e dado extra (em jogada de d20); os sob
   // demanda gastam a habilidade ao rolar.
@@ -3712,8 +3931,60 @@ export function chipsDoContexto(
           detalhe: `+${a.bonus} no dano se acertar`,
         });
       });
+      // Multiataque: o maior total que casa, mais os ataques a mais.
+      const multis = multiAtaques.filter((m) => casaContexto(m.alvo, ctx));
+      const vezes =
+        Math.max(1, ...multis.filter((m) => !m.soma).map((m) => m.vezes)) +
+        multis.filter((m) => m.soma).reduce((s, m) => s + m.vezes, 0);
+      if (vezes > 1) {
+        chips.push({
+          chave: "multi_ataque",
+          tipo: "multi_ataque",
+          rotulo: `${vezes} ataques`,
+          fontes: dedup(multis.map((m) => m.fonte)),
+          valor: vezes,
+        });
+      }
+      // Explosão no ataque: ataca de novo.
+      explosoes.forEach((x, i) => {
+        if (!x.em.startsWith("ataque") || !casaContexto(x.em, ctx)) return;
+        chips.push({
+          chave: `explosao-${i}`,
+          tipo: "explosao",
+          rotulo: x.gatilho === "critico" ? "Crítico ataca de novo" : `${x.valor}+ ataca de novo`,
+          fontes: [x.fonte],
+          explosao: { gatilho: x.gatilho, valor: x.valor, limite: x.limite },
+          ...(x.limite > 1 ? { detalhe: `até ${x.limite} vezes` } : {}),
+        });
+      });
     }
   }
+
+  // Bônus progressivo: nasce em zero e o Rolador conta os passos.
+  progressivos.forEach((p, i) => {
+    const casa = ehDano
+      ? extraNoDano(p.em) && casaDano(p.em, ctx)
+      : !extraNoDano(p.em) && casaContexto(p.em, ctx);
+    if (!casa) return;
+    const f = agg.ctxFormula;
+    const grau = ctx.tipo === "dano" ? (ctx.grau ?? 0) : 0;
+    const r = f
+      ? resolverFormula(p.formula, f.atributos, f.nivel, { grau })
+      : { ...parseFormulaDados(p.formula), usados: [] };
+    if (r.dados.length === 0 && r.modificador === 0) return;
+    const texto = formulaAgrupada(r.dados, r.modificador);
+    chips.push({
+      chave: `progressivo-${i}`,
+      tipo: "progressivo",
+      rotulo: texto.startsWith("−") ? texto : `+${texto}`,
+      fontes: [p.fonte],
+      dados: r.dados,
+      valor: r.modificador,
+      max: p.max,
+      memoria: `${p.fonte}|${p.formula}|${p.em}`,
+      ...(p.por ? { detalhe: `por ${p.por}` } : {}),
+    });
+  });
 
   // Bônus com `quando`: desligados, somam no modificador.
   agg.situacionais.forEach((s, i) => {
@@ -3795,6 +4066,23 @@ export function chipsDoContexto(
         fontes: [a.fonte],
         valor: a.bonus,
         opcional: true,
+      });
+    });
+    // Explosão no dano: o dado (ou o dano todo) rola de novo e soma.
+    explosoes.forEach((x, i) => {
+      if (x.em.startsWith("ataque") || !casaDano(x.em, ctx)) return;
+      chips.push({
+        chave: `explosao-${i}`,
+        tipo: "explosao",
+        rotulo:
+          x.gatilho === "maximo"
+            ? "Explode no máximo"
+            : x.gatilho === "total"
+              ? `Explode com ${x.valor}+ de dano`
+              : `Explode com ${x.valor}+ no dado`,
+        fontes: [x.fonte],
+        explosao: { gatilho: x.gatilho, valor: x.valor, limite: x.limite },
+        ...(x.limite > 1 ? { detalhe: `até ${x.limite} vezes` } : {}),
       });
     });
     empilharExtras();
@@ -4073,7 +4361,9 @@ export function resumoEfeito(
     case "vulnerabilidade":
       return e.tipoDano;
     case "deslocamento":
-      return `${e.tipoMov} ${e.valor}m`;
+      return e.igual
+        ? `${nomeDoMovimento(e.tipoMov)} = ${e.metade ? "metade de " : ""}${nomeDoMovimento(e.igual)}`
+        : `${e.tipoMov} ${e.valor}m`;
     case "multiplicador":
       return `${e.alvo} ×${e.fator}`;
     case "substituir_atributo": {
@@ -4157,6 +4447,28 @@ export function resumoEfeito(
     }
     case "por_turno":
       return resumoPorTurno(e, texto, numero, nomeRecurso);
+    case "multi_ataque":
+      return `${e.soma ? `+${e.vezes} ataque${e.vezes > 1 ? "s" : ""}` : `${e.vezes} ataques`}${
+        e.alvo && e.alvo !== "ataque" ? ` · ${rotuloAlvo(e.alvo)}` : ""
+      }`;
+    case "explosao": {
+      const noAtaque = (e.em ?? "").startsWith("ataque");
+      const gatilho =
+        e.gatilho === "critico"
+          ? "no crítico"
+          : e.gatilho === "maximo"
+            ? "dado no máximo"
+            : e.gatilho === "total"
+              ? `dano ${e.valor}+`
+              : `${noAtaque ? "d20" : "dado"} ${e.valor}+`;
+      return `${gatilho}${e.limite > 1 ? ` · até ${e.limite}×` : ""}${
+        e.em && e.em !== "dano" ? ` · ${rotuloAlvo(e.em)}` : ""
+      }`;
+    }
+    case "progressivo":
+      return `+${texto(e.formula).replace(/^\+\s*/, "")} por ${e.por ?? "vez"} · até ${e.max}×${
+        e.em && e.em !== "dano" ? ` · ${rotuloAlvo(e.em)}` : ""
+      }`;
     case "livre":
       return e.texto;
   }

@@ -223,6 +223,7 @@ const ALLOWED_ACAO = [
   "duracao",
   "tipoDano",
   "pasta",
+  "formaDe",
 ] as const;
 
 type AcaoInput = Partial<Record<(typeof ALLOWED_ACAO)[number], unknown>>;
@@ -280,7 +281,23 @@ function normalizarAcaoInput(input: AcaoInput) {
   if (input.efeitos !== undefined) data.efeitos = normalizarEfeitosInput(input.efeitos);
   if (input.aliado !== undefined) data.aliado = Boolean(input.aliado);
   if (input.duracao !== undefined) data.duracao = lerDuracao(input.duracao) ?? Prisma.DbNull;
+  if (input.formaDe !== undefined) data.formaDe = input.formaDe ? String(input.formaDe) : null;
   return data;
+}
+
+// Forma alternativa: a origem tem que ser outra ação do personagem, e nunca outra forma.
+async function conferirForma(
+  personagemId: string,
+  data: Record<string, unknown>,
+  acaoId?: string,
+) {
+  if (!data.formaDe) return;
+  const origem = await prisma.acao.findFirst({
+    where: { id: data.formaDe as string, personagemId },
+    select: { id: true, formaDe: true },
+  });
+  const raiz = origem?.formaDe ?? origem?.id ?? null;
+  data.formaDe = raiz && raiz !== acaoId ? raiz : null;
 }
 
 // Lista de ids: só strings não-vazias, sem repetição, com teto defensivo.
@@ -323,6 +340,7 @@ function dadosDaAcao(personagemId: string, data: Record<string, unknown>) {
     efeitos: (data.efeitos as EfeitoHabilidade[]) ?? [],
     aliado: (data.aliado as boolean) ?? false,
     duracao: (data.duracao as Prisma.InputJsonValue | typeof Prisma.DbNull) ?? Prisma.DbNull,
+    ...(data.formaDe ? { formaDe: data.formaDe as string } : {}),
   };
 }
 
@@ -331,6 +349,7 @@ export async function criarAcao(personagemId: string, input: AcaoInput) {
     await autorizar(personagemId);
     const data = normalizarAcaoInput(input);
     if (data.nome === undefined) throw new ErroDeUso("Nome é obrigatório.");
+    await conferirForma(personagemId, data);
 
     await prisma.acao.create({ data: dadosDaAcao(personagemId, data) });
     revalidatePath(`/ficha/${personagemId}`);
@@ -345,6 +364,7 @@ export async function atualizarAcao(
   return executar("ficha", async () => {
     await autorizar(personagemId);
     const data = normalizarAcaoInput(patch);
+    await conferirForma(personagemId, data, acaoId);
     await prisma.acao.update({
       where: { id: acaoId, personagemId },
       data,

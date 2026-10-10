@@ -7554,3 +7554,72 @@ form > .turno-campo,
     animation: none;
   }
 }
+
+/* ─── Duplicar e formas alternativas da ação ───────────────── */
+.btn-card-copia {
+  position: absolute;
+  top: 12px;
+  right: 84px;
+  padding: 4px;
+  border: none;
+  background: none;
+  color: var(--text-sec);
+  font-size: 0.9rem;
+  opacity: 0.5;
+  cursor: pointer;
+  transition: opacity 0.2s, color 0.2s;
+}
+
+.btn-card-copia:hover {
+  opacity: 1;
+  color: var(--primary);
+}
+
+.action-card.com-copia .card-title {
+  padding-right: 102px;
+}
+
+.acao-formas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0 2px;
+}
+
+.acao-forma {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-sec);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--dur-rapida) var(--ease-saida),
+    border-color var(--dur-rapida) var(--ease-saida),
+    color var(--dur-rapida) var(--ease-saida),
+    transform var(--dur-rapida) var(--ease-saida);
+}
+
+.acao-forma:hover {
+  color: var(--text-main);
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+}
+
+.acao-forma.ativo {
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+  color: var(--primary);
+}
+
+.acao-forma:active {
+  transform: scale(0.96);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acao-forma {
+    transition: none;
+  }
+}

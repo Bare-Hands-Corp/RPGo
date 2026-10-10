@@ -1213,3 +1213,41 @@
 .vida-message.turno .vida-linhas:empty {
   display: none;
 }
+
+/* Dado que a explosão somou; vale no Rolador e no chat. */
+.dado-explosao {
+  color: var(--color-power);
+  font-weight: 700;
+}
+
+/* Bônus progressivo: o chip conta passos com − e +. */
+.rolador-chip-passos {
+  padding: 0;
+  gap: 0;
+  cursor: default;
+  overflow: hidden;
+}
+.rolador-chip-passos > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 4px;
+  font-variant-numeric: tabular-nums;
+}
+.rolador-chip-passos button {
+  align-self: stretch;
+  min-width: 24px;
+  padding: 0 7px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.rolador-chip-passos button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+}
+.rolador-chip-passos button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}

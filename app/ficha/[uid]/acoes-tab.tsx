@@ -52,6 +52,7 @@ import { empilharD20, empilharRolagem, rolarCuras } from "@/lib/empilhar-rolagem
 import {
   ChipEfeito,
   DatalistAlvos,
+  EfeitoDeAcaoContext,
   EfeitosEditor,
   FormulaContext,
   NomesRecursoContext,
@@ -118,6 +119,8 @@ type Acao = {
   aliado: boolean;
   duracao?: unknown;
   pasta?: string | null;
+  // Ação de que esta é forma alternativa.
+  formaDe?: string | null;
 };
 
 type Filtro = "todas" | "tecnicas" | "sem_custo";
@@ -142,6 +145,10 @@ const PRESETS_ACAO = [
   "passo_dano",
   "dano_extra",
   "dados_extra",
+  "potencializacao",
+  "progressivo",
+  "multi_ataque",
+  "explosao",
   "dano_maximo",
   "piso_dado",
   "critico_extra",
@@ -262,6 +269,10 @@ type FormState = {
   efeitos: EfeitoHabilidade[];
   aliado: boolean;
   duracao: Duracao | null;
+  // Ação de origem da forma alternativa ("" = ação separada).
+  formaDe: string;
+  // Origem oferecida no modal ("" = não oferece).
+  origemForma: string;
 };
 
 const FORM_VAZIO: FormState = {
@@ -287,6 +298,8 @@ const FORM_VAZIO: FormState = {
   efeitos: [],
   aliado: false,
   duracao: null,
+  formaDe: "",
+  origemForma: "",
 };
 
 // Ação recém-trazida de uma pasta, antes do servidor responder.
@@ -314,6 +327,7 @@ const ACAO_BASE: Omit<Acao, "id"> = {
   aliado: false,
   duracao: null,
   pasta: null,
+  formaDe: null,
 };
 
 // Lê um Json de ids vindo do banco com defesa contra lixo/legado.
@@ -435,8 +449,25 @@ export function AcoesTab({
   const [pastaFiltro, setPastaFiltro] = useState<string | null>(null);
   const uso = useConfirmarUso();
   const [form, setForm] = useState<FormState>(FORM_VAZIO);
+  // Forma à mostra em cada card (id da ação de origem → id da forma).
+  const [formaAtiva, setFormaAtiva] = useState<Record<string, string>>({});
   const [, startTransition] = useTransition();
   const atualizar = useRefreshAgrupado(0);
+
+  // Formas alternativas ficam dentro do card da ação de origem.
+  const acoesPorId = new Map(acoesOtimistas.map((a) => [a.id, a]));
+  function origemDe(acao: Acao): Acao | undefined {
+    let origem = acao.formaDe && acao.formaDe !== acao.id ? acoesPorId.get(acao.formaDe) : undefined;
+    for (let i = 0; i < 5 && origem?.formaDe && acoesPorId.has(origem.formaDe); i++) {
+      origem = acoesPorId.get(origem.formaDe);
+    }
+    return origem?.id === acao.id ? undefined : origem;
+  }
+  const formasDe = new Map<string, Acao[]>();
+  for (const a of acoesOtimistas) {
+    const origem = origemDe(a);
+    if (origem) formasDe.set(origem.id, [...(formasDe.get(origem.id) ?? []), a]);
+  }
 
   function abrirNova() {
     setForm(FORM_VAZIO);
@@ -444,7 +475,26 @@ export function AcoesTab({
   }
 
   function abrirEdit(acao: Acao) {
+    setForm(formDe(acao));
+    setModalAberto(true);
+  }
+
+  // Duplicar: abre uma ação nova já preenchida; no modal dá pra virar forma alternativa.
+  function abrirCopia(acao: Acao) {
+    const origem = origemDe(acao) ?? acao;
     setForm({
+      ...formDe(acao),
+      id: null,
+      nome: `${acao.nome} (cópia)`,
+      formaDe: "",
+      origemForma: origem.id,
+    });
+    setModalAberto(true);
+  }
+
+  function formDe(acao: Acao): FormState {
+    const origem = origemDe(acao);
+    return {
       id: acao.id,
       nome: acao.nome,
       descricao: acao.descricao,
@@ -467,8 +517,9 @@ export function AcoesTab({
       efeitos: lerEfeitos(acao.efeitos),
       aliado: acao.aliado,
       duracao: lerDuracao(acao.duracao),
-    });
-    setModalAberto(true);
+      formaDe: origem?.id ?? "",
+      origemForma: origem?.id ?? "",
+    };
   }
 
   function fecharModal() {
@@ -515,6 +566,8 @@ export function AcoesTab({
       efeitos: form.efeitos,
       aliado: form.aliado,
       duracao: form.duracao,
+      // Só vai quando o modal ofereceu a escolha.
+      ...(form.origemForma ? { formaDe: form.formaDe || null } : {}),
     };
 
     const editandoId = form.id;
@@ -721,19 +774,22 @@ export function AcoesTab({
   const pastas = pastasDe(acoesOtimistas);
   const nomesDasPastas = pastas.map((p) => p.nome);
   const pastaAtiva = pastas.some((p) => p.nome === pastaFiltro) ? pastaFiltro : null;
+  const casaFiltros = (a: Acao) =>
+    (filtro !== "tecnicas" || a.tecnica) &&
+    (filtro !== "sem_custo" ||
+      (a.custoPp === 0 && a.custoPa === 0 && (!a.custoRecursoId || a.custoRecursoValor === 0))) &&
+    (!pastaAtiva || a.pasta === pastaAtiva) &&
+    casaBusca(busca, [a.nome, a.descricao, a.tag, a.pasta, a.dano, a.tipoDano, a.tecnica ? "técnica" : null]);
+  // Um card por ação de origem; aparece se ela ou uma forma dela casar.
   const visiveis = acoesOtimistas.filter(
-    (a) =>
-      (filtro !== "tecnicas" || a.tecnica) &&
-      (filtro !== "sem_custo" ||
-        (a.custoPp === 0 && a.custoPa === 0 && (!a.custoRecursoId || a.custoRecursoValor === 0))) &&
-      (!pastaAtiva || a.pasta === pastaAtiva) &&
-      casaBusca(busca, [a.nome, a.descricao, a.tag, a.pasta, a.dano, a.tipoDano, a.tecnica ? "técnica" : null]),
+    (a) => !origemDe(a) && [a, ...(formasDe.get(a.id) ?? [])].some(casaFiltros),
   );
   const filtrando = filtro !== "todas" || !!pastaAtiva || busca.trim() !== "";
 
   return (
     <NomesRecursoContext.Provider value={new Map(recursos.map((r) => [r.id, r.nome]))}>
     <FormulaContext.Provider value={ctxFormula}>
+    <EfeitoDeAcaoContext.Provider value>
     <div>
       <div className="tab-topo">
         <h1>Ações de Combate</h1>
@@ -772,7 +828,13 @@ export function AcoesTab({
             </div>
             {lista.length > 0 ? (
               <div className="action-grid">
-                {lista.map((acao) => {
+                {lista.map((origem) => {
+                  const formas = [origem, ...(formasDe.get(origem.id) ?? [])];
+                  // A forma escolhida; filtrando, a primeira que casa.
+                  const acao =
+                    formas.find((f) => f.id === formaAtiva[origem.id]) ??
+                    (filtrando ? formas.find(casaFiltros) : undefined) ??
+                    origem;
                   const recursoCusto = recursos.find(
                     (r) => r.id === acao.custoRecursoId,
                   );
@@ -833,6 +895,11 @@ export function AcoesTab({
                           valorAtributo: atributosParaTeste[atributoAtq],
                         }) + extraAtaqueSemArma.valor
                       : null;
+                  // Passo de dano da própria ação sobe o dado dela.
+                  const passosProprios = lerEfeitos(acao.efeitos).reduce(
+                    (soma, e) => soma + (e.tipo === "passo_dano" ? e.passos : 0),
+                    0,
+                  );
                   // DES reduzida pela armadura morde o acerto quando ele usa DES.
                   const atributoAcerto = ataqueArma ? ataqueArma.atributo : atributoAtq;
                   const desReduzAtq = atributoAcerto === "destreza" && desReduz;
@@ -844,8 +911,12 @@ export function AcoesTab({
                       ? resolverDanoArma({
                           danoBase: acao.dano,
                           danoBonus: arma?.danoBonus ?? null,
-                          // Passos de técnica só valem em técnica.
-                          passos: acao.tecnica ? agg.passosDanoTecnica.valor : 0,
+                          // Passos de técnica da ficha só valem em técnica; os da ação, sempre.
+                          passos:
+                            (acao.tecnica
+                              ? (arma ? efeitosDa(arma) : efeitosAgregados).passosDanoTecnica.valor
+                              : 0) + passosProprios,
+                          grau: acao.grau,
                           somaAtributo: false,
                           atributoDano: null,
                           atributos: atributosParaTeste,
@@ -939,12 +1010,21 @@ export function AcoesTab({
                   const origens = [...habsDerivadas.map((h) => h.nome), ...(itemOrigem ? [itemOrigem.nome] : [])];
                   return (
                     <div
-                      key={acao.id}
-                      className={`action-card type-${acao.tipo}${travada ? " hab-travada" : ""}${
+                      key={origem.id}
+                      className={`action-card com-copia type-${acao.tipo}${travada ? " hab-travada" : ""}${
                         ehTemporario(acao.id) ? " item-pendente" : ""
                       }`}
                       inert={ehTemporario(acao.id)}
                     >
+                      <button
+                        type="button"
+                        className="btn-card-copia"
+                        title="Duplicar"
+                        aria-label={`Duplicar ${acao.nome}`}
+                        onClick={() => abrirCopia(acao)}
+                      >
+                        <i className="fas fa-copy" />
+                      </button>
                       <BotaoGuardar
                         origem={{ nome: acao.nome, pasta: acao.pasta ?? null }}
                         pastasDaFicha={nomesDasPastas}
@@ -969,6 +1049,21 @@ export function AcoesTab({
                       </button>
                       <div>
                         <div className="card-title">{acao.nome}</div>
+                        {formas.length > 1 && (
+                          <div className="acao-formas" role="group" aria-label="Formas">
+                            {formas.map((f) => (
+                              <button
+                                type="button"
+                                key={f.id}
+                                className={`acao-forma${f.id === acao.id ? " ativo" : ""}`}
+                                aria-pressed={f.id === acao.id}
+                                onClick={() => setFormaAtiva((s) => ({ ...s, [origem.id]: f.id }))}
+                              >
+                                {f.nome}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                         {(bonusAtq != null || cd != null || atributoSalv || acao.dano || acao.alcance || golpes.length > 0 || acao.tecnica || duracaoTexto || temPorTurno) && (
                           <div className="acao-stats">
                             {acao.tecnica && (
@@ -1264,6 +1359,24 @@ export function AcoesTab({
                 autoFocus
               />
 
+              {form.origemForma && acoesPorId.has(form.origemForma) && (
+                <>
+                  <label>Forma alternativa</label>
+                  <Segmentos
+                    rotulo="Forma alternativa"
+                    valor={form.formaDe}
+                    onChange={(v) => setF("formaDe", v)}
+                    opcoes={[
+                      { valor: "", rotulo: "Não" },
+                      {
+                        valor: form.origemForma,
+                        rotulo: `De ${acoesPorId.get(form.origemForma)!.nome}`,
+                      },
+                    ]}
+                  />
+                </>
+              )}
+
               <label>Descrição</label>
               <textarea
                 value={form.descricao}
@@ -1488,6 +1601,7 @@ export function AcoesTab({
         </div>
       )}
     </div>
+    </EfeitoDeAcaoContext.Provider>
     </FormulaContext.Provider>
     </NomesRecursoContext.Provider>
   );

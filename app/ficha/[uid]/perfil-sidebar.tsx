@@ -42,6 +42,7 @@ import {
   atributosEfetivos as somarBonusDeAtributo,
   bonusProficiencia,
   bonusTesteAmplo,
+  comDeslocamentosIguais,
   crBase,
   deslocamentoEfetivo,
   exaustaoQueConta,
@@ -566,8 +567,24 @@ export function PerfilSidebar({
   const deslocFixo = efeitosAgregados.valoresFixos["deslocamento"];
   const deslocSemMult = Math.max(0, p.deslocamento + deslocBonus.valor, deslocFixo?.valor ?? 0);
   const deslocBruto = multDesloc ? Math.floor(deslocSemMult * multDesloc.fator) : deslocSemMult;
-  const deslocEfetivo = deslocamentoEfetivo(deslocBruto, 0, exaustaoConta);
-  const deslocReduzido = deslocEfetivo !== deslocBruto;
+  const deslocProprio = deslocamentoEfetivo(deslocBruto, 0, exaustaoConta);
+  // Nado: stat base de espécie (não reduzido pela exaustão). Um efeito que
+  // concede nado (`deslocamento`/`nadar`) prevalece o maior contra o base.
+  const modosProprios = modosDeDeslocamento(efeitosAgregados);
+  const nadarProprio = modosProprios["nadar"];
+  // "Igual a outro" parte dos valores já calculados; vale o maior.
+  const modos = comDeslocamentosIguais(
+    {
+      ...modosProprios,
+      caminhar: { valor: deslocProprio, fontes: [] },
+      nadar:
+        nadarProprio && nadarProprio.valor >= p.nado ? nadarProprio : { valor: p.nado, fontes: [] },
+    },
+    efeitosAgregados.deslocamentosIguais ?? [],
+  );
+  const deslocEfetivo = modos.caminhar.valor;
+  const deslocIgual = modos.caminhar.fontes;
+  const deslocReduzido = deslocIgual.length === 0 && deslocEfetivo !== deslocBruto;
   const deslocTitulo =
     [
       deslocBonus.fontes.length
@@ -575,17 +592,14 @@ export function PerfilSidebar({
         : null,
       multDesloc ? `×${multDesloc.fator} de ${multDesloc.fontes.join(", ")}` : null,
       deslocFixo ? `Vira ${deslocFixo.valor} m por ${deslocFixo.fontes.join(", ")}` : null,
+      deslocIgual.length ? `Igual a outro deslocamento por ${deslocIgual.join(", ")}` : null,
       deslocReduzido ? `Reduzido por exaustão (de ${deslocBruto} m)` : null,
     ]
       .filter(Boolean)
       .join(" · ") || undefined;
 
-  // Nado: stat base de espécie (não reduzido pela exaustão). Um efeito que
-  // concede nado (`deslocamento`/`nadar`) prevalece o maior contra o base.
-  const modosExtra = modosDeDeslocamento(efeitosAgregados);
-  const nadarExtra = modosExtra["nadar"];
-  const nadoEfetivo = Math.max(p.nado, nadarExtra?.valor ?? 0);
-  const nadoPorEfeito = (nadarExtra?.valor ?? 0) >= p.nado && !!nadarExtra?.fontes.length;
+  const nadoEfetivo = modos.nadar.valor;
+  const nadoFontes = modos.nadar.fontes;
 
   // CR calculada aqui porque a faixa condensada também usa.
   const crAtrib = atributoDeCalculo("cr", "destreza", subs, atributosParaTeste);
@@ -991,7 +1005,7 @@ export function PerfilSidebar({
           <span className="recurso-nome">Deslocamento</span>
           <span className={`stat-values ${deslocReduzido ? "valor-exausto" : ""}`}>
             {deslocEfetivo.toLocaleString("pt-BR")} m
-            {(deslocBonus.fontes.length > 0 || multDesloc || deslocFixo) && (
+            {(deslocBonus.fontes.length > 0 || multDesloc || deslocFixo || deslocIgual.length > 0) && (
               <i className="fas fa-link prof-fonte" />
             )}
             {deslocReduzido && (
@@ -1003,21 +1017,21 @@ export function PerfilSidebar({
         {/* Nado: stat base de espécie, sempre exibido (igual ao deslocamento). */}
         <div
           className="recurso-linha"
-          title={nadoPorEfeito ? `de ${nadarExtra!.fontes.join(", ")}` : undefined}
+          title={nadoFontes.length ? `de ${nadoFontes.join(", ")}` : undefined}
         >
           <span className="recurso-icone"><i className="fas fa-person-swimming" /></span>
           <span className="recurso-nome">Nadar</span>
           <span className="stat-values">
             {nadoEfetivo.toLocaleString("pt-BR")} m
-            {nadoPorEfeito && <i className="fas fa-link prof-fonte" />}
+            {nadoFontes.length > 0 && <i className="fas fa-link prof-fonte" />}
           </span>
         </div>
       </div>
 
       {/* Deslocamentos especiais (voar/escalar/cavar) — modos próprios concedidos
           por habilidade, não reduzidos pela exaustão. Nado tem linha própria acima. */}
-      {Object.entries(modosExtra).map(([tipo, fv]) =>
-        fv && tipo !== "nadar" ? (
+      {Object.entries(modos).map(([tipo, fv]) =>
+        fv && fv.valor > 0 && tipo !== "nadar" && tipo !== "caminhar" ? (
           <div
             key={`mov-${tipo}`}
             className="recurso-linha"

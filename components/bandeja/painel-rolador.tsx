@@ -65,6 +65,9 @@ const ICONE_CHIP: Record<ChipContexto["tipo"], string> = {
   piso_dado: "fa-dice-five",
   ataque_poderoso: "fa-scale-unbalanced",
   dano_poderoso: "fa-scale-unbalanced",
+  multi_ataque: "fa-layer-group",
+  explosao: "fa-explosion",
+  progressivo: "fa-arrow-trend-up",
 };
 
 const FACES = [4, 6, 8, 10, 12, 20, 100] as const;
@@ -98,7 +101,16 @@ type OpcoesContextuais = {
   danoMaximo: boolean;
   // Dado de dano que rolar até `ate` vira `vira` (0 = o máximo).
   pisosDado: { ate: number; vira: number }[];
+  // Dado de dano que explode: a partir de quanto (0 = a face máxima) e até quantas vezes.
+  explosoesDado: { minimo: number; limite: number }[];
+  // Dano total que explode: os dados rolam de novo e somam.
+  explosoesTotal: { minimo: number; limite: number }[];
 };
+
+type RegraExplosao = NonNullable<ChipContexto["explosao"]>;
+
+// Passos de cada bônus progressivo; ficam de uma rolagem pra outra.
+const contagemProgressiva = new Map<string, number>();
 
 // Snapshot de uma rolagem contextual que ofereceu rerroll — fica "pendente" até
 // o usuário Manter ou esgotar as rerrolagens. Só persiste no chat ao Manter.
@@ -113,6 +125,10 @@ type Pendente = {
   rolls: DadoRolado[];
   rerollsRestantes: number;
   rerollsUsados: number;
+  // Crítico e d20 natural do lance, pra explosão de ataque ao manter.
+  critico: Lance["critico"];
+  natural: number | null;
+  explosoes: RegraExplosao[];
   // Rolagem de ataque (o crítico dela liga o Crítico do próximo dano).
   ataque: boolean;
   // Habilidades que os chips ligados gastam quando a rolagem for mantida.
@@ -123,9 +139,12 @@ type Pendente = {
   gastaReroll?: string;
 };
 
+// Um dado sorteado: `cru` = o que rolou antes do dado mínimo; `extras` = explosões.
+type ValorDado = { resultado: number; cru: number | null; extras?: number[] };
+
 // Valores sorteados de um lance: os d20 do primário (2 com vantagem ou
 // desvantagem) e os outros dados, na ordem.
-type ValoresLance = { d20: number[]; outros: { resultado: number; cru: number | null }[] };
+type ValoresLance = { d20: number[]; outros: ValorDado[] };
 
 type Lance = {
   total: number;
@@ -136,18 +155,92 @@ type Lance = {
   // Valor natural do d20 primário (null sem d20).
   natural: number | null;
   valores: ValoresLance;
+  // Ataque a mais que veio de uma explosão.
+  explosao?: boolean;
 };
 
-// Resultado de um dado de dano com dano máximo e dado mínimo; `cru` = o que rolou.
-function rolarDadoDeDano(d: Dado, opc: OpcoesContextuais): { resultado: number; cru: number | null } {
+// Resultado de um dado de dano com dano máximo, dado mínimo e explosão.
+function rolarDadoDeDano(d: Dado, opc: OpcoesContextuais): ValorDado {
   if (opc.danoMaximo) return { resultado: d.sinal > 0 ? d.faces : 1, cru: null };
   const rolado = Math.floor(Math.random() * d.faces) + 1;
-  if (d.sinal < 0 || opc.pisosDado.length === 0) return { resultado: rolado, cru: null };
+  if (d.sinal < 0) return { resultado: rolado, cru: null };
   const elevados = opc.pisosDado
     .filter((p) => rolado <= p.ate)
     .map((p) => (p.vira > 0 ? Math.min(d.faces, p.vira) : d.faces));
   const resultado = Math.max(rolado, ...elevados);
-  return { resultado, cru: resultado !== rolado ? rolado : null };
+  const extras = explosoesDoDado(d.faces, rolado, opc.explosoesDado);
+  return {
+    resultado,
+    cru: resultado !== rolado ? rolado : null,
+    ...(extras.length ? { extras } : {}),
+  };
+}
+
+// Dados que a explosão soma: rola outro enquanto o último disparar, até o limite.
+function explosoesDoDado(
+  faces: number,
+  rolado: number,
+  regras: OpcoesContextuais["explosoesDado"],
+): number[] {
+  const extras: number[] = [];
+  if (faces < 2) return extras;
+  let ultimo = rolado;
+  for (;;) {
+    const limite = Math.max(
+      0,
+      ...regras.filter((r) => ultimo >= (r.minimo || faces)).map((r) => r.limite),
+    );
+    if (extras.length >= limite) return extras;
+    ultimo = Math.floor(Math.random() * faces) + 1;
+    extras.push(ultimo);
+  }
+}
+
+// Dano que chega ao gatilho rola os dados de novo e soma, até o limite.
+function comExplosaoDoTotal(lance: Lance, dadosUsar: Dado[], opc: OpcoesContextuais): Lance {
+  if (opc.explosoesTotal.length === 0) return lance;
+  const semGatilho = { ...opc, danoMinFloor: 0, explosoesTotal: [] };
+  let out = lance;
+  let ultimo = lance.total;
+  for (let feitas = 0; ; feitas++) {
+    const limite = Math.max(
+      0,
+      ...opc.explosoesTotal.filter((r) => ultimo >= r.minimo).map((r) => r.limite),
+    );
+    if (feitas >= limite) return out;
+    const novo = montarUmLance(dadosUsar, 0, semGatilho);
+    ultimo = novo.total;
+    out = {
+      ...out,
+      total: out.total + novo.total,
+      rolls: [...out.rolls, ...novo.rolls],
+      stringDados: `${out.stringDados} <span class="dado-explosao">+ explosão</span> ${novo.stringDados}`,
+    };
+  }
+}
+
+// Ataque que dispara a explosão ganha outro ataque em seguida, até o limite.
+function comAtaquesExplosivos(primeiro: Lance, regras: RegraExplosao[], rolar: () => Lance): Lance[] {
+  const lances = [primeiro];
+  let ultimo = primeiro;
+  for (;;) {
+    const limite = Math.max(
+      0,
+      ...regras
+        .filter((r) =>
+          r.gatilho === "critico" ? ultimo.critico === "sucesso" : (ultimo.natural ?? 0) >= r.valor,
+        )
+        .map((r) => r.limite),
+    );
+    if (lances.length - 1 >= limite) return lances;
+    ultimo = rolar();
+    lances.push({ ...ultimo, explosao: true });
+  }
+}
+
+// Linha de um lance no lote; o que veio de explosão leva a marca.
+function textoDoLance(l: Lance): string {
+  return l.explosao ? `${l.stringDados} <span class="dado-explosao">explosão</span>` : l.stringDados;
 }
 
 // Rola o d20 primário (1d20 positivo) com vant/desv/floor/crit e os demais dados
@@ -159,7 +252,9 @@ function montarDadosContextuais(
   opc: OpcoesContextuais,
 ): Lance {
   const vezes = Math.max(1, opc.melhorDe);
-  const lances = Array.from({ length: vezes }, () => montarUmLance(dadosUsar, modUsar, opc));
+  const lances = Array.from({ length: vezes }, () =>
+    comExplosaoDoTotal(montarUmLance(dadosUsar, modUsar, opc), dadosUsar, opc),
+  );
   if (vezes === 1) return lances[0];
   // Melhor de N: os totais descartados aparecem riscados depois do que ficou.
   const fica = lances.reduce((a, b) => (b.total > a.total ? b : a));
@@ -230,15 +325,18 @@ function montarUmLance(
         extra += ` <span class="dado-descartado" title="elevado pelo mínimo">${r.mantido}</span>`;
       stringDados += `${op}(${resHtml}${extra}) 1d20`;
     } else {
-      const { resultado, cru } = valores.outros[outro++] ?? rolarDadoDeDano(d, opc);
-      total += resultado * d.sinal;
+      const { resultado, cru, extras = [] } = valores.outros[outro++] ?? rolarDadoDeDano(d, opc);
+      total += (resultado + extras.reduce((s, x) => s + x, 0)) * d.sinal;
       rolls.push({ faces: d.faces, sinal: d.sinal, resultado });
+      for (const x of extras) rolls.push({ faces: d.faces, sinal: d.sinal, resultado: x });
       let resHtml = `${resultado}`;
       if (resultado === 1) resHtml = `<span class="crit-fail">${resultado}</span>`;
       else if (resultado === d.faces)
         resHtml = `<span class="crit-success">${resultado}</span>`;
       // Valor cru antes do dado mínimo (riscado).
       if (cru != null) resHtml += ` <span class="dado-descartado" title="dado mínimo">${cru}</span>`;
+      // Dados que a explosão somou.
+      for (const x of extras) resHtml += ` <span class="dado-explosao" title="explosão">+${x}</span>`;
       stringDados += `${op}(${resHtml}) 1d${d.faces}`;
     }
   });
@@ -305,7 +403,12 @@ export function PainelRolador({
     const efeitos = efeitosRolagem ?? efeitosContexto;
     return contexto && efeitos ? chipsDoContexto(efeitos, contexto) : [];
   }, [contexto, efeitosContexto, efeitosRolagem]);
-  const chipLigado = (c: ChipContexto) => !c.opcional !== chipsAlternados.has(c.chave);
+  // Bônus progressivo conta passos em vez de ligar e desligar.
+  const [, setVersaoPassos] = useState(0);
+  const passosDe = (c: ChipContexto) =>
+    Math.min(c.max ?? 0, contagemProgressiva.get(c.memoria ?? c.chave) ?? 0);
+  const chipLigado = (c: ChipContexto) =>
+    c.tipo === "progressivo" ? passosDe(c) > 0 : !c.opcional !== chipsAlternados.has(c.chave);
 
   useEffect(() => {
     setPresets(getPresets(userId));
@@ -381,7 +484,10 @@ export function PainelRolador({
   const quantidade = Number(quantidadeTexto || 1);
   const vazio = dados.length === 0 && modificador === 0;
   const quantidadeValida = Math.max(1, Math.trunc(quantidade || 0));
-  const loteAtivo = quantidadeValida > 1;
+  // Multiataque ligado rola o ataque várias vezes de uma vez.
+  const vezesMulti = chips.find((c) => c.tipo === "multi_ataque" && chipLigado(c))?.valor ?? 1;
+  const repeticoes = Math.max(quantidadeValida, vezesMulti);
+  const loteAtivo = repeticoes > 1;
 
   const preview = useMemo(() => {
     if (vazio) {
@@ -390,17 +496,17 @@ export function PainelRolador({
         detalhes: modoGravacao
           ? "Monte a rolagem do preset..."
           : loteAtivo
-            ? `Lote ${quantidadeValida}x · ${rotuloModo(modoRolagem).toLowerCase()}`
+            ? `Lote ${repeticoes}x · ${rotuloModo(modoRolagem).toLowerCase()}`
             : "Selecione dados...",
       };
     }
     return {
       total: "??",
-      detalhes: `${formulaTexto(dados, modificador)}${loteAtivo ? ` ×${quantidadeValida}` : ""}${
+      detalhes: `${formulaTexto(dados, modificador)}${loteAtivo ? ` ×${repeticoes}` : ""}${
         modoRolagem !== "normal" ? ` · ${rotuloModo(modoRolagem)}` : ""
       }`,
     };
-  }, [vazio, dados, modificador, modoGravacao, loteAtivo, quantidadeValida, modoRolagem]);
+  }, [vazio, dados, modificador, modoGravacao, loteAtivo, repeticoes, modoRolagem]);
 
   const display =
     resultado.tipo === "rolado"
@@ -473,6 +579,13 @@ export function PainelRolador({
       else next.add(t);
       return next;
     });
+    setResultado({ tipo: "preview" });
+  }
+
+  function mudarPassos(c: ChipContexto, delta: number) {
+    const n = Math.min(c.max ?? 0, Math.max(0, passosDe(c) + delta));
+    contagemProgressiva.set(c.memoria ?? c.chave, n);
+    setVersaoPassos((v) => v + 1);
     setResultado({ tipo: "preview" });
   }
 
@@ -571,11 +684,9 @@ export function PainelRolador({
   // persiste no chat quando o usuário Mantém. Usa o memo `chips`.
   function rolarContextual(dadosBase: Dado[], modBase: number, nomePreset: string | null) {
     if (dadosBase.length === 0 && modBase === 0) return;
-    // Ataque com arma de munição gasta uma por lance (a rerrolagem não gasta).
-    if (contexto?.tipo === "ataque" && contexto.municao) {
-      anunciarGastoMunicao(contexto.municao.id, Math.max(1, quantidadeValida));
-    }
     const ligados = chips.filter(chipLigado);
+    const ehDano = contexto?.tipo === "dano";
+    const explosoes = ligados.flatMap((c) => (c.tipo === "explosao" && c.explosao ? [c.explosao] : []));
     const ligado = (t: ChipContexto["tipo"]) => ligados.some((c) => c.tipo === t);
     const valorChip = (t: ChipContexto["tipo"]) =>
       chips.find((c) => c.tipo === t)?.valor;
@@ -585,13 +696,17 @@ export function PainelRolador({
     const extras = ligados.filter((c) => c.tipo === "dano_extra" || c.tipo === "dados_extra");
     const dadoDoDano = dadosBase.find((d) => d.sinal > 0);
     const copias = (n: number) => (dadoDoDano ? Array.from({ length: n }, () => dadoDoDano) : []);
-    const dadosExtras = extras.flatMap((c) =>
-      c.tipo === "dano_extra" ? (c.dados ?? []) : copias(c.valor ?? 0),
-    );
+    // Bônus progressivo: a fórmula uma vez por passo.
+    const progressivos = ligados.filter((c) => c.tipo === "progressivo");
+    const dadosExtras = [
+      ...extras.flatMap((c) => (c.tipo === "dano_extra" ? (c.dados ?? []) : copias(c.valor ?? 0))),
+      ...progressivos.flatMap((c) => Array.from({ length: passosDe(c) }, () => c.dados ?? []).flat()),
+    ];
     // Bônus situacionais e acerto por dano mexem no modificador.
     const modUsar =
       modBase +
       extras.reduce((soma, c) => soma + (c.tipo === "dano_extra" ? (c.valor ?? 0) : 0), 0) +
+      progressivos.reduce((soma, c) => soma + passosDe(c) * (c.valor ?? 0), 0) +
       somaLigados("bonus") +
       somaLigados("dano_poderoso") -
       somaLigados("ataque_poderoso");
@@ -631,14 +746,27 @@ export function PainelRolador({
       melhorDe: ligado("melhor_de") ? valorChip("melhor_de") ?? 1 : 1,
       danoMaximo: ligado("dano_maximo"),
       pisosDado: ligados.flatMap((c) => (c.tipo === "piso_dado" && c.piso ? [c.piso] : [])),
+      explosoesDado: explosoes.flatMap((x) =>
+        ehDano && x.gatilho !== "total"
+          ? [{ minimo: x.gatilho === "valor" ? x.valor : 0, limite: x.limite }]
+          : [],
+      ),
+      explosoesTotal: explosoes.flatMap((x) =>
+        ehDano && x.gatilho === "total" ? [{ minimo: x.valor, limite: x.limite }] : [],
+      ),
     };
+    // No ataque, a explosão rende outro ataque.
+    const explosoesAtaque = contexto?.tipo === "ataque" ? explosoes : [];
+    const rolar = () => montarDadosContextuais(dadosUsar, modUsar, opc);
+    // Multiataque ou repetições: o maior dos dois.
+    const vezes = Math.max(quantidadeValida, ligado("multi_ataque") ? valorChip("multi_ataque") ?? 1 : 1);
 
     // Anota as fontes dos efeitos ligados (exceto reroll, que vira interação).
     // Escapa nomes — vão pra string HTML renderizada no chat.
     const notas = chips
       .filter((c) => chipLigado(c) && c.tipo !== "reroll")
       .map((c) => {
-        const base = escaparHtml(c.rotulo);
+        const base = escaparHtml(c.tipo === "progressivo" ? `${c.rotulo} ×${passosDe(c)}` : c.rotulo);
         return c.fontes.length
           ? `${base} por ${escaparHtml(c.fontes.join(", "))}`
           : base;
@@ -647,15 +775,19 @@ export function PainelRolador({
     if (vantManual && !ligado("vantagem")) notas.push("Vantagem");
     if (desvManual && !ligado("desvantagem")) notas.push("Desvantagem");
 
-    // Lote contextual: quantidade > 1 roda N execuções contextuais e persiste
+    // Lote contextual: mais de uma vez roda N execuções contextuais e persiste
     // como lote. Reroll não se aplica num lote — só no lance único.
-    if (quantidadeValida > 1) {
-      finalizarLoteContextual(dadosUsar, modUsar, nomePreset, opc, notas, quantidadeValida);
+    if (vezes > 1) {
+      const execucoes = Array.from({ length: vezes }, () =>
+        comAtaquesExplosivos(rolar(), explosoesAtaque, rolar),
+      ).flat();
+      gastarMunicao(execucoes.length);
+      publicarLote(execucoes, dadosUsar, modUsar, nomePreset, opc, notas);
       gastarHabilidades(gastos);
       return;
     }
 
-    const r = montarDadosContextuais(dadosUsar, modUsar, opc);
+    const r = rolar();
     if (contexto?.tipo === "ataque") {
       ultimoAtaque.current = {
         critico: r.critico === "sucesso",
@@ -666,6 +798,7 @@ export function PainelRolador({
     const rerolls = ligado("reroll") ? valorChip("reroll") ?? 0 : 0;
 
     if (rerolls > 0) {
+      gastarMunicao(1);
       // Segura no preview "rolado" e espera a decisão; nada vai pro chat ainda.
       const stringFinal = montarStringFinal(r.stringDados, notas);
       setResultado({ tipo: "rolado", total: String(r.total), detalhesHtml: `[${r.total}] = ${stringFinal}` });
@@ -680,32 +813,56 @@ export function PainelRolador({
         rolls: r.rolls,
         rerollsRestantes: rerolls,
         rerollsUsados: 0,
+        critico: r.critico,
+        natural: r.natural,
+        explosoes: explosoesAtaque,
         ataque: contexto?.tipo === "ataque",
         gastos,
         valores: r.valores,
         gastaReroll: ligados.find((c) => c.tipo === "reroll")?.gasta,
       });
     } else {
-      finalizar(r.total, r.rolls, modUsar, montarStringFinal(r.stringDados, notas), nomePreset);
+      const lances = comAtaquesExplosivos(r, explosoesAtaque, rolar);
+      gastarMunicao(lances.length);
+      concluir(lances, dadosUsar, modUsar, nomePreset, opc, notas);
       gastarHabilidades(gastos);
     }
   }
 
-  // Lote contextual: roda N execuções contextuais (vant/desv/floor/crit por d20)
-  // e persiste como lote no chat. Cada execução leva sua string HTML formatada
-  // (`texto`) pra preservar dado descartado/crit/piso por linha. As fontes (notas)
-  // aparecem no resumo do Rolador; o lote no chat mostra a tag do modo efetivo.
-  function finalizarLoteContextual(
+  // Um lance vai pro chat sozinho; com os ataques da explosão, vai como lote.
+  function concluir(
+    lances: Lance[],
     dadosUsar: Dado[],
     modUsar: number,
     nomePreset: string | null,
     opc: OpcoesContextuais,
     notas: string[],
-    quantidade: number,
   ) {
-    const execucoes = Array.from({ length: quantidade }, () =>
-      montarDadosContextuais(dadosUsar, modUsar, opc),
-    );
+    if (lances.length > 1) return publicarLote(lances, dadosUsar, modUsar, nomePreset, opc, notas);
+    const r = lances[0];
+    finalizar(r.total, r.rolls, modUsar, montarStringFinal(r.stringDados, notas), nomePreset);
+  }
+
+  // Ataque com arma de munição gasta uma por lance (a rerrolagem não gasta).
+  function gastarMunicao(lances: number) {
+    if (contexto?.tipo === "ataque" && contexto.municao && lances > 0) {
+      anunciarGastoMunicao(contexto.municao.id, lances);
+    }
+  }
+
+  // Lote contextual: persiste N execuções contextuais (vant/desv/floor/crit por
+  // d20) como lote no chat. Cada execução leva sua string HTML formatada
+  // (`texto`) pra preservar dado descartado/crit/piso por linha. As fontes (notas)
+  // aparecem no resumo do Rolador; o lote no chat mostra a tag do modo efetivo.
+  function publicarLote(
+    execucoes: Lance[],
+    dadosUsar: Dado[],
+    modUsar: number,
+    nomePreset: string | null,
+    opc: OpcoesContextuais,
+    notas: string[],
+  ) {
+    const quantidade = execucoes.length;
     const modoEfetivo: ModoRolagem =
       opc.vantagem && !opc.desvantagem
         ? "vantagem"
@@ -720,7 +877,7 @@ export function PainelRolador({
     const linhas = execucoes
       .map(
         (e, i) =>
-          `<div class="roll-batch-row"><span class="roll-batch-index">#${i + 1}</span><span class="roll-batch-total">[${e.total}]</span><span class="roll-batch-formula">= ${e.stringDados}</span></div>`,
+          `<div class="roll-batch-row"><span class="roll-batch-index">#${i + 1}</span><span class="roll-batch-total">[${e.total}]</span><span class="roll-batch-formula">= ${textoDoLance(e)}</span></div>`,
       )
       .join("");
     setResultado({
@@ -740,7 +897,7 @@ export function PainelRolador({
         modificador: modUsar,
         modo: modoEfetivo,
         detalhes: e.rolls,
-        texto: e.stringDados,
+        texto: textoDoLance(e),
       })),
       nomePreset: nomePreset || null,
     })
@@ -776,6 +933,8 @@ export function PainelRolador({
       total: r.total,
       rolls: r.rolls,
       valores: r.valores,
+      critico: r.critico,
+      natural: r.natural,
       rerollsRestantes: pendente.rerollsRestantes - 1,
       rerollsUsados: usados,
     });
@@ -786,8 +945,19 @@ export function PainelRolador({
     if (!pendente) return;
     const notas = [...pendente.notas];
     if (pendente.rerollsUsados > 0) notas.push(`rerrolado ${pendente.rerollsUsados}×`);
-    const stringFinal = montarStringFinal(pendente.stringDados, notas);
-    finalizar(pendente.total, pendente.rolls, pendente.modUsar, stringFinal, pendente.nomePreset);
+    const { dadosUsar, modUsar, opc } = pendente;
+    const mantido: Lance = {
+      total: pendente.total,
+      rolls: pendente.rolls,
+      stringDados: pendente.stringDados,
+      critico: pendente.critico,
+      natural: pendente.natural,
+      valores: pendente.valores,
+    };
+    const lances = comAtaquesExplosivos(mantido, pendente.explosoes, () =>
+      montarDadosContextuais(dadosUsar, modUsar, opc),
+    );
+    concluir(lances, dadosUsar, modUsar, pendente.nomePreset, opc, notas);
     gastarHabilidades(pendente.gastos);
     setPendente(null);
   }
@@ -977,6 +1147,38 @@ export function PainelRolador({
         <div className="rolador-chips">
           {chips.map((c) => {
             const on = chipLigado(c);
+            if (c.tipo === "progressivo") {
+              const n = passosDe(c);
+              return (
+                <span
+                  key={c.chave}
+                  className={`rolador-chip rolador-chip-passos${on ? " on" : ""}`}
+                  title={[`${c.rotulo} — ${c.fontes.join(", ")}`, c.detalhe, `até ${c.max}`]
+                    .filter(Boolean)
+                    .join(" · ")}
+                >
+                  <button
+                    type="button"
+                    aria-label={`Menos ${c.rotulo}`}
+                    disabled={n <= 0}
+                    onClick={() => mudarPassos(c, -1)}
+                  >
+                    <i className="fas fa-minus" />
+                  </button>
+                  <span>
+                    <i className={`fas ${ICONE_CHIP[c.tipo]}`} /> {c.rotulo} ×{n}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={`Mais ${c.rotulo}`}
+                    disabled={n >= (c.max ?? 0)}
+                    onClick={() => mudarPassos(c, 1)}
+                  >
+                    <i className="fas fa-plus" />
+                  </button>
+                </span>
+              );
+            }
             return (
               <button
                 key={c.chave}
@@ -1005,7 +1207,7 @@ export function PainelRolador({
         onClick={clicarRolar}
         disabled={vazio}
       >
-        {modoGravacao ? "SALVAR PRESET" : loteAtivo ? `ROLAR X${quantidadeValida}` : "ROLAR!"}
+        {modoGravacao ? "SALVAR PRESET" : loteAtivo ? `ROLAR X${repeticoes}` : "ROLAR!"}
       </button>
 
       <div className="tray-result-box">
