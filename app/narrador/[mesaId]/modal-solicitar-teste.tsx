@@ -70,9 +70,10 @@ export function ModalSolicitarTeste({ mesaId, aberto, onFechar, onCriada, person
     return pericias.filter((p) => !filtroAtributo || p.atributo === filtroAtributo);
   }, [pericias, filtroAtributo]);
 
+  // A escolhida, ou a primeira do filtro quando ela ficou de fora da lista.
   const periciaAtual = useMemo(
-    () => pericias.find((p) => p.chave === periciaSelecionada) ?? null,
-    [pericias, periciaSelecionada],
+    () => periciasFiltradas.find((p) => p.chave === periciaSelecionada) ?? periciasFiltradas[0] ?? null,
+    [periciasFiltradas, periciaSelecionada],
   );
 
   const selecaoAtual = useMemo(() => {
@@ -108,14 +109,11 @@ export function ModalSolicitarTeste({ mesaId, aberto, onFechar, onCriada, person
         const listagemSalvaguardas = salvaguardasServidor as SalvaguardaAgregada[];
         setPericias(listagemPericias);
         setSalvaguardas(listagemSalvaguardas);
-
-        if (!periciaSelecionada && listagemPericias.length > 0) {
-          setPericiaSelecionada(listagemPericias[0].chave);
-        }
-
-        if (listagemSalvaguardas.length > 0 && !listagemSalvaguardas.some((s) => s.atributo === salvaguardaSelecionada)) {
-          setSalvaguardaSelecionada(listagemSalvaguardas[0].atributo);
-        }
+        setSalvaguardaSelecionada((atual) =>
+          listagemSalvaguardas.some((s) => s.atributo === atual)
+            ? atual
+            : (listagemSalvaguardas[0]?.atributo ?? atual),
+        );
       })
       .catch(async (error) => {
         if (!ativo) return;
@@ -134,7 +132,7 @@ export function ModalSolicitarTeste({ mesaId, aberto, onFechar, onCriada, person
     return () => {
       ativo = false;
     };
-  }, [aberto, mesaId, periciaSelecionada, salvaguardaSelecionada]);
+  }, [aberto, mesaId]);
 
   useEffect(() => {
     if (!aberto || !selecaoAtual) {
@@ -230,7 +228,7 @@ export function ModalSolicitarTeste({ mesaId, aberto, onFechar, onCriada, person
       setOcultarRolagem(false);
       setOcultarResultado(false);
       setModosPorAlvo({});
-      setAlvos("TODOS");
+      setAlvos(alvoInicial ? [alvoInicial] : "TODOS");
       setPrivacidadeAberta(false);
     } catch (error) {
       await Swal.fire({
@@ -290,7 +288,7 @@ export function ModalSolicitarTeste({ mesaId, aberto, onFechar, onCriada, person
             <label>
               Selecione a perícia
               <select
-                value={periciaSelecionada}
+                value={periciaAtual?.chave ?? ""}
                 onChange={(e) => setPericiaSelecionada(e.target.value)}
                 disabled={carregandoMeta}
               >

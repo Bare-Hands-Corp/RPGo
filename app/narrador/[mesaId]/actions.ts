@@ -6,7 +6,9 @@ import { usuarioDaRequest } from "@/lib/supabase/server";
 import {
   ATRIBUTOS,
   PERICIAS,
+  atributoDeCalculo,
   atributosEfetivos,
+  bonusTesteAmplo,
   chipsDoContexto,
   efeitosDoContexto,
   exaustaoQueConta,
@@ -222,7 +224,6 @@ function calcularBonusTesteInterno(
             normalizarTexto(p.nome) === nomeNormalizado,
         );
     if (slugCanonico) {
-      ctx = { tipo: "pericia", pericia: slugCanonico };
       teste = resolverTeste({
         ...base,
         tipo: "pericia",
@@ -232,8 +233,8 @@ function calcularBonusTesteInterno(
         dobrado: prof.periciasDobradas.includes(slugCanonico),
         outros: prof.outrosPericias[slugCanonico] ?? 0,
       });
+      ctx = { tipo: "pericia", pericia: slugCanonico, atributo: teste.atributo };
     } else if (custom) {
-      ctx = { tipo: "pericia", pericia: custom.slug };
       teste = resolverTeste({
         ...base,
         tipo: "pericia",
@@ -243,21 +244,49 @@ function calcularBonusTesteInterno(
         dobrado: custom.dobrada,
         outros: custom.bonusOutros,
       });
+      ctx = { tipo: "pericia", pericia: custom.slug, atributo: teste.atributo };
     } else {
       ctx = { tipo: "teste-atributo", atributo: selecao.atributo };
     }
   }
 
-  // Dados a mais que valem sempre nessa jogada (ex.: +1d4 em testes).
-  const extras = chipsDoContexto(efeitosDoContexto(agg), ctx).filter(
-    (c) => c.tipo === "dano_extra" && !c.opcional,
+  // Dados a mais que valem sempre nessa jogada (ex.: +1d4 em testes) e o bônus
+  // progressivo na contagem da ficha.
+  const chips = chipsDoContexto(efeitosDoContexto(agg), ctx);
+  const extras = chips.flatMap((c) => {
+    const vezes =
+      c.tipo === "dano_extra" && !c.opcional
+        ? 1
+        : c.tipo === "progressivo"
+          ? Math.min(c.max ?? 0, c.progressivo?.passos ?? 0)
+          : 0;
+    return vezes > 0 ? [{ ...c, vezes }] : [];
+  });
+  const dados: Dado[] = extras.flatMap((c) =>
+    Array.from({ length: c.vezes }, () => c.dados ?? []).flat(),
   );
-  const dados: Dado[] = extras.flatMap((c) => c.dados ?? []);
+  // Progressivos "por rolagem" da jogada: sobem um passo quando o jogador rolar.
+  const crescem = chips.flatMap((c) =>
+    c.progressivo?.cresce === "rolagem"
+      ? [{ fonte: c.progressivo.fonte, formula: c.progressivo.formula, em: c.progressivo.em }]
+      : [],
+  );
 
-  const atributoUsado = teste?.atributo ?? selecao.atributo;
+  // Teste puro de atributo: troca de atributo e bônus de alvos largos, como na ficha.
+  const puro = teste
+    ? null
+    : atributoDeCalculo(
+        `teste-${selecao.atributo}`,
+        selecao.atributo,
+        agg.substituicoesAtributo,
+        atributos,
+      );
+  const atributoUsado = teste?.atributo ?? puro?.atributo ?? selecao.atributo;
   const mod = teste?.mod ?? modificador(atributos[atributoUsado]);
   const profValor = teste?.prof ?? 0;
-  const outros = (teste?.outros ?? 0) + extras.reduce((soma, c) => soma + (c.valor ?? 0), 0);
+  const outros =
+    (teste?.outros ?? bonusTesteAmplo(agg, selecao.atributo).valor) +
+    extras.reduce((soma, c) => soma + (c.valor ?? 0) * c.vezes, 0);
   const exaustao = penalidadeD20Exaustao(exaustaoQueConta(personagem.exaustao, agg));
   const bonus = mod + profValor + outros - exaustao;
 
@@ -283,12 +312,14 @@ function calcularBonusTesteInterno(
       ? [`sucesso automático por ${efeitosModo.sucesso.join(", ")}`]
       : []),
     ...(efeitosModo.falha.length ? [`falha automática por ${efeitosModo.falha.join(", ")}`] : []),
-    ...extras.map((c) => `${c.rotulo} por ${c.fontes.join(", ")}`),
+    ...extras.map(
+      (c) => `${c.rotulo}${c.vezes > 1 ? ` ×${c.vezes}` : ""} por ${c.fontes.join(", ")}`,
+    ),
   ];
   const detalhe = `${partes.join(" + ")} = ${formatarComSinal(bonus)}${
     notas.length ? ` · ${notas.join(" · ")}` : ""
   }`;
-  return { bonus, detalhe, modo, dados };
+  return { bonus, detalhe, modo, dados, crescem };
 }
 
 export async function aggregatePericiasForMesa(mesaId: string) {
@@ -497,7 +528,7 @@ export async function criarSolicitacaoTeste(
   const bonusPorAlvoLista = personagens
     .filter((p) => alvosIds.includes(p.id))
     .map((personagem) => {
-      const { bonus, detalhe, modo, dados } = calcularBonusTesteInterno(
+      const { bonus, detalhe, modo, dados, crescem } = calcularBonusTesteInterno(
         personagem,
         payload.selecao,
         recebidas.get(personagem.id),
@@ -508,6 +539,7 @@ export async function criarSolicitacaoTeste(
         detalhe,
         modo,
         dados,
+        crescem,
       };
     });
 
@@ -515,10 +547,13 @@ export async function criarSolicitacaoTeste(
   const bonusDetalhesPorAlvo: Record<string, string> = {};
   // Dados a mais de cada alvo, rolados junto do d20.
   const dadosPorAlvo: Record<string, Dado[]> = {};
+  // Progressivos "por rolagem" de cada alvo.
+  const progressivosPorAlvo: Record<string, { fonte: string; formula: string; em: string }[]> = {};
   for (const item of bonusPorAlvoLista) {
     bonusPorAlvo[item.personagemId] = item.bonus;
     bonusDetalhesPorAlvo[item.personagemId] = item.detalhe;
     if (item.dados.length > 0) dadosPorAlvo[item.personagemId] = item.dados;
+    if (item.crescem.length > 0) progressivosPorAlvo[item.personagemId] = item.crescem;
   }
 
   const modoDosEfeitosPorAlvo = new Map(bonusPorAlvoLista.map((b) => [b.personagemId, b.modo]));
@@ -569,6 +604,7 @@ export async function criarSolicitacaoTeste(
         bonusPorAlvo,
         bonusDetalhesPorAlvo,
         dadosPorAlvo,
+        progressivosPorAlvo,
       },
     } as Prisma.MensagemCreateInput,
   });

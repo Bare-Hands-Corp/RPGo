@@ -10,6 +10,7 @@ import {
 } from "react";
 import Swal from "sweetalert2";
 import { formatarResultadoRolagemHtml, rolarDados, type DadoRolado } from "@/lib/dice";
+import { EVENTO_PASSOS, type PassosDoRolador } from "@/lib/op-rpg";
 import { createClient } from "@/lib/supabase/client";
 import {
   enviarMensagemTexto,
@@ -581,6 +582,7 @@ function TesteMensagemView({
     bonusPorAlvo?: Record<string, number>;
     bonusDetalhesPorAlvo?: Record<string, string>;
     dadosPorAlvo?: Record<string, Array<{ faces: number; sinal: 1 | -1 }>>;
+    progressivosPorAlvo?: Record<string, Array<{ fonte: string; formula: string; em: string }>>;
   };
   const [rolando, setRolando] = useState(false);
   const [acompanhamentoAberto, setAcompanhamentoAberto] = useState(false);
@@ -607,6 +609,8 @@ function TesteMensagemView({
   const bonusDetalhado = personagemId ? detalhes.bonusDetalhesPorAlvo?.[personagemId] ?? null : null;
   // Dados a mais dos efeitos (ex.: +1d4 em testes), rolados junto do d20.
   const dadosExtras = personagemId ? detalhes.dadosPorAlvo?.[personagemId] ?? [] : [];
+  // Bônus progressivos que sobem um passo a cada rolagem.
+  const progressivos = personagemId ? detalhes.progressivosPorAlvo?.[personagemId] ?? [] : [];
   const cdInterna =
     typeof detalhes.cdInterna === "number"
       ? detalhes.cdInterna
@@ -655,6 +659,12 @@ function TesteMensagemView({
         },
       );
       onMensagemAtualizada(mensagem);
+      // A aba dona do efeito grava a contagem, como na rolagem do Rolador.
+      for (const p of progressivos) {
+        window.dispatchEvent(
+          new CustomEvent<PassosDoRolador>(EVENTO_PASSOS, { detail: { ...p, soma: 1 } }),
+        );
+      }
     } catch (error) {
       console.error(error);
     } finally {

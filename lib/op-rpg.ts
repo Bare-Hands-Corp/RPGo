@@ -2269,18 +2269,22 @@ function porDoProgressivo(e: { cresce?: GatilhoProgressivo; por?: string }): str
 // Evento do Rolador: a contagem de um bônus progressivo mudou lá.
 export const EVENTO_PASSOS = "rpgo:passos-progressivo";
 
-export type PassosDoRolador = { fonte: string; formula: string; em: string; passos: number };
+// `passos` grava a contagem; `soma` sobe a partir da que a ficha tem.
+type ContagemDoRolador = { formula: string; em: string } & ({ passos: number } | { soma: number });
+
+export type PassosDoRolador = { fonte: string } & ContagemDoRolador;
 
 // Efeitos com a contagem nova no progressivo que casa; null se nada muda.
 export function comPassosProgressivos(
   efeitos: EfeitoHabilidade[],
-  d: Omit<PassosDoRolador, "fonte">,
+  d: ContagemDoRolador,
 ): EfeitoHabilidade[] | null {
   let mudou = false;
   const novos = efeitos.map((e) => {
     if (e.tipo !== "progressivo" || e.formula !== d.formula) return e;
     if (((e.em ?? "dano").trim().toLowerCase() || "dano") !== d.em) return e;
-    const passos = Math.min(e.max, Math.max(0, Math.trunc(d.passos)));
+    const pedido = "soma" in d ? (e.passos ?? 0) + d.soma : d.passos;
+    const passos = Math.min(e.max, Math.max(0, Math.trunc(pedido)));
     if (passos === (e.passos ?? 0)) return e;
     mudou = true;
     return { ...e, passos: passos || undefined };
@@ -2964,6 +2968,21 @@ export function computarDeltasInstantaneos(
     }
   });
   return d;
+}
+
+// Voar/nadar/escalar/cavar: o maior entre efeito de deslocamento e valor fixo.
+export function modosDeDeslocamento(
+  agg: Pick<EfeitosAgregados, "deslocamentosExtra" | "valoresFixos">,
+): Record<string, { valor: number; fontes: string[] }> {
+  const out: Record<string, { valor: number; fontes: string[] }> = {};
+  for (const [tipo, fv] of Object.entries(agg.deslocamentosExtra)) {
+    if (fv) out[tipo] = fv;
+  }
+  for (const tipo of ["nadar", "voar", "escalar", "cavar"]) {
+    const fixo = agg.valoresFixos[tipo];
+    if (fixo && fixo.valor > (out[tipo]?.valor ?? 0)) out[tipo] = fixo;
+  }
+  return out;
 }
 
 // Máximos efetivos de PV e PP: (base + bônus) × fator, arredondado pra baixo.
