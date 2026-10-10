@@ -2038,7 +2038,7 @@ export function normalizarEfeito(
 
 // Deslocamentos que um efeito mexe; "caminhar" é o deslocamento base.
 export const MOVIMENTOS: { slug: string; nome: string }[] = [
-  { slug: "caminhar", nome: "Caminhar" },
+  { slug: "caminhar", nome: "Andar" },
   { slug: "nadar", nome: "Nadar" },
   { slug: "voar", nome: "Voar" },
   { slug: "escalar", nome: "Escalar" },

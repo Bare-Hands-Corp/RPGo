@@ -149,6 +149,8 @@ const ICONE_MOV: Record<string, string> = {
   escalar: "fa-person-hiking",
   cavar: "fa-shovel",
 };
+// Modos que o visualizador mostra mesmo sem valor.
+const MODOS_FIXOS = ["voar", "escalar", "cavar"];
 const ROTULO_MOV: Record<string, string> = {
   voar: "Voar",
   nadar: "Nadar",
@@ -615,7 +617,7 @@ export function PerfilSidebar({
   const crTotal = valores.cr.valor;
   const crIgual = valores.cr.fontes;
   // Voar, escalar, cavar e o que mais algum efeito der.
-  const tiposDeModo = [...new Set([...Object.keys(modosProprios), "voar", "escalar", "cavar"])].filter(
+  const tiposDeModo = [...new Set([...MODOS_FIXOS, ...Object.keys(modosProprios)])].filter(
     (t) => t !== "nadar",
   );
   const deslocReduzido = deslocIgual.length === 0 && deslocEfetivo !== deslocBruto;
@@ -634,6 +636,40 @@ export function PerfilSidebar({
 
   const nadoEfetivo = valores.nadar.valor;
   const nadoFontes = valores.nadar.fontes;
+  // Visualizador: andar, nadar, voar, escalar e cavar sempre à vista; modo que
+  // só um efeito dá entra quando tem valor.
+  const movimentos = [
+    {
+      tipo: "deslocamento",
+      nome: "Andar",
+      icone: "fa-person-running",
+      valor: deslocEfetivo,
+      titulo: deslocTitulo,
+      deEfeito: deslocBonus.fontes.length > 0 || !!multDesloc || !!deslocFixo || deslocIgual.length > 0,
+      reduzido: deslocReduzido,
+    },
+    {
+      tipo: "nadar",
+      nome: "Nadar",
+      icone: "fa-person-swimming",
+      valor: nadoEfetivo,
+      titulo: nadoFontes.length ? `de ${nadoFontes.join(", ")}` : undefined,
+      deEfeito: nadoFontes.length > 0,
+      reduzido: false,
+    },
+    ...tiposDeModo.map((tipo) => {
+      const fv = valores[tipo];
+      return {
+        tipo,
+        nome: ROTULO_MOV[tipo] ?? capitalizar(tipo),
+        icone: ICONE_MOV[tipo] ?? "fa-person-running",
+        valor: fv?.valor ?? 0,
+        titulo: fv?.fontes.length ? `de ${fv.fontes.join(", ")}` : undefined,
+        deEfeito: !!fv?.fontes.length,
+        reduzido: false,
+      };
+    }),
+  ].filter((m) => m.valor > 0 || m.tipo === "deslocamento" || m.tipo === "nadar" || MODOS_FIXOS.includes(m.tipo));
 
   // A cada turno: efeitos que repetem e durações em turnos das ligadas.
   const porTurno = [
@@ -1053,57 +1089,26 @@ export function PerfilSidebar({
         }
       />
 
-      {/* Deslocamento + Nado lado a lado: dois stats base de movimento na altura
-          de uma linha só. */}
-      <div className="recurso-dupla">
-        <div className="recurso-linha" title={deslocTitulo}>
-          <span className="recurso-icone"><i className="fas fa-person-running" /></span>
-          <span className="recurso-nome">Deslocamento</span>
-          <span className={`stat-values ${deslocReduzido ? "valor-exausto" : ""}`}>
-            {deslocEfetivo.toLocaleString("pt-BR")} m
-            {(deslocBonus.fontes.length > 0 || multDesloc || deslocFixo || deslocIgual.length > 0) && (
-              <i className="fas fa-link prof-fonte" />
-            )}
-            {deslocReduzido && (
-              <MarcaExausto titulo={`Reduzido por exaustão (de ${deslocBruto} m)`} />
-            )}
-          </span>
-        </div>
-
-        {/* Nado: stat base de espécie, sempre exibido (igual ao deslocamento). */}
-        <div
-          className="recurso-linha"
-          title={nadoFontes.length ? `de ${nadoFontes.join(", ")}` : undefined}
-        >
-          <span className="recurso-icone"><i className="fas fa-person-swimming" /></span>
-          <span className="recurso-nome">Nadar</span>
-          <span className="stat-values">
-            {nadoEfetivo.toLocaleString("pt-BR")} m
-            {nadoFontes.length > 0 && <i className="fas fa-link prof-fonte" />}
-          </span>
-        </div>
-      </div>
-
-      {/* Deslocamentos especiais (voar/escalar/cavar) — modos próprios concedidos
-          por habilidade, não reduzidos pela exaustão. Nado tem linha própria acima. */}
-      {tiposDeModo.map((tipo) => [tipo, valores[tipo]] as const).map(([tipo, fv]) =>
-        fv && fv.valor > 0 ? (
+      {/* Deslocamentos lado a lado; o que o personagem não tem fica apagado. */}
+      <div className="movimentos" role="group" aria-label="Deslocamentos">
+        {movimentos.map((m) => (
           <div
-            key={`mov-${tipo}`}
-            className="recurso-linha"
-            title={fv.fontes.length ? `de ${fv.fontes.join(", ")}` : undefined}
+            key={m.tipo}
+            className={`movimento${m.valor > 0 ? "" : " sem"}${m.reduzido ? " valor-exausto" : ""}`}
+            title={m.titulo}
           >
-            <span className="recurso-icone">
-              <i className={`fas ${ICONE_MOV[tipo] ?? "fa-person-running"}`} />
-            </span>
-            <span className="recurso-nome">{ROTULO_MOV[tipo] ?? capitalizar(tipo)}</span>
-            <span className="stat-values">
-              {fv.valor.toLocaleString("pt-BR")} m
-              {fv.fontes.length > 0 && <i className="fas fa-link prof-fonte" />}
+            <i className={`fas ${m.icone} movimento-icone`} />
+            <strong>
+              {m.valor > 0 ? `${m.valor.toLocaleString("pt-BR")} m` : "—"}
+              {m.reduzido && <MarcaExausto titulo={`Reduzido por exaustão (de ${deslocBruto} m)`} />}
+            </strong>
+            <span className="movimento-nome">
+              {m.nome}
+              {m.deEfeito && <i className="fas fa-link prof-fonte" />}
             </span>
           </div>
-        ) : null,
-      )}
+        ))}
+      </div>
 
       <FormulaContext.Provider value={ctxTurno}>
         <RecursosSidebar personagemId={p.id} recursos={p.recursos} />
