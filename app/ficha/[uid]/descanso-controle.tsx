@@ -11,11 +11,12 @@ import {
   type TipoDescanso,
 } from "@/lib/descanso";
 import { rolarDados } from "@/lib/dice";
-import { empilharRolagem } from "@/lib/empilhar-rolagem";
+import { publicarRolagem } from "@/lib/empilhar-rolagem";
 
 export function DescansoControle({
   personagemId,
   nivel,
+  hpAtual,
   dadosVidaGastos,
   tipoDadoVida,
   modConstituicao,
@@ -23,6 +24,7 @@ export function DescansoControle({
 }: {
   personagemId: string;
   nivel: number;
+  hpAtual: number;
   dadosVidaGastos: number;
   tipoDadoVida: string;
   modConstituicao: number;
@@ -86,15 +88,9 @@ export function DescansoControle({
 
   function usarDadoDeVida() {
     if (disponiveis <= 0) return;
-    // Rola no cliente pro resultado ir pro Rolador.
+    // Rola no cliente; o mesmo resultado vai pro chat.
     const resultado = rolarDados([{ faces, sinal: 1 }], modConstituicao);
     const curado = Math.max(0, resultado.total);
-
-    empilharRolagem({
-      dados: [{ faces, sinal: 1 }],
-      modificador: modConstituicao,
-      nomePreset: `Dado de Vida (d${faces})`,
-    });
 
     setOcupado(true);
     startTransition(async () => {
@@ -102,6 +98,7 @@ export function DescansoControle({
       onOtimista?.({ deltaHpAtual: curado });
       try {
         exigir(await gastarDadoDeVida(personagemId, curado));
+        publicarRolagem(resultado, `Dado de Vida (d${faces})`);
       } catch (err) {
         erro(err);
       } finally {
@@ -138,18 +135,22 @@ export function DescansoControle({
       </div>
 
       <div className="descanso-botoes">
-        {TIPOS_DESCANSO.map((t) => (
-          <button
-            type="button"
-            key={t.slug}
-            className="descanso-btn"
-            onClick={() => pedirDescanso(t.slug)}
-            disabled={ocupado}
-            title={t.resumo}
-          >
-            <i className={`fas ${t.icone}`} /> {t.slug === "curto" ? "Curto" : "Longo"}
-          </button>
-        ))}
+        {TIPOS_DESCANSO.map((t) => {
+          // O descanso longo precisa começar com pelo menos 1 PV.
+          const semPv = t.slug === "longo" && hpAtual < 1;
+          return (
+            <button
+              type="button"
+              key={t.slug}
+              className="descanso-btn"
+              onClick={() => pedirDescanso(t.slug)}
+              disabled={ocupado || semPv}
+              title={semPv ? "Precisa de pelo menos 1 PV" : t.resumo}
+            >
+              <i className={`fas ${t.icone}`} /> {t.slug === "curto" ? "Curto" : "Longo"}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

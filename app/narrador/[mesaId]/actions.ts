@@ -6,15 +6,29 @@ import { usuarioDaRequest } from "@/lib/supabase/server";
 import {
   ATRIBUTOS,
   PERICIAS,
-  bonusPericia,
-  bonusProficiencia,
-  bonusSalvaguarda,
+  atributosEfetivos,
+  chipsDoContexto,
+  efeitosDoContexto,
+  exaustaoQueConta,
   lerProficiencias,
   modificador,
+  modoDosEfeitos,
+  penalidadeD20Exaustao,
+  resolverTeste,
   type Atributo,
+  type ContextoRolagem,
+  type HabilidadeFonte,
   type PericiaSlug,
 } from "@/lib/op-rpg";
+import {
+  SELECT_HABILIDADE_FONTE,
+  SELECT_ITEM_FONTE,
+  agregadoDaFicha,
+  penalidadeDesDasArmaduras,
+  recebidasDaMesa,
+} from "@/lib/efeitos-servidor";
 import type { Prisma } from "@prisma/client";
+import type { Dado } from "@/lib/dice";
 
 type ModoTeste = "normal" | "vantagem" | "desvantagem";
 
@@ -35,6 +49,7 @@ type PersonagemTeste = {
   id: string;
   nome: string;
   nivel: number;
+  exaustao: number;
   forca: number;
   destreza: number;
   constituicao: number;
@@ -44,12 +59,63 @@ type PersonagemTeste = {
   proficiencias: unknown;
   periciasCustom: Array<{
     nome: string;
+    slug: string;
     atributo: string;
     proficiente: boolean;
     dobrada: boolean;
     bonusOutros: number;
   }>;
+  habilidades: Array<{
+    id: string;
+    nome: string;
+    tipo: string;
+    efeitos: unknown;
+    ligada: boolean;
+    itemId: string | null;
+    alternavel: boolean;
+    aliado: boolean;
+    usos: number | null;
+    usosAtual: number | null;
+    usosFormula: string | null;
+  }>;
+  itens: Array<{
+    id: string;
+    nome: string;
+    tipo: string;
+    equipado: boolean;
+    efeitos: unknown;
+    penalidadeDes: number;
+  }>;
+  arvores: Array<{ nos: Array<{ habilidadeId: string | null; rankAtual: number }> }>;
 };
+
+// Campos que o cálculo do teste lê (efeitos, exaustão e armadura inclusos).
+const SELECT_PERSONAGEM_TESTE = {
+  id: true,
+  nome: true,
+  nivel: true,
+  exaustao: true,
+  forca: true,
+  destreza: true,
+  constituicao: true,
+  sabedoria: true,
+  vontade: true,
+  presenca: true,
+  proficiencias: true,
+  periciasCustom: {
+    select: {
+      nome: true,
+      slug: true,
+      atributo: true,
+      proficiente: true,
+      dobrada: true,
+      bonusOutros: true,
+    },
+  },
+  habilidades: { select: SELECT_HABILIDADE_FONTE },
+  itens: { select: SELECT_ITEM_FONTE },
+  arvores: { select: { nos: { select: { habilidadeId: true, rankAtual: true } } } },
+} as const;
 
 function normalizarTexto(valor: string): string {
   return valor
@@ -65,10 +131,6 @@ function isAtributo(valor: string): valor is Atributo {
 
 function formatarComSinal(valor: number): string {
   return valor >= 0 ? `+${valor}` : `${valor}`;
-}
-
-function valorDoAtributo(personagem: PersonagemTeste, atributo: Atributo): number {
-  return personagem[atributo];
 }
 
 async function requireNarradorMesa(mesaId: string) {
@@ -88,27 +150,7 @@ async function obterPersonagensMesaParaTeste(mesaId: string): Promise<Personagem
   return prisma.personagem.findMany({
     where: { mesaId },
     orderBy: { nome: "asc" },
-    select: {
-      id: true,
-      nome: true,
-      nivel: true,
-      forca: true,
-      destreza: true,
-      constituicao: true,
-      sabedoria: true,
-      vontade: true,
-      presenca: true,
-      proficiencias: true,
-      periciasCustom: {
-        select: {
-          nome: true,
-          atributo: true,
-          proficiente: true,
-          dobrada: true,
-          bonusOutros: true,
-        },
-      },
-    },
+    select: SELECT_PERSONAGEM_TESTE,
   });
 }
 
@@ -123,76 +165,130 @@ function resolverSlugCanonico(selecao: Extract<SelecaoTestePayload, { tipo: "per
   return porNome?.slug ?? null;
 }
 
-function calcularBonusTesteInterno(personagem: PersonagemTeste, selecao: SelecaoTestePayload) {
+// Vantagem e desvantagem se anulam.
+function combinarModos(a: ModoTeste, b: ModoTeste): ModoTeste {
+  const vantagem = a === "vantagem" || b === "vantagem";
+  const desvantagem = a === "desvantagem" || b === "desvantagem";
+  if (vantagem && !desvantagem) return "vantagem";
+  if (desvantagem && !vantagem) return "desvantagem";
+  return "normal";
+}
+
+// Bônus do teste como a ficha calcula: efeitos (inclusive os de aliados),
+// armadura e exaustão inclusos.
+function calcularBonusTesteInterno(
+  personagem: PersonagemTeste,
+  selecao: SelecaoTestePayload,
+  recebidas: HabilidadeFonte[] = [],
+) {
   const prof = lerProficiencias(personagem.proficiencias);
+  const agg = agregadoDaFicha({
+    habilidades: personagem.habilidades,
+    itens: personagem.itens,
+    nos: personagem.arvores.flatMap((a) => a.nos),
+    slugsPericiaCustom: personagem.periciasCustom.map((p) => p.slug),
+    base: personagem,
+    recebidas,
+  });
+  const efetivos = atributosEfetivos(personagem, agg);
+  const atributos = {
+    ...efetivos,
+    destreza: efetivos.destreza + 2 * penalidadeDesDasArmaduras(personagem.itens),
+  };
+  const base = { nivel: personagem.nivel, atributos, agg };
 
+  let teste: ReturnType<typeof resolverTeste> | null = null;
+  let ctx: ContextoRolagem;
   if (selecao.tipo === "salvaguarda") {
-    const valorAtributo = valorDoAtributo(personagem, selecao.atributo);
-    const modAtributo = modificador(valorAtributo);
-    const proficiente = prof.salvaguardas.includes(selecao.atributo);
-    const outros = prof.outrosSalvaguardas[selecao.atributo] ?? 0;
-    const total = bonusSalvaguarda({
-      valorAtributo,
-      nivel: personagem.nivel,
-      proficiente,
-      outros,
+    ctx = { tipo: "salvaguarda", atributo: selecao.atributo };
+    teste = resolverTeste({
+      ...base,
+      tipo: "salvaguarda",
+      slug: selecao.atributo,
+      atributoPadrao: selecao.atributo,
+      proficiente: prof.salvaguardas.includes(selecao.atributo),
+      dobrado: false,
+      outros: prof.outrosSalvaguardas[selecao.atributo] ?? 0,
     });
-
-    const nomeAtributo = ATRIBUTOS.find((a) => a.slug === selecao.atributo)?.nome ?? selecao.atributo;
-    const profValor = proficiente ? bonusProficiencia(personagem.nivel) : 0;
-    const detalhe = `${nomeAtributo} ${formatarComSinal(modAtributo)} + Prof ${formatarComSinal(
-      profValor,
-    )} + Outro ${formatarComSinal(outros)} = ${formatarComSinal(total)}`;
-
-    return { bonus: total, detalhe };
+  } else {
+    const slugCanonico = resolverSlugCanonico(selecao);
+    const nomeNormalizado = normalizarTexto(selecao.nome);
+    const custom = slugCanonico
+      ? undefined
+      : personagem.periciasCustom.find(
+          (p) =>
+            isAtributo(p.atributo) &&
+            p.atributo === selecao.atributo &&
+            normalizarTexto(p.nome) === nomeNormalizado,
+        );
+    if (slugCanonico) {
+      ctx = { tipo: "pericia", pericia: slugCanonico };
+      teste = resolverTeste({
+        ...base,
+        tipo: "pericia",
+        slug: slugCanonico,
+        atributoPadrao: selecao.atributo,
+        proficiente: prof.pericias.includes(slugCanonico),
+        dobrado: prof.periciasDobradas.includes(slugCanonico),
+        outros: prof.outrosPericias[slugCanonico] ?? 0,
+      });
+    } else if (custom) {
+      ctx = { tipo: "pericia", pericia: custom.slug };
+      teste = resolverTeste({
+        ...base,
+        tipo: "pericia",
+        slug: custom.slug,
+        atributoPadrao: selecao.atributo,
+        proficiente: custom.proficiente,
+        dobrado: custom.dobrada,
+        outros: custom.bonusOutros,
+      });
+    } else {
+      ctx = { tipo: "teste-atributo", atributo: selecao.atributo };
+    }
   }
 
-  const valorAtributo = valorDoAtributo(personagem, selecao.atributo);
-  const modAtributo = modificador(valorAtributo);
-  const slugCanonico = resolverSlugCanonico(selecao);
-  if (slugCanonico) {
-    const proficiente = prof.pericias.includes(slugCanonico);
-    const dobrado = proficiente && prof.periciasDobradas.includes(slugCanonico);
-    const outros = prof.outrosPericias[slugCanonico] ?? 0;
-    const total = bonusPericia({
-      valorAtributo,
-      nivel: personagem.nivel,
-      proficiente,
-      dobrado,
-      outros,
-    });
-    const profValor = proficiente ? bonusProficiencia(personagem.nivel) * (dobrado ? 2 : 1) : 0;
-    const nomeAtributo = ATRIBUTOS.find((a) => a.slug === selecao.atributo)?.nome ?? selecao.atributo;
-    const detalhe = `${nomeAtributo} ${formatarComSinal(modAtributo)} + Prof ${formatarComSinal(
-      profValor,
-    )} + Outro ${formatarComSinal(outros)} = ${formatarComSinal(total)}`;
-    return { bonus: total, detalhe };
-  }
+  // Dados a mais que valem sempre nessa jogada (ex.: +1d4 em testes).
+  const extras = chipsDoContexto(efeitosDoContexto(agg), ctx).filter(
+    (c) => c.tipo === "dano_extra" && !c.opcional,
+  );
+  const dados: Dado[] = extras.flatMap((c) => c.dados ?? []);
 
-  const nomeNormalizado = normalizarTexto(selecao.nome);
-  const custom = personagem.periciasCustom.find(
-    (p) => isAtributo(p.atributo) && p.atributo === selecao.atributo && normalizarTexto(p.nome) === nomeNormalizado,
+  const atributoUsado = teste?.atributo ?? selecao.atributo;
+  const mod = teste?.mod ?? modificador(atributos[atributoUsado]);
+  const profValor = teste?.prof ?? 0;
+  const outros = (teste?.outros ?? 0) + extras.reduce((soma, c) => soma + (c.valor ?? 0), 0);
+  const exaustao = penalidadeD20Exaustao(exaustaoQueConta(personagem.exaustao, agg));
+  const bonus = mod + profValor + outros - exaustao;
+
+  const efeitosModo = modoDosEfeitos(agg.contextuais, ctx);
+  const modo = combinarModos(
+    efeitosModo.vantagem.length ? "vantagem" : "normal",
+    efeitosModo.desvantagem.length ? "desvantagem" : "normal",
   );
 
-  if (!custom) {
-    const nomeAtributo = ATRIBUTOS.find((a) => a.slug === selecao.atributo)?.nome ?? selecao.atributo;
-    return {
-      bonus: modAtributo,
-      detalhe: `${nomeAtributo} ${formatarComSinal(modAtributo)} + Prof +0 + Outro +0 = ${formatarComSinal(
-        modAtributo,
-      )}`,
-    };
-  }
-
-  const profValor = custom.proficiente
-    ? bonusProficiencia(personagem.nivel) * (custom.dobrada ? 2 : 1)
-    : 0;
-  const total = modAtributo + profValor + custom.bonusOutros;
-  const nomeAtributo = ATRIBUTOS.find((a) => a.slug === selecao.atributo)?.nome ?? selecao.atributo;
-  const detalhe = `${nomeAtributo} ${formatarComSinal(modAtributo)} + Prof ${formatarComSinal(
-    profValor,
-  )} + Outro ${formatarComSinal(custom.bonusOutros)} = ${formatarComSinal(total)}`;
-  return { bonus: total, detalhe };
+  const nomeAtributo = ATRIBUTOS.find((a) => a.slug === atributoUsado)?.nome ?? atributoUsado;
+  const partes = [
+    `${nomeAtributo} ${formatarComSinal(mod)}`,
+    `Prof ${formatarComSinal(profValor)}`,
+    `Outro ${formatarComSinal(outros)}`,
+    ...(exaustao ? [`Exaustão -${exaustao}`] : []),
+  ];
+  const notas = [
+    ...(efeitosModo.vantagem.length ? [`vantagem por ${efeitosModo.vantagem.join(", ")}`] : []),
+    ...(efeitosModo.desvantagem.length
+      ? [`desvantagem por ${efeitosModo.desvantagem.join(", ")}`]
+      : []),
+    ...(efeitosModo.sucesso.length
+      ? [`sucesso automático por ${efeitosModo.sucesso.join(", ")}`]
+      : []),
+    ...(efeitosModo.falha.length ? [`falha automática por ${efeitosModo.falha.join(", ")}`] : []),
+    ...extras.map((c) => `${c.rotulo} por ${c.fontes.join(", ")}`),
+  ];
+  const detalhe = `${partes.join(" + ")} = ${formatarComSinal(bonus)}${
+    notas.length ? ` · ${notas.join(" · ")}` : ""
+  }`;
+  return { bonus, detalhe, modo, dados };
 }
 
 export async function aggregatePericiasForMesa(mesaId: string) {
@@ -279,43 +375,28 @@ export async function calcularBonusTeste(personagemId: string, selecao: SelecaoT
     usuarioDaRequest(),
     prisma.personagem.findUnique({
       where: { id: personagemId },
-      select: {
-        id: true,
-        nome: true,
-        nivel: true,
-        forca: true,
-        destreza: true,
-        constituicao: true,
-        sabedoria: true,
-        vontade: true,
-        presenca: true,
-        proficiencias: true,
-        mesa: { select: { userId: true } },
-        periciasCustom: {
-          select: {
-            nome: true,
-            atributo: true,
-            proficiente: true,
-            dobrada: true,
-            bonusOutros: true,
-          },
-        },
-      },
+      select: { ...SELECT_PERSONAGEM_TESTE, mesaId: true, mesa: { select: { userId: true } } },
     }),
   ]);
 
   if (!user) throw new Error("Não autenticado.");
   if (!personagem) throw new Error("Personagem não encontrado.");
-  if (personagem.mesa?.userId !== user.id) {
+  if (personagem.mesa?.userId !== user.id || !personagem.mesaId) {
     throw new Error("Apenas o narrador da mesa pode calcular bônus.");
   }
 
-  const { bonus, detalhe } = calcularBonusTesteInterno(personagem, selecao);
+  const recebidas = await recebidasDaMesa(personagem.mesaId, [personagem.id]);
+  const { bonus, detalhe, modo } = calcularBonusTesteInterno(
+    personagem,
+    selecao,
+    recebidas.get(personagem.id),
+  );
   return {
     personagemId: personagem.id,
     nome: personagem.nome,
     bonus,
     detalhe,
+    modo,
   };
 }
 
@@ -330,13 +411,18 @@ export async function calcularBonusTesteMesa(
     alvos === "TODOS" || !Array.isArray(alvos) ? null : new Set(alvos);
 
   const base = personagens.filter((p) => !idsSelecionados || idsSelecionados.has(p.id));
+  const recebidas = await recebidasDaMesa(
+    mesaId,
+    base.map((p) => p.id),
+  );
   return base.map((p) => {
-    const { bonus, detalhe } = calcularBonusTesteInterno(p, selecao);
+    const { bonus, detalhe, modo } = calcularBonusTesteInterno(p, selecao, recebidas.get(p.id));
     return {
       personagemId: p.id,
       nome: p.nome,
       bonus,
       detalhe,
+      modo,
     };
   });
 }
@@ -383,30 +469,45 @@ export async function criarSolicitacaoTeste(
   const alvosNomes = personagens
     .filter((p) => alvosIds.includes(p.id))
     .map((p) => p.nome);
+  const recebidas = await recebidasDaMesa(mesaId, alvosIds);
 
   const bonusPorAlvoLista = personagens
     .filter((p) => alvosIds.includes(p.id))
     .map((personagem) => {
-      const { bonus, detalhe } = calcularBonusTesteInterno(personagem, payload.selecao);
+      const { bonus, detalhe, modo, dados } = calcularBonusTesteInterno(
+        personagem,
+        payload.selecao,
+        recebidas.get(personagem.id),
+      );
       return {
         personagemId: personagem.id,
         bonus,
         detalhe,
+        modo,
+        dados,
       };
     });
 
   const bonusPorAlvo: Record<string, number> = {};
   const bonusDetalhesPorAlvo: Record<string, string> = {};
+  // Dados a mais de cada alvo, rolados junto do d20.
+  const dadosPorAlvo: Record<string, Dado[]> = {};
   for (const item of bonusPorAlvoLista) {
     bonusPorAlvo[item.personagemId] = item.bonus;
     bonusDetalhesPorAlvo[item.personagemId] = item.detalhe;
+    if (item.dados.length > 0) dadosPorAlvo[item.personagemId] = item.dados;
   }
 
+  const modoDosEfeitosPorAlvo = new Map(bonusPorAlvoLista.map((b) => [b.personagemId, b.modo]));
   const modosPorAlvo: Record<string, ModoTeste> = {};
   for (const personagemId of alvosIds) {
     const modo = payload.modosPorAlvo?.[personagemId];
-    modosPorAlvo[personagemId] =
+    const doNarrador: ModoTeste =
       modo === "vantagem" || modo === "desvantagem" ? modo : "normal";
+    modosPorAlvo[personagemId] = combinarModos(
+      doNarrador,
+      modoDosEfeitosPorAlvo.get(personagemId) ?? "normal",
+    );
   }
 
   const atributoSlug =
@@ -444,6 +545,7 @@ export async function criarSolicitacaoTeste(
         modosPorAlvo,
         bonusPorAlvo,
         bonusDetalhesPorAlvo,
+        dadosPorAlvo,
       },
     } as Prisma.MensagemCreateInput,
   });

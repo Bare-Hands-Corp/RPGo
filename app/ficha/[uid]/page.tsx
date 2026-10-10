@@ -3,7 +3,15 @@ import { prisma } from "@/lib/prisma";
 import { usuarioDaRequest } from "@/lib/supabase/server";
 import { listarMensagensSessao } from "@/lib/mensagens";
 import { carregarCalendario } from "@/lib/calendario/carregar";
-import { agregarEfeitos, efeitosDoContexto, fontesDeEfeitoDeItens } from "@/lib/op-rpg";
+import {
+  agregarEfeitos,
+  atributosEfetivos,
+  efeitosDoContexto,
+  fontesDeEfeitoDeItens,
+  lerEfeitos,
+} from "@/lib/op-rpg";
+import { juntarTipos, tiposDoDano, tiposDosEfeitos } from "@/lib/dano";
+import { carregarRecebidas, fonteRecebida } from "@/lib/efeitos-servidor";
 import { habilidadesTravadas } from "@/lib/arvore";
 import { PerfilSidebar } from "./perfil-sidebar";
 import { FichaTabs } from "./ficha-tabs";
@@ -21,8 +29,8 @@ type Params = {
 export default async function FichaPage({ params, searchParams }: Params) {
   const [{ uid }, { aba }] = await Promise.all([params, searchParams]);
 
-  // Auth e personagem (Postgres) são independentes — paralelo.
-  const [user, personagem] = await Promise.all([
+  // Auth, personagem e efeitos de aliados (Postgres) são independentes — paralelo.
+  const [user, personagem, recebidas] = await Promise.all([
     usuarioDaRequest(),
     prisma.personagem.findUnique({
       where: { id: uid },
@@ -44,6 +52,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
         },
       },
     }),
+    carregarRecebidas(uid),
   ]);
   if (!user) redirect("/login");
   if (!personagem) notFound();
@@ -76,10 +85,32 @@ export default async function FichaPage({ params, searchParams }: Params) {
       !travadasPorArvore.has(h.id) && (!h.itemId || itensEquipados.has(h.itemId)),
   );
 
-  // Agrega efeitos das habilidades ativas e dos itens equipados.
+  // Agrega efeitos das habilidades ativas, dos itens equipados e dos aliados.
   const efeitosAgregados = agregarEfeitos(
-    [...habilidadesAtivas, ...fontesDeEfeitoDeItens(personagem.itens)],
+    [
+      ...habilidadesAtivas,
+      ...fontesDeEfeitoDeItens(personagem.itens),
+      ...recebidas.map(fonteRecebida),
+    ],
     slugsPericiaCustom,
+    undefined,
+    {
+      nivel: personagem.nivel,
+      atributos: {
+        forca: personagem.forca,
+        destreza: personagem.destreza,
+        constituicao: personagem.constituicao,
+        sabedoria: personagem.sabedoria,
+        vontade: personagem.vontade,
+        presenca: personagem.presenca,
+      },
+      recursos: personagem.recursos.map((r) => ({
+        id: r.id,
+        nome: r.nome,
+        valorAtual: r.valorAtual,
+        valorMax: r.valorMax,
+      })),
+    },
   );
 
   // Penalidade de DES das armaduras equipadas (geralmente negativa). Reduz o
@@ -94,6 +125,15 @@ export default async function FichaPage({ params, searchParams }: Params) {
       )
       .map((c) => ({ arvore: a.nome, camada: c.nome }));
   });
+
+  // Tipos de dano dos ataques e efeitos, pras sugestões do dano recebido.
+  const tiposDosAtaques = juntarTipos(
+    ...personagem.acoes.map((a) => tiposDoDano(a.dano ?? "")),
+    ...personagem.itens.flatMap((i) => [tiposDoDano(i.dano ?? ""), tiposDoDano(i.danoBonus ?? "")]),
+    ...[...personagem.habilidades, ...personagem.itens, ...personagem.acoes].map((f) =>
+      tiposDosEfeitos(lerEfeitos(f.efeitos)),
+    ),
+  );
 
   const penalidadeDesArmadura = personagem.itens.reduce(
     (acc, i) => (i.tipo === "armadura" && i.equipado ? acc + i.penalidadeDes : acc),
@@ -139,9 +179,16 @@ export default async function FichaPage({ params, searchParams }: Params) {
       <PerfilSidebar
         personagem={personagem}
         habilidades={habilidadesAtivas}
+        recebidas={recebidas.map((r) => ({
+          id: r.id,
+          nome: r.nome,
+          de: r.personagem.nome,
+          efeitos: r.efeitos,
+        }))}
         slugsPericiaCustom={[...slugsPericiaCustom]}
         penalidadeDesArmadura={penalidadeDesArmadura}
         camadasQueAbrem={camadasQueAbrem}
+        tiposDosAtaques={tiposDosAtaques}
       />
       <FichaTabs
         personagemId={personagem.id}
@@ -150,21 +197,10 @@ export default async function FichaPage({ params, searchParams }: Params) {
         mesaId={personagem.mesaId}
         nivel={personagem.nivel}
         exaustao={personagem.exaustao}
+        ppAtual={personagem.ppAtual}
+        ppMax={personagem.ppMax}
         penalidadeDesArmadura={penalidadeDesArmadura}
-        atributos={{
-          forca: personagem.forca + (efeitosAgregados.bonusAtributo.forca?.valor ?? 0),
-          destreza:
-            personagem.destreza + (efeitosAgregados.bonusAtributo.destreza?.valor ?? 0),
-          constituicao:
-            personagem.constituicao +
-            (efeitosAgregados.bonusAtributo.constituicao?.valor ?? 0),
-          sabedoria:
-            personagem.sabedoria + (efeitosAgregados.bonusAtributo.sabedoria?.valor ?? 0),
-          vontade:
-            personagem.vontade + (efeitosAgregados.bonusAtributo.vontade?.valor ?? 0),
-          presenca:
-            personagem.presenca + (efeitosAgregados.bonusAtributo.presenca?.valor ?? 0),
-        }}
+        atributos={atributosEfetivos(personagem, efeitosAgregados)}
         proficienciasRaw={personagem.proficiencias}
         periciasCustom={personagem.periciasCustom.map((p) => ({
           id: p.id,

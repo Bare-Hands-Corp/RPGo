@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Swal from "sweetalert2";
 import {
   type Dado,
@@ -10,12 +10,18 @@ import {
   formatarResultadoRolagemHtml,
   rolarDados,
   rolarLote,
-  rolarD20Contextual,
+  resolverD20,
 } from "@/lib/dice";
 import { addPreset, getPresets, removePreset, type Preset } from "@/lib/presets";
 import { registrarRolagem } from "./actions";
+import { anunciarGastoMunicao } from "@/lib/municao";
 import type { MensagemSerializada } from "@/lib/mensagens";
-import { EVENTO_EMPILHAR, type EmpilharRolagemDetail } from "@/lib/empilhar-rolagem";
+import {
+  EVENTO_EMPILHAR,
+  EVENTO_PUBLICAR,
+  type EmpilharRolagemDetail,
+  type PublicarRolagemDetail,
+} from "@/lib/empilhar-rolagem";
 import {
   chipsDoContexto,
   type ChipContexto,
@@ -42,6 +48,7 @@ const ICONE_CHIP: Record<ChipContexto["tipo"], string> = {
   vantagem: "fa-arrow-up",
   desvantagem: "fa-arrow-down",
   sucesso_auto: "fa-check",
+  falha_auto: "fa-xmark",
   crit_range: "fa-burst",
   floor_d20: "fa-circle-up",
   reroll: "fa-rotate",
@@ -50,6 +57,14 @@ const ICONE_CHIP: Record<ChipContexto["tipo"], string> = {
   ignora: "fa-bolt-lightning",
   alcance: "fa-ruler-horizontal",
   melhor_de: "fa-dice",
+  critico: "fa-skull",
+  dano_extra: "fa-plus",
+  dados_extra: "fa-dice-d6",
+  bonus: "fa-plus-minus",
+  dano_maximo: "fa-maximize",
+  piso_dado: "fa-dice-five",
+  ataque_poderoso: "fa-scale-unbalanced",
+  dano_poderoso: "fa-scale-unbalanced",
 };
 
 const FACES = [4, 6, 8, 10, 12, 20, 100] as const;
@@ -79,6 +94,10 @@ type OpcoesContextuais = {
   danoMinFloor: number;
   // Rola o lance inteiro N× e fica com o maior total. 1 = normal.
   melhorDe: number;
+  // Dados do dano no máximo.
+  danoMaximo: boolean;
+  // Dado de dano que rolar até `ate` vira `vira` (0 = o máximo).
+  pisosDado: { ate: number; vira: number }[];
 };
 
 // Snapshot de uma rolagem contextual que ofereceu rerroll — fica "pendente" até
@@ -94,9 +113,42 @@ type Pendente = {
   rolls: DadoRolado[];
   rerollsRestantes: number;
   rerollsUsados: number;
+  // Rolagem de ataque (o crítico dela liga o Crítico do próximo dano).
+  ataque: boolean;
+  // Habilidades que os chips ligados gastam quando a rolagem for mantida.
+  gastos: string[];
+  // Valores do lance, pra rerrolar só um d20.
+  valores: ValoresLance;
+  // Habilidade que perde 1 uso a cada rerrolagem.
+  gastaReroll?: string;
 };
 
-type Lance = { total: number; rolls: DadoRolado[]; stringDados: string };
+// Valores sorteados de um lance: os d20 do primário (2 com vantagem ou
+// desvantagem) e os outros dados, na ordem.
+type ValoresLance = { d20: number[]; outros: { resultado: number; cru: number | null }[] };
+
+type Lance = {
+  total: number;
+  rolls: DadoRolado[];
+  stringDados: string;
+  // Crítico/falha do d20 primário (null sem d20).
+  critico: "sucesso" | "falha" | null;
+  // Valor natural do d20 primário (null sem d20).
+  natural: number | null;
+  valores: ValoresLance;
+};
+
+// Resultado de um dado de dano com dano máximo e dado mínimo; `cru` = o que rolou.
+function rolarDadoDeDano(d: Dado, opc: OpcoesContextuais): { resultado: number; cru: number | null } {
+  if (opc.danoMaximo) return { resultado: d.sinal > 0 ? d.faces : 1, cru: null };
+  const rolado = Math.floor(Math.random() * d.faces) + 1;
+  if (d.sinal < 0 || opc.pisosDado.length === 0) return { resultado: rolado, cru: null };
+  const elevados = opc.pisosDado
+    .filter((p) => rolado <= p.ate)
+    .map((p) => (p.vira > 0 ? Math.min(d.faces, p.vira) : d.faces));
+  const resultado = Math.max(rolado, ...elevados);
+  return { resultado, cru: resultado !== rolado ? rolado : null };
+}
 
 // Rola o d20 primário (1d20 positivo) com vant/desv/floor/crit e os demais dados
 // normalmente. Retorna total, rolls crus e a string HTML da parte dos dados —
@@ -121,17 +173,38 @@ function montarDadosContextuais(
   return { ...fica, stringDados: `${fica.stringDados} ${descartados}` };
 }
 
-function montarUmLance(dadosUsar: Dado[], modUsar: number, opc: OpcoesContextuais): Lance {
-  const idxPrimario = dadosUsar.findIndex((d) => d.faces === 20 && d.sinal === 1);
+function primarioD20(dadosUsar: Dado[]): number {
+  return dadosUsar.findIndex((d) => d.faces === 20 && d.sinal === 1);
+}
+
+function sortearLance(dadosUsar: Dado[], opc: OpcoesContextuais): ValoresLance {
+  const idx = primarioD20(dadosUsar);
+  const d20 = () => Math.floor(Math.random() * 20) + 1;
+  return {
+    d20: idx < 0 ? [] : opc.vantagem !== opc.desvantagem ? [d20(), d20()] : [d20()],
+    outros: dadosUsar.filter((_, i) => i !== idx).map((d) => rolarDadoDeDano(d, opc)),
+  };
+}
+
+function montarUmLance(
+  dadosUsar: Dado[],
+  modUsar: number,
+  opc: OpcoesContextuais,
+  valores: ValoresLance = sortearLance(dadosUsar, opc),
+): Lance {
+  const idxPrimario = primarioD20(dadosUsar);
   let total = modUsar;
   let stringDados = "";
+  let critico: Lance["critico"] = null;
+  let natural: number | null = null;
   const rolls: DadoRolado[] = [];
+  let outro = 0;
 
   dadosUsar.forEach((d, i) => {
     const op =
       i === 0 ? (d.sinal === -1 ? "- " : "") : d.sinal === 1 ? " + " : " - ";
     if (i === idxPrimario) {
-      const r = rolarD20Contextual({
+      const r = resolverD20(valores.d20, {
         vantagem: opc.vantagem,
         desvantagem: opc.desvantagem,
         floorD20: opc.floorD20,
@@ -139,6 +212,8 @@ function montarUmLance(dadosUsar: Dado[], modUsar: number, opc: OpcoesContextuai
       });
       total += r.resultado * d.sinal;
       rolls.push({ faces: 20, sinal: d.sinal, resultado: r.resultado });
+      critico = r.critico;
+      natural = r.mantido;
       const cls =
         r.critico === "sucesso"
           ? "crit-success"
@@ -155,13 +230,15 @@ function montarUmLance(dadosUsar: Dado[], modUsar: number, opc: OpcoesContextuai
         extra += ` <span class="dado-descartado" title="elevado pelo mínimo">${r.mantido}</span>`;
       stringDados += `${op}(${resHtml}${extra}) 1d20`;
     } else {
-      const resultado = Math.floor(Math.random() * d.faces) + 1;
+      const { resultado, cru } = valores.outros[outro++] ?? rolarDadoDeDano(d, opc);
       total += resultado * d.sinal;
       rolls.push({ faces: d.faces, sinal: d.sinal, resultado });
       let resHtml = `${resultado}`;
       if (resultado === 1) resHtml = `<span class="crit-fail">${resultado}</span>`;
       else if (resultado === d.faces)
         resHtml = `<span class="crit-success">${resultado}</span>`;
+      // Valor cru antes do dado mínimo (riscado).
+      if (cru != null) resHtml += ` <span class="dado-descartado" title="dado mínimo">${cru}</span>`;
       stringDados += `${op}(${resHtml}) 1d${d.faces}`;
     }
   });
@@ -176,7 +253,7 @@ function montarUmLance(dadosUsar: Dado[], modUsar: number, opc: OpcoesContextuai
     total = opc.danoMinFloor;
   }
 
-  return { total, rolls, stringDados };
+  return { total, rolls, stringDados, critico, natural, valores };
 }
 
 // Cola as anotações de fonte ("· Vantagem por …") na parte dos dados.
@@ -211,19 +288,24 @@ export function PainelRolador({
   // Efeitos da rolagem empilhada (ficha + arma que desfere). Null = os da ficha.
   const [efeitosRolagem, setEfeitosRolagem] = useState<EfeitosContexto | null>(null);
   // Chips que o usuário alternou; o resto segue o padrão do tipo.
-  const [chipsAlternados, setChipsAlternados] = useState<
-    Set<ChipContexto["tipo"]>
-  >(new Set());
+  const [chipsAlternados, setChipsAlternados] = useState<Set<string>>(new Set());
   // Rolagem contextual que ofereceu rerroll — segura a persistência no chat até
   // o usuário decidir (Manter / Rerrolar). Null = nada pendente.
   const [pendente, setPendente] = useState<Pendente | null>(null);
+  // Último ataque rolado: crítico, d20 natural e se trocou acerto por dano. O
+  // próximo dano empilhado liga sozinho os chips que dependem disso.
+  const ultimoAtaque = useRef({ critico: false, natural: 0, poderoso: false });
+  const efeitosContextoRef = useRef(efeitosContexto);
+  useEffect(() => {
+    efeitosContextoRef.current = efeitosContexto;
+  }, [efeitosContexto]);
 
   // Chips que casam com o contexto atual (vantagem, crit expandido…).
   const chips = useMemo<ChipContexto[]>(() => {
     const efeitos = efeitosRolagem ?? efeitosContexto;
     return contexto && efeitos ? chipsDoContexto(efeitos, contexto) : [];
   }, [contexto, efeitosContexto, efeitosRolagem]);
-  const chipLigado = (c: ChipContexto) => !c.opcional !== chipsAlternados.has(c.tipo);
+  const chipLigado = (c: ChipContexto) => !c.opcional !== chipsAlternados.has(c.chave);
 
   useEffect(() => {
     setPresets(getPresets(userId));
@@ -235,13 +317,34 @@ export function PainelRolador({
     function ouvir(e: Event) {
       const det = (e as CustomEvent<EmpilharRolagemDetail>).detail;
       if (!det) return;
+      const ataque = ultimoAtaque.current;
+      ultimoAtaque.current = { critico: false, natural: 0, poderoso: false };
+      // Dano depois do ataque: Crítico, acerto por dano e dano máximo por d20
+      // (o máximo não liga no crítico, que já dobra os dados).
+      const ligados: string[] = [];
+      const efeitos = det.efeitos ?? efeitosContextoRef.current;
+      if (det.contexto?.tipo === "dano") {
+        if (ataque.critico) ligados.push("critico");
+        for (const c of efeitos ? chipsDoContexto(efeitos, det.contexto) : []) {
+          if (c.tipo === "dano_poderoso" && ataque.poderoso) ligados.push(c.chave);
+          if (
+            c.tipo === "dano_maximo" &&
+            c.opcional &&
+            c.valor &&
+            !ataque.critico &&
+            ataque.natural >= c.valor
+          ) {
+            ligados.push(c.chave);
+          }
+        }
+      }
       setDados(det.dados ?? []);
       setModificadorTexto(String(det.modificador ?? 0));
       setNegativo(false);
       setContexto(det.contexto ?? null);
       setNomeContexto(det.nomePreset ?? null);
       setEfeitosRolagem(det.efeitos ?? null);
-      setChipsAlternados(new Set());
+      setChipsAlternados(new Set<string>(ligados));
       setPendente(null);
       setModoGravacao(false);
       setResultado({ tipo: "preview" });
@@ -249,6 +352,30 @@ export function PainelRolador({
     window.addEventListener(EVENTO_EMPILHAR, ouvir);
     return () => window.removeEventListener(EVENTO_EMPILHAR, ouvir);
   }, []);
+
+  // Rolagem já feita na ficha (cura, Dado de Vida): mostra e manda pro chat.
+  useEffect(() => {
+    function ouvir(e: Event) {
+      const det = (e as CustomEvent<PublicarRolagemDetail>).detail;
+      if (!det) return;
+      const r = det.resultado;
+      const detalhesHtml = `[${r.total}] = ${formatarResultadoRolagemHtml(r)}`;
+      setResultado({ tipo: "rolado", total: String(r.total), detalhesHtml });
+      registrarRolagem(sessionId, userName, {
+        tipo: "rolagem",
+        total: r.total,
+        detalhes: r.detalhes,
+        modificador: r.modificador,
+        modo: "normal",
+        nomePreset: det.nomePreset,
+        texto: detalhesHtml,
+      })
+        .then((msg) => onMensagemCriada(msg))
+        .catch((err) => console.error(err));
+    }
+    window.addEventListener(EVENTO_PUBLICAR, ouvir);
+    return () => window.removeEventListener(EVENTO_PUBLICAR, ouvir);
+  }, [sessionId, userName, onMensagemCriada]);
 
   const modificador = Number(modificadorTexto || 0);
   const quantidade = Number(quantidadeTexto || 1);
@@ -339,7 +466,7 @@ export function PainelRolador({
     setResultado({ tipo: "preview" });
   }
 
-  function alternarChip(t: ChipContexto["tipo"]) {
+  function alternarChip(t: string) {
     setChipsAlternados((s) => {
       const next = new Set(s);
       if (next.has(t)) next.delete(t);
@@ -442,12 +569,45 @@ export function PainelRolador({
   // e anota as fontes dos efeitos ligados. Se houver rerroll disponível (chip
   // `reroll` ligado), entra em modo "pendente" — mostra o resultado mas só
   // persiste no chat quando o usuário Mantém. Usa o memo `chips`.
-  function rolarContextual(dadosUsar: Dado[], modUsar: number, nomePreset: string | null) {
-    if (dadosUsar.length === 0 && modUsar === 0) return;
-    const ligado = (t: ChipContexto["tipo"]) =>
-      chips.some((c) => c.tipo === t && chipLigado(c));
+  function rolarContextual(dadosBase: Dado[], modBase: number, nomePreset: string | null) {
+    if (dadosBase.length === 0 && modBase === 0) return;
+    // Ataque com arma de munição gasta uma por lance (a rerrolagem não gasta).
+    if (contexto?.tipo === "ataque" && contexto.municao) {
+      anunciarGastoMunicao(contexto.municao.id, Math.max(1, quantidadeValida));
+    }
+    const ligados = chips.filter(chipLigado);
+    const ligado = (t: ChipContexto["tipo"]) => ligados.some((c) => c.tipo === t);
     const valorChip = (t: ChipContexto["tipo"]) =>
       chips.find((c) => c.tipo === t)?.valor;
+    const somaLigados = (t: ChipContexto["tipo"]) =>
+      ligados.filter((c) => c.tipo === t).reduce((soma, c) => soma + (c.valor ?? 0), 0);
+    // Dano extra e dados extras dos chips ligados (dados iguais ao 1º dado do dano).
+    const extras = ligados.filter((c) => c.tipo === "dano_extra" || c.tipo === "dados_extra");
+    const dadoDoDano = dadosBase.find((d) => d.sinal > 0);
+    const copias = (n: number) => (dadoDoDano ? Array.from({ length: n }, () => dadoDoDano) : []);
+    const dadosExtras = extras.flatMap((c) =>
+      c.tipo === "dano_extra" ? (c.dados ?? []) : copias(c.valor ?? 0),
+    );
+    // Bônus situacionais e acerto por dano mexem no modificador.
+    const modUsar =
+      modBase +
+      extras.reduce((soma, c) => soma + (c.tipo === "dano_extra" ? (c.valor ?? 0) : 0), 0) +
+      somaLigados("bonus") +
+      somaLigados("dano_poderoso") -
+      somaLigados("ataque_poderoso");
+    // A rerrolagem gasta o uso só quando acontece.
+    const gastos = [
+      ...new Set(ligados.flatMap((c) => (c.gasta && c.tipo !== "reroll" ? [c.gasta] : []))),
+    ];
+    const comExtras = [...dadosBase, ...dadosExtras];
+    // Crítico no dano: rola os dados 2× (ou mais) e soma os dados a mais.
+    const critico = ligados.find((c) => c.tipo === "critico");
+    const dadosUsar = critico
+      ? [
+          ...Array.from({ length: critico.valor ?? 2 }, () => comExtras).flat(),
+          ...copias(critico.extras ?? 0),
+        ]
+      : comExtras;
 
     // Piso de dano = metade do dano MÁXIMO da fórmula (arredonda pra cima).
     // Máximo: dado positivo rende `faces`, negativo rende -1 (mínimo do dado).
@@ -458,7 +618,7 @@ export function PainelRolador({
 
     // Vantagem/desvantagem do d20 = chip do contexto OU o toggle manual do
     // Rolador (vantagem situacional do narrador). As duas juntas se cancelam —
-    // `rolarD20Contextual` rola um só. Mesmo casamento da regra de 5e.
+    // o d20 rola um só. Mesmo casamento da regra de 5e.
     const vantManual = modoRolagem === "vantagem";
     const desvManual = modoRolagem === "desvantagem";
 
@@ -469,6 +629,8 @@ export function PainelRolador({
       critRange: ligado("crit_range") ? valorChip("crit_range") ?? 20 : 20,
       danoMinFloor,
       melhorDe: ligado("melhor_de") ? valorChip("melhor_de") ?? 1 : 1,
+      danoMaximo: ligado("dano_maximo"),
+      pisosDado: ligados.flatMap((c) => (c.tipo === "piso_dado" && c.piso ? [c.piso] : [])),
     };
 
     // Anota as fontes dos efeitos ligados (exceto reroll, que vira interação).
@@ -489,10 +651,18 @@ export function PainelRolador({
     // como lote. Reroll não se aplica num lote — só no lance único.
     if (quantidadeValida > 1) {
       finalizarLoteContextual(dadosUsar, modUsar, nomePreset, opc, notas, quantidadeValida);
+      gastarHabilidades(gastos);
       return;
     }
 
     const r = montarDadosContextuais(dadosUsar, modUsar, opc);
+    if (contexto?.tipo === "ataque") {
+      ultimoAtaque.current = {
+        critico: r.critico === "sucesso",
+        natural: r.natural ?? 0,
+        poderoso: ligado("ataque_poderoso"),
+      };
+    }
     const rerolls = ligado("reroll") ? valorChip("reroll") ?? 0 : 0;
 
     if (rerolls > 0) {
@@ -510,9 +680,14 @@ export function PainelRolador({
         rolls: r.rolls,
         rerollsRestantes: rerolls,
         rerollsUsados: 0,
+        ataque: contexto?.tipo === "ataque",
+        gastos,
+        valores: r.valores,
+        gastaReroll: ligados.find((c) => c.tipo === "reroll")?.gasta,
       });
     } else {
       finalizar(r.total, r.rolls, modUsar, montarStringFinal(r.stringDados, notas), nomePreset);
+      gastarHabilidades(gastos);
     }
   }
 
@@ -573,10 +748,24 @@ export function PainelRolador({
       .catch((err) => console.error(err));
   }
 
-  // Rerrola o lance pendente (mesmo contexto), consumindo uma rerrolagem.
-  function rerrolar() {
+  // Rerrola só um d20 do lance pendente (com vantagem/desvantagem, o escolhido);
+  // os outros dados ficam. Consome uma rerrolagem e o uso da habilidade.
+  function rerrolar(indice = 0) {
     if (!pendente || pendente.rerollsRestantes <= 0) return;
-    const r = montarDadosContextuais(pendente.dadosUsar, pendente.modUsar, pendente.opc);
+    const d20 = [...pendente.valores.d20];
+    if (d20.length > 0) d20[Math.min(indice, d20.length - 1)] = Math.floor(Math.random() * 20) + 1;
+    const r = montarUmLance(pendente.dadosUsar, pendente.modUsar, pendente.opc, {
+      ...pendente.valores,
+      d20,
+    });
+    if (pendente.gastaReroll) gastarHabilidades([pendente.gastaReroll]);
+    if (pendente.ataque) {
+      ultimoAtaque.current = {
+        ...ultimoAtaque.current,
+        critico: r.critico === "sucesso",
+        natural: r.natural ?? 0,
+      };
+    }
     const usados = pendente.rerollsUsados + 1;
     const notas = [...pendente.notas, `rerrolado ${usados}×`];
     const stringFinal = montarStringFinal(r.stringDados, notas);
@@ -586,6 +775,7 @@ export function PainelRolador({
       stringDados: r.stringDados,
       total: r.total,
       rolls: r.rolls,
+      valores: r.valores,
       rerollsRestantes: pendente.rerollsRestantes - 1,
       rerollsUsados: usados,
     });
@@ -598,7 +788,15 @@ export function PainelRolador({
     if (pendente.rerollsUsados > 0) notas.push(`rerrolado ${pendente.rerollsUsados}×`);
     const stringFinal = montarStringFinal(pendente.stringDados, notas);
     finalizar(pendente.total, pendente.rolls, pendente.modUsar, stringFinal, pendente.nomePreset);
+    gastarHabilidades(pendente.gastos);
     setPendente(null);
+  }
+
+  // Chip de dano sob demanda gasta a habilidade (a aba Habilidades debita).
+  function gastarHabilidades(ids: string[]) {
+    for (const id of ids) {
+      window.dispatchEvent(new CustomEvent("rpgo:gastar-habilidade", { detail: { id } }));
+    }
   }
 
   function clicarRolar() {
@@ -781,7 +979,7 @@ export function PainelRolador({
             const on = chipLigado(c);
             return (
               <button
-                key={c.tipo}
+                key={c.chave}
                 type="button"
                 className={`rolador-chip${on ? " on" : ""}`}
                 aria-pressed={on}
@@ -791,7 +989,7 @@ export function PainelRolador({
                 ]
                   .filter(Boolean)
                   .join(" · ")}
-                onClick={() => alternarChip(c.tipo)}
+                onClick={() => alternarChip(c.chave)}
               >
                 <i className={`fas ${ICONE_CHIP[c.tipo]}`} />
                 {c.rotulo}
@@ -828,14 +1026,18 @@ export function PainelRolador({
               : " — sem usos"}
           </span>
           <div className="rolador-pendente-acoes">
-            <button
-              type="button"
-              className="btn-rect neutro sm rolador-pendente-btn rerrolar"
-              onClick={rerrolar}
-              disabled={pendente.rerollsRestantes <= 0}
-            >
-              <i className="fas fa-dice" /> Rerrolar
-            </button>
+            {/* Com vantagem/desvantagem, escolhe qual d20 relançar (só um). */}
+            {(pendente.valores.d20.length > 1 ? pendente.valores.d20 : [null]).map((v, i) => (
+              <button
+                type="button"
+                key={i}
+                className="btn-rect neutro sm rolador-pendente-btn rerrolar"
+                onClick={() => rerrolar(i)}
+                disabled={pendente.rerollsRestantes <= 0}
+              >
+                <i className="fas fa-dice" /> Rerrolar{v != null ? ` ${v}` : ""}
+              </button>
+            ))}
             <button
               type="button"
               className="btn-rect neutro sm rolador-pendente-btn manter"

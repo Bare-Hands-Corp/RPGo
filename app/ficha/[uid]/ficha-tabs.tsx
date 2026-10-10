@@ -32,6 +32,8 @@ type Props = {
   mesaId: string | null;
   nivel: number;
   exaustao: number;
+  ppAtual: number;
+  ppMax: number;
   penalidadeDesArmadura: number;
   atributos: Record<Atributo, number>;
   proficienciasRaw: unknown;
@@ -80,6 +82,8 @@ export function FichaTabs({
   mesaId,
   nivel,
   exaustao,
+  ppAtual,
+  ppMax,
   penalidadeDesArmadura,
   atributos,
   proficienciasRaw,
@@ -116,6 +120,15 @@ export function FichaTabs({
     else url.searchParams.set("aba", id);
     window.history.replaceState(null, "", url);
   }
+
+  // Graus das técnicas, pra resolver GRAU nos chips fora da técnica.
+  const grausTecnicas = useMemo(
+    () =>
+      [...new Set(acoes.filter((a) => a.tecnica && a.grau > 0).map((a) => a.grau))].sort(
+        (a, b) => a - b,
+      ),
+    [acoes],
+  );
 
   const objetivosComPrazo = useMemo(
     () =>
@@ -201,6 +214,9 @@ export function FichaTabs({
           efeitosAgregados={efeitosAgregados}
           itens={itens}
           habilidades={habilidades}
+          ppAtual={ppAtual}
+          ppMax={ppMax}
+          tripulantes={tripulantes}
         />
       </div>
 
@@ -215,9 +231,13 @@ export function FichaTabs({
           habilidades={habilidades}
           recursos={recursos}
           atributos={atributos}
+          nivel={nivel}
           periciasCustom={periciasCustom}
           travadas={habilidadesTravadas}
           itens={itens}
+          tripulantes={tripulantes}
+          efeitosAgregados={efeitosAgregados}
+          grausTecnicas={grausTecnicas}
         />
       </div>
 
@@ -292,6 +312,8 @@ export function FichaTabs({
           periciasCustom={periciasCustom}
           acoes={acoes}
           habilidades={habilidades}
+          tripulantes={tripulantes}
+          grausTecnicas={grausTecnicas}
         />
       </div>
 

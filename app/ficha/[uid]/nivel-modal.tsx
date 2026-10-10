@@ -6,12 +6,20 @@ import { subirDeNivel } from "./actions";
 import { exigir } from "@/lib/acoes";
 import {
   PONTOS_APRIMORAMENTO,
+  PP_POR_NIVEL,
   clampGanhoPv,
   montarProposta,
+  tetosNoNivel,
   validarAprimoramento,
   type Aprimoramento,
 } from "@/lib/nivel";
-import { ATRIBUTOS, formatarMod, modificador, type Atributo } from "@/lib/op-rpg";
+import {
+  ATRIBUTOS,
+  formatarMod,
+  modificador,
+  type Atributo,
+  type EfeitosAgregados,
+} from "@/lib/op-rpg";
 import { rolarDados } from "@/lib/dice";
 import { empilharRolagem } from "@/lib/empilhar-rolagem";
 
@@ -23,6 +31,8 @@ export function NivelModal({
   pe,
   tipoDadoVida,
   atributos,
+  atributosBase,
+  bonusTetoAtributo,
   camadasQueAbrem,
   onFechar,
 }: {
@@ -30,7 +40,11 @@ export function NivelModal({
   nivel: number;
   pe: number;
   tipoDadoVida: string;
+  // Com os bônus (PV pela CON).
   atributos: Record<Atributo, number>;
+  // Sem os bônus: o Aprimoramento soma aqui.
+  atributosBase: Record<Atributo, number>;
+  bonusTetoAtributo: EfeitosAgregados["bonusTetoAtributo"];
   camadasQueAbrem: CamadaQueAbre[];
   onFechar: () => void;
 }) {
@@ -78,7 +92,11 @@ export function NivelModal({
   }
 
   function confirmar() {
-    const recusa = validarAprimoramento(apr, atributos);
+    const recusa = validarAprimoramento(
+      apr,
+      atributosBase,
+      tetosNoNivel(bonusTetoAtributo, proposta.nivelNovo),
+    );
     if (recusa) {
       Swal.fire({
         icon: "warning",
@@ -161,6 +179,9 @@ export function NivelModal({
             )}
           </li>
           <li>
+            <i className="fas fa-bolt" /> PP máximo <strong>+{PP_POR_NIVEL}</strong>
+          </li>
+          <li>
             <i className="fas fa-dice-d20" /> Bônus de proficiência{" "}
             {proposta.profMudou ? (
               <strong>
@@ -194,12 +215,12 @@ export function NivelModal({
         <div className="nivel-apr">
           {ATRIBUTOS.map((a) => {
             const ganho = apr[a.slug] ?? 0;
-            const depois = atributos[a.slug] + ganho;
+            const depois = atributosBase[a.slug] + ganho;
             return (
               <div key={a.slug} className={`nivel-apr-linha ${ganho > 0 ? "ativo" : ""}`}>
                 <span className="nivel-apr-sigla">{a.sigla}</span>
                 <span className="nivel-apr-valor">
-                  {atributos[a.slug]}
+                  {atributosBase[a.slug]}
                   {ganho > 0 && (
                     <>
                       {" → "}
