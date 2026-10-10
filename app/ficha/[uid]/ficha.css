@@ -7210,3 +7210,64 @@ form > .turno-campo,
     display: none;
   }
 }
+
+/* ─── Mola: o interruptor passa do ponto e volta; botão afunda ao apertar ─
+   Botão apertado toda hora fica curto: abaixo de 300ms e escala perto de 1. */
+:root {
+  --ease-mola: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.hab-toggle-bolha {
+  transition: transform 0.3s var(--ease-mola);
+}
+
+.hab-usar,
+.acao-rolar {
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    transform 0.28s var(--ease-mola);
+}
+
+.hab-filtro {
+  transition:
+    border-color 0.15s,
+    color 0.15s,
+    background 0.15s,
+    transform 0.28s var(--ease-mola);
+}
+
+.modal-actions button {
+  transition:
+    filter 0.15s,
+    border-color 0.15s,
+    transform 0.28s var(--ease-mola);
+}
+
+.hab-usar:active:not(:disabled),
+.acao-rolar:active:not(:disabled),
+.hab-filtro:active,
+.modal-actions button:active:not(:disabled) {
+  transform: scale(0.96);
+  transition-duration: 0.08s;
+}
+
+/* No toque, o :hover gruda depois do tap: sem levantar o cartão. */
+@media (hover: none) {
+  .pasta-card:hover {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hab-toggle-bolha {
+    transition: none;
+  }
+
+  .hab-usar:active:not(:disabled),
+  .acao-rolar:active:not(:disabled),
+  .hab-filtro:active,
+  .modal-actions button:active:not(:disabled) {
+    transform: none;
+  }
+}
