@@ -22,6 +22,7 @@ import {
   bonusAtaqueTecnica,
   bonusDeAtaque,
   bonusProficiencia,
+  casaContexto,
   cdTecnica,
   computarDeltasInstantaneos,
   alvoDaCura,
@@ -958,6 +959,18 @@ export function AcoesTab({
                           valorAtributo: atributosParaTeste[atributoAtq],
                         }) + extraAtaqueSemArma.valor
                       : null;
+                  // Alcance a mais (ou trocado) que vale sempre nesta ação; o opcional fica no Rolador.
+                  const alcancesAcao = (aggAcao.alcances ?? []).filter(
+                    (a) =>
+                      !a.opcional &&
+                      casaContexto(a.alvo, {
+                        tipo: "ataque",
+                        alcance: alcanceContexto,
+                        tecnica: acao.tecnica,
+                      }),
+                  );
+                  const alcanceVira = alcancesAcao.find((a) => a.vira)?.vira;
+                  const alcanceSoma = alcancesAcao.reduce((s, a) => s + (a.vira ? 0 : a.valor), 0);
                   // Passo de dano da própria ação sobe o dado dela.
                   const passosProprios = lerEfeitos(acao.efeitos).reduce(
                     (soma, e) => soma + (e.tipo === "passo_dano" ? e.passos : 0),
@@ -1130,7 +1143,7 @@ export function AcoesTab({
                             ))}
                           </div>
                         )}
-                        {(bonusAtq != null || cd != null || atributoSalv || acao.dano || acao.alcance || golpes.length > 0 || acao.tecnica || duracaoTexto || temPorTurno || usosMax != null) && (
+                        {(bonusAtq != null || cd != null || atributoSalv || acao.dano || acao.alcance || alcancesAcao.length > 0 || golpes.length > 0 || acao.tecnica || duracaoTexto || temPorTurno || usosMax != null) && (
                           <div className="acao-stats">
                             {acao.tecnica && (
                               <span className="acao-stat acao-tecnica">
@@ -1289,8 +1302,19 @@ export function AcoesTab({
                                 {fontesCd.length > 0 && <i className="fas fa-link prof-fonte" />}
                               </span>
                             )}
-                            {acao.alcance && (
-                              <span className="acao-stat"><i className="fas fa-ruler-horizontal" /> {acao.alcance}</span>
+                            {(acao.alcance || alcancesAcao.length > 0) && (
+                              <span
+                                className="acao-stat"
+                                title={
+                                  alcancesAcao.length
+                                    ? `de ${[...new Set(alcancesAcao.map((a) => a.fonte))].join(", ")}`
+                                    : undefined
+                                }
+                              >
+                                <i className="fas fa-ruler-horizontal" /> {alcanceVira ?? acao.alcance}
+                                {alcanceSoma !== 0 ? ` ${formatarMod(alcanceSoma)} m` : ""}
+                                {alcancesAcao.length > 0 && <i className="fas fa-link prof-fonte" />}
+                              </span>
                             )}
                           </div>
                         )}

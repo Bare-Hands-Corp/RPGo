@@ -996,9 +996,10 @@ export type EfeitoHabilidade =
   // pra cima). Ex: "Preparação pra Batalha". Sem parâmetro — o piso depende da
   // fórmula, calculado no Rolador. `quando` é descritivo opcional.
   | ({ tipo: "dano_min"; quando?: string; em?: string } & FiltroDano)
-  // Soma metros ao alcance de uma arma. DESCRITIVO: anota a fonte no chip de
-  // ataque (não há campo numérico de alcance — `Item.alcanceMetros` é texto livre).
-  | { tipo: "alcance"; valor: number; quando?: string }
+  // Alcance: soma metros ou, com `vira`, troca por outro ("campo de visão").
+  // DESCRITIVO: anota no chip da rolagem (o alcance da ficha é texto livre).
+  // `alvo` = em qual ataque (ausente = qualquer).
+  | { tipo: "alcance"; valor: number; vira?: string; alvo?: string; quando?: string }
   // Ignora uma defesa do alvo (resistência, imunidade, reação, cobertura).
   // Informativo: anota no chip de ataque/dano. `alvo` = o que ignora.
   | { tipo: "ignora"; alvo: string }
@@ -1573,7 +1574,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   {
     id: "alcance",
     nome: "Alcance Extra",
-    descricao: "Soma metros ao alcance de uma arma",
+    descricao: "Soma metros ao alcance, ou troca por outro (campo de visão)",
     icone: "fa-ruler-horizontal",
     cor: "var(--primary)",
     grupo: "ativo",
@@ -1828,12 +1829,18 @@ export function normalizarEfeito(
         ...(str(obj.em) ? { em: str(obj.em) } : {}),
         ...lerFiltroDano(obj),
       };
-    case "alcance":
+    case "alcance": {
+      const vira = str(obj.vira).trim().slice(0, 40);
+      const valor = vira ? 0 : Math.trunc(num(obj.valor));
+      if (!vira && !valor) return null;
       return {
         tipo,
-        valor: Math.trunc(num(obj.valor)),
+        valor,
+        ...(vira ? { vira } : {}),
+        ...(str(obj.alvo) && str(obj.alvo) !== "ataque" ? { alvo: str(obj.alvo) } : {}),
         ...(str(obj.quando) ? { quando: str(obj.quando) } : {}),
       };
+    }
     case "ignora":
       if (!str(obj.alvo)) return null;
       return { tipo, alvo: str(obj.alvo) };
@@ -2504,6 +2511,7 @@ export type ContextoFormula = { nivel: number; atributos: Record<Atributo, numbe
 
 // Dano extra ou dados extras guardados crus. `gasta` = habilidade de Usar que o
 // chip gasta ao rolar (dano sob demanda, tipo Heat); `usos` e `custo` vão pro tooltip.
+// `vezes` = quantos usos dá pra empilhar na mesma rolagem (usos, recurso e PP que sobram).
 export type ExtraDano = FiltroDano & {
   chave: string;
   tipo: "dano_extra" | "dados_extra";
@@ -2514,7 +2522,11 @@ export type ExtraDano = FiltroDano & {
   gasta?: string;
   usos?: string;
   custo?: string;
+  vezes?: number;
 };
+
+// Teto de usos da mesma habilidade empilhados numa rolagem.
+const MAX_EMPILHAR = 10;
 
 // Efeito de "a cada turno" agregado, com a fonte.
 export type PorTurno = {
@@ -2662,8 +2674,16 @@ export type EfeitosAgregados = {
   // Defesas ignoradas (resistência/imunidade/reação/cobertura). Indexado pelo
   // que ignora; fontes acumulam.
   ignora: Partial<Record<string, FonteLista>>;
-  // Metros extras de alcance de arma — DESCRITIVO (anota no chip de ataque).
-  bonusAlcance: FonteValor;
+  // Alcance a mais ou trocado, por alvo de ataque — DESCRITIVO (chip da rolagem).
+  // `opcional`: vem de habilidade de Usar ou tem `quando`; nasce desligado.
+  alcances: {
+    valor: number;
+    vira?: string;
+    alvo: string;
+    quando?: string;
+    opcional?: boolean;
+    fonte: string;
+  }[];
   // Imune a acerto crítico (defensivo). Presença (fontes) = imune. Não é
   // consumido no Rolador (é sobre ser atacado) — só exibição na sidebar.
   critImune: DefesaAgregada;
@@ -2750,7 +2770,7 @@ function vazio(): EfeitosAgregados {
     dadoArmaFixo: null,
     trocaDano: null,
     ignora: {},
-    bonusAlcance: { valor: 0, fontes: [] },
+    alcances: [],
     critImune: { fontes: [], passiva: false },
     margemCritico: { valor: 0, fontes: [] },
     passosDanoArma: { valor: 0, fontes: [] },
@@ -3111,7 +3131,6 @@ export function efeitoEhSustentado(e: EfeitoHabilidade): boolean {
     case "deslocamento":
     case "sentido":
     case "dano_min":
-    case "alcance":
     case "ignora":
     case "trocar_dano":
     case "margem_critico":
@@ -3430,6 +3449,21 @@ export function contextoDasFormulas(
   return { nivel: base.nivel, atributos: atributosComBonusFixos(fontes, base.atributos) };
 }
 
+// Efeito de alcance no formato do agregado; com `quando`, nasce desligado.
+function alcanceDe(
+  e: Extract<EfeitoHabilidade, { tipo: "alcance" }>,
+  fonte: string,
+): EfeitosAgregados["alcances"][number] {
+  const quando = e.quando?.trim();
+  return {
+    valor: e.valor,
+    ...(e.vira ? { vira: e.vira } : {}),
+    alvo: (e.alvo ?? "ataque").trim().toLowerCase() || "ataque",
+    ...(quando ? { quando, opcional: true } : {}),
+    fonte,
+  };
+}
+
 // Agrega os efeitos sustentados de habilidades passivas ou ligadas.
 // Instantâneos ficam com `computarDeltasInstantaneos`.
 export function agregarEfeitos(
@@ -3441,12 +3475,13 @@ export function agregarEfeitos(
   // Agregado de partida (copiado, não muda).
   base?: EfeitosAgregados,
   // Nível e atributos base pras fórmulas; `grau` = grau da técnica; `recursos`
-  // dão o saldo do custo dos chips sob demanda.
+  // e `ppAtual` dão o saldo do custo dos chips sob demanda.
   ctx?: {
     nivel?: number;
     atributos?: Record<Atributo, number>;
     grau?: number;
     recursos?: RecursoFonte[];
+    ppAtual?: number;
   },
 ): EfeitosAgregados {
   // Base de um render anterior pode não ter os campos mais novos.
@@ -3473,6 +3508,10 @@ export function agregarEfeitos(
     // dano extra e o dano máximo sob demanda (o chip gasta um uso).
     if (!agrega(h)) {
       if (!h.id || h.alternavel || temEfeitoSustentado(efeitos)) continue;
+      // Alcance de habilidade de Usar: chip desligado, sem custo.
+      for (const e of efeitos) {
+        if (e.tipo === "alcance") out.alcances.push({ ...alcanceDe(e, h.nome), opcional: true });
+      }
       const max = usosMaximos(h, f);
       const atual = h.usosAtual ?? max;
       if (max != null && (atual ?? 0) <= 0) continue;
@@ -3493,6 +3532,14 @@ export function agregarEfeitos(
         ...(max != null ? { usos: `${atual}/${max}` } : {}),
         ...(custo ? { custo } : {}),
       };
+      // Empilhar: quantos usos dá pra pagar de uma vez. Sem custo nenhum, não empilha.
+      const custoPp = h.custoPp ?? 0;
+      const tetos = [
+        max != null ? (atual ?? 0) : null,
+        recurso ? Math.floor(recurso.valorAtual / custoRecurso) : null,
+        custoPp > 0 && ctx?.ppAtual != null ? Math.floor(ctx.ppAtual / custoPp) : null,
+      ].filter((n): n is number => n != null);
+      const vezes = tetos.length ? Math.min(MAX_EMPILHAR, ...tetos) : 1;
       for (const e of efeitos) {
         if (e.tipo === "dano_maximo") {
           out.danosMaximos.push({
@@ -3515,6 +3562,7 @@ export function agregarEfeitos(
           fonte: h.nome,
           gasta: h.id,
           ...usos,
+          ...(vezes > 1 ? { vezes } : {}),
           ...filtroDe(e),
         });
       }
@@ -3722,7 +3770,7 @@ export function agregarEfeitos(
           if (!atual || v > atual.valor) out.valoresFixos[alvo] = { valor: v, fontes: [h.nome] };
         }
       } else if (e.tipo === "alcance") {
-        if (e.valor) somarBucketSimples(out.bonusAlcance, e.valor, h.nome);
+        out.alcances.push(alcanceDe(e, h.nome));
       } else if (e.tipo === "ignora") {
         const k = e.alvo.trim().toLowerCase();
         if (k) adicionarFonteLista(out.ignora, k, h.nome);
@@ -3893,7 +3941,7 @@ export type ChipContexto = {
   gasta?: string;
   // Explosão: quando dispara e quantas vezes.
   explosao?: { gatilho: GatilhoExplosao; valor: number; limite: number };
-  // Bônus progressivo: teto de passos, a chave da contagem e de onde ela vem.
+  // Teto da contagem: passos do bônus progressivo, ou usos empilháveis do chip sob demanda.
   max?: number;
   memoria?: string;
   progressivo?: { fonte: string; formula: string; em: string; passos: number; cresce?: GatilhoProgressivo };
@@ -3911,7 +3959,7 @@ export type EfeitosContexto = Pick<
   | "danosMin"
   | "trocaDano"
   | "ignora"
-  | "bonusAlcance"
+  | "alcances"
   | "danoMelhorDe"
   | "extrasDano"
   | "ctxFormula"
@@ -3935,7 +3983,7 @@ export function efeitosDoContexto(agg: EfeitosAgregados): EfeitosContexto {
     danosMin: agg.danosMin,
     trocaDano: agg.trocaDano,
     ignora: agg.ignora,
-    bonusAlcance: agg.bonusAlcance,
+    alcances: agg.alcances ?? [],
     danoMelhorDe: agg.danoMelhorDe,
     extrasDano: agg.extrasDano,
     ctxFormula: agg.ctxFormula,
@@ -3997,6 +4045,7 @@ export function chipsDoContexto(
           dados: r.dados,
           valor: r.modificador,
           gasta: x.gasta,
+          ...(x.vezes ? { max: x.vezes } : {}),
           detalhe,
         });
       } else {
@@ -4010,6 +4059,7 @@ export function chipsDoContexto(
           opcional: !x.sempre || talvez,
           valor: n,
           gasta: x.gasta,
+          ...(x.vezes ? { max: x.vezes } : {}),
           detalhe,
         });
       }
@@ -4324,15 +4374,35 @@ export function chipsDoContexto(
       }
     }
   }
-  // Alcance extra: descritivo, só no chip de ataque.
-  if (ctx.tipo === "ataque" && agg.bonusAlcance.valor > 0) {
-    chips.push({
-      chave: "alcance",
-      tipo: "alcance",
-      rotulo: `+${agg.bonusAlcance.valor} m de alcance`,
-      fontes: agg.bonusAlcance.fontes,
-      valor: agg.bonusAlcance.valor,
-    });
+  // Alcance: descritivo, no ataque e no dano. Os metros que valem sempre somam num
+  // chip só; alcance trocado e os opcionais ganham um chip cada.
+  if (ctx.tipo === "ataque" || ehDano) {
+    const casados = (agg.alcances ?? []).filter((a) =>
+      ehDano ? casaDano(a.alvo.replace(/^ataque/, "dano"), ctx) : casaContexto(a.alvo, ctx),
+    );
+    const fixos = casados.filter((a) => !a.vira && !a.opcional);
+    const soma = fixos.reduce((s, a) => s + a.valor, 0);
+    if (soma !== 0) {
+      chips.push({
+        chave: "alcance",
+        tipo: "alcance",
+        rotulo: `${formatarMod(soma)} m de alcance`,
+        fontes: dedup(fixos.map((a) => a.fonte)),
+        valor: soma,
+      });
+    }
+    casados
+      .filter((a) => a.vira || a.opcional)
+      .forEach((a, i) =>
+        chips.push({
+          chave: `alcance-${i}`,
+          tipo: "alcance",
+          rotulo: a.vira ? `Alcance: ${a.vira}` : `${formatarMod(a.valor)} m de alcance`,
+          fontes: [a.fonte],
+          ...(a.opcional ? { opcional: true } : {}),
+          ...(a.quando ? { detalhe: `quando: ${a.quando}` } : {}),
+        }),
+      );
   }
 
   return chips;
@@ -4572,7 +4642,9 @@ export function resumoEfeito(
     case "dano_min":
       return `metade do máx${e.em && e.em !== "dano" ? ` · ${rotuloAlvo(e.em)}` : ""}${quando(e.quando)}`;
     case "alcance":
-      return `+${e.valor} m alcance`;
+      return `${e.vira ? e.vira : `${formatarMod(e.valor)} m`}${
+        e.alvo && e.alvo !== "ataque" ? ` · ${rotuloAlvo(e.alvo)}` : ""
+      }${quando(e.quando)}`;
     case "ignora":
       return `ignora ${e.alvo}`;
     case "trocar_dano":

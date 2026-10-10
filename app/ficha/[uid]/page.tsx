@@ -127,6 +127,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
         valorAtual: r.valorAtual,
         valorMax: r.valorMax,
       })),
+      ppAtual: personagem.ppAtual,
     },
   );
 

@@ -138,7 +138,7 @@ type Patch =
   | { kind: "create"; habilidade: Habilidade }
   | { kind: "update"; id: string; patch: Partial<Habilidade> }
   | { kind: "delete"; id: string }
-  | { kind: "usar"; id: string };
+  | { kind: "usar"; id: string; vezes?: number };
 
 function aplicarPatch(state: Habilidade[], p: Patch): Habilidade[] {
   if (p.kind === "create") return [...state, p.habilidade];
@@ -147,7 +147,7 @@ function aplicarPatch(state: Habilidade[], p: Patch): Habilidade[] {
   if (p.kind === "delete") return state.filter((h) => h.id !== p.id);
   return state.map((h) =>
     h.id === p.id && h.usosAtual != null
-      ? { ...h, usosAtual: Math.max(0, h.usosAtual - 1) }
+      ? { ...h, usosAtual: Math.max(0, h.usosAtual - (p.vezes ?? 1)) }
       : h,
   );
 }
@@ -509,8 +509,9 @@ export function HabilidadesTab({
   }
 
   // Debita e aplica (Usar ou Ligar), com otimismo; `ligar` null = Usar. Com
-  // `alvoId` (aliado), PV, PP e exaustão dos efeitos vão pra ele.
-  function executarUso(h: Habilidade, ligar: boolean | null, alvoId?: string) {
+  // `alvoId` (aliado), PV, PP e exaustão dos efeitos vão pra ele. `vezes` = usos
+  // empilhados numa rolagem do Rolador (o custo e os usos saem de uma vez).
+  function executarUso(h: Habilidade, ligar: boolean | null, alvoId?: string, vezes = 1) {
     // Cura com fórmula rola aqui; o resultado vai pra action e, se ela passar, pro chat.
     const efeitos = lerEfeitos(h.efeitos);
     const { rolagens, publicar } = rolarCuras(
@@ -534,7 +535,7 @@ export function HabilidadesTab({
     const deltaPersonagem = {
       deltaHpAtual: (!noAliado && deltas.hpAtual) || undefined,
       concedeHpTemp: (!noAliado && deltas.hpTemp) || undefined,
-      deltaPpAtual: ((noAliado ? 0 : deltas.ppAtual) - h.custoPp) || undefined,
+      deltaPpAtual: ((noAliado ? 0 : deltas.ppAtual) - h.custoPp * vezes) || undefined,
       deltaHpMax: (!noAliado && deltas.hpMax) || undefined,
       deltaPpMax: (!noAliado && deltas.ppMax) || undefined,
       deltaExaustao: (!noAliado && deltas.exaustao) || undefined,
@@ -547,7 +548,7 @@ export function HabilidadesTab({
     const deltaRecursos: Record<string, number> = { ...deltas.recursos };
     if (h.custoRecursoId && h.custoRecursoValor > 0) {
       deltaRecursos[h.custoRecursoId] =
-        (deltaRecursos[h.custoRecursoId] ?? 0) - h.custoRecursoValor;
+        (deltaRecursos[h.custoRecursoId] ?? 0) - h.custoRecursoValor * vezes;
     }
     if (Object.keys(deltaRecursos).length > 0) {
       window.dispatchEvent(
@@ -566,7 +567,7 @@ export function HabilidadesTab({
     }
 
     startTransition(async () => {
-      aplicar({ kind: "usar", id: h.id });
+      aplicar({ kind: "usar", id: h.id, vezes });
       if (ligar) {
         aplicar({
           kind: "update",
@@ -576,7 +577,7 @@ export function HabilidadesTab({
       }
       try {
         if (ligar) exigir(await alternarHabilidade(personagemId, h.id, true, rolagens, alvoId));
-        else exigir(await usarHabilidade(personagemId, h.id, rolagens, alvoId));
+        else exigir(await usarHabilidade(personagemId, h.id, rolagens, alvoId, vezes));
         publicar();
       } catch (err) {
         // Recarrega a página pra desfazer o otimismo.
@@ -587,14 +588,14 @@ export function HabilidadesTab({
   }
 
   // Chip de dano sob demanda do Rolador gasta a habilidade, sem confirmar.
-  const gastarPeloRolador = useEffectEvent((id: string) => {
+  const gastarPeloRolador = useEffectEvent((id: string, vezes: number) => {
     const h = otimistas.find((x) => x.id === id);
-    if (h) executarUso(h, null);
+    if (h) executarUso(h, null, undefined, vezes);
   });
   useEffect(() => {
     function ouvir(e: Event) {
-      const id = (e as CustomEvent<{ id: string }>).detail?.id;
-      if (id) gastarPeloRolador(id);
+      const det = (e as CustomEvent<{ id: string; vezes?: number }>).detail;
+      if (det?.id) gastarPeloRolador(det.id, Math.max(1, Math.trunc(det.vezes ?? 1)));
     }
     window.addEventListener("rpgo:gastar-habilidade", ouvir);
     return () => window.removeEventListener("rpgo:gastar-habilidade", ouvir);

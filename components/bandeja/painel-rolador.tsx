@@ -111,6 +111,14 @@ type OpcoesContextuais = {
 
 type RegraExplosao = NonNullable<ChipContexto["explosao"]>;
 
+// Habilidade de Usar que a rolagem gasta, e quantos usos empilhados.
+type Gasto = { id: string; vezes: number };
+
+// Chip sob demanda que dá pra usar mais de uma vez na mesma rolagem.
+function empilhavel(c: ChipContexto): boolean {
+  return c.tipo !== "progressivo" && !!c.gasta && (c.max ?? 1) > 1;
+}
+
 // Avisa a ficha da contagem nova de um bônus progressivo (quem tem o efeito grava).
 function anunciarPassos(c: ChipContexto, passos: number) {
   if (!c.progressivo) return;
@@ -140,7 +148,7 @@ type Pendente = {
   // Rolagem de ataque (o crítico dela liga o Crítico do próximo dano).
   ataque: boolean;
   // Habilidades que os chips ligados gastam quando a rolagem for mantida.
-  gastos: string[];
+  gastos: Gasto[];
   // Valores do lance, pra rerrolar só um d20.
   valores: ValoresLance;
   // Habilidade que perde 1 uso a cada rerrolagem.
@@ -418,6 +426,10 @@ export function PainelRolador({
     Math.min(c.max ?? 0, passosAjustados[c.memoria ?? c.chave] ?? c.progressivo?.passos ?? 0);
   const chipLigado = (c: ChipContexto) =>
     c.tipo === "progressivo" ? passosDe(c) > 0 : !c.opcional !== chipsAlternados.has(c.chave);
+  // Usos empilhados de cada chip sob demanda ligado (1 = um uso só).
+  const [vezesDosChips, setVezesDosChips] = useState<Record<string, number>>({});
+  const vezesDe = (c: ChipContexto) =>
+    empilhavel(c) ? Math.min(c.max ?? 1, Math.max(1, vezesDosChips[c.chave] ?? 1)) : 1;
 
   useEffect(() => {
     setPresets(getPresets(userId));
@@ -458,6 +470,7 @@ export function PainelRolador({
       setEfeitosRolagem(det.efeitos ?? null);
       setChipsAlternados(new Set<string>(ligados));
       setPassosAjustados({});
+      setVezesDosChips({});
       setPendente(null);
       setModoGravacao(false);
       setResultado({ tipo: "preview" });
@@ -579,7 +592,20 @@ export function PainelRolador({
     setEfeitosRolagem(null);
     setChipsAlternados(new Set());
     setPassosAjustados({});
+    setVezesDosChips({});
     setPendente(null);
+    setResultado({ tipo: "preview" });
+  }
+
+  // − e + do chip empilhável: abaixo de 1 uso, desliga.
+  function mudarVezes(c: ChipContexto, delta: number) {
+    const n = vezesDe(c) + delta;
+    if (n < 1) {
+      setVezesDosChips((s) => ({ ...s, [c.chave]: 1 }));
+      alternarChip(c.chave);
+      return;
+    }
+    setVezesDosChips((s) => ({ ...s, [c.chave]: Math.min(c.max ?? 1, n) }));
     setResultado({ tipo: "preview" });
   }
 
@@ -710,21 +736,30 @@ export function PainelRolador({
     // Bônus progressivo: a fórmula uma vez por passo.
     const progressivos = ligados.filter((c) => c.tipo === "progressivo");
     const dadosExtras = [
-      ...extras.flatMap((c) => (c.tipo === "dano_extra" ? (c.dados ?? []) : copias(c.valor ?? 0))),
+      // Empilhado, o chip sob demanda entra uma vez por uso.
+      ...extras.flatMap((c) =>
+        c.tipo === "dano_extra"
+          ? Array.from({ length: vezesDe(c) }, () => c.dados ?? []).flat()
+          : copias((c.valor ?? 0) * vezesDe(c)),
+      ),
       ...progressivos.flatMap((c) => Array.from({ length: passosDe(c) }, () => c.dados ?? []).flat()),
     ];
     // Bônus situacionais e acerto por dano mexem no modificador.
     const modUsar =
       modBase +
-      extras.reduce((soma, c) => soma + (c.tipo === "dano_extra" ? (c.valor ?? 0) : 0), 0) +
+      extras.reduce((soma, c) => soma + (c.tipo === "dano_extra" ? (c.valor ?? 0) * vezesDe(c) : 0), 0) +
       progressivos.reduce((soma, c) => soma + passosDe(c) * (c.valor ?? 0), 0) +
       somaLigados("bonus") +
       somaLigados("dano_poderoso") -
       somaLigados("ataque_poderoso");
-    // A rerrolagem gasta o uso só quando acontece.
-    const gastos = [
-      ...new Set(ligados.flatMap((c) => (c.gasta && c.tipo !== "reroll" ? [c.gasta] : []))),
-    ];
+    // A rerrolagem gasta o uso só quando acontece. Chips da mesma habilidade
+    // gastam juntos: vale o maior empilhamento entre eles.
+    const vezesPorHabilidade = new Map<string, number>();
+    for (const c of ligados) {
+      if (!c.gasta || c.tipo === "reroll") continue;
+      vezesPorHabilidade.set(c.gasta, Math.max(vezesPorHabilidade.get(c.gasta) ?? 1, vezesDe(c)));
+    }
+    const gastos: Gasto[] = [...vezesPorHabilidade].map(([id, vezes]) => ({ id, vezes }));
     const comExtras = [...dadosBase, ...dadosExtras];
     // Crítico no dano: rola os dados 2× (ou mais) e soma os dados a mais.
     const critico = ligados.find((c) => c.tipo === "critico");
@@ -777,7 +812,13 @@ export function PainelRolador({
     const notas = chips
       .filter((c) => chipLigado(c) && c.tipo !== "reroll")
       .map((c) => {
-        const base = escaparHtml(c.tipo === "progressivo" ? `${c.rotulo} ×${passosDe(c)}` : c.rotulo);
+        const base = escaparHtml(
+          c.tipo === "progressivo"
+            ? `${c.rotulo} ×${passosDe(c)}`
+            : vezesDe(c) > 1
+              ? `${c.rotulo} ×${vezesDe(c)}`
+              : c.rotulo,
+        );
         return c.fontes.length
           ? `${base} por ${escaparHtml(c.fontes.join(", "))}`
           : base;
@@ -933,7 +974,7 @@ export function PainelRolador({
       ...pendente.valores,
       d20,
     });
-    if (pendente.gastaReroll) gastarHabilidades([pendente.gastaReroll]);
+    if (pendente.gastaReroll) gastarHabilidades([{ id: pendente.gastaReroll, vezes: 1 }]);
     if (pendente.ataque) {
       ultimoAtaque.current = {
         ...ultimoAtaque.current,
@@ -981,9 +1022,9 @@ export function PainelRolador({
   }
 
   // Chip de dano sob demanda gasta a habilidade (a aba Habilidades debita).
-  function gastarHabilidades(ids: string[]) {
-    for (const id of ids) {
-      window.dispatchEvent(new CustomEvent("rpgo:gastar-habilidade", { detail: { id } }));
+  function gastarHabilidades(gastos: Gasto[]) {
+    for (const detail of gastos) {
+      window.dispatchEvent(new CustomEvent("rpgo:gastar-habilidade", { detail }));
     }
   }
 
@@ -1008,6 +1049,7 @@ export function PainelRolador({
     setEfeitosRolagem(null);
     setChipsAlternados(new Set());
     setPassosAjustados({});
+    setVezesDosChips({});
   }
 
   function salvarPresetComNome() {
@@ -1192,6 +1234,34 @@ export function PainelRolador({
                     aria-label={`Mais ${c.rotulo}`}
                     disabled={n >= (c.max ?? 0)}
                     onClick={() => mudarPassos(c, 1)}
+                  >
+                    <i className="fas fa-plus" />
+                  </button>
+                </span>
+              );
+            }
+            // Sob demanda e ligado: − e + empilham os usos na mesma rolagem.
+            if (on && empilhavel(c)) {
+              const n = vezesDe(c);
+              return (
+                <span
+                  key={c.chave}
+                  className="rolador-chip rolador-chip-passos on"
+                  title={[`${c.rotulo} — ${c.fontes.join(", ")}`, c.detalhe, `até ${c.max}×`]
+                    .filter(Boolean)
+                    .join(" · ")}
+                >
+                  <button type="button" aria-label={`Menos ${c.rotulo}`} onClick={() => mudarVezes(c, -1)}>
+                    <i className="fas fa-minus" />
+                  </button>
+                  <span>
+                    <i className={`fas ${ICONE_CHIP[c.tipo]}`} /> {c.rotulo} ×{n}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={`Mais ${c.rotulo}`}
+                    disabled={n >= (c.max ?? 1)}
+                    onClick={() => mudarVezes(c, 1)}
                   >
                     <i className="fas fa-plus" />
                   </button>

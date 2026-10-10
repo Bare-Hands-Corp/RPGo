@@ -1544,9 +1544,13 @@ async function aplicarUsoHabilidade(
     incluirMax = true,
     rolagens,
     alvoId,
-  }: { incluirMax?: boolean; rolagens?: unknown; alvoId?: unknown } = {},
+    vezes: vezesRaw,
+  }: { incluirMax?: boolean; rolagens?: unknown; alvoId?: unknown; vezes?: unknown } = {},
 ) {
   const ligando = extraHabData.ligada === true;
+  // Usos empilhados numa rolagem: paga o custo e gasta os usos de todos de uma vez
+  // (os efeitos na hora entram uma vez só).
+  const vezes = Math.min(10, Math.max(1, Math.trunc(Number(vezesRaw) || 1)));
   const [{ personagem }, { agg }, bruta] = await Promise.all([
     autorizar(personagemId),
     carregarAgregado(personagemId, ligando ? { id: habilidadeId, ligada: true } : undefined),
@@ -1555,16 +1559,18 @@ async function aplicarUsoHabilidade(
   if (!bruta) throw new ErroDeUso("Habilidade não encontrada.");
   // Custo por fórmula vira número com o nível e os atributos.
   const hab = comCustosResolvidos(bruta, agg.ctxFormula);
+  const custoPp = hab.custoPp * vezes;
+  const custoRecurso = hab.custoRecursoValor * vezes;
 
-  if (hab.custoPp > 0 && personagem.ppAtual < hab.custoPp) {
+  if (custoPp > 0 && personagem.ppAtual < custoPp) {
     throw new ErroDeUso("PP insuficiente.");
   }
   const usosMax = usosMaximos(hab, agg.ctxFormula);
   const usosAtual = hab.usosAtual ?? usosMax;
-  if (usosMax != null && (usosAtual ?? 0) <= 0) {
-    throw new ErroDeUso("Sem usos restantes.");
+  if (usosMax != null && (usosAtual ?? 0) < vezes) {
+    throw new ErroDeUso(vezes > 1 ? "Usos insuficientes." : "Sem usos restantes.");
   }
-  const recurso = await recursoDeCusto(personagemId, hab.custoRecursoId, hab.custoRecursoValor);
+  const recurso = await recursoDeCusto(personagemId, hab.custoRecursoId, custoRecurso);
   const aliado = hab.aliado ? await aliadoDoUso(personagem, alvoId) : null;
 
   const ops = await opsDoUso({
@@ -1574,13 +1580,13 @@ async function aplicarUsoHabilidade(
     efeitos: lerEfeitos(hab.efeitos),
     rolagens,
     incluirMax,
-    custoPp: hab.custoPp,
+    custoPp,
     recurso,
-    custoRecurso: hab.custoRecursoValor,
+    custoRecurso,
     aliado,
   });
   const habData: Record<string, unknown> = { ...extraHabData };
-  if (usosMax != null) habData.usosAtual = Math.max(0, (usosAtual ?? usosMax) - 1);
+  if (usosMax != null) habData.usosAtual = Math.max(0, (usosAtual ?? usosMax) - vezes);
   if (ligando) habData.turnosRestantes = turnosDaDuracao(lerDuracao(hab.duracao));
   // Ligada num aliado: os efeitos que ficam valendo passam a contar nele.
   if (ligando && aliado) habData.alvoPersonagemId = aliado.personagem.id;
@@ -1609,9 +1615,11 @@ export async function usarHabilidade(
   habilidadeId: string,
   rolagens?: RolagensCura,
   alvoId?: string,
+  // Usos empilhados numa rolagem do Rolador.
+  vezes?: number,
 ) {
   return executar("ficha", async () => {
-    await aplicarUsoHabilidade(personagemId, habilidadeId, {}, { rolagens, alvoId });
+    await aplicarUsoHabilidade(personagemId, habilidadeId, {}, { rolagens, alvoId, vezes });
   });
 }
 

@@ -33,7 +33,14 @@ import {
   type EfeitoHabilidade,
   type PassosDoRolador,
 } from "@/lib/op-rpg";
-import { CampoPasso, CondicaoCampo, Segmentos, TipoDanoCampo, TiposDanoCampo } from "./campos-modal";
+import {
+  CampoPasso,
+  CondicaoCampo,
+  Segmentos,
+  Sugestoes,
+  TipoDanoCampo,
+  TiposDanoCampo,
+} from "./campos-modal";
 import { casaBusca, normalizarBusca } from "./barra-filtros";
 import { CampoFormula, FormulaContext } from "./campo-formula";
 import { SeletorBusca } from "./seletor-busca";
@@ -543,6 +550,9 @@ function CampoQuando({
 }
 
 const GRAUS = [1, 2, 3, 4, 5, 6, 7];
+
+// Atalhos do alcance que troca o da ação.
+const ALCANCES_TROCADOS = ["Campo de visão", "Toque"];
 
 // Efeito de dano só em certos graus de técnica ou tipos de dano.
 function FiltroDanoCampos({
@@ -1124,26 +1134,65 @@ function renderCorpo(
           </FiltroDanoCampos>
         </>
       );
-    case "alcance":
+    case "alcance": {
+      // Vazio ainda é "vira": o texto está sendo escrito.
+      const troca = e.vira !== undefined;
       return (
         <>
-          <CampoNum
-            label="Quanto"
-            valor={e.valor}
-            onChange={(v) => onPatch({ valor: v } as Partial<EfeitoHabilidade>)}
+          <SelectLista
+            label="Como"
+            valor={troca ? "vira" : "soma"}
+            opcoes={[
+              { slug: "soma", nome: "Soma metros" },
+              { slug: "vira", nome: "Vira" },
+            ]}
+            onChange={(v) =>
+              onPatch(
+                (v === "vira" ? { vira: e.vira ?? "", valor: 0 } : { vira: undefined }) as Partial<EfeitoHabilidade>,
+              )
+            }
           />
-          <Detalhes aberto={!!e.quando}>
-            <Campo
-              label="Quando"
-              valor={e.quando ?? ""}
-              onChange={(v) =>
-                onPatch({ quando: v || undefined } as Partial<EfeitoHabilidade>)
-              }
-              placeholder="opcional"
+          {troca ? (
+            <div>
+              <label>Alcance</label>
+              <input
+                type="text"
+                value={e.vira}
+                onChange={(ev) => onPatch({ vira: ev.target.value } as Partial<EfeitoHabilidade>)}
+                placeholder="campo de visão, 30 m…"
+              />
+              <Sugestoes>
+                {ALCANCES_TROCADOS.map((a) => (
+                  <button
+                    type="button"
+                    key={a}
+                    className={`sugestao ${e.vira === a ? "ativo" : ""}`}
+                    aria-pressed={e.vira === a}
+                    onClick={() => onPatch({ vira: a } as Partial<EfeitoHabilidade>)}
+                  >
+                    {a}
+                  </button>
+                ))}
+              </Sugestoes>
+            </div>
+          ) : (
+            <CampoNum
+              label="Quanto (m)"
+              valor={e.valor}
+              min={-99}
+              onChange={(v) => onPatch({ valor: v } as Partial<EfeitoHabilidade>)}
             />
-          </Detalhes>
+          )}
+          <SelectLista
+            label="Onde"
+            valor={e.alvo ?? "ataque"}
+            opcoes={ALVOS_ATAQUE}
+            onChange={(v) => onPatch({ alvo: v === "ataque" ? undefined : v } as Partial<EfeitoHabilidade>)}
+          />
+          <CampoQuando valor={e.quando} onPatch={onPatch} placeholder="se escolher ampliar…" />
         </>
       );
+    }
     case "ignora":
       return (
         <div style={{ gridColumn: "1 / -1" }}>

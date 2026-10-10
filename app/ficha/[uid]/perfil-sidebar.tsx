@@ -147,7 +147,7 @@ const ICONE_MOV: Record<string, string> = {
   voar: "fa-dove",
   nadar: "fa-person-swimming",
   escalar: "fa-person-hiking",
-  cavar: "fa-shovel",
+  cavar: "fa-person-digging",
 };
 // Modos que o visualizador mostra mesmo sem valor.
 const MODOS_FIXOS = ["voar", "escalar", "cavar"];
