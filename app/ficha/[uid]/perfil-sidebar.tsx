@@ -42,7 +42,8 @@ import {
   atributosEfetivos as somarBonusDeAtributo,
   bonusProficiencia,
   bonusTesteAmplo,
-  comDeslocamentosIguais,
+  ATRIBUTOS,
+  comValoresIguais,
   crBase,
   deslocamentoEfetivo,
   exaustaoQueConta,
@@ -317,12 +318,23 @@ export function PerfilSidebar({
   // set-state-in-effect.
   // Turnos que faltam, contados pelo Passar turno antes do servidor responder.
   const [turnosOverlay, setTurnosOverlay] = useState<Record<string, number>>({});
+  // Efeitos mudados no card (contador do bônus progressivo) antes do servidor responder.
+  const [efeitosOverlay, setEfeitosOverlay] = useState<Record<string, unknown>>({});
   const [habsAnterior, setHabsAnterior] = useState(habilidades);
   if (habsAnterior !== habilidades) {
     setHabsAnterior(habilidades);
     setLigadaOverlay({});
     setTurnosOverlay({});
+    setEfeitosOverlay({});
   }
+  useEffect(() => {
+    function ouvir(e: Event) {
+      const det = (e as CustomEvent<{ id: string; efeitos: unknown }>).detail;
+      if (det) setEfeitosOverlay((o) => ({ ...o, [det.id]: det.efeitos }));
+    }
+    window.addEventListener("rpgo:efeitos-habilidade", ouvir);
+    return () => window.removeEventListener("rpgo:efeitos-habilidade", ouvir);
+  }, []);
   // Concentração atual, lida pelos ouvintes de evento.
   const concentracaoRef = useRef<Concentracao | null>(null);
   useEffect(() => {
@@ -434,6 +446,7 @@ export function PerfilSidebar({
   const efeitosAgregados = useMemo(() => {
     const habs = habilidades
       .map((h) => (h.id in ligadaOverlay ? { ...h, ligada: ligadaOverlay[h.id] } : h))
+      .map((h) => (h.id in efeitosOverlay ? { ...h, efeitos: efeitosOverlay[h.id] } : h))
       // Habilidade concedida por item só conta com o item equipado.
       .filter(
         (h) =>
@@ -452,6 +465,7 @@ export function PerfilSidebar({
   }, [
     habilidades,
     ligadaOverlay,
+    efeitosOverlay,
     itensComOverlay,
     recebidasVisiveis,
     slugsPericiaCustom,
@@ -572,18 +586,36 @@ export function PerfilSidebar({
   // concede nado (`deslocamento`/`nadar`) prevalece o maior contra o base.
   const modosProprios = modosDeDeslocamento(efeitosAgregados);
   const nadarProprio = modosProprios["nadar"];
-  // "Igual a outro" parte dos valores já calculados; vale o maior.
-  const modos = comDeslocamentosIguais(
+  // CR calculada aqui porque a faixa condensada também usa.
+  const crAtrib = atributoDeCalculo("cr", "destreza", subs, atributosParaTeste);
+  const crBonusFixo = caArmadura + efeitosAgregados.bonusCR.valor;
+  const crFixa = efeitosAgregados.valoresFixos["cr"];
+  const crPropria = Math.max(
+    crBase(atributosParaTeste[crAtrib.atributo], p.crOutros) + crBonusFixo,
+    crFixa?.valor ?? 0,
+  );
+  // "Valor igual" parte dos valores já calculados; vale o maior.
+  const valores = comValoresIguais(
     {
       ...modosProprios,
-      caminhar: { valor: deslocProprio, fontes: [] },
+      ...Object.fromEntries(
+        ATRIBUTOS.map((a) => [a.slug, { valor: atributosEfetivos[a.slug], fontes: [] as string[] }]),
+      ),
+      deslocamento: { valor: deslocProprio, fontes: [] },
       nadar:
         nadarProprio && nadarProprio.valor >= p.nado ? nadarProprio : { valor: p.nado, fontes: [] },
+      cr: { valor: crPropria, fontes: [] },
     },
-    efeitosAgregados.deslocamentosIguais ?? [],
+    efeitosAgregados.valoresIguais ?? [],
   );
-  const deslocEfetivo = modos.caminhar.valor;
-  const deslocIgual = modos.caminhar.fontes;
+  const deslocEfetivo = valores.deslocamento.valor;
+  const deslocIgual = valores.deslocamento.fontes;
+  const crTotal = valores.cr.valor;
+  const crIgual = valores.cr.fontes;
+  // Voar, escalar, cavar e o que mais algum efeito der.
+  const tiposDeModo = [...new Set([...Object.keys(modosProprios), "voar", "escalar", "cavar"])].filter(
+    (t) => t !== "nadar",
+  );
   const deslocReduzido = deslocIgual.length === 0 && deslocEfetivo !== deslocBruto;
   const deslocTitulo =
     [
@@ -592,23 +624,14 @@ export function PerfilSidebar({
         : null,
       multDesloc ? `×${multDesloc.fator} de ${multDesloc.fontes.join(", ")}` : null,
       deslocFixo ? `Vira ${deslocFixo.valor} m por ${deslocFixo.fontes.join(", ")}` : null,
-      deslocIgual.length ? `Igual a outro deslocamento por ${deslocIgual.join(", ")}` : null,
+      deslocIgual.length ? `Igual a outro valor por ${deslocIgual.join(", ")}` : null,
       deslocReduzido ? `Reduzido por exaustão (de ${deslocBruto} m)` : null,
     ]
       .filter(Boolean)
       .join(" · ") || undefined;
 
-  const nadoEfetivo = modos.nadar.valor;
-  const nadoFontes = modos.nadar.fontes;
-
-  // CR calculada aqui porque a faixa condensada também usa.
-  const crAtrib = atributoDeCalculo("cr", "destreza", subs, atributosParaTeste);
-  const crBonusFixo = caArmadura + efeitosAgregados.bonusCR.valor;
-  const crFixa = efeitosAgregados.valoresFixos["cr"];
-  const crTotal = Math.max(
-    crBase(atributosParaTeste[crAtrib.atributo], p.crOutros) + crBonusFixo,
-    crFixa?.valor ?? 0,
-  );
+  const nadoEfetivo = valores.nadar.valor;
+  const nadoFontes = valores.nadar.fontes;
 
   // A cada turno: efeitos que repetem e durações em turnos das ligadas.
   const porTurno = [
@@ -1030,8 +1053,8 @@ export function PerfilSidebar({
 
       {/* Deslocamentos especiais (voar/escalar/cavar) — modos próprios concedidos
           por habilidade, não reduzidos pela exaustão. Nado tem linha própria acima. */}
-      {Object.entries(modos).map(([tipo, fv]) =>
-        fv && fv.valor > 0 && tipo !== "nadar" && tipo !== "caminhar" ? (
+      {tiposDeModo.map((tipo) => [tipo, valores[tipo]] as const).map(([tipo, fv]) =>
+        fv && fv.valor > 0 ? (
           <div
             key={`mov-${tipo}`}
             className="recurso-linha"
@@ -1061,6 +1084,7 @@ export function PerfilSidebar({
                 : null,
               crDesReduz ? `−${Math.abs(penalidadeDesArmadura)} de DES (armadura)` : null,
               crFixa ? `Vira ${crFixa.valor} por ${crFixa.fontes.join(", ")}` : null,
+              crIgual.length ? `Igual a outro valor por ${crIgual.join(", ")}` : null,
             ]
               .filter(Boolean)
               .join(" · ") || undefined;
@@ -1070,7 +1094,7 @@ export function PerfilSidebar({
               atributoScore={atributosParaTeste[crAtrib.atributo]}
               crOutros={p.crOutros}
               bonusFixo={crBonusFixo}
-              minimo={crFixa?.valor}
+              minimo={crIgual.length ? crTotal : crFixa?.valor}
               siglaSubstituida={
                 crAtrib.substituido ? SIGLA_ATRIBUTO[crAtrib.atributo] : undefined
               }
@@ -1345,6 +1369,10 @@ export function PerfilSidebar({
           // Valor fixo só conta quando passa do valor com bônus.
           const fixo = efeitosAgregados.valoresFixos[slug];
           const fixoVale = !!fixo && fixo.valor > p[slug] + (bonus?.valor ?? 0);
+          // Valor igual a outro atributo só conta quando passa dos dois.
+          const iguais = (efeitosAgregados.valoresIguais ?? []).filter((c) => c.alvo === slug);
+          const igualVale =
+            iguais.length > 0 && valor > Math.max(p[slug] + (bonus?.valor ?? 0), fixo?.valor ?? 0);
           // Teste puro: atributo trocado por "Testes de X" e bônus de alvos largos.
           const subTeste = atributoDeCalculo(`teste-${slug}`, slug, subs, atributosParaTeste);
           const amplo = bonusTesteAmplo(efeitosAgregados, slug);
@@ -1357,6 +1385,7 @@ export function PerfilSidebar({
           const titulo = [
             bonus ? `${formatarMod(bonus.valor)} de ${bonus.fontes.join(", ")}` : null,
             fixoVale && fixo ? `Vira ${fixo.valor} por ${fixo.fontes.join(", ")}` : null,
+            igualVale ? `Igual a outro valor por ${iguais.map((c) => c.fonte).join(", ")}` : null,
             subTeste.substituido
               ? `Usa ${SIGLA_ATRIBUTO[subTeste.atributo]} por ${subTeste.fontes.join(", ")}`
               : null,

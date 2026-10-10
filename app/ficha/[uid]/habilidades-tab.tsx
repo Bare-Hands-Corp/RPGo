@@ -48,6 +48,7 @@ import {
   NomesRecursoContext,
   DatalistAlvos,
   EfeitosEditor,
+  PassosProgressivos,
   StatsPorTurno,
   type RecursoMinimo,
 } from "./efeitos-editor";
@@ -329,6 +330,21 @@ export function HabilidadesTab({
       aplicar({ kind: "delete", id });
       try {
         exigir(await deletarHabilidade(personagemId, id));
+      } catch (err) {
+        mostrarErro(err);
+      }
+    });
+  }
+
+  // Contador do bônus progressivo: vale na hora (a barra lateral ouve) e grava os efeitos.
+  function mudarEfeitos(h: Habilidade, efeitos: EfeitoHabilidade[]) {
+    window.dispatchEvent(
+      new CustomEvent("rpgo:efeitos-habilidade", { detail: { id: h.id, efeitos } }),
+    );
+    startTransition(async () => {
+      aplicar({ kind: "update", id: h.id, patch: { efeitos } });
+      try {
+        exigir(await atualizarHabilidade(personagemId, h.id, { efeitos }));
       } catch (err) {
         mostrarErro(err);
       }
@@ -698,6 +714,7 @@ export function HabilidadesTab({
                 <CardHabilidade
                   key={`fav-${h.id}`}
                   pastasDaFicha={nomesDasPastas}
+                  onEfeitos={(efeitos) => mudarEfeitos(h, efeitos)}
                   onPasta={(p) => guardarEmPasta(h, p)}
                   onFiltrarPasta={setPastaFiltro}
                   habilidade={h}
@@ -736,6 +753,7 @@ export function HabilidadesTab({
                   <CardHabilidade
                     key={h.id}
                     pastasDaFicha={nomesDasPastas}
+                    onEfeitos={(efeitos) => mudarEfeitos(h, efeitos)}
                     onPasta={(p) => guardarEmPasta(h, p)}
                     onFiltrarPasta={setPastaFiltro}
                     habilidade={h}
@@ -795,6 +813,7 @@ export function HabilidadesTab({
 // ─── Card de habilidade ────────────────────────────────────────────────
 function CardHabilidade({
   pastasDaFicha,
+  onEfeitos,
   onPasta,
   onFiltrarPasta,
   habilidade,
@@ -813,6 +832,8 @@ function CardHabilidade({
 }: {
   // Pastas que já existem na ficha.
   pastasDaFicha: string[];
+  // Contador do bônus progressivo mudou.
+  onEfeitos: (efeitos: EfeitoHabilidade[]) => void;
   onPasta: (pasta: string | null) => void;
   onFiltrarPasta: (pasta: string) => void;
   habilidade: Habilidade;
@@ -1002,6 +1023,7 @@ function CardHabilidade({
             ))}
           </div>
         )}
+        <PassosProgressivos efeitos={efeitos} onChange={onEfeitos} travado={bloqueada} />
         {habilidade.descricao && (
           <div className="card-desc">{habilidade.descricao}</div>
         )}

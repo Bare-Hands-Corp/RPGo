@@ -944,6 +944,7 @@ export type TipoEfeito =
   | "multi_ataque"
   | "explosao"
   | "progressivo"
+  | "valor_igual"
   | "livre";
 
 // Dano: dado no máximo, dado a partir de um número ou dano total. Ataque:
@@ -965,8 +966,7 @@ export type EfeitoHabilidade =
   | { tipo: "imunidade"; tipoDano: string }
   // Recebe o dobro do tipo de dano (depois da resistência).
   | { tipo: "vulnerabilidade"; tipoDano: string }
-  // `igual` copia outro deslocamento (com `metade`, a metade dele).
-  | { tipo: "deslocamento"; tipoMov: string; valor: number; igual?: string; metade?: boolean }
+  | { tipo: "deslocamento"; tipoMov: string; valor: number }
   | { tipo: "multiplicador"; alvo: string; fator: number }
   // Faz um cálculo derivado (CR, iniciativa, salvaguarda, perícia, ataque) usar
   // outro atributo no lugar do padrão; `seMaior` só troca quando é melhor.
@@ -1060,8 +1060,11 @@ export type EfeitoHabilidade =
   | { tipo: "multi_ataque"; vezes: number; soma?: boolean; alvo?: string }
   // No gatilho, rola de novo e soma (dano) ou ataca de novo (ataque), até `limite` vezes.
   | { tipo: "explosao"; gatilho: GatilhoExplosao; valor?: number; limite: number; em?: string }
-  // Bônus que cresce: `formula` por passo, até `max`; o Rolador conta os passos.
-  | { tipo: "progressivo"; formula: string; max: number; em?: string; por?: string }
+  // Bônus que cresce: `formula` por passo, até `max`. Em rolagem, o Rolador conta
+  // os passos; em valor da ficha (CR, deslocamento…), `passos` é a contagem do card.
+  | { tipo: "progressivo"; formula: string; max: number; em?: string; por?: string; passos?: number }
+  // O valor de `alvo` passa a ser o de `de` (com `metade`, a metade); vale o maior.
+  | { tipo: "valor_igual"; alvo: string; de: string; metade?: boolean }
   | { tipo: "livre"; texto: string };
 
 export type OQuePorTurno = "cura" | "pv_temp" | "dano" | "recurso";
@@ -1118,6 +1121,7 @@ export const META_EFEITOS: Record<
   multi_ataque:     { nome: "Multiataque",        icone: "fa-layer-group",    cor: "var(--efeito-ataque)" },
   explosao:         { nome: "Explosão",           icone: "fa-explosion",      cor: "var(--efeito-ataque)" },
   progressivo:      { nome: "Bônus Progressivo",  icone: "fa-arrow-trend-up", cor: "var(--efeito-ataque)" },
+  valor_igual:      { nome: "Valor Igual",        icone: "fa-right-long",     cor: "var(--efeito-neutro)" },
   livre:            { nome: "Texto Livre",             icone: "fa-feather",        cor: "var(--text-sec)" },
 };
 
@@ -1207,6 +1211,15 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     cor: "var(--primary)",
     grupo: "ajuste",
     criar: () => ({ tipo: "valor_fixo", alvo: "cr", valor: "" }),
+  },
+  {
+    id: "valor_igual",
+    nome: "Valor Igual",
+    descricao: "Um valor passa a ser igual a outro, ou à metade",
+    icone: "fa-right-long",
+    cor: "var(--primary)",
+    grupo: "ajuste",
+    criar: () => ({ tipo: "valor_igual", alvo: "nadar", de: "deslocamento" }),
   },
   {
     id: "descanso",
@@ -1338,15 +1351,6 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     grupo: "movimento",
     criar: () => ({ tipo: "deslocamento", tipoMov: "caminhar", valor: 0 }),
   },
-  {
-    id: "deslocamento_igual",
-    nome: "Deslocamento Igual",
-    descricao: "Nadar, voar ou escalar igual a outro, ou a metade",
-    icone: "fa-equals",
-    cor: "var(--primary)",
-    grupo: "movimento",
-    criar: () => ({ tipo: "deslocamento", tipoMov: "nadar", valor: 0, igual: "caminhar" }),
-  },
   // ─ Ativo / Combate ─
   {
     id: "crit_range",
@@ -1423,7 +1427,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   {
     id: "progressivo",
     nome: "Bônus Progressivo",
-    descricao: "Cresce a cada turno, acerto ou ponto gasto",
+    descricao: "Cresce a cada turno, acerto ou ponto gasto; em rolagem ou valor",
     icone: "fa-arrow-trend-up",
     cor: "var(--color-power)",
     grupo: "ativo",
@@ -1738,17 +1742,16 @@ export function normalizarEfeito(
     case "vulnerabilidade":
       if (!str(obj.tipoDano)) return null;
       return { tipo, tipoDano: str(obj.tipoDano) };
-    case "deslocamento": {
+    case "deslocamento":
       if (!str(obj.tipoMov)) return null;
-      const igual = str(obj.igual).trim().toLowerCase();
-      const copia = MOVIMENTOS_SET.has(igual) && igual !== str(obj.tipoMov).trim().toLowerCase();
-      return {
-        tipo,
-        tipoMov: str(obj.tipoMov),
-        valor: copia ? 0 : num(obj.valor),
-        ...(copia ? { igual } : {}),
-        ...(copia && obj.metade ? { metade: true } : {}),
-      };
+      return { tipo, tipoMov: str(obj.tipoMov), valor: num(obj.valor) };
+    case "valor_igual": {
+      const alvo = str(obj.alvo).trim().toLowerCase();
+      const de = str(obj.de).trim().toLowerCase();
+      if (!VALORES_IGUAIS_SET.has(alvo) || !VALORES_IGUAIS_SET.has(de) || alvo === de) return null;
+      // Atributo só copia de outro atributo.
+      if (ATRIBUTOS_SET.has(alvo) && !ATRIBUTOS_SET.has(de)) return null;
+      return { tipo, alvo, de, ...(obj.metade ? { metade: true } : {}) };
     }
     case "multiplicador":
       if (!str(obj.alvo)) return null;
@@ -2000,12 +2003,15 @@ export function normalizarEfeito(
       const formula = str(obj.formula).trim();
       if (!formula) return null;
       const por = str(obj.por).trim().slice(0, 24);
+      const max = Math.min(20, Math.max(1, Math.trunc(num(obj.max)) || 5));
+      const passos = Math.min(max, Math.max(0, Math.trunc(num(obj.passos))));
       return {
         tipo,
         formula,
-        max: Math.min(20, Math.max(1, Math.trunc(num(obj.max)) || 5)),
+        max,
         ...(str(obj.em) ? { em: str(obj.em) } : {}),
         ...(por ? { por } : {}),
+        ...(passos ? { passos } : {}),
       };
     }
     case "livre":
@@ -2025,28 +2031,6 @@ export const MOVIMENTOS: { slug: string; nome: string }[] = [
   { slug: "cavar", nome: "Cavar" },
 ];
 
-const MOVIMENTOS_SET = new Set(MOVIMENTOS.map((m) => m.slug));
-
-function nomeDoMovimento(slug: string): string {
-  return MOVIMENTOS.find((m) => m.slug === slug.trim().toLowerCase())?.nome ?? slug;
-}
-
-// Deslocamentos já calculados com os "igual a outro" por cima (vale o maior).
-export function comDeslocamentosIguais(
-  base: Record<string, { valor: number; fontes: string[] }>,
-  iguais: { tipo: string; de: string; metade: boolean; fonte: string }[],
-): Record<string, { valor: number; fontes: string[] }> {
-  const out = { ...base };
-  // Duas voltas: uma cópia pode partir de outra.
-  for (let volta = 0; volta < 2; volta++) {
-    for (const c of iguais) {
-      const origem = out[c.de]?.valor ?? 0;
-      const valor = c.metade ? origem / 2 : origem;
-      if (valor > (out[c.tipo]?.valor ?? 0)) out[c.tipo] = { valor, fontes: [c.fonte] };
-    }
-  }
-  return out;
-}
 
 // ─── Alvos canônicos de efeito (slugs que a automação reconhece) ─────
 
@@ -2201,6 +2185,60 @@ export const ALVOS_VALOR_FIXO: { slug: string; nome: string; grupo: string }[] =
   ...ATRIBUTOS.map((a) => ({ slug: a.slug, nome: a.nome, grupo: "Atributo" })),
   { slug: "dado-arma", nome: "Dado da arma", grupo: "Combate" },
 ];
+
+// Valores que um `valor_igual` define e de onde copia.
+export const ALVOS_VALOR_IGUAL = ALVOS_VALOR_FIXO.filter((a) => a.slug !== "dado-arma");
+
+const VALORES_IGUAIS_SET = new Set(ALVOS_VALOR_IGUAL.map((a) => a.slug));
+
+// CR e atributo são inteiros: a metade arredonda pra baixo.
+const VALORES_INTEIROS = new Set<string>(["cr", ...ATRIBUTOS.map((a) => a.slug)]);
+
+export type ValorIgual = { alvo: string; de: string; metade: boolean; fonte: string };
+
+// Valores já calculados com os "valor igual" por cima (vale o maior).
+export function comValoresIguais(
+  base: Record<string, { valor: number; fontes: string[] }>,
+  iguais: ValorIgual[],
+): Record<string, { valor: number; fontes: string[] }> {
+  const out = { ...base };
+  // Duas voltas: uma cópia pode partir de outra.
+  for (let volta = 0; volta < 2; volta++) {
+    for (const c of iguais) {
+      const origem = out[c.de];
+      if (!origem) continue;
+      const metade = VALORES_INTEIROS.has(c.alvo) ? Math.floor(origem.valor / 2) : origem.valor / 2;
+      const valor = c.metade ? metade : origem.valor;
+      if (valor > (out[c.alvo]?.valor ?? 0)) out[c.alvo] = { valor, fontes: [c.fonte] };
+    }
+  }
+  return out;
+}
+
+// Atributos com os "valor igual" entre atributos por cima.
+function comAtributosIguais(
+  atributos: Record<Atributo, number>,
+  iguais: ValorIgual[],
+): Record<Atributo, number> {
+  const copias = iguais.filter((c) => ATRIBUTOS_SET.has(c.alvo) && ATRIBUTOS_SET.has(c.de));
+  if (copias.length === 0) return atributos;
+  const com = comValoresIguais(
+    Object.fromEntries(ATRIBUTOS.map((a) => [a.slug, { valor: atributos[a.slug], fontes: [] }])),
+    copias,
+  );
+  const out = { ...atributos };
+  for (const a of ATRIBUTOS) out[a.slug] = com[a.slug].valor;
+  return out;
+}
+
+// Bônus progressivo num valor da ficha (não numa rolagem): a contagem fica no efeito.
+export function progressivoNaFicha(
+  em: string | undefined,
+  slugsPericiaCustom: Set<string> = new Set(),
+): boolean {
+  const alvo = (em ?? "").trim().toLowerCase();
+  return !!alvo && !alvoDeRolagem(alvo, slugsPericiaCustom);
+}
 
 export type Substituicao = { atributo: Atributo; fontes: string[]; seMaior?: boolean };
 
@@ -2544,8 +2582,8 @@ export type EfeitosAgregados = {
   extrasDano: ExtraDano[];
   // O que acontece a cada turno; `habilidadeId` = ligada que desliga se o gasto zerar.
   porTurno: PorTurno[];
-  // Deslocamento igual a outro (ou à metade dele).
-  deslocamentosIguais: { tipo: string; de: string; metade: boolean; fonte: string }[];
+  // Valor igual a outro (ou à metade dele): CR, deslocamentos e atributos.
+  valoresIguais: ValorIgual[];
   // Multiataque por alvo de ataque: vale o maior total, mais os ataques a mais.
   multiAtaques: { vezes: number; soma: boolean; alvo: string; fonte: string }[];
   // Explosões de dano e de ataque.
@@ -2641,7 +2679,7 @@ function vazio(): EfeitosAgregados {
     },
     extrasDano: [],
     porTurno: [],
-    deslocamentosIguais: [],
+    valoresIguais: [],
     multiAtaques: [],
     explosoes: [],
     progressivos: [],
@@ -2863,14 +2901,14 @@ export function poolsEfetivos(
 // Atributos com o bônus dos efeitos; o valor fixo vale se for maior.
 export function atributosEfetivos(
   base: Record<Atributo, number>,
-  agg: Pick<EfeitosAgregados, "bonusAtributo" | "valoresFixos">,
+  agg: Pick<EfeitosAgregados, "bonusAtributo" | "valoresFixos"> & { valoresIguais?: ValorIgual[] },
 ): Record<Atributo, number> {
   const out = {} as Record<Atributo, number>;
   for (const a of ATRIBUTOS) {
     const somado = base[a.slug] + (agg.bonusAtributo[a.slug]?.valor ?? 0);
     out[a.slug] = Math.max(somado, agg.valoresFixos[a.slug]?.valor ?? 0);
   }
-  return out;
+  return comAtributosIguais(out, agg.valoresIguais ?? []);
 }
 
 // Teste de perícia ou salvaguarda com proficiência, bônus e troca de atributo
@@ -3029,6 +3067,7 @@ export function efeitoEhSustentado(e: EfeitoHabilidade): boolean {
     case "multi_ataque":
     case "explosao":
     case "progressivo":
+    case "valor_igual":
       return true;
     default:
       return false;
@@ -3102,8 +3141,9 @@ export function efeitoDeRolagemDeArma(e: EfeitoHabilidade): boolean {
     case "ataque_poderoso":
     case "multi_ataque":
     case "explosao":
-    case "progressivo":
       return true;
+    case "progressivo":
+      return !progressivoNaFicha(e.em);
     case "valor_fixo":
       return e.alvo === "dado-arma";
     default:
@@ -3240,6 +3280,7 @@ function atributosComBonusFixos(
 ): Record<Atributo, number> {
   const out = { ...base };
   const fixos: Partial<Record<Atributo, number>> = {};
+  const iguais: ValorIgual[] = [];
   for (const h of habilidades) {
     if (!agrega(h) || h.aliado) continue;
     for (const e of lerEfeitos(h.efeitos)) {
@@ -3249,11 +3290,13 @@ function atributosComBonusFixos(
       } else if (e.tipo === "valor_fixo" && ATRIBUTOS_SET.has(e.alvo) && /^\d+$/.test(e.valor)) {
         const a = e.alvo as Atributo;
         fixos[a] = Math.max(fixos[a] ?? 0, Number(e.valor));
+      } else if (e.tipo === "valor_igual") {
+        iguais.push({ alvo: e.alvo, de: e.de, metade: !!e.metade, fonte: h.nome });
       }
     }
   }
   for (const [a, v] of Object.entries(fixos) as [Atributo, number][]) out[a] = Math.max(out[a], v);
-  return out;
+  return comAtributosIguais(out, iguais);
 }
 
 // Máximo de usos: a fórmula (com nível/atributos) ou o número salvo.
@@ -3607,18 +3650,23 @@ export function agregarEfeitos(
           fonte: h.nome,
         });
       } else if (e.tipo === "progressivo") {
-        out.progressivos.push({
-          formula: e.formula,
-          max: e.max,
-          em: (e.em ?? "dano").trim().toLowerCase() || "dano",
-          ...(e.por ? { por: e.por } : {}),
-          fonte: h.nome,
-        });
-      } else if (e.tipo === "deslocamento" && e.igual) {
-        const tipo = e.tipoMov.trim().toLowerCase();
-        if (tipo) {
-          out.deslocamentosIguais.push({ tipo, de: e.igual, metade: !!e.metade, fonte: h.nome });
+        const em = (e.em ?? "dano").trim().toLowerCase() || "dano";
+        if (progressivoNaFicha(em, slugsPericiaCustom)) {
+          // Valor da ficha: a fórmula uma vez por passo contado no card.
+          if (e.passos) {
+            aplicarModificador(out, em, numero(e.formula) * e.passos, h.nome, slugsPericiaCustom);
+          }
+        } else {
+          out.progressivos.push({
+            formula: e.formula,
+            max: e.max,
+            em,
+            ...(e.por ? { por: e.por } : {}),
+            fonte: h.nome,
+          });
         }
+      } else if (e.tipo === "valor_igual") {
+        out.valoresIguais.push({ alvo: e.alvo, de: e.de, metade: !!e.metade, fonte: h.nome });
       } else if (e.tipo === "deslocamento") {
         const tipo = e.tipoMov.trim().toLowerCase();
         if (tipo && e.valor) {
@@ -4361,9 +4409,11 @@ export function resumoEfeito(
     case "vulnerabilidade":
       return e.tipoDano;
     case "deslocamento":
-      return e.igual
-        ? `${nomeDoMovimento(e.tipoMov)} = ${e.metade ? "metade de " : ""}${nomeDoMovimento(e.igual)}`
-        : `${e.tipoMov} ${e.valor}m`;
+      return `${e.tipoMov} ${e.valor}m`;
+    case "valor_igual": {
+      const nome = (slug: string) => ALVOS_VALOR_IGUAL.find((a) => a.slug === slug)?.nome ?? slug;
+      return `${nome(e.alvo)} = ${e.metade ? "metade de " : ""}${nome(e.de)}`;
+    }
     case "multiplicador":
       return `${e.alvo} ×${e.fator}`;
     case "substituir_atributo": {

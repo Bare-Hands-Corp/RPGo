@@ -11,6 +11,7 @@ import {
   ALVOS_DANO,
   ALVOS_SUBSTITUIVEIS,
   ALVOS_VALOR_FIXO,
+  ALVOS_VALOR_IGUAL,
   ATRIBUTOS,
   GRUPOS_PRESET,
   META_EFEITOS,
@@ -18,9 +19,13 @@ import {
   PRESETS_EFEITO,
   alvoDeRolagem,
   extraNoDano,
+  formatarMod,
   lerEfeitos,
   nomeDoEfeito,
+  progressivoNaFicha,
   resumoEfeito,
+  rotuloAlvo,
+  valorDaFormula,
   type Atributo,
   type EfeitoHabilidade,
 } from "@/lib/op-rpg";
@@ -200,6 +205,63 @@ export function StatsPorTurno({ efeitos, grau }: { efeitos: EfeitoHabilidade[]; 
       </span>
     );
   });
+}
+
+// Contador dos bônus progressivos em valor da ficha (CR, deslocamento…); fica no card.
+export function PassosProgressivos({
+  efeitos,
+  onChange,
+  travado,
+}: {
+  efeitos: EfeitoHabilidade[];
+  onChange: (efeitos: EfeitoHabilidade[]) => void;
+  travado?: boolean;
+}) {
+  const formula = useContext(FormulaContext);
+  const slugsCustom = new Set(useContext(AlvosCustomContext).map((a) => a.slug));
+  const linhas = efeitos.flatMap((e, i) =>
+    e.tipo === "progressivo" && progressivoNaFicha(e.em, slugsCustom) ? [{ e, i }] : [],
+  );
+  if (linhas.length === 0) return null;
+  return (
+    <div className="passos-progressivos">
+      {linhas.map(({ e, i }) => {
+        const passos = Math.min(e.max, e.passos ?? 0);
+        const porPasso = formula
+          ? valorDaFormula(e.formula, formula.atributos, formula.nivel)
+          : Number(e.formula) || 0;
+        const alvo = rotuloAlvo(e.em ?? "");
+        const mudar = (n: number) =>
+          onChange(efeitos.map((x, j) => (j === i ? { ...e, passos: n || undefined } : x)));
+        return (
+          <span key={i} className={`passos-progressivo${passos > 0 ? " on" : ""}`}>
+            <button
+              type="button"
+              aria-label={`Menos ${alvo}`}
+              disabled={travado || passos <= 0}
+              onClick={() => mudar(passos - 1)}
+            >
+              <i className="fas fa-minus" />
+            </button>
+            <span className="passos-progressivo-valor">
+              <i className="fas fa-arrow-trend-up" /> {alvo} <strong>{formatarMod(porPasso * passos)}</strong>
+              <small>
+                {passos}/{e.max}
+              </small>
+            </span>
+            <button
+              type="button"
+              aria-label={`Mais ${alvo}`}
+              disabled={travado || passos >= e.max}
+              onClick={() => mudar(passos + 1)}
+            >
+              <i className="fas fa-plus" />
+            </button>
+          </span>
+        );
+      })}
+    </div>
+  );
 }
 
 // Cor do cartão: a do efeito que o preset cria.
@@ -707,8 +769,7 @@ function renderCorpo(
           />
         </div>
       );
-    case "deslocamento": {
-      const outros = MOVIMENTOS.filter((m) => m.slug !== e.tipoMov);
+    case "deslocamento":
       return (
         <>
           <div style={{ gridColumn: "1 / -1" }}>
@@ -716,54 +777,49 @@ function renderCorpo(
               label="Onde"
               valor={e.tipoMov}
               opcoes={MOVIMENTOS}
-              onChange={(v) =>
-                onPatch({
-                  tipoMov: v,
-                  // Não copia de si mesmo.
-                  ...(e.igual === v ? { igual: MOVIMENTOS.find((m) => m.slug !== v)!.slug } : {}),
-                } as Partial<EfeitoHabilidade>)
-              }
+              onChange={(v) => onPatch({ tipoMov: v } as Partial<EfeitoHabilidade>)}
             />
           </div>
-          <div style={{ gridColumn: "1 / -1" }}>
-            <SelectLista
-              label="Quanto"
-              valor={e.igual ? "igual" : "metros"}
-              opcoes={[
-                { slug: "metros", nome: "Metros" },
-                { slug: "igual", nome: "Igual a outro" },
-              ]}
-              onChange={(v) =>
-                onPatch(
-                  (v === "igual"
-                    ? { igual: outros[0].slug, valor: 0 }
-                    : { igual: undefined, metade: undefined }) as Partial<EfeitoHabilidade>,
-                )
-              }
-            />
-          </div>
-          {e.igual ? (
-            <>
-              <SelectLista
-                label="Igual a"
-                valor={e.igual}
-                opcoes={outros}
-                onChange={(v) => onPatch({ igual: v } as Partial<EfeitoHabilidade>)}
-              />
-              <Alternar
-                rotulo="Metade"
-                ligado={!!e.metade}
-                onChange={(v) => onPatch({ metade: v || undefined } as Partial<EfeitoHabilidade>)}
-              />
-            </>
-          ) : (
-            <CampoNum
-              label="Metros"
-              valor={e.valor}
-              min={-99}
-              onChange={(v) => onPatch({ valor: v } as Partial<EfeitoHabilidade>)}
-            />
-          )}
+          <CampoNum
+            label="Quanto (m)"
+            valor={e.valor}
+            min={-99}
+            onChange={(v) => onPatch({ valor: v } as Partial<EfeitoHabilidade>)}
+          />
+        </>
+      );
+    case "valor_igual": {
+      // Atributo só copia de outro atributo.
+      const fontesDe = (alvo: string) =>
+        ALVOS_VALOR_IGUAL.filter(
+          (a) =>
+            a.slug !== alvo &&
+            (!ATRIBUTOS.some((x) => x.slug === alvo) || a.grupo === "Atributo"),
+        );
+      return (
+        <>
+          <SelectLista
+            label="Onde"
+            valor={e.alvo}
+            opcoes={ALVOS_VALOR_IGUAL}
+            onChange={(v) =>
+              onPatch({
+                alvo: v,
+                ...(fontesDe(v).some((a) => a.slug === e.de) ? {} : { de: fontesDe(v)[0].slug }),
+              } as Partial<EfeitoHabilidade>)
+            }
+          />
+          <SelectLista
+            label="Igual a"
+            valor={e.de}
+            opcoes={fontesDe(e.alvo)}
+            onChange={(v) => onPatch({ de: v } as Partial<EfeitoHabilidade>)}
+          />
+          <Alternar
+            rotulo="Metade"
+            ligado={!!e.metade}
+            onChange={(v) => onPatch({ metade: v || undefined } as Partial<EfeitoHabilidade>)}
+          />
         </>
       );
     }
@@ -1551,15 +1607,16 @@ function renderCorpo(
         </>
       );
     }
-    case "progressivo":
+    case "progressivo": {
+      const naFicha = progressivoNaFicha(e.em, slugsCustom);
       return (
         <>
           <CampoFormula
             label="Quanto"
             valor={e.formula}
             onChange={(v) => onPatch({ formula: v } as Partial<EfeitoHabilidade>)}
-            placeholder="1, 1d6, PROF…"
-            dados
+            placeholder={naFicha ? "1, 3, PROF…" : "1, 1d6, PROF…"}
+            dados={!naFicha}
             comGrau={extraNoDano(e.em)}
           />
           <Campo
@@ -1568,16 +1625,29 @@ function renderCorpo(
             onChange={(v) => onPatch({ por: v || undefined } as Partial<EfeitoHabilidade>)}
             placeholder="turno, acerto, PP…"
           />
-          <SelectLista
-            label="Onde"
-            valor={e.em ?? "dano"}
-            opcoes={[
-              ...ALVOS_DANO,
-              ...ALVOS_CONTEXTUAIS,
-              ...periciasCustom.map((a) => ({ ...a, grupo: "Perícia" })),
-            ]}
-            onChange={(v) => onPatch({ em: v === "dano" ? undefined : v } as Partial<EfeitoHabilidade>)}
-          />
+          {daAcao ? (
+            <SelectLista
+              label="Onde"
+              valor={e.em ?? "dano"}
+              opcoes={[
+                ...ALVOS_DANO,
+                ...ALVOS_CONTEXTUAIS,
+                ...periciasCustom.map((a) => ({ ...a, grupo: "Perícia" })),
+              ]}
+              onChange={(v) => onPatch({ em: v === "dano" ? undefined : v } as Partial<EfeitoHabilidade>)}
+            />
+          ) : (
+            <div>
+              <label>Onde</label>
+              <SelectAlvo
+                titulo="Onde"
+                valor={e.em ?? "dano"}
+                onChange={(v) =>
+                  onPatch({ em: !v || v === "dano" ? undefined : v } as Partial<EfeitoHabilidade>)
+                }
+              />
+            </div>
+          )}
           <CampoNum
             label="Máximo"
             valor={e.max}
@@ -1587,6 +1657,7 @@ function renderCorpo(
           />
         </>
       );
+    }
     case "livre":
       return (
         <div style={{ gridColumn: "1 / -1" }}>
