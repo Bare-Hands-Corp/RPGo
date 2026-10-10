@@ -13,8 +13,10 @@ import {
   fontesDeEfeitoDeItens,
   iniciativa,
   lerProficiencias,
+  modoDosEfeitos,
   penalidadeD20Exaustao,
-  percepcaoPassiva,
+  resolverTeste,
+  testePassivo,
 } from "./op-rpg";
 
 export type PersonagemComFontes = Personagem & {
@@ -78,12 +80,30 @@ export function resumirPersonagem(p: PersonagemComFontes): ResumoPersonagem {
   const ini =
     iniciativa(paraTeste[iniAtrib]) + ef.bonusIniciativa.valor - penalidadeD20Exaustao(p.exaustao);
 
-  const profPercepcao =
-    lerProficiencias(p.proficiencias).pericias.includes("percepcao") ||
-    !!ef.proficienciasPericia.percepcao;
+  // Percepção Passiva: 10 + bônus da perícia (sem exaustão), ±5 com vantagem/desvantagem.
+  const profManual = lerProficiencias(p.proficiencias);
+  const testePercepcao = resolverTeste({
+    tipo: "pericia",
+    slug: "percepcao",
+    atributoPadrao: "vontade",
+    nivel: p.nivel,
+    atributos: paraTeste,
+    proficiente: profManual.pericias.includes("percepcao"),
+    dobrado: profManual.periciasDobradas.includes("percepcao"),
+    outros: profManual.outrosPericias.percepcao ?? 0,
+    agg: ef,
+  });
+  const modoPercepcao = modoDosEfeitos(ef.contextuais, {
+    tipo: "pericia",
+    pericia: "percepcao",
+    atributo: testePercepcao.atributo,
+  });
   const percepcao =
-    percepcaoPassiva({ vontade: efetivos.vontade, nivel: p.nivel, proficienteEmPercepcao: profPercepcao }) +
-    ef.bonusPercepcaoPassiva.valor;
+    testePassivo(
+      testePercepcao.bonus,
+      modoPercepcao.vantagem.length > 0,
+      modoPercepcao.desvantagem.length > 0,
+    ) + ef.bonusPercepcaoPassiva.valor;
 
   // Pools: (base + aditivo) × fator, arredondado.
   const multHp = ef.multiplicadores["hp-max"];
