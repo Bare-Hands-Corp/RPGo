@@ -254,6 +254,8 @@ model Recurso {
   nome       String
   valorAtual Int     @default(0) @map("valor_atual")
   valorMax   Int     @default(0) @map("valor_max")
+  // Máximo por fórmula ("PROF", "NIVEL*2"); null = vale `valorMax`.
+  valorMaxFormula String? @map("valor_max_formula")
   ordem      Int     @default(0)
   cor        String? // hex (#ffaa00) ou nome de variável CSS; opcional
   // 2ª cor do gradiente. null = derivada da `cor` (matiz +38°).
@@ -338,6 +340,16 @@ model Acao {
   custoPa           Int     @default(0) @map("custo_pa")
   custoRecursoId    String? @map("custo_recurso_id") // referência opcional a Recurso (PC, PN, PO…)
   custoRecursoValor Int     @default(0) @map("custo_recurso_valor")
+  // Custo por fórmula ("GRAU", "NIVEL/2"); null = vale o número.
+  custoPpFormula      String? @map("custo_pp_formula")
+  custoRecursoFormula String? @map("custo_recurso_formula")
+
+  // Usos limitados, como em Habilidade. null = ilimitado; usosAtual conta o que sobrou.
+  usos        Int?
+  usosAtual   Int?    @map("usos_atual")
+  usosFormula String? @map("usos_formula")
+  // "descansoCurto" | "descansoLongo" | "encontro" | "manual"
+  recarga     String?
 
   // Mecânica de ataque/salvaguarda.
   atributoAtaque String? @map("atributo_ataque") // "forca" | "destreza" | "sabedoria" | …
@@ -399,6 +411,9 @@ model Habilidade {
   custoPa           Int     @default(0) @map("custo_pa")
   custoRecursoId    String? @map("custo_recurso_id")
   custoRecursoValor Int     @default(0) @map("custo_recurso_valor")
+  // Custo por fórmula ("PROF", "NIVEL/2"); null = vale o número.
+  custoPpFormula      String? @map("custo_pp_formula")
+  custoRecursoFormula String? @map("custo_recurso_formula")
 
   // Usos limitados. null = ilimitado; usosAtual conta o que sobrou.
   usos      Int?

@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useOptimistic, useState, useTransition } from "react";
+import { useContext, useEffect, useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { ehTemporario, exigir, idTemporario } from "@/lib/acoes";
 import { atualizarRecurso, criarRecurso, deletarRecurso } from "./actions";
+import { CampoFormula, FormulaContext } from "./campo-formula";
+import { lerNumeroOuFormula, maximoDoRecurso } from "@/lib/op-rpg";
 import { EstiloPicker } from "./estilo-cor-picker";
 import {
   EFEITO_COR_PADRAO,
@@ -17,6 +19,8 @@ export type Recurso = {
   nome: string;
   valorAtual: number;
   valorMax: number;
+  // Máximo por fórmula ("PROF", "NIVEL*2"); sem ela vale `valorMax`.
+  valorMaxFormula?: string | null;
   ordem: number;
   cor: string | null;
   cor2: string | null;
@@ -98,9 +102,13 @@ export function RecursosSidebar({
     return () => window.removeEventListener("rpgo:patch-recurso", ouvir);
   }, [recursos]);
 
-  const recursosComShadow = recursos.map((r) =>
-    r.id in shadow ? { ...r, valorAtual: shadow[r.id] } : r,
-  );
+  // Máximo por fórmula acompanha o nível e os atributos de agora.
+  const ctxFormula = useContext(FormulaContext);
+  const recursosComShadow = recursos.map((r) => ({
+    ...r,
+    valorMax: maximoDoRecurso(r, ctxFormula),
+    ...(r.id in shadow ? { valorAtual: shadow[r.id] } : {}),
+  }));
 
   const [lista, aplicarPatch] = useOptimistic(recursosComShadow, (state, p: Patch) => {
     if (p.kind === "create") return [...state, p.recurso];
@@ -121,7 +129,7 @@ export function RecursosSidebar({
     setForm({
       id: r.id,
       nome: r.nome,
-      valorMax: String(r.valorMax),
+      valorMax: r.valorMaxFormula ?? String(r.valorMax),
       cor: r.cor || "",
       cor2: r.cor2 || "",
       efeito: normalizarEfeitoCor(r.efeito),
@@ -150,7 +158,8 @@ export function RecursosSidebar({
       mostrarErro(new Error("Nome é obrigatório."));
       return;
     }
-    const valorMax = Number(form.valorMax) || 0;
+    // Máximo: número ou fórmula (o valor de agora vai junto, como reserva).
+    const { numero: valorMax, formula: valorMaxFormula } = lerNumeroOuFormula(form.valorMax, ctxFormula);
     const cor = form.cor.trim() || null;
     const cor2 = form.cor2.trim() || null;
     const efeito = form.efeito;
@@ -163,12 +172,13 @@ export function RecursosSidebar({
         aplicarPatch({
           kind: "update",
           id: editandoId,
-          patch: { nome, valorMax, cor, cor2, efeito, resetEm },
+          patch: { nome, valorMax, valorMaxFormula, cor, cor2, efeito, resetEm },
         });
         try {
           exigir(await atualizarRecurso(personagemId, editandoId, {
             nome,
             valorMax,
+            valorMaxFormula,
             cor: cor ?? "",
             cor2: cor2 ?? "",
             efeito,
@@ -183,6 +193,7 @@ export function RecursosSidebar({
           nome,
           valorAtual: valorMax,
           valorMax,
+          valorMaxFormula,
           ordem: lista.length,
           cor,
           cor2,
@@ -195,6 +206,7 @@ export function RecursosSidebar({
             nome,
             valorAtual: valorMax,
             valorMax,
+            valorMaxFormula,
             ordem: lista.length,
             cor: cor ?? "",
             cor2: cor2 ?? "",
@@ -305,7 +317,13 @@ export function RecursosSidebar({
               </button>
               <span className="recurso-card-valor">
                 <strong>{r.valorAtual}</strong>
-                <span className="recurso-card-max"> / {r.valorMax}</span>
+                <span
+                  className="recurso-card-max"
+                  title={r.valorMaxFormula ? `Máximo: ${r.valorMaxFormula}` : undefined}
+                >
+                  {" "}
+                  / {r.valorMax}
+                </span>
               </span>
               <button
                 type="button"
@@ -348,15 +366,12 @@ export function RecursosSidebar({
               />
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
-                <div>
-                  <label>Valor Máximo</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={form.valorMax}
-                    onChange={(e) => setForm({ ...form, valorMax: e.target.value })}
-                  />
-                </div>
+                <CampoFormula
+                  label="Máximo"
+                  valor={form.valorMax}
+                  onChange={(v) => setForm((f) => ({ ...f, valorMax: v }))}
+                  placeholder="5, PROF, NIVEL…"
+                />
                 <div>
                   <label>Recuperação</label>
                   <select

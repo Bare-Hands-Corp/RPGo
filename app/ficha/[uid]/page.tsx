@@ -6,9 +6,12 @@ import { carregarCalendario } from "@/lib/calendario/carregar";
 import {
   agregarEfeitos,
   atributosEfetivos,
+  comCustosResolvidos,
+  contextoDasFormulas,
   efeitosDoContexto,
   fontesDeEfeitoDeItens,
   lerEfeitos,
+  maximoDoRecurso,
 } from "@/lib/op-rpg";
 import { juntarTipos, tiposDoDano, tiposDosEfeitos } from "@/lib/dano";
 import { carregarRecebidas, fonteRecebida } from "@/lib/efeitos-servidor";
@@ -30,7 +33,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
   const [{ uid }, { aba }] = await Promise.all([params, searchParams]);
 
   // Auth, personagem e efeitos de aliados (Postgres) são independentes — paralelo.
-  const [user, personagem, recebidas] = await Promise.all([
+  const [user, carregado, recebidas] = await Promise.all([
     usuarioDaRequest(),
     prisma.personagem.findUnique({
       where: { id: uid },
@@ -55,7 +58,38 @@ export default async function FichaPage({ params, searchParams }: Params) {
     carregarRecebidas(uid),
   ]);
   if (!user) redirect("/login");
-  if (!personagem) notFound();
+  if (!carregado) notFound();
+
+  // Habilidades travadas por árvore ou por item desequipado ficam fora do agregado.
+  const travadasPorArvore = habilidadesTravadas(carregado.arvores.flatMap((a) => a.nos));
+  const itensEquipados = new Set(carregado.itens.filter((i) => i.equipado).map((i) => i.id));
+  const estaAtiva = (h: { id: string; itemId: string | null }) =>
+    !travadasPorArvore.has(h.id) && (!h.itemId || itensEquipados.has(h.itemId));
+  const atributosBase = {
+    forca: carregado.forca,
+    destreza: carregado.destreza,
+    constituicao: carregado.constituicao,
+    sabedoria: carregado.sabedoria,
+    vontade: carregado.vontade,
+    presenca: carregado.presenca,
+  };
+
+  // Custo e máximo por fórmula ("PROF", "NIVEL/2") viram número aqui, com o nível
+  // e os atributos da ficha; daqui pra frente a página só vê o número.
+  const ctxFormula = contextoDasFormulas(
+    [
+      ...carregado.habilidades.filter(estaAtiva),
+      ...fontesDeEfeitoDeItens(carregado.itens),
+      ...recebidas.map(fonteRecebida),
+    ],
+    { nivel: carregado.nivel, atributos: atributosBase },
+  );
+  const personagem = {
+    ...carregado,
+    recursos: carregado.recursos.map((r) => ({ ...r, valorMax: maximoDoRecurso(r, ctxFormula) })),
+    habilidades: carregado.habilidades.map((h) => comCustosResolvidos(h, ctxFormula)),
+    acoes: carregado.acoes.map((a) => comCustosResolvidos(a, ctxFormula, a.grau)),
+  };
 
   // Autorização: dono OU narrador da mesa.
   const isDono = personagem.userId === user.id;
@@ -73,17 +107,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
     personagem.periciasCustom.map((p) => p.slug),
   );
 
-  // Habilidades travadas por árvore ou por item desequipado ficam fora do agregado.
-  const travadasPorArvore = habilidadesTravadas(
-    personagem.arvores.flatMap((a) => a.nos),
-  );
-  const itensEquipados = new Set(
-    personagem.itens.filter((i) => i.equipado).map((i) => i.id),
-  );
-  const habilidadesAtivas = personagem.habilidades.filter(
-    (h) =>
-      !travadasPorArvore.has(h.id) && (!h.itemId || itensEquipados.has(h.itemId)),
-  );
+  const habilidadesAtivas = personagem.habilidades.filter(estaAtiva);
 
   // Agrega efeitos das habilidades ativas, dos itens equipados e dos aliados.
   const efeitosAgregados = agregarEfeitos(
@@ -96,14 +120,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
     undefined,
     {
       nivel: personagem.nivel,
-      atributos: {
-        forca: personagem.forca,
-        destreza: personagem.destreza,
-        constituicao: personagem.constituicao,
-        sabedoria: personagem.sabedoria,
-        vontade: personagem.vontade,
-        presenca: personagem.presenca,
-      },
+      atributos: atributosBase,
       recursos: personagem.recursos.map((r) => ({
         id: r.id,
         nome: r.nome,

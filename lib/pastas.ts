@@ -24,7 +24,9 @@ const CAMPOS: Record<TipoModelo, readonly string[]> = {
     "tipo",
     "descricao",
     "custoPp",
+    "custoPpFormula",
     "custoRecursoValor",
+    "custoRecursoFormula",
     "usos",
     "usosFormula",
     "recarga",
@@ -41,7 +43,12 @@ const CAMPOS: Record<TipoModelo, readonly string[]> = {
     "tipo",
     "tag",
     "custoPp",
+    "custoPpFormula",
     "custoRecursoValor",
+    "custoRecursoFormula",
+    "usos",
+    "usosFormula",
+    "recarga",
     "atributoAtaque",
     "atributoSalv",
     "atributoCd",
@@ -103,7 +110,10 @@ export function paraModelo(
   });
   const custo = typeof origem.custoRecursoId === "string" ? nomeDe(origem.custoRecursoId) : undefined;
   if (custo) dados.custoRecurso = custo;
-  else delete dados.custoRecursoValor;
+  else {
+    delete dados.custoRecursoValor;
+    delete dados.custoRecursoFormula;
+  }
   return dados;
 }
 
@@ -123,7 +133,10 @@ export function doModelo(
   );
   const custo = typeof dados.custoRecurso === "string" ? idDe(dados.custoRecurso) : undefined;
   input.custoRecursoId = custo ?? null;
-  if (!custo) input.custoRecursoValor = 0;
+  if (!custo) {
+    input.custoRecursoValor = 0;
+    input.custoRecursoFormula = null;
+  }
   return input;
 }
 

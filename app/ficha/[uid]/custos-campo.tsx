@@ -1,10 +1,11 @@
 "use client";
 
-import { CampoPasso } from "./campos-modal";
+import { CampoFormula } from "./campo-formula";
 
 type RecursoCusto = { id: string; nome: string; cor?: string | null };
 
-// O que a ação ou habilidade gasta ao usar. Os números ficam em texto no form ("" = 0).
+// O que a ação ou habilidade gasta ao usar. Cada valor é um número ou uma fórmula
+// ("NIVEL/2", "PROF"); fica em texto no form ("" = 0).
 export function CustosCampo({
   pp,
   onPp,
@@ -13,6 +14,8 @@ export function CustosCampo({
   onRecursoId,
   recursoValor,
   onRecursoValor,
+  comGrau,
+  grau,
 }: {
   pp: string;
   onPp: (v: string) => void;
@@ -21,46 +24,60 @@ export function CustosCampo({
   onRecursoId: (id: string) => void;
   recursoValor: string;
   onRecursoValor: (v: string) => void;
+  // Técnica: oferece GRAU e mostra a prévia com o grau dela.
+  comGrau?: boolean;
+  grau?: number;
 }) {
-  const numero = (v: string) => Math.max(0, Math.trunc(Number(v) || 0));
-  const texto = (n: number) => (n > 0 ? String(n) : "");
   const recurso = recursos.find((r) => r.id === recursoId);
   return (
     <div className="custos-campo">
-      <div className="custo-linha">
+      <div className="custo-linha custo-linha-formula">
         <span className="custo-icone custo-pp">
           <i className="fas fa-bolt" />
         </span>
-        <span className="custo-nome">PP</span>
-        <CampoPasso valor={numero(pp)} rotulo="PP" onChange={(n) => onPp(texto(n))} />
+        <CampoFormula
+          label="PP"
+          valor={pp}
+          onChange={onPp}
+          placeholder={comGrau ? "2, GRAU, NIVEL/2…" : "2, PROF, NIVEL/2…"}
+          comGrau={comGrau}
+          grau={grau}
+        />
       </div>
       {recursos.length > 0 && (
-        <div className="custo-linha">
+        <div className="custo-linha custo-linha-formula">
           <span
             className="custo-icone"
             style={recurso?.cor ? ({ "--custo-cor": recurso.cor } as React.CSSProperties) : undefined}
           >
             <i className="fas fa-gem" />
           </span>
-          <select
-            className="custo-recurso"
-            aria-label="Recurso"
-            value={recursoId}
-            onChange={(e) => onRecursoId(e.target.value)}
-          >
-            <option value="">Nenhum recurso</option>
-            {recursos.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.nome}
-              </option>
-            ))}
-          </select>
-          <CampoPasso
-            valor={numero(recursoValor)}
-            rotulo="Quantidade"
-            disabled={!recursoId}
-            onChange={(n) => onRecursoValor(texto(n))}
-          />
+          <div className="custo-recurso-campo">
+            <label>Recurso</label>
+            <select
+              className="custo-recurso"
+              aria-label="Recurso"
+              value={recursoId}
+              onChange={(e) => onRecursoId(e.target.value)}
+            >
+              <option value="">Nenhum</option>
+              {recursos.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.nome}
+                </option>
+              ))}
+            </select>
+          </div>
+          {recursoId && (
+            <CampoFormula
+              label="Quanto"
+              valor={recursoValor}
+              onChange={onRecursoValor}
+              placeholder="1, PROF…"
+              comGrau={comGrau}
+              grau={grau}
+            />
+          )}
         </div>
       )}
     </div>

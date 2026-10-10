@@ -18,6 +18,7 @@ import { BotaoGuardar, BotaoPastas } from "./pastas";
 import { useRefreshAgrupado } from "@/lib/use-refresh-agrupado";
 import {
   ATRIBUTOS,
+  RECARGAS_HABILIDADE,
   bonusAtaqueTecnica,
   bonusDeAtaque,
   bonusProficiencia,
@@ -35,6 +36,7 @@ import {
   formatarMod,
   formulaResolvidaTexto,
   lerEfeitos,
+  lerNumeroOuFormula,
   maiorDado,
   motivoSemSobrecarga,
   NIVEL_DO_GRAU,
@@ -44,6 +46,7 @@ import {
   resolverDanoArma,
   resolverFormula,
   subirPassosDano,
+  usosMaximos,
   type Atributo,
   type EfeitoHabilidade,
   type EfeitosAgregados,
@@ -123,6 +126,14 @@ type Acao = {
   pasta?: string | null;
   // Ação de que esta é forma alternativa.
   formaDe?: string | null;
+  // Custo por fórmula; `custoPp` e `custoRecursoValor` já chegam resolvidos.
+  custoPpFormula?: string | null;
+  custoRecursoFormula?: string | null;
+  // Usos limitados (null = ilimitado).
+  usos?: number | null;
+  usosAtual?: number | null;
+  usosFormula?: string | null;
+  recarga?: string | null;
 };
 
 type Filtro = "todas" | "tecnicas" | "sem_custo";
@@ -275,6 +286,9 @@ type FormState = {
   formaDe: string;
   // Origem oferecida no modal ("" = não oferece).
   origemForma: string;
+  // Máximo de usos (número ou fórmula; "" = ilimitado) e quando recarrega.
+  usos: string;
+  recarga: string;
 };
 
 const FORM_VAZIO: FormState = {
@@ -302,6 +316,8 @@ const FORM_VAZIO: FormState = {
   duracao: null,
   formaDe: "",
   origemForma: "",
+  usos: "",
+  recarga: "",
 };
 
 // Ação recém-trazida de uma pasta, antes do servidor responder.
@@ -330,6 +346,12 @@ const ACAO_BASE: Omit<Acao, "id"> = {
   duracao: null,
   pasta: null,
   formaDe: null,
+  custoPpFormula: null,
+  custoRecursoFormula: null,
+  usos: null,
+  usosAtual: null,
+  usosFormula: null,
+  recarga: null,
 };
 
 // Lê um Json de ids vindo do banco com defesa contra lixo/legado.
@@ -502,9 +524,12 @@ export function AcoesTab({
       descricao: acao.descricao,
       tipo: acao.tipo,
       tag: acao.tag || "",
-      custoPp: acao.custoPp ? String(acao.custoPp) : "",
+      custoPp: acao.custoPpFormula ?? (acao.custoPp ? String(acao.custoPp) : ""),
       custoRecursoId: acao.custoRecursoId || "",
-      custoRecursoValor: acao.custoRecursoValor ? String(acao.custoRecursoValor) : "",
+      custoRecursoValor:
+        acao.custoRecursoFormula ?? (acao.custoRecursoValor ? String(acao.custoRecursoValor) : ""),
+      usos: acao.usosFormula ?? (acao.usos != null ? String(acao.usos) : ""),
+      recarga: acao.recarga ?? "",
       atributoAtaque: acao.atributoAtaque || "",
       atributoSalv: acao.atributoSalv || "",
       atributoCd: acao.atributoCd || "",
@@ -546,14 +571,27 @@ export function AcoesTab({
       return;
     }
 
+    // Custos e usos: número ou fórmula (o valor de agora vai junto, como reserva).
+    const grau = form.tecnica ? form.grau : 0;
+    const pp = lerNumeroOuFormula(form.custoPp, ctxFormula, grau);
+    const doRecurso = lerNumeroOuFormula(form.custoRecursoId ? form.custoRecursoValor : "", ctxFormula, grau);
+    const usos = form.usos.trim() ? lerNumeroOuFormula(form.usos, ctxFormula) : null;
+    // Edição preserva o que sobrou; ação nova começa cheia.
+    const antes = form.id ? acoesPorId.get(form.id) : undefined;
     const dados = {
       nome: nomeLimpo,
       descricao: form.descricao,
       tipo: form.tipo,
       tag: form.tag,
-      custoPp: Number(form.custoPp) || 0,
+      custoPp: pp.numero,
+      custoPpFormula: pp.formula,
       custoRecursoId: form.custoRecursoId || null,
-      custoRecursoValor: Number(form.custoRecursoValor) || 0,
+      custoRecursoValor: doRecurso.numero,
+      custoRecursoFormula: doRecurso.formula,
+      usos: usos ? usos.numero : null,
+      usosAtual: !usos ? null : antes ? (antes.usosAtual ?? null) : usos.numero,
+      usosFormula: usos?.formula ?? null,
+      recarga: usos && form.recarga ? form.recarga : null,
       atributoAtaque: form.atributoAtaque || null,
       atributoSalv: form.atributoSalv || null,
       atributoCd: form.atributoCd || null,
@@ -604,6 +642,12 @@ export function AcoesTab({
   // Sem PP, técnica de grau 1–5 vai com Sobrecarga (exaustão = grau).
   async function usar(acao: Acao, custoPp: number, recurso: RecursoMinimo | undefined) {
     const instantaneos = lerEfeitos(acao.efeitos).filter(efeitoInstantaneo);
+    const usosMax = usosMaximos(acao, ctxFormula);
+    const usosAtual = acao.usosAtual ?? usosMax ?? 0;
+    if (usosMax != null && usosAtual <= 0) {
+      mostrarErro(new Error("Sem usos restantes."));
+      return;
+    }
     const sobrecarga = custoPp > ppAtual;
     if (sobrecarga) {
       const motivo = motivoSemSobrecarga(acao, exaustao);
@@ -659,6 +703,7 @@ export function AcoesTab({
             custos: [
               ...(pp > 0 ? [{ valor: pp, nome: "PP" }] : []),
               ...(recurso ? [{ valor: acao.custoRecursoValor, nome: recurso.nome }] : []),
+              ...(usosMax != null ? [{ valor: 1, nome: "uso", proprio: true }] : []),
             ],
             faz: [...curas.map((c) => `Cura ${c}`), ...(concentra ? ["Concentração"] : [])],
           },
@@ -701,6 +746,9 @@ export function AcoesTab({
       anunciarConcentracao({ tipo: "acao", id: acao.id, nome: acao.nome, ...(turnos ? { turnos } : {}) });
     }
     startTransition(async () => {
+      if (usosMax != null) {
+        aplicarPatch({ kind: "update", id: acao.id, patch: { usosAtual: usosAtual - 1 } });
+      }
       try {
         exigir(await usarAcao(personagemId, acao.id, rolagens, { sobrecarga, alvoId }));
         publicar();
@@ -1009,9 +1057,12 @@ export function AcoesTab({
                   const recursoGasto =
                     recursoCusto && acao.custoRecursoValor > 0 ? recursoCusto : undefined;
                   const efeitosAcao = lerEfeitos(acao.efeitos);
+                  const usosMax = usosMaximos(acao, ctxFormula);
+                  const usosAtual = acao.usosAtual ?? usosMax ?? 0;
                   const podeUsar =
                     ppFinal > 0 ||
                     !!recursoGasto ||
+                    usosMax != null ||
                     efeitosAcao.some(efeitoInstantaneo) ||
                     pedeConcentracao(acao.duracao);
                   const duracaoTexto = textoDuracao(lerDuracao(acao.duracao));
@@ -1079,7 +1130,7 @@ export function AcoesTab({
                             ))}
                           </div>
                         )}
-                        {(bonusAtq != null || cd != null || atributoSalv || acao.dano || acao.alcance || golpes.length > 0 || acao.tecnica || duracaoTexto || temPorTurno) && (
+                        {(bonusAtq != null || cd != null || atributoSalv || acao.dano || acao.alcance || golpes.length > 0 || acao.tecnica || duracaoTexto || temPorTurno || usosMax != null) && (
                           <div className="acao-stats">
                             {acao.tecnica && (
                               <span className="acao-stat acao-tecnica">
@@ -1096,6 +1147,21 @@ export function AcoesTab({
                               efeitos={efeitosAcao}
                               grau={acao.tecnica && acao.grau > 0 ? acao.grau : undefined}
                             />
+                            {usosMax != null && (
+                              <span
+                                className="acao-stat"
+                                title={acao.usosFormula ? `Máximo: ${acao.usosFormula}` : undefined}
+                              >
+                                <i className="fas fa-bolt-lightning" /> {usosAtual}/{usosMax}
+                              </span>
+                            )}
+                            {usosMax != null && acao.recarga && (
+                              <span className="acao-stat">
+                                <i className="fas fa-rotate" />{" "}
+                                {RECARGAS_HABILIDADE.find((r) => r.slug === acao.recarga)?.nome ??
+                                  acao.recarga}
+                              </span>
+                            )}
                             {acao.aliado && (
                               <span className="acao-stat acao-aliado">
                                 <i className="fas fa-hand-holding-heart" /> Em aliado
@@ -1267,7 +1333,8 @@ export function AcoesTab({
                             <button
                               type="button"
                               className="hab-usar"
-                              disabled={travada}
+                              disabled={travada || (usosMax != null && usosAtual <= 0)}
+                              title={usosMax != null && usosAtual <= 0 ? "Sem usos" : undefined}
                               onClick={() => usar(acao, ppFinal, recursoGasto)}
                             >
                               <i className="fas fa-play" /> Usar
@@ -1562,7 +1629,36 @@ export function AcoesTab({
                     onRecursoId={(id) => setF("custoRecursoId", id)}
                     recursoValor={form.custoRecursoValor}
                     onRecursoValor={(v) => setF("custoRecursoValor", v)}
+                    comGrau={form.tecnica}
+                    grau={form.tecnica && form.grau > 0 ? form.grau : undefined}
                   />
+                </div>
+              </details>
+
+              <details className="modal-secao-detalhe" open={!!(form.usos || form.recarga)}>
+                <summary>
+                  <i className="fas fa-bolt-lightning" /> Usos limitados
+                </summary>
+                <div className="modal-secao-corpo">
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10 }}>
+                    <CampoFormula
+                      label="Máximo"
+                      valor={form.usos}
+                      onChange={(v) => setF("usos", v)}
+                      placeholder="3, PROF, NIVEL…"
+                    />
+                    <div>
+                      <label>Recarga</label>
+                      <select value={form.recarga} onChange={(e) => setF("recarga", e.target.value)}>
+                        <option value="">—</option>
+                        {RECARGAS_HABILIDADE.map((r) => (
+                          <option key={r.slug} value={r.slug}>
+                            {r.nome}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
                 </div>
               </details>
 

@@ -3371,6 +3371,65 @@ export function usosMaximos(
   return h.usos ?? null;
 }
 
+// Campo que aceita número ou fórmula sem dados ("PROF", "NIVEL/2"): vale a
+// fórmula; sem ela (ou sem contexto), o número salvo.
+export function valorOuFormula(
+  numero: number,
+  formula: string | null | undefined,
+  ctx: ContextoFormula | null,
+  grau = 0,
+): number {
+  if (!formula || !ctx) return numero;
+  return Math.max(0, valorDaFormula(formula, ctx.atributos, ctx.nivel, { grau }));
+}
+
+// Texto de um campo que aceita número ou fórmula: o número de agora e a fórmula
+// (null quando é só número).
+export function lerNumeroOuFormula(
+  texto: string,
+  ctx: ContextoFormula | null,
+  grau = 0,
+): { numero: number; formula: string | null } {
+  const t = texto.trim();
+  if (t === "" || Number.isFinite(Number(t))) {
+    return { numero: Math.max(0, Math.trunc(Number(t) || 0)), formula: null };
+  }
+  return { numero: valorOuFormula(0, t, ctx, grau), formula: t };
+}
+
+// Máximo do recurso: a fórmula ou o número salvo.
+export function maximoDoRecurso(
+  r: { valorMax: number; valorMaxFormula?: string | null },
+  ctx: ContextoFormula | null,
+): number {
+  return valorOuFormula(r.valorMax, r.valorMaxFormula, ctx);
+}
+
+// Custos de PP e de recurso já em número (`grau` resolve GRAU na técnica).
+export function comCustosResolvidos<
+  T extends {
+    custoPp: number;
+    custoRecursoValor: number;
+    custoPpFormula?: string | null;
+    custoRecursoFormula?: string | null;
+  },
+>(x: T, ctx: ContextoFormula | null, grau = 0): T {
+  if (!x.custoPpFormula && !x.custoRecursoFormula) return x;
+  return {
+    ...x,
+    custoPp: valorOuFormula(x.custoPp, x.custoPpFormula, ctx, grau),
+    custoRecursoValor: valorOuFormula(x.custoRecursoValor, x.custoRecursoFormula, ctx, grau),
+  };
+}
+
+// Nível e atributos das fórmulas, antes de agregar (o mesmo `ctxFormula` do agregado).
+export function contextoDasFormulas(
+  fontes: HabilidadeFonte[],
+  base: { nivel: number; atributos: Record<Atributo, number> },
+): ContextoFormula {
+  return { nivel: base.nivel, atributos: atributosComBonusFixos(fontes, base.atributos) };
+}
+
 // Agrega os efeitos sustentados de habilidades passivas ou ligadas.
 // Instantâneos ficam com `computarDeltasInstantaneos`.
 export function agregarEfeitos(

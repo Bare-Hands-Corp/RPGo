@@ -11,6 +11,7 @@ import {
   META_EFEITOS,
   PERICIAS,
   atributosEfetivos,
+  comCustosResolvidos,
   computarDeltasInstantaneos,
   crescerPorTurno,
   curasComFormula,
@@ -19,6 +20,7 @@ import {
   extrasDeCura,
   efeitosDaTecnica,
   lerEfeitos,
+  maximoDoRecurso,
   modificador,
   lerProficiencias,
   motivoSemSobrecarga,
@@ -199,6 +201,47 @@ export async function patchPersonagem(
   });
 }
 
+// Campo que aceita fórmula sem dados ("PROF", "NIVEL/2"): só número vira null.
+function formulaOuNulo(v: unknown): string | null {
+  const f = v ? String(v).trim() : "";
+  return f && !Number.isFinite(Number(f)) ? f.slice(0, 60) : null;
+}
+
+// Usos limitados (ação e habilidade): máximo, o que sobrou, fórmula do máximo e recarga.
+function normalizarUsosInput(
+  input: Partial<Record<"usos" | "usosAtual" | "usosFormula" | "recarga", unknown>>,
+  data: Record<string, unknown>,
+) {
+  if (input.usos !== undefined) {
+    if (input.usos === null || input.usos === "") {
+      data.usos = null;
+      data.usosAtual = null;
+    } else {
+      const n = Math.max(0, Math.trunc(Number(input.usos) || 0));
+      data.usos = n;
+      // Se usosAtual não veio explícito, encha o tanque.
+      if (input.usosAtual === undefined) data.usosAtual = n;
+    }
+  }
+  if (input.usosAtual !== undefined && data.usosAtual === undefined) {
+    if (input.usosAtual === null || input.usosAtual === "") {
+      data.usosAtual = null;
+    } else {
+      data.usosAtual = Math.max(0, Math.trunc(Number(input.usosAtual) || 0));
+    }
+  }
+  if (input.recarga !== undefined) {
+    if (!input.recarga) {
+      data.recarga = null;
+    } else {
+      const v = String(input.recarga);
+      if (!RECARGAS_VALIDAS_HAB.has(v)) throw new ErroDeUso("Recarga inválida.");
+      data.recarga = v;
+    }
+  }
+  if (input.usosFormula !== undefined) data.usosFormula = formulaOuNulo(input.usosFormula);
+}
+
 // ─── Ações ─────────────────────────────────────────────────
 const ALLOWED_ACAO = [
   "nome",
@@ -225,6 +268,12 @@ const ALLOWED_ACAO = [
   "tipoDano",
   "pasta",
   "formaDe",
+  "custoPpFormula",
+  "custoRecursoFormula",
+  "usos",
+  "usosAtual",
+  "usosFormula",
+  "recarga",
 ] as const;
 
 type AcaoInput = Partial<Record<(typeof ALLOWED_ACAO)[number], unknown>>;
@@ -253,6 +302,11 @@ function normalizarAcaoInput(input: AcaoInput) {
   if (input.custoRecursoValor !== undefined) {
     data.custoRecursoValor = Math.max(0, Number(input.custoRecursoValor) || 0);
   }
+  if (input.custoPpFormula !== undefined) data.custoPpFormula = formulaOuNulo(input.custoPpFormula);
+  if (input.custoRecursoFormula !== undefined) {
+    data.custoRecursoFormula = formulaOuNulo(input.custoRecursoFormula);
+  }
+  normalizarUsosInput(input, data);
   for (const k of ["atributoAtaque", "atributoSalv", "atributoCd"] as const) {
     if (input[k] !== undefined) {
       const v = input[k] ? String(input[k]) : null;
@@ -326,6 +380,12 @@ function dadosDaAcao(personagemId: string, data: Record<string, unknown>) {
     custoPa: (data.custoPa as number) ?? 0,
     custoRecursoId: (data.custoRecursoId as string | null) ?? null,
     custoRecursoValor: (data.custoRecursoValor as number) ?? 0,
+    custoPpFormula: (data.custoPpFormula as string | null) ?? null,
+    custoRecursoFormula: (data.custoRecursoFormula as string | null) ?? null,
+    usos: (data.usos as number | null) ?? null,
+    usosAtual: (data.usosAtual as number | null) ?? null,
+    usosFormula: (data.usosFormula as string | null) ?? null,
+    recarga: (data.recarga as string | null) ?? null,
     atributoAtaque: (data.atributoAtaque as string | null) ?? null,
     atributoSalv: (data.atributoSalv as string | null) ?? null,
     atributoCd: (data.atributoCd as string | null) ?? null,
@@ -395,15 +455,20 @@ export async function usarAcao(
   opcoes?: { sobrecarga?: boolean; alvoId?: string },
 ) {
   return executar("ficha", async () => {
-    const [{ personagem }, { agg, itens }, acao] = await Promise.all([
+    const [{ personagem }, { agg, itens }, bruta] = await Promise.all([
       autorizar(personagemId),
       carregarAgregado(personagemId),
       prisma.acao.findFirst({ where: { id: acaoId, personagemId } }),
     ]);
-    if (!acao) throw new ErroDeUso("Ação não encontrada.");
+    if (!bruta) throw new ErroDeUso("Ação não encontrada.");
+    // Custo por fórmula vira número com o nível, os atributos e o grau.
+    const acao = comCustosResolvidos(bruta, agg.ctxFormula, bruta.grau);
     if (acao.itemId && !itens.some((i) => i.id === acao.itemId && i.equipado)) {
       throw new ErroDeUso("Equipe o item pra usar esta ação.");
     }
+    const usosMax = usosMaximos(acao, agg.ctxFormula);
+    const usosAtual = acao.usosAtual ?? usosMax;
+    if (usosMax != null && (usosAtual ?? 0) <= 0) throw new ErroDeUso("Sem usos restantes.");
     const ids = new Set([...normalizarIds(acao.armaIds), ...(acao.itemId ? [acao.itemId] : [])]);
     const armas = itens.filter((i) => ids.has(i.id));
     const aggAcao = efeitosDaTecnica(agg, acao);
@@ -434,6 +499,14 @@ export async function usarAcao(
       aliado,
       grau: acao.grau,
     });
+    if (usosMax != null) {
+      ops.push(
+        prisma.acao.update({
+          where: { id: acao.id, personagemId },
+          data: { usosAtual: Math.max(0, (usosAtual ?? usosMax) - 1) },
+        }),
+      );
+    }
     if (pedeConcentracao(acao.duracao)) {
       const turnos = turnosDaDuracao(lerDuracao(acao.duracao));
       ops.push(
@@ -978,6 +1051,7 @@ const ALLOWED_RECURSO = [
   "nome",
   "valorAtual",
   "valorMax",
+  "valorMaxFormula",
   "ordem",
   "cor",
   "cor2",
@@ -998,6 +1072,8 @@ function normalizarRecurso(input: RecursoInput, parcial: boolean) {
       data.nome = nome;
     } else if (key === "valorAtual" || key === "valorMax" || key === "ordem") {
       data[key] = Number(input[key]) || 0;
+    } else if (key === "valorMaxFormula") {
+      data.valorMaxFormula = formulaOuNulo(input.valorMaxFormula);
     } else if (key === "resetEm") {
       const v = String(input.resetEm);
       if (!RESET_VALIDOS.has(v)) throw new ErroDeUso("resetEm inválido.");
@@ -1030,6 +1106,7 @@ export async function criarRecurso(personagemId: string, input: RecursoInput) {
         nome: data.nome as string,
         valorAtual: atual,
         valorMax: (data.valorMax as number) ?? 0,
+        valorMaxFormula: (data.valorMaxFormula as string | null) ?? null,
         ordem: (data.ordem as number) ?? 0,
         cor: (data.cor as string | null) ?? null,
         cor2: (data.cor2 as string | null) ?? null,
@@ -1093,6 +1170,8 @@ const ALLOWED_HABILIDADE = [
   "duracao",
   "itemUsa",
   "pasta",
+  "custoPpFormula",
+  "custoRecursoFormula",
 ] as const;
 
 type HabilidadeInput = Partial<
@@ -1161,33 +1240,11 @@ function normalizarHabilidadeInput(input: HabilidadeInput) {
   if (input.custoRecursoValor !== undefined) {
     data.custoRecursoValor = Math.max(0, Number(input.custoRecursoValor) || 0);
   }
-  if (input.usos !== undefined) {
-    if (input.usos === null || input.usos === "") {
-      data.usos = null;
-      data.usosAtual = null;
-    } else {
-      const n = Math.max(0, Math.trunc(Number(input.usos) || 0));
-      data.usos = n;
-      // Se usosAtual não veio explícito, encha o tanque.
-      if (input.usosAtual === undefined) data.usosAtual = n;
-    }
+  if (input.custoPpFormula !== undefined) data.custoPpFormula = formulaOuNulo(input.custoPpFormula);
+  if (input.custoRecursoFormula !== undefined) {
+    data.custoRecursoFormula = formulaOuNulo(input.custoRecursoFormula);
   }
-  if (input.usosAtual !== undefined && data.usosAtual === undefined) {
-    if (input.usosAtual === null || input.usosAtual === "") {
-      data.usosAtual = null;
-    } else {
-      data.usosAtual = Math.max(0, Math.trunc(Number(input.usosAtual) || 0));
-    }
-  }
-  if (input.recarga !== undefined) {
-    if (!input.recarga) {
-      data.recarga = null;
-    } else {
-      const v = String(input.recarga);
-      if (!RECARGAS_VALIDAS_HAB.has(v)) throw new ErroDeUso("Recarga inválida.");
-      data.recarga = v;
-    }
-  }
+  normalizarUsosInput(input, data);
   if (input.tags !== undefined) data.tags = input.tags ? String(input.tags) : null;
   if (input.tagsEstilo !== undefined) {
     const tagsDoPatch =
@@ -1204,10 +1261,6 @@ function normalizarHabilidadeInput(input: HabilidadeInput) {
   if (input.efeitos !== undefined) data.efeitos = normalizarEfeitosInput(input.efeitos);
   if (input.alternavel !== undefined) data.alternavel = Boolean(input.alternavel);
   if (input.aliado !== undefined) data.aliado = Boolean(input.aliado);
-  if (input.usosFormula !== undefined) {
-    const f = input.usosFormula ? String(input.usosFormula).trim() : "";
-    data.usosFormula = f && !Number.isFinite(Number(f)) ? f.slice(0, 60) : null;
-  }
   if (input.duracao !== undefined) data.duracao = lerDuracao(input.duracao) ?? Prisma.DbNull;
   return data;
 }
@@ -1224,6 +1277,8 @@ function dadosDaHabilidade(personagemId: string, data: Record<string, unknown>) 
     custoPa: (data.custoPa as number) ?? 0,
     custoRecursoId: (data.custoRecursoId as string | null) ?? null,
     custoRecursoValor: (data.custoRecursoValor as number) ?? 0,
+    custoPpFormula: (data.custoPpFormula as string | null) ?? null,
+    custoRecursoFormula: (data.custoRecursoFormula as string | null) ?? null,
     usos: (data.usos as number | null) ?? null,
     usosAtual: (data.usosAtual as number | null) ?? null,
     recarga: (data.recarga as string | null) ?? null,
@@ -1465,7 +1520,7 @@ async function opsDoUso(opts: {
     if (!delta) continue;
     // Custo do recurso já foi debitado acima — não deduzir de novo.
     const base = recurso?.id === r.id ? r.valorAtual - custoRecurso : r.valorAtual;
-    const novo = clamp(base + delta, 0, r.valorMax);
+    const novo = clamp(base + delta, 0, maximoDoRecurso(r, agg.ctxFormula));
     if (novo === r.valorAtual) continue;
     ops.push(prisma.recurso.update({ where: { id: r.id, personagemId }, data: { valorAtual: novo } }));
   }
@@ -1492,12 +1547,14 @@ async function aplicarUsoHabilidade(
   }: { incluirMax?: boolean; rolagens?: unknown; alvoId?: unknown } = {},
 ) {
   const ligando = extraHabData.ligada === true;
-  const [{ personagem }, { agg }, hab] = await Promise.all([
+  const [{ personagem }, { agg }, bruta] = await Promise.all([
     autorizar(personagemId),
     carregarAgregado(personagemId, ligando ? { id: habilidadeId, ligada: true } : undefined),
     prisma.habilidade.findFirst({ where: { id: habilidadeId, personagemId } }),
   ]);
-  if (!hab) throw new ErroDeUso("Habilidade não encontrada.");
+  if (!bruta) throw new ErroDeUso("Habilidade não encontrada.");
+  // Custo por fórmula vira número com o nível e os atributos.
+  const hab = comCustosResolvidos(bruta, agg.ctxFormula);
 
   if (hab.custoPp > 0 && personagem.ppAtual < hab.custoPp) {
     throw new ErroDeUso("PP insuficiente.");
@@ -2286,11 +2343,15 @@ export async function devolverNo(
         where: { id: arvore.recursoCustoId, personagemId },
       });
       if (recurso) {
+        // Máximo por fórmula precisa do nível e dos atributos da ficha.
+        const max = recurso.valorMaxFormula
+          ? maximoDoRecurso(recurso, (await carregarAgregado(personagemId)).agg.ctxFormula)
+          : recurso.valorMax;
         ops.push(
           prisma.recurso.update({
             where: { id: recurso.id, personagemId },
             data: {
-              valorAtual: Math.min(recurso.valorAtual + no.custo, recurso.valorMax),
+              valorAtual: Math.min(recurso.valorAtual + no.custo, max),
             },
           }),
         );
@@ -2800,7 +2861,10 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
         ppMax: pools.ppMax,
         exaustao: personagem.exaustao,
         recursos: Object.fromEntries(
-          recursos.map((x) => [x.id, { nome: x.nome, valorAtual: x.valorAtual, valorMax: x.valorMax }]),
+          recursos.map((x) => [
+            x.id,
+            { nome: x.nome, valorAtual: x.valorAtual, valorMax: maximoDoRecurso(x, agg.ctxFormula) },
+          ]),
         ),
       },
       defesas: defesasDoAgregado(agg),
@@ -2905,11 +2969,12 @@ export async function descansar(personagemId: string, tipo: TipoDescanso) {
     if (tipo !== "curto" && tipo !== "longo") {
       throw new ErroDeUso("Tipo de descanso inválido.");
     }
-    const [{ personagem }, { agg }, recursos, habilidades] = await Promise.all([
+    const [{ personagem }, { agg }, recursos, habilidades, acoes] = await Promise.all([
       autorizar(personagemId),
       carregarAgregado(personagemId),
       prisma.recurso.findMany({ where: { personagemId } }),
       prisma.habilidade.findMany({ where: { personagemId } }),
+      prisma.acao.findMany({ where: { personagemId, recarga: { not: null } } }),
     ]);
     if (tipo === "longo" && personagem.hpAtual < 1) {
       throw new ErroDeUso("O descanso longo precisa começar com pelo menos 1 PV.");
@@ -2932,14 +2997,24 @@ export async function descansar(personagemId: string, tipo: TipoDescanso) {
 
     for (const r of recursos) {
       if (!recuperaNoDescanso(r.resetEm, tipo)) continue;
-      if (r.valorAtual >= r.valorMax) continue;
+      const max = maximoDoRecurso(r, agg.ctxFormula);
+      if (r.valorAtual >= max) continue;
       ops.push(
         prisma.recurso.update({
           where: { id: r.id, personagemId },
-          data: { valorAtual: r.valorMax },
+          data: { valorAtual: max },
         }),
       );
       resumo.recursos.push(r.nome);
+    }
+
+    // Usos das ações recarregam como os das habilidades.
+    for (const a of acoes) {
+      if (!recuperaNoDescanso(a.recarga, tipo)) continue;
+      const max = usosMaximos(a, agg.ctxFormula);
+      if (max == null || (a.usosAtual ?? 0) >= max) continue;
+      ops.push(prisma.acao.update({ where: { id: a.id, personagemId }, data: { usosAtual: max } }));
+      resumo.habilidades.push(a.nome);
     }
 
     for (const h of habilidades) {

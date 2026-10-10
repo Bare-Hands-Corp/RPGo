@@ -7,6 +7,7 @@ import { EditableStat } from "./editable-stat";
 import { EditFichaModal } from "./edit-ficha-modal";
 import { AvatarUploadModal } from "./avatar-upload-modal";
 import { RecursosSidebar, type Recurso } from "./recursos-sidebar";
+import { FormulaContext } from "./campo-formula";
 import { CrEditavel } from "./cr-editavel";
 import { ExaustaoControle } from "./exaustao-controle";
 import { DescansoControle } from "./descanso-controle";
@@ -1104,7 +1105,9 @@ export function PerfilSidebar({
         ) : null,
       )}
 
-      <RecursosSidebar personagemId={p.id} recursos={p.recursos} />
+      <FormulaContext.Provider value={ctxTurno}>
+        <RecursosSidebar personagemId={p.id} recursos={p.recursos} />
+      </FormulaContext.Provider>
 
       <div className="derivados-grid">
         {(() => {

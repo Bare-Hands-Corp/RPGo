@@ -7691,3 +7691,34 @@ form > .turno-campo,
     transition: none;
   }
 }
+
+/* ─── Custos com fórmula: ícone ao lado dos campos ─────────── */
+.custo-linha.custo-linha-formula {
+  align-items: flex-start;
+}
+
+.custo-linha-formula .custo-icone {
+  margin-top: 22px;
+}
+
+.custo-linha-formula .formula-campo,
+.custo-recurso-campo {
+  flex: 1;
+  min-width: 0;
+}
+
+.modal-box .custo-recurso-campo .custo-recurso {
+  width: 100%;
+  padding-block: 9px;
+}
+
+@media (max-width: 520px) {
+  .custo-linha.custo-linha-formula {
+    flex-wrap: wrap;
+  }
+
+  .custo-linha-formula .formula-campo,
+  .custo-recurso-campo {
+    flex: 1 1 140px;
+  }
+}

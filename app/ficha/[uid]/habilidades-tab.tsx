@@ -27,6 +27,7 @@ import {
   lerEfeitos,
   resolverFormula,
   temEfeitoSustentado,
+  lerNumeroOuFormula,
   usosMaximos,
   valorDaFormula,
   type Atributo,
@@ -88,6 +89,9 @@ type Habilidade = {
   custoPa: number;
   custoRecursoId: string | null;
   custoRecursoValor: number;
+  // Custo por fórmula; os números acima já chegam resolvidos.
+  custoPpFormula?: string | null;
+  custoRecursoFormula?: string | null;
   usos: number | null;
   usosAtual: number | null;
   recarga: string | null;
@@ -1109,6 +1113,8 @@ type HabilidadeFormDados = {
   custoPa: number;
   custoRecursoId: string | null;
   custoRecursoValor: number;
+  custoPpFormula: string | null;
+  custoRecursoFormula: string | null;
   usos: number | null;
   usosAtual: number | null;
   usosFormula: string | null;
@@ -1149,13 +1155,14 @@ function HabilidadeModal({
   );
   const [descricao, setDescricao] = useState(inicial?.descricao ?? "");
   const [custoPp, setCustoPp] = useState(
-    inicial?.custoPp ? String(inicial.custoPp) : "",
+    inicial?.custoPpFormula ?? (inicial?.custoPp ? String(inicial.custoPp) : ""),
   );
   const [custoRecursoId, setCustoRecursoId] = useState(
     inicial?.custoRecursoId ?? "",
   );
   const [custoRecursoValor, setCustoRecursoValor] = useState(
-    inicial?.custoRecursoValor ? String(inicial.custoRecursoValor) : "",
+    inicial?.custoRecursoFormula ??
+      (inicial?.custoRecursoValor ? String(inicial.custoRecursoValor) : ""),
   );
   const [usos, setUsos] = useState(
     inicial?.usosFormula ?? (inicial?.usos != null ? String(inicial.usos) : ""),
@@ -1197,15 +1204,20 @@ function HabilidadeModal({
       usosTexto === ""
         ? null
         : Math.max(0, usosFormula ? valorDaFormula(usosFormula, atributos, nivel) : Number(usosTexto) || 0);
+    // Custos: número ou fórmula (o valor de agora vai junto, como reserva).
+    const pp = lerNumeroOuFormula(custoPp, { nivel, atributos });
+    const doRecurso = lerNumeroOuFormula(custoRecursoId ? custoRecursoValor : "", { nivel, atributos });
     onSalvar({
       nome: nomeLimpo,
       origem,
       tipo,
       descricao,
-      custoPp: Number(custoPp) || 0,
+      custoPp: pp.numero,
+      custoPpFormula: pp.formula,
       custoPa: inicial?.custoPa ?? 0,
       custoRecursoId: custoRecursoId || null,
-      custoRecursoValor: Number(custoRecursoValor) || 0,
+      custoRecursoValor: doRecurso.numero,
+      custoRecursoFormula: doRecurso.formula,
       usos: usosNum,
       // Edição preserva o tanque atual; criação começa cheio (= usos).
       usosAtual: inicial ? inicial.usosAtual : usosNum,
