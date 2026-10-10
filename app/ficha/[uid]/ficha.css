@@ -364,6 +364,30 @@
   font-weight: 600;
 }
 
+/* Deslocamento + Nadar lado a lado, ocupando a altura de uma linha só. */
+.recurso-dupla {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.recurso-dupla .recurso-linha {
+  gap: 6px;
+  padding: 6px 8px;
+  min-width: 0;
+}
+
+.recurso-dupla .recurso-nome {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recurso-dupla .stat-values {
+  white-space: nowrap;
+}
+
 /* Valor reduzido por exaustão (deslocamento, bônus de testes de d20) —
    amarelo pra deixar claro que não é o valor base da ficha. */
 .valor-exausto,
@@ -7702,7 +7726,14 @@ form > .turno-campo,
 /* ─── Deslocamentos: os modos lado a lado na barra lateral ─── */
 .movimentos {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(48px, 1fr));
+  gap: 6px;
+}
+
+/* Andar e nadar em cima, os outros deslocamentos embaixo. */
+.movimentos-bloco {
+  display: flex;
+  flex-direction: column;
   gap: 6px;
 }
 
@@ -7720,21 +7751,12 @@ form > .turno-campo,
   position: relative;
 }
 
-/* Marcas de "vem de efeito" e "reduzido por exaustão" ficam nos cantos. */
-.movimento .prof-fonte,
-.movimento .exausto-marca {
+/* Marca de "vem de efeito" fica no canto. */
+.movimento .prof-fonte {
   position: absolute;
   top: 4px;
-  margin: 0;
-  font-size: 0.55rem;
-}
-
-.movimento .prof-fonte {
   right: 4px;
-}
-
-.movimento .exausto-marca {
-  left: 4px;
+  font-size: 0.55rem;
 }
 
 .movimento-icone {

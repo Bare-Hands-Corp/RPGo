@@ -1089,25 +1089,38 @@ export function PerfilSidebar({
         }
       />
 
-      {/* Deslocamentos lado a lado; o que o personagem não tem fica apagado. */}
-      <div className="movimentos" role="group" aria-label="Deslocamentos">
-        {movimentos.map((m) => (
-          <div
-            key={m.tipo}
-            className={`movimento${m.valor > 0 ? "" : " sem"}${m.reduzido ? " valor-exausto" : ""}`}
-            title={m.titulo}
-          >
-            <i className={`fas ${m.icone} movimento-icone`} />
-            <strong>
-              {m.valor > 0 ? `${m.valor.toLocaleString("pt-BR")} m` : "—"}
-              {m.reduzido && <MarcaExausto titulo={`Reduzido por exaustão (de ${deslocBruto} m)`} />}
-            </strong>
-            <span className="movimento-nome">
-              {m.nome}
-              {m.deEfeito && <i className="fas fa-link prof-fonte" />}
-            </span>
-          </div>
-        ))}
+      {/* Andar e nadar em cima; os outros deslocamentos embaixo, menores, e apagados
+          quando o personagem não tem. */}
+      <div className="movimentos-bloco">
+        <div className="recurso-dupla">
+          {movimentos.slice(0, 2).map((m) => (
+            <div key={m.tipo} className="recurso-linha" title={m.titulo}>
+              <span className="recurso-icone">
+                <i className={`fas ${m.icone}`} />
+              </span>
+              <span className="recurso-nome">{m.nome}</span>
+              <span className={`stat-values ${m.reduzido ? "valor-exausto" : ""}`}>
+                {m.valor.toLocaleString("pt-BR")} m
+                {m.deEfeito && <i className="fas fa-link prof-fonte" />}
+                {m.reduzido && (
+                  <MarcaExausto titulo={`Reduzido por exaustão (de ${deslocBruto} m)`} />
+                )}
+              </span>
+            </div>
+          ))}
+        </div>
+        <div className="movimentos" role="group" aria-label="Outros deslocamentos">
+          {movimentos.slice(2).map((m) => (
+            <div key={m.tipo} className={`movimento${m.valor > 0 ? "" : " sem"}`} title={m.titulo}>
+              <i className={`fas ${m.icone} movimento-icone`} />
+              <strong>{m.valor > 0 ? `${m.valor.toLocaleString("pt-BR")} m` : "—"}</strong>
+              <span className="movimento-nome">
+                {m.nome}
+                {m.deEfeito && <i className="fas fa-link prof-fonte" />}
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
 
       <FormulaContext.Provider value={ctxTurno}>
