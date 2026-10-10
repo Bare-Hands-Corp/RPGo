@@ -45,6 +45,7 @@ import {
   ATRIBUTOS,
   comValoresIguais,
   crBase,
+  crescerPorTurno,
   deslocamentoEfetivo,
   exaustaoQueConta,
   fonteDeAliado,
@@ -648,7 +649,29 @@ export function PerfilSidebar({
       })),
   );
   const tecnicaTurnos = concentracaoEmCurso(p.concentracao);
-  const temTurno = porTurno.length > 0 || duracoesTurno.length > 0 || !!tecnicaTurnos;
+  // Bônus progressivo "por turno" das fontes que estão valendo.
+  const acaoConcentrada =
+    concentracaoAtual?.tipo === "acao" ? acoes.find((a) => a.id === concentracaoAtual.id) : undefined;
+  const crescemNoTurno = [
+    ...habilidades
+      .filter((h) => h.tipo === "passiva" || (ligadaOverlay[h.id] ?? h.ligada))
+      .map((h) => ({
+        habilidadeId: h.id as string | null,
+        nome: h.nome,
+        efeitos: h.id in efeitosOverlay ? efeitosOverlay[h.id] : h.efeitos,
+      })),
+    ...itensComOverlay
+      .filter((i) => i.equipado)
+      .map((i) => ({ habilidadeId: null, nome: i.nome, efeitos: i.efeitos })),
+    ...(acaoConcentrada
+      ? [{ habilidadeId: null, nome: acaoConcentrada.nome, efeitos: acaoConcentrada.efeitos }]
+      : []),
+  ].flatMap((x) => {
+    const novo = crescerPorTurno(x.efeitos);
+    return novo ? [{ habilidadeId: x.habilidadeId, nome: x.nome, novo }] : [];
+  });
+  const temTurno =
+    porTurno.length > 0 || duracoesTurno.length > 0 || !!tecnicaTurnos || crescemNoTurno.length > 0;
   const nomeRecurso = (id: string) => p.recursos.find((r) => r.id === id)?.nome;
   const ctxTurno = efeitosAgregados.ctxFormula ?? { nivel: p.nivel, atributos: atributosEfetivos };
   const resumoTurno = [
@@ -660,6 +683,7 @@ export function PerfilSidebar({
       fonte: d.nome,
       texto: textoTurnosRestantes(d.turnos).toLowerCase(),
     })),
+    ...crescemNoTurno.flatMap((x) => x.novo.textos.map((texto) => ({ fonte: x.nome, texto }))),
   ];
 
   // Rola aqui, mostra na hora e manda os totais pro servidor conferir.
@@ -708,6 +732,14 @@ export function PerfilSidebar({
     }
     setTurnosOverlay((o) => ({ ...o, ...r.turnos }));
     anunciarTurnos(r.turnos);
+    // Bônus progressivo por turno: o passo novo já entra nos valores daqui.
+    const desligadas = new Set(r.desligar.map((h) => h.id));
+    const cresceram = Object.fromEntries(
+      crescemNoTurno.flatMap((x) =>
+        x.habilidadeId && !desligadas.has(x.habilidadeId) ? [[x.habilidadeId, x.novo.efeitos]] : [],
+      ),
+    );
+    if (Object.keys(cresceram).length > 0) setEfeitosOverlay((o) => ({ ...o, ...cresceram }));
     const c = concentracaoAtual;
     const perde =
       !!c &&

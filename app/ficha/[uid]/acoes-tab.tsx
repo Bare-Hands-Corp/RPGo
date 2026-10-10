@@ -56,7 +56,9 @@ import {
   EfeitosEditor,
   FormulaContext,
   NomesRecursoContext,
+  PassosProgressivos,
   StatsPorTurno,
+  useContagemDoRolador,
 } from "./efeitos-editor";
 import { useExaustaoOtimista, usePpOtimista } from "./use-exaustao-otimista";
 import { useEscolherAlvo } from "./escolher-alvo";
@@ -732,6 +734,19 @@ export function AcoesTab({
     });
   }
 
+  // Contador do bônus progressivo: muda na hora e grava os efeitos.
+  function mudarEfeitos(acao: Acao, efeitos: EfeitoHabilidade[]) {
+    startTransition(async () => {
+      aplicarPatch({ kind: "update", id: acao.id, patch: { efeitos } });
+      try {
+        exigir(await atualizarAcao(personagemId, acao.id, { efeitos }));
+      } catch (err) {
+        mostrarErro(err);
+      }
+    });
+  }
+  useContagemDoRolador(acoesOtimistas, mudarEfeitos);
+
   // Põe na pasta (etiqueta + cópia guardada) ou tira a etiqueta.
   function guardarEmPasta(acao: Acao, pasta: string | null) {
     startTransition(async () => {
@@ -1229,6 +1244,12 @@ export function AcoesTab({
                             ))}
                           </div>
                         )}
+                        <PassosProgressivos
+                          efeitos={efeitosAcao}
+                          onChange={(efeitos) => mudarEfeitos(acao, efeitos)}
+                          travado={travada}
+                          grau={acao.tecnica && acao.grau > 0 ? acao.grau : undefined}
+                        />
                         <div className="card-desc">{acao.descricao}</div>
                       </div>
                       {(custos.length > 0 || podeUsar || acao.tag || acao.pasta || origens.length > 0 || armasDaAcao.length > 0) && (

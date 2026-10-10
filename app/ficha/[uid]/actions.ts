@@ -12,6 +12,7 @@ import {
   PERICIAS,
   atributosEfetivos,
   computarDeltasInstantaneos,
+  crescerPorTurno,
   curasComFormula,
   custoDaAcao,
   efeitoInstantaneo,
@@ -2738,15 +2739,25 @@ export async function curarPv(personagemId: string, valor: unknown) {
 // cliente rola; o servidor confere cada dado contra a fórmula. Publica no chat.
 export async function passarTurno(personagemId: string, rolagens?: unknown) {
   return executar("ficha", async () => {
-    const [{ user, personagem }, { agg }, recursos, ligadas] = await Promise.all([
-      autorizar(personagemId),
-      carregarAgregado(personagemId),
-      prisma.recurso.findMany({ where: { personagemId } }),
-      prisma.habilidade.findMany({
-        where: { personagemId, ligada: true },
-        select: { id: true, nome: true, duracao: true, turnosRestantes: true },
-      }),
-    ]);
+    const [{ user, personagem }, { agg }, recursos, ligadas, habsValendo, itensEquipados] =
+      await Promise.all([
+        autorizar(personagemId),
+        carregarAgregado(personagemId),
+        prisma.recurso.findMany({ where: { personagemId } }),
+        prisma.habilidade.findMany({
+          where: { personagemId, ligada: true },
+          select: { id: true, nome: true, duracao: true, turnosRestantes: true },
+        }),
+        // Fontes que estão valendo, pro bônus progressivo "por turno".
+        prisma.habilidade.findMany({
+          where: { personagemId, OR: [{ tipo: "passiva" }, { ligada: true }] },
+          select: { id: true, nome: true, efeitos: true },
+        }),
+        prisma.item.findMany({
+          where: { personagemId, equipado: true },
+          select: { id: true, nome: true, efeitos: true },
+        }),
+      ]);
     const duracoes = duracoesEmCurso(ligadas);
     const concentracao = lerConcentracao(personagem.concentracao);
     const tecnica = concentracaoEmCurso(personagem.concentracao);
@@ -2761,7 +2772,16 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
       ...agg.porTurno,
       ...porTurnoDaConcentracao(personagem.concentracao, acaoConcentrada ? [acaoConcentrada] : []),
     ];
-    if (porTurno.length === 0 && duracoes.length === 0 && !tecnica) {
+    // Bônus progressivo "por turno": um passo a mais em cada fonte que está valendo.
+    const crescem = [
+      ...habsValendo.map((h) => ({ tabela: "habilidade" as const, ...h })),
+      ...itensEquipados.map((i) => ({ tabela: "item" as const, ...i })),
+      ...(acaoConcentrada ? [{ tabela: "acao" as const, ...acaoConcentrada }] : []),
+    ].flatMap((x) => {
+      const novo = crescerPorTurno(x.efeitos);
+      return novo ? [{ tabela: x.tabela, id: x.id, nome: x.nome, novo }] : [];
+    });
+    if (porTurno.length === 0 && duracoes.length === 0 && !tecnica && crescem.length === 0) {
       throw new ErroDeUso("Nada acontece a cada turno.");
     }
 
@@ -2802,6 +2822,17 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
         : [];
 
     const ops: Prisma.PrismaPromise<unknown>[] = [];
+    // O que desliga neste turno (ou a técnica que perde a concentração) não cresce.
+    const desligadas = new Set(r.desligar.map((h) => h.id));
+    for (const x of crescem) {
+      if (x.tabela === "acao" ? perdeu : desligadas.has(x.id)) continue;
+      for (const texto of x.novo.textos) r.linhas.push({ fonte: x.nome, texto });
+      const where = { id: x.id, personagemId };
+      const data = { efeitos: x.novo.efeitos as unknown as Prisma.InputJsonValue };
+      if (x.tabela === "habilidade") ops.push(prisma.habilidade.update({ where, data }));
+      else if (x.tabela === "item") ops.push(prisma.item.update({ where, data }));
+      else ops.push(prisma.acao.update({ where, data }));
+    }
     const dadosPersonagem: Record<string, unknown> = {};
     for (const campo of ["hpAtual", "hpTemp", "pvNegativos", "ppAtual", "exaustao"] as const) {
       if (r.estado[campo] !== personagem[campo]) dadosPersonagem[campo] = r.estado[campo];

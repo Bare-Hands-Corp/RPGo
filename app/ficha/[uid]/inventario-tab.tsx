@@ -56,6 +56,7 @@ import {
   DatalistAlvos,
   EfeitosEditor,
   PassosProgressivos,
+  useContagemDoRolador,
   type RecursoMinimo,
 } from "./efeitos-editor";
 import { ACadaTurnoCampo, comPorTurno, porTurnoDe } from "./duracao-campo";
@@ -430,6 +431,7 @@ export function InventarioTab({
       }
     });
   }
+  useContagemDoRolador(itensOtimistas, mudarEfeitos);
 
   function abrirNovo() {
     setForm(FORM_VAZIO);

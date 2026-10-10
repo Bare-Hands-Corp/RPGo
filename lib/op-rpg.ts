@@ -951,6 +951,9 @@ export type TipoEfeito =
 // crítico ou d20 a partir de um número.
 export type GatilhoExplosao = "maximo" | "valor" | "total" | "critico";
 
+// O que faz o bônus progressivo subir sozinho; sem isso, só na mão.
+export type GatilhoProgressivo = "turno" | "rolagem";
+
 export type EfeitoHabilidade =
   // `formula` (ex: "PROF/2+1", "3*NIVEL") vale no lugar de `valor` quando existe.
   | { tipo: "modificador"; alvo: string; valor: number; formula?: string; quando?: string }
@@ -1060,9 +1063,17 @@ export type EfeitoHabilidade =
   | { tipo: "multi_ataque"; vezes: number; soma?: boolean; alvo?: string }
   // No gatilho, rola de novo e soma (dano) ou ataca de novo (ataque), até `limite` vezes.
   | { tipo: "explosao"; gatilho: GatilhoExplosao; valor?: number; limite: number; em?: string }
-  // Bônus que cresce: `formula` por passo, até `max`. Em rolagem, o Rolador conta
-  // os passos; em valor da ficha (CR, deslocamento…), `passos` é a contagem do card.
-  | { tipo: "progressivo"; formula: string; max: number; em?: string; por?: string; passos?: number }
+  // Bônus que cresce: `formula` por passo, até `max`. `passos` é a contagem, mexida
+  // no card ou no Rolador; `cresce` sobe um passo sozinho (Passar turno ou rolagem).
+  | {
+      tipo: "progressivo";
+      formula: string;
+      max: number;
+      em?: string;
+      por?: string;
+      passos?: number;
+      cresce?: GatilhoProgressivo;
+    }
   // O valor de `alvo` passa a ser o de `de` (com `metade`, a metade); vale o maior.
   | { tipo: "valor_igual"; alvo: string; de: string; metade?: boolean }
   | { tipo: "livre"; texto: string };
@@ -2005,13 +2016,16 @@ export function normalizarEfeito(
       const por = str(obj.por).trim().slice(0, 24);
       const max = Math.min(20, Math.max(1, Math.trunc(num(obj.max)) || 5));
       const passos = Math.min(max, Math.max(0, Math.trunc(num(obj.passos))));
+      const cresce = obj.cresce === "turno" || obj.cresce === "rolagem" ? obj.cresce : null;
       return {
         tipo,
         formula,
         max,
         ...(str(obj.em) ? { em: str(obj.em) } : {}),
-        ...(por ? { por } : {}),
+        // Com gatilho, o "por" é o próprio gatilho.
+        ...(por && !cresce ? { por } : {}),
         ...(passos ? { passos } : {}),
+        ...(cresce ? { cresce } : {}),
       };
     }
     case "livre":
@@ -2238,6 +2252,47 @@ export function progressivoNaFicha(
 ): boolean {
   const alvo = (em ?? "").trim().toLowerCase();
   return !!alvo && !alvoDeRolagem(alvo, slugsPericiaCustom);
+}
+
+// "turno", "rolagem" ou o texto livre do efeito.
+function porDoProgressivo(e: { cresce?: GatilhoProgressivo; por?: string }): string {
+  return e.cresce ?? e.por ?? "vez";
+}
+
+// Evento do Rolador: a contagem de um bônus progressivo mudou lá.
+export const EVENTO_PASSOS = "rpgo:passos-progressivo";
+
+export type PassosDoRolador = { fonte: string; formula: string; em: string; passos: number };
+
+// Efeitos com a contagem nova no progressivo que casa; null se nada muda.
+export function comPassosProgressivos(
+  efeitos: EfeitoHabilidade[],
+  d: Omit<PassosDoRolador, "fonte">,
+): EfeitoHabilidade[] | null {
+  let mudou = false;
+  const novos = efeitos.map((e) => {
+    if (e.tipo !== "progressivo" || e.formula !== d.formula) return e;
+    if (((e.em ?? "dano").trim().toLowerCase() || "dano") !== d.em) return e;
+    const passos = Math.min(e.max, Math.max(0, Math.trunc(d.passos)));
+    if (passos === (e.passos ?? 0)) return e;
+    mudou = true;
+    return { ...e, passos: passos || undefined };
+  });
+  return mudou ? novos : null;
+}
+
+// Passar turno: os progressivos "por turno" sobem um passo; null se nenhum sobe.
+export function crescerPorTurno(
+  raw: unknown,
+): { efeitos: EfeitoHabilidade[]; textos: string[] } | null {
+  const textos: string[] = [];
+  const efeitos = lerEfeitos(raw).map((e) => {
+    if (e.tipo !== "progressivo" || e.cresce !== "turno" || (e.passos ?? 0) >= e.max) return e;
+    const passos = (e.passos ?? 0) + 1;
+    textos.push(`bônus progressivo ${passos} de ${e.max}`);
+    return { ...e, passos };
+  });
+  return textos.length ? { efeitos, textos } : null;
 }
 
 export type Substituicao = { atributo: Atributo; fontes: string[]; seMaior?: boolean };
@@ -2588,8 +2643,16 @@ export type EfeitosAgregados = {
   multiAtaques: { vezes: number; soma: boolean; alvo: string; fonte: string }[];
   // Explosões de dano e de ataque.
   explosoes: { gatilho: GatilhoExplosao; valor: number; limite: number; em: string; fonte: string }[];
-  // Bônus progressivos, crus; o Rolador conta os passos.
-  progressivos: { formula: string; max: number; em: string; por?: string; fonte: string }[];
+  // Bônus progressivos de rolagem, crus, com a contagem atual.
+  progressivos: {
+    formula: string;
+    max: number;
+    em: string;
+    por: string;
+    passos: number;
+    cresce?: GatilhoProgressivo;
+    fonte: string;
+  }[];
   // Valor fixo por alvo (CR, deslocamentos): vale o maior.
   valoresFixos: Partial<Record<string, FonteValor>>;
   // Dado da arma fixo (vale o maior).
@@ -3661,7 +3724,9 @@ export function agregarEfeitos(
             formula: e.formula,
             max: e.max,
             em,
-            ...(e.por ? { por: e.por } : {}),
+            por: porDoProgressivo(e),
+            passos: e.passos ?? 0,
+            ...(e.cresce ? { cresce: e.cresce } : {}),
             fonte: h.nome,
           });
         }
@@ -3769,9 +3834,10 @@ export type ChipContexto = {
   gasta?: string;
   // Explosão: quando dispara e quantas vezes.
   explosao?: { gatilho: GatilhoExplosao; valor: number; limite: number };
-  // Bônus progressivo: teto de passos e a chave que guarda a contagem.
+  // Bônus progressivo: teto de passos, a chave da contagem e de onde ela vem.
   max?: number;
   memoria?: string;
+  progressivo?: { fonte: string; formula: string; em: string; passos: number; cresce?: GatilhoProgressivo };
 };
 
 // Subconjunto do agregado que o Rolador precisa pra montar os chips — evita
@@ -4030,7 +4096,14 @@ export function chipsDoContexto(
       valor: r.modificador,
       max: p.max,
       memoria: `${p.fonte}|${p.formula}|${p.em}`,
-      ...(p.por ? { detalhe: `por ${p.por}` } : {}),
+      progressivo: {
+        fonte: p.fonte,
+        formula: p.formula,
+        em: p.em,
+        passos: p.passos ?? 0,
+        ...(p.cresce ? { cresce: p.cresce } : {}),
+      },
+      detalhe: `por ${p.por ?? "vez"}`,
     });
   });
 
@@ -4516,7 +4589,7 @@ export function resumoEfeito(
       }`;
     }
     case "progressivo":
-      return `+${texto(e.formula).replace(/^\+\s*/, "")} por ${e.por ?? "vez"} · até ${e.max}×${
+      return `+${texto(e.formula).replace(/^\+\s*/, "")} por ${porDoProgressivo(e)} · até ${e.max}×${
         e.em && e.em !== "dano" ? ` · ${rotuloAlvo(e.em)}` : ""
       }`;
     case "livre":

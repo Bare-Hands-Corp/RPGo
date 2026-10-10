@@ -2,7 +2,7 @@
 
 // Editor de efeitos estruturados, usado por Habilidades e Itens.
 
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useEffect, useEffectEvent, useState } from "react";
 import {
   ALVOS_AGREGAVEIS,
   ALVOS_ATAQUE,
@@ -13,21 +13,25 @@ import {
   ALVOS_VALOR_FIXO,
   ALVOS_VALOR_IGUAL,
   ATRIBUTOS,
+  EVENTO_PASSOS,
   GRUPOS_PRESET,
   META_EFEITOS,
   MOVIMENTOS,
   PRESETS_EFEITO,
   alvoDeRolagem,
+  comPassosProgressivos,
   extraNoDano,
   formatarMod,
+  formulaResolvidaTexto,
   lerEfeitos,
   nomeDoEfeito,
   progressivoNaFicha,
+  resolverFormula,
   resumoEfeito,
   rotuloAlvo,
-  valorDaFormula,
   type Atributo,
   type EfeitoHabilidade,
+  type PassosDoRolador,
 } from "@/lib/op-rpg";
 import { CampoPasso, CondicaoCampo, Segmentos, TipoDanoCampo, TiposDanoCampo } from "./campos-modal";
 import { casaBusca, normalizarBusca } from "./barra-filtros";
@@ -207,30 +211,38 @@ export function StatsPorTurno({ efeitos, grau }: { efeitos: EfeitoHabilidade[]; 
   });
 }
 
-// Contador dos bônus progressivos em valor da ficha (CR, deslocamento…); fica no card.
+// Contador manual dos bônus progressivos; fica no card e é o mesmo do Rolador.
 export function PassosProgressivos({
   efeitos,
   onChange,
   travado,
+  grau,
 }: {
   efeitos: EfeitoHabilidade[];
   onChange: (efeitos: EfeitoHabilidade[]) => void;
   travado?: boolean;
+  // Grau da técnica, pro GRAU da fórmula.
+  grau?: number;
 }) {
   const formula = useContext(FormulaContext);
-  const slugsCustom = new Set(useContext(AlvosCustomContext).map((a) => a.slug));
-  const linhas = efeitos.flatMap((e, i) =>
-    e.tipo === "progressivo" && progressivoNaFicha(e.em, slugsCustom) ? [{ e, i }] : [],
-  );
+  const linhas = efeitos.flatMap((e, i) => (e.tipo === "progressivo" ? [{ e, i }] : []));
   if (linhas.length === 0) return null;
   return (
     <div className="passos-progressivos">
       {linhas.map(({ e, i }) => {
         const passos = Math.min(e.max, e.passos ?? 0);
-        const porPasso = formula
-          ? valorDaFormula(e.formula, formula.atributos, formula.nivel)
-          : Number(e.formula) || 0;
-        const alvo = rotuloAlvo(e.em ?? "");
+        const r = formula
+          ? resolverFormula(e.formula, formula.atributos, formula.nivel, { grau })
+          : { dados: [], modificador: Number(e.formula) || 0 };
+        const texto = formula
+          ? formulaResolvidaTexto(e.formula, formula.atributos, formula.nivel, { grau })
+          : e.formula;
+        // Com dado, a fórmula e as vezes; só número, o total.
+        const valor =
+          r.dados.length > 0
+            ? `+${texto.replace(/^\+\s*/, "")} ×${passos}`
+            : formatarMod(r.modificador * passos);
+        const alvo = rotuloAlvo(e.em ?? "dano").replace(/ \(.*\)$/, "");
         const mudar = (n: number) =>
           onChange(efeitos.map((x, j) => (j === i ? { ...e, passos: n || undefined } : x)));
         return (
@@ -244,7 +256,7 @@ export function PassosProgressivos({
               <i className="fas fa-minus" />
             </button>
             <span className="passos-progressivo-valor">
-              <i className="fas fa-arrow-trend-up" /> {alvo} <strong>{formatarMod(porPasso * passos)}</strong>
+              <i className="fas fa-arrow-trend-up" /> {alvo} <strong>{valor}</strong>
               <small>
                 {passos}/{e.max}
               </small>
@@ -262,6 +274,28 @@ export function PassosProgressivos({
       })}
     </div>
   );
+}
+
+// Contagem mexida no Rolador: acha o efeito pelo nome da fonte e manda gravar.
+export function useContagemDoRolador<T extends { nome: string; efeitos: unknown }>(
+  lista: T[],
+  gravar: (item: T, efeitos: EfeitoHabilidade[]) => void,
+) {
+  const aoMudar = useEffectEvent((d: PassosDoRolador) => {
+    for (const item of lista) {
+      if (item.nome !== d.fonte) continue;
+      const efeitos = comPassosProgressivos(lerEfeitos(item.efeitos), d);
+      if (efeitos) gravar(item, efeitos);
+    }
+  });
+  useEffect(() => {
+    function ouvir(e: Event) {
+      const det = (e as CustomEvent<PassosDoRolador>).detail;
+      if (det) aoMudar(det);
+    }
+    window.addEventListener(EVENTO_PASSOS, ouvir);
+    return () => window.removeEventListener(EVENTO_PASSOS, ouvir);
+  }, []);
 }
 
 // Cor do cartão: a do efeito que o preset cria.
@@ -1619,12 +1653,30 @@ function renderCorpo(
             dados={!naFicha}
             comGrau={extraNoDano(e.em)}
           />
-          <Campo
-            label="Por"
-            valor={e.por ?? ""}
-            onChange={(v) => onPatch({ por: v || undefined } as Partial<EfeitoHabilidade>)}
-            placeholder="turno, acerto, PP…"
+          <SelectLista
+            label="Cresce"
+            valor={e.cresce ?? "manual"}
+            opcoes={[
+              { slug: "manual", nome: "Manual" },
+              { slug: "turno", nome: "Turno" },
+              // Valor da ficha não passa pelo Rolador.
+              ...(naFicha ? [] : [{ slug: "rolagem", nome: "Rolagem" }]),
+            ]}
+            onChange={(v) =>
+              onPatch({
+                cresce: v === "manual" ? undefined : v,
+                ...(v === "manual" ? {} : { por: undefined }),
+              } as Partial<EfeitoHabilidade>)
+            }
           />
+          {!e.cresce && (
+            <Campo
+              label="Por"
+              valor={e.por ?? ""}
+              onChange={(v) => onPatch({ por: v || undefined } as Partial<EfeitoHabilidade>)}
+              placeholder="acerto, PP, 3 m…"
+            />
+          )}
           {daAcao ? (
             <SelectLista
               label="Onde"
@@ -1643,7 +1695,12 @@ function renderCorpo(
                 titulo="Onde"
                 valor={e.em ?? "dano"}
                 onChange={(v) =>
-                  onPatch({ em: !v || v === "dano" ? undefined : v } as Partial<EfeitoHabilidade>)
+                  onPatch({
+                    em: !v || v === "dano" ? undefined : v,
+                    ...(e.cresce === "rolagem" && progressivoNaFicha(v, slugsCustom)
+                      ? { cresce: undefined }
+                      : {}),
+                  } as Partial<EfeitoHabilidade>)
                 }
               />
             </div>

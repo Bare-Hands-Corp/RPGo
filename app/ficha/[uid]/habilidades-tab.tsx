@@ -50,6 +50,7 @@ import {
   EfeitosEditor,
   PassosProgressivos,
   StatsPorTurno,
+  useContagemDoRolador,
   type RecursoMinimo,
 } from "./efeitos-editor";
 import type { Dado } from "@/lib/dice";
@@ -350,6 +351,7 @@ export function HabilidadesTab({
       }
     });
   }
+  useContagemDoRolador(otimistas, mudarEfeitos);
 
   function toggleFavorita(h: Habilidade) {
     startTransition(async () => {

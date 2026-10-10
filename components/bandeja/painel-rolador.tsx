@@ -23,10 +23,12 @@ import {
   type PublicarRolagemDetail,
 } from "@/lib/empilhar-rolagem";
 import {
+  EVENTO_PASSOS,
   chipsDoContexto,
   type ChipContexto,
   type ContextoRolagem,
   type EfeitosContexto,
+  type PassosDoRolador,
 } from "@/lib/op-rpg";
 
 type Props = {
@@ -109,8 +111,14 @@ type OpcoesContextuais = {
 
 type RegraExplosao = NonNullable<ChipContexto["explosao"]>;
 
-// Passos de cada bônus progressivo; ficam de uma rolagem pra outra.
-const contagemProgressiva = new Map<string, number>();
+// Avisa a ficha da contagem nova de um bônus progressivo (quem tem o efeito grava).
+function anunciarPassos(c: ChipContexto, passos: number) {
+  if (!c.progressivo) return;
+  const { fonte, formula, em } = c.progressivo;
+  window.dispatchEvent(
+    new CustomEvent<PassosDoRolador>(EVENTO_PASSOS, { detail: { fonte, formula, em, passos } }),
+  );
+}
 
 // Snapshot de uma rolagem contextual que ofereceu rerroll — fica "pendente" até
 // o usuário Manter ou esgotar as rerrolagens. Só persiste no chat ao Manter.
@@ -403,10 +411,11 @@ export function PainelRolador({
     const efeitos = efeitosRolagem ?? efeitosContexto;
     return contexto && efeitos ? chipsDoContexto(efeitos, contexto) : [];
   }, [contexto, efeitosContexto, efeitosRolagem]);
-  // Bônus progressivo conta passos em vez de ligar e desligar.
-  const [, setVersaoPassos] = useState(0);
+  // Bônus progressivo conta passos em vez de ligar e desligar: a contagem vem da
+  // ficha e o que for mexido aqui fica por cima até a próxima rolagem empilhada.
+  const [passosAjustados, setPassosAjustados] = useState<Record<string, number>>({});
   const passosDe = (c: ChipContexto) =>
-    Math.min(c.max ?? 0, contagemProgressiva.get(c.memoria ?? c.chave) ?? 0);
+    Math.min(c.max ?? 0, passosAjustados[c.memoria ?? c.chave] ?? c.progressivo?.passos ?? 0);
   const chipLigado = (c: ChipContexto) =>
     c.tipo === "progressivo" ? passosDe(c) > 0 : !c.opcional !== chipsAlternados.has(c.chave);
 
@@ -448,6 +457,7 @@ export function PainelRolador({
       setNomeContexto(det.nomePreset ?? null);
       setEfeitosRolagem(det.efeitos ?? null);
       setChipsAlternados(new Set<string>(ligados));
+      setPassosAjustados({});
       setPendente(null);
       setModoGravacao(false);
       setResultado({ tipo: "preview" });
@@ -568,6 +578,7 @@ export function PainelRolador({
     setNomeContexto(null);
     setEfeitosRolagem(null);
     setChipsAlternados(new Set());
+    setPassosAjustados({});
     setPendente(null);
     setResultado({ tipo: "preview" });
   }
@@ -584,8 +595,8 @@ export function PainelRolador({
 
   function mudarPassos(c: ChipContexto, delta: number) {
     const n = Math.min(c.max ?? 0, Math.max(0, passosDe(c) + delta));
-    contagemProgressiva.set(c.memoria ?? c.chave, n);
-    setVersaoPassos((v) => v + 1);
+    setPassosAjustados((s) => ({ ...s, [c.memoria ?? c.chave]: n }));
+    anunciarPassos(c, n);
     setResultado({ tipo: "preview" });
   }
 
@@ -774,6 +785,13 @@ export function PainelRolador({
     // Vant./desv. vinda só do toggle manual (sem chip) vira anotação própria.
     if (vantManual && !ligado("vantagem")) notas.push("Vantagem");
     if (desvManual && !ligado("desvantagem")) notas.push("Desvantagem");
+
+    // Progressivo "por rolagem": esta rolagem vale a contagem atual e a próxima sobe um.
+    for (const c of chips) {
+      if (c.progressivo?.cresce === "rolagem" && passosDe(c) < (c.max ?? 0)) {
+        anunciarPassos(c, passosDe(c) + 1);
+      }
+    }
 
     // Lote contextual: mais de uma vez roda N execuções contextuais e persiste
     // como lote. Reroll não se aplica num lote — só no lance único.
@@ -989,6 +1007,7 @@ export function PainelRolador({
     setNomeContexto(null);
     setEfeitosRolagem(null);
     setChipsAlternados(new Set());
+    setPassosAjustados({});
   }
 
   function salvarPresetComNome() {
