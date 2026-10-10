@@ -150,7 +150,7 @@ const ICONE_MOV: Record<string, string> = {
   cavar: "fa-person-digging",
 };
 // Modos que o visualizador mostra mesmo sem valor.
-const MODOS_FIXOS = ["voar", "escalar", "cavar"];
+const MODOS_FIXOS = ["voar", "escalar"];
 const ROTULO_MOV: Record<string, string> = {
   voar: "Voar",
   nadar: "Nadar",
@@ -616,9 +616,10 @@ export function PerfilSidebar({
   const deslocIgual = valores.deslocamento.fontes;
   const crTotal = valores.cr.valor;
   const crIgual = valores.cr.fontes;
-  // Voar, escalar, cavar e o que mais algum efeito der.
-  const tiposDeModo = [...new Set([...MODOS_FIXOS, ...Object.keys(modosProprios)])].filter(
-    (t) => t !== "nadar",
+  // Voar e escalar sempre; os outros modos (cavar, planar…) quando algum efeito der.
+  const naoSaoModos = new Set(["deslocamento", "nadar", "cr", ...ATRIBUTOS.map((a) => a.slug as string)]);
+  const tiposDeModo = [...new Set([...MODOS_FIXOS, ...Object.keys(valores)])].filter(
+    (t) => !naoSaoModos.has(t),
   );
   const deslocReduzido = deslocIgual.length === 0 && deslocEfetivo !== deslocBruto;
   const deslocTitulo =
@@ -636,8 +637,8 @@ export function PerfilSidebar({
 
   const nadoEfetivo = valores.nadar.valor;
   const nadoFontes = valores.nadar.fontes;
-  // Visualizador: andar, nadar, voar, escalar e cavar sempre à vista; modo que
-  // só um efeito dá entra quando tem valor.
+  // Visualizador: andar, nadar, voar e escalar sempre à vista; modo que só um
+  // efeito dá (cavar, planar…) entra quando tem valor.
   const movimentos = [
     {
       tipo: "deslocamento",
