@@ -584,6 +584,37 @@
   margin-top: 2px;
   word-break: break-all;
 }
+/* Dano recebido / cura manual. */
+.vida-message.dano {
+  border-left-color: #c0392b;
+}
+.vida-message.dano .roll-total {
+  color: #e74c3c;
+}
+.vida-message.cura {
+  border-left-color: #27ae60;
+}
+.vida-message.cura .roll-total {
+  color: #27ae60;
+}
+.vida-message.turno {
+  border-left-color: var(--color-bonus);
+}
+.vida-message.turno .roll-box {
+  min-height: 0;
+}
+.vida-linhas {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  font-size: 0.78rem;
+  color: var(--text-sec);
+}
+.vida-caiu {
+  color: #e74c3c;
+  font-weight: 700;
+}
 .roll-batch-list {
   display: flex;
   flex-direction: column;

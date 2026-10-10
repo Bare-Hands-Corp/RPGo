@@ -23,6 +23,7 @@ type Atributos = {
 type Props = {
   personagemId: string;
   inicial: Atributos;
+  nivel: number;
   bonusTetoAtributo: EfeitosAgregados["bonusTetoAtributo"];
   onOtimista?: (patch: Atributos) => void;
 };
@@ -30,6 +31,7 @@ type Props = {
 export function EditFichaModal({
   personagemId,
   inicial,
+  nivel,
   bonusTetoAtributo,
   onOtimista,
 }: Props) {
@@ -159,7 +161,7 @@ export function EditFichaModal({
                     ["PRE", "presenca"],
                   ] as const
                 ).map(([label, key]) => {
-                  const teto = tetoAtributo(bonusTetoAtributo, key as Atributo);
+                  const teto = tetoAtributo(bonusTetoAtributo, key as Atributo, nivel);
                   // Passar do teto é permitido (lendários vão até 30); só avisa.
                   const acima = valores[key] > teto.valor;
                   return (

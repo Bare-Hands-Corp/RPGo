@@ -439,6 +439,15 @@
   color: var(--color-react);
 }
 
+/* Vulnerabilidade é fraqueza, não defesa. */
+.defesa-grupo.fraqueza {
+  border-left-color: #e74c3c;
+}
+
+.defesa-grupo.fraqueza .defesa-rotulo i {
+  color: #e74c3c;
+}
+
 /* Cada entrada (uma fonte de defesa) empilha: linha de pílulas + legenda opcional
    da condição. Várias entradas empilham na vertical. */
 .defesa-valores {
@@ -1614,13 +1623,56 @@
   color: var(--text-sec);
 }
 
+.tipo-card:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
 /* Especificidade dobrada pra vencer o repeat(3) de .tipo-cards. */
+.tipo-cards.tipo-cards-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
 .tipo-cards.tipo-cards-4 {
   grid-template-columns: repeat(4, 1fr);
 }
 
 .tipo-cards.tipo-cards-5 {
   grid-template-columns: repeat(5, 1fr);
+}
+
+/* Arma sem munição: o chip fica em vermelho e o acerto, desligado. */
+.acao-stat.sem-municao {
+  color: #e74c3c;
+}
+
+.municao-stats {
+  align-items: center;
+}
+
+/* −/+ da quantidade no card da munição. */
+.municao-stats .passo input {
+  width: 46px;
+  margin: 0;
+  padding: 3px 2px;
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: center;
+  outline: none;
+  appearance: textfield;
+}
+
+.municao-stats .passo input::-webkit-inner-spin-button,
+.municao-stats .passo input::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
 }
 
 @media (max-width: 520px) {
@@ -1758,30 +1810,42 @@
   border-color: var(--color-power);
 }
 
+/* Selo de técnica no card da ação. */
+.acao-stat.acao-tecnica {
+  color: var(--color-power);
+}
+
+/* Botão Usar: mesma forma do Liga/Desliga, na cor power. */
 .hab-usar {
-  background: var(--color-power);
-  color: white;
-  border: none;
+  background: color-mix(in srgb, var(--color-power) 12%, transparent);
+  color: var(--color-power);
+  border: 1px solid color-mix(in srgb, var(--color-power) 60%, transparent);
   border-radius: 6px;
   padding: 4px 10px;
+  min-height: 26px;
   font-size: 0.75rem;
   font-weight: 700;
   cursor: pointer;
   font-family: inherit;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   margin-left: auto;
-  transition: filter 0.15s, transform 0.15s;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 .hab-usar:hover {
-  filter: brightness(1.1);
-  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--color-power) 22%, transparent);
+  border-color: var(--color-power);
 }
 
-/* Link "rolar" — empilha a fórmula da habilidade na Bandeja. Outline pra
-   distinguir do "Usar" (sólido), que debita custos + aplica deltas. */
+.hab-usar:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Link "rolar" — empilha a fórmula da habilidade na Bandeja. Outline na cor
+   primária pra distinguir do Usar/Liga, que debitam custos. */
 .hab-rolar {
   background: none;
   color: var(--primary);
@@ -1810,6 +1874,7 @@
   color: var(--text-sec);
   border-radius: 6px;
   padding: 4px 10px 4px 6px;
+  min-height: 26px;
   font-size: 0.75rem;
   font-weight: 700;
   font-family: inherit;
@@ -2280,6 +2345,74 @@
 
 .tripulante-pv-txt {
   font-size: 0.72rem;
+  color: var(--text-sec);
+}
+
+/* Efeito que vai pra um aliado. */
+.acao-stat.acao-aliado {
+  color: var(--color-bonus);
+}
+
+/* Habilidades que aliados ligaram neste personagem. */
+.recebida-linha {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--color-bonus);
+}
+
+.recebida-nome {
+  font-weight: 600;
+  color: var(--text-main);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recebida-de {
+  color: var(--text-sec);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.recebida-rm {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-sec);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.recebida-rm:hover,
+.recebida-rm:focus-visible {
+  color: #e74c3c;
+}
+
+/* Exaustão que não pesa agora (efeito "Ignora Exaustão"). */
+.exaustao-linha.ignorada .exaustao-valor {
+  opacity: 0.55;
+}
+
+/* "Em quem?": os cards da tripulação viram botões. */
+.alvo-grade {
+  margin-top: 12px;
+}
+
+.alvo-opcao {
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  align-items: center;
+}
+
+.alvo-detalhe {
+  margin: 0;
+  font-size: 0.85rem;
   color: var(--text-sec);
 }
 
@@ -4491,7 +4624,8 @@
   gap: 6px;
 }
 
-.descanso-btn {
+.descanso-btn,
+.vida-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -4508,19 +4642,803 @@
   transition: border-color 0.15s, background 0.15s;
 }
 
-.descanso-btn:hover:not(:disabled) {
+.descanso-btn:hover:not(:disabled),
+.vida-btn:hover:not(:disabled) {
   border-color: var(--primary);
   background: color-mix(in oklch, var(--primary) 10%, transparent);
 }
 
-.descanso-btn:disabled {
+.descanso-btn:disabled,
+.vida-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.descanso-btn i {
+.descanso-btn i,
+.vida-btn i {
   font-size: 0.8rem;
   color: var(--primary);
+}
+
+/* ─── DANO E CURA ────────────────────────────────────────── */
+.vida-botoes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.vida-btn {
+  padding: 5px 6px;
+}
+
+.vida-botoes .vida-btn:first-child i {
+  color: #e74c3c;
+}
+
+.vida-botoes .vida-btn:last-child i {
+  color: #27ae60;
+}
+
+.vida-estado {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: color-mix(in oklch, #e74c3c 18%, transparent);
+  color: #e74c3c;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.vida-estado.morto {
+  background: var(--text-main);
+  color: var(--bg-card);
+}
+
+.faixa-vital-dano {
+  margin-left: 4px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.faixa-vital-dano:hover {
+  border-color: #e74c3c;
+}
+
+.faixa-vital-hp .faixa-vital-dano i {
+  color: #e74c3c;
+}
+
+.vida-modos {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.vida-modo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 8px;
+  border: none;
+  background: var(--bg-surface);
+  color: var(--text-sec);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.vida-modo + .vida-modo {
+  border-left: 1px solid var(--border);
+}
+
+.vida-modo.dano.ativo {
+  background: color-mix(in oklch, #e74c3c 14%, var(--bg-surface));
+  color: #e74c3c;
+}
+
+.vida-modo.cura.ativo {
+  background: color-mix(in oklch, #27ae60 14%, var(--bg-surface));
+  color: #27ae60;
+}
+
+.vida-partes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.vida-parte {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.modal-box .vida-valor {
+  margin-top: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.modal-box .vida-valor-cura {
+  margin-top: 12px;
+}
+
+.tipo-dano {
+  position: relative;
+  min-width: 0;
+}
+
+.modal-box .tipo-dano input {
+  margin-top: 0;
+}
+
+.tipo-dano-lista {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 5;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.tipo-dano-lista li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.tipo-dano-lista li:hover,
+.tipo-dano-lista li.ativo {
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  color: var(--primary);
+}
+
+.tipo-dano-esquecer {
+  flex-shrink: 0;
+  padding: 2px 5px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-sec);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.tipo-dano-esquecer:hover {
+  color: #e74c3c;
+  background: color-mix(in oklch, #e74c3c 12%, transparent);
+}
+
+.vida-parte-rm {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--text-sec);
+  cursor: pointer;
+}
+
+.vida-parte-rm:hover {
+  border-color: #e74c3c;
+  color: #e74c3c;
+}
+
+.vida-mais {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  color: var(--primary);
+  font-family: inherit;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.vida-mais:hover {
+  text-decoration: underline;
+}
+
+.vida-defesas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 12px;
+}
+
+.vida-defesa {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-surface);
+  color: var(--text-sec);
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.vida-defesa-txt {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vida-defesa:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.vida-defesa.on {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 12%, var(--bg-surface));
+}
+
+.vida-defesa:not(.on) {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.vida-alerta {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.vida-previa {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid #e74c3c;
+  border-radius: 8px;
+  background: var(--bg-surface);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.vida-previa.cura {
+  border-left-color: #27ae60;
+}
+
+.vida-previa-total {
+  font-size: 1.8rem;
+  font-weight: 900;
+  color: #e74c3c;
+  font-variant-numeric: tabular-nums;
+}
+
+.vida-previa.cura .vida-previa-total {
+  color: #27ae60;
+}
+
+.vida-previa-linhas {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.78rem;
+  color: var(--text-sec);
+}
+
+.vida-caiu {
+  color: #e74c3c;
+  font-weight: 700;
+}
+
+.vida-teste {
+  margin-top: 0;
+  border-left-color: var(--primary);
+}
+
+.vida-teste .vida-previa-total {
+  color: var(--primary);
+  font-size: 1.4rem;
+  white-space: nowrap;
+}
+
+/* ─── CONCENTRAÇÃO ───────────────────────────────────────── */
+.concentracao-linha {
+  margin: 8px 0 2px;
+  border-color: color-mix(in oklch, var(--primary) 45%, var(--border));
+}
+
+.concentracao-linha .recurso-icone {
+  color: var(--primary);
+}
+
+.concentracao-linha .recurso-nome {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.concentracao-linha strong {
+  color: var(--sidebar-text, var(--text-main));
+}
+
+/* A cada turno: o que acontece, embaixo do botão. */
+.turno-linha {
+  flex-wrap: wrap;
+}
+
+.turno-lista {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  padding: 0 0 0 26px;
+  list-style: none;
+  color: var(--sidebar-text-sec, var(--text-sec));
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.turno-lista strong {
+  font-weight: 700;
+}
+
+.concentracao-encerrar {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--sidebar-text-sec, var(--text-sec));
+  font-family: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.concentracao-encerrar:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* Duração no modal de habilidade e de ação. */
+.duracao-opcoes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.duracao-opcoes .origem-pill {
+  padding: 7px 6px;
+}
+
+.duracao-detalhe {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 8px;
+}
+
+.duracao-qtd {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.duracao-qtd-unidade {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-sec);
+}
+
+.duracao-detalhe .duracao-concentracao {
+  margin-left: auto;
+}
+
+/* ─── MODAL: SEGMENTOS (grau, atributo) ───────────────────── */
+.seg {
+  display: flex;
+  margin-top: 5px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+
+.seg-opcao {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 7px 2px;
+  border: 0;
+  border-left: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-sec);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.15;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.seg-opcao:first-child {
+  border-left: 0;
+}
+
+.seg-opcao:hover {
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 8%, transparent);
+}
+
+.seg-opcao.ativo {
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 16%, var(--bg-card));
+  box-shadow: inset 0 0 0 1px var(--primary);
+  font-weight: 700;
+}
+
+.seg-opcao:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.seg-sub {
+  font-size: 0.62rem;
+  font-weight: 600;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
+/* Fora do alcance agora (grau acima do nível): clica, mas fica apagado. */
+.seg-opcao.apagada:not(.ativo) {
+  opacity: 0.45;
+}
+
+/* Acerto, salvaguarda e CD da ação: rótulo à esquerda, segmentos à direita. */
+.atrib-grade {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 14px;
+}
+
+.atrib-grade-rotulo {
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--text-sec);
+}
+
+.atrib-grade .seg {
+  margin-top: 0;
+}
+
+.numeros-linha {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 10px;
+}
+
+/* Atalhos de texto embaixo de um campo (alcance). */
+.sugestoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.sugestao {
+  padding: 2px 8px;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-sec);
+  font-family: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.sugestao:hover,
+.sugestao.ativo {
+  border-color: var(--primary);
+  border-style: solid;
+  color: var(--primary);
+}
+
+/* Campo de fórmula: autocompletar, prévia, atalhos e "por nível". */
+.formula-campo {
+  min-width: 0;
+}
+
+.formula-entrada {
+  position: relative;
+}
+
+.formula-sugestoes {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 20px rgb(0 0 0 / 0.25);
+}
+
+.formula-sugestoes button {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.formula-sugestoes button.ativo {
+  background: color-mix(in oklch, var(--primary) 16%, transparent);
+}
+
+.formula-sugestoes strong {
+  color: var(--primary);
+}
+
+.formula-sugestoes span {
+  overflow: hidden;
+  color: var(--text-sec);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.formula-sugestoes em {
+  color: var(--text-main);
+  font-style: normal;
+  font-weight: 700;
+}
+
+.formula-previa {
+  margin-top: 3px;
+  color: var(--text-sec);
+  font-size: 0.72rem;
+}
+
+.formula-previa.erro {
+  color: #e74c3c;
+}
+
+.sugestao.formula-funcao {
+  border-style: solid;
+}
+
+.formula-por-nivel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.formula-faixa {
+  display: grid;
+  grid-template-columns: 76px 58px 1fr 22px;
+  gap: 6px;
+  align-items: center;
+  color: var(--text-sec);
+  font-size: 0.75rem;
+}
+
+.modal-box .formula-faixa input {
+  margin-top: 0;
+  padding: 6px 8px;
+}
+
+.formula-faixa-rm {
+  border: 0;
+  background: transparent;
+  color: var(--text-sec);
+  cursor: pointer;
+}
+
+.formula-por-nivel-botoes {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+@media (max-width: 480px) {
+  .atrib-grade {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .atrib-grade .seg {
+    margin-bottom: 8px;
+  }
+
+  .numeros-linha {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ─── MODAL: NÚMERO COM − E + ────────────────────────────── */
+.passo {
+  display: inline-flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+
+.passo:focus-within {
+  border-color: var(--primary);
+}
+
+.passo button {
+  width: 30px;
+  border: 0;
+  background: transparent;
+  color: var(--text-sec);
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.passo button:hover:not(:disabled) {
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 10%, transparent);
+}
+
+.passo button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.modal-box .passo input,
+.modal-box .passo input:hover,
+.modal-box .passo input:focus-visible {
+  width: 46px;
+  margin: 0;
+  padding: 6px 2px;
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  text-align: center;
+  font-weight: 700;
+}
+
+.passo.desligado {
+  opacity: 0.5;
+}
+
+/* ─── MODAL: CUSTOS (ação e habilidade) ──────────────────── */
+.custos-campo {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.custo-linha {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+
+.custo-icone {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: var(--custo-cor, var(--primary));
+  background: color-mix(in oklch, var(--custo-cor, var(--primary)) 16%, transparent);
+  font-size: 0.8rem;
+}
+
+/* O glifo do Font Awesome fica 0,1em acima do centro da própria caixa. */
+.custo-icone i {
+  transform: translateY(0.1em);
+}
+
+.custo-icone.custo-pp {
+  --custo-cor: var(--bar-pp, var(--primary));
+}
+
+.custo-nome {
+  flex: 1;
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--text-main);
+}
+
+.modal-box .custo-recurso {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  margin: 0;
+  padding: 6px 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 480px) {
+  .passo button {
+    width: 26px;
+  }
+
+  .modal-box .passo input,
+  .modal-box .passo input:hover,
+  .modal-box .passo input:focus-visible {
+    width: 36px;
+  }
+
+  .custo-linha {
+    gap: 8px;
+    padding: 8px;
+  }
 }
 
 /* ─── SUBIR DE NÍVEL ─────────────────────────────────────── */

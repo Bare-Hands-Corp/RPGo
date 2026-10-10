@@ -145,14 +145,20 @@ export function formatarResultadoRolagemHtml(resultado: {
   return stringFinal;
 }
 
+// Tira os trechos entre parênteses: são anotação ("10d12 (14d12 com X)").
+export function semAnotacoes(expr: string): string {
+  return expr.replace(/\([^()]*\)/g, " ");
+}
+
 // Faz o parse de uma expressão livre tipo "2d6 fogo + 1d4 - 1" em dados +
 // modificador numérico. Palavras (tipos de dano, nomes de atributo como "CON")
 // são ignoradas — o termo descritivo continua no nome do preset pro usuário
 // completar à mão no Rolador. Retorna dados vazios + mod 0 se nada casar.
-export function parseFormulaDados(expr: string): { dados: Dado[]; modificador: number } {
+export function parseFormulaDados(bruta: string): { dados: Dado[]; modificador: number } {
   const dados: Dado[] = [];
   let modificador = 0;
-  if (!expr) return { dados, modificador };
+  if (!bruta) return { dados, modificador };
+  const expr = semAnotacoes(bruta);
 
   // 1) Termos de dado: "NdM" (N opcional = 1), com sinal opcional logo antes.
   const reDado = /([+-]?)\s*(\d*)\s*d\s*(\d+)/gi;
@@ -172,6 +178,22 @@ export function parseFormulaDados(expr: string): { dados: Dado[]; modificador: n
   }
 
   return { dados, modificador };
+}
+
+// Menor e maior total possíveis de dados + modificador.
+export function faixaDaRolagem(dados: Dado[], modificador: number): { min: number; max: number } {
+  let min = modificador;
+  let max = modificador;
+  for (const d of dados) {
+    if (d.sinal > 0) {
+      min += 1;
+      max += d.faces;
+    } else {
+      min -= d.faces;
+      max -= 1;
+    }
+  }
+  return { min, max };
 }
 
 // Opções que alteram o d20 primário de uma rolagem contextual (etapa 3.3).
@@ -195,22 +217,24 @@ export type D20Resultado = {
 // Vantagem e desvantagem juntas se cancelam (rola um só). Crit/falha são
 // avaliados sobre o valor mantido CRU (antes do floor) — natural 1 sempre falha.
 export function rolarD20Contextual(opcoes: OpcoesD20 = {}): D20Resultado {
-  const { vantagem, desvantagem, floorD20 = 0, critRange = 20 } = opcoes;
+  const dois = !!opcoes.vantagem !== !!opcoes.desvantagem;
   const d = () => Math.floor(Math.random() * 20) + 1;
+  return resolverD20(dois ? [d(), d()] : [d()], opcoes);
+}
 
-  let rolados: number[];
+// Resolve d20 já rolados (1, ou 2 com vantagem/desvantagem): o que fica, piso e
+// crítico. Serve pra rerrolar só um dos dados e recalcular.
+export function resolverD20(rolados: number[], opcoes: OpcoesD20 = {}): D20Resultado {
+  const { vantagem, desvantagem, floorD20 = 0, critRange = 20 } = opcoes;
   let mantido: number;
   let descartado: number | null = null;
-  if (vantagem && !desvantagem) {
-    rolados = [d(), d()];
+  if (rolados.length > 1 && vantagem && !desvantagem) {
     mantido = Math.max(rolados[0], rolados[1]);
     descartado = Math.min(rolados[0], rolados[1]);
-  } else if (desvantagem && !vantagem) {
-    rolados = [d(), d()];
+  } else if (rolados.length > 1 && desvantagem && !vantagem) {
     mantido = Math.min(rolados[0], rolados[1]);
     descartado = Math.max(rolados[0], rolados[1]);
   } else {
-    rolados = [d()];
     mantido = rolados[0];
   }
 

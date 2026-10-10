@@ -20,6 +20,8 @@ type Props = {
   titulo?: string;
   // Marca amarela quando a penalidade de DES da armadura está reduzindo a CR.
   reduzido?: boolean;
+  // CR fixa por efeito (vale o maior).
+  minimo?: number;
 };
 
 // Card de CR clicável. Mostra o total (10 + mod_atributo + outros + fixo) e
@@ -33,12 +35,13 @@ export function CrEditavel({
   siglaSubstituida,
   titulo,
   reduzido,
+  minimo,
 }: Props) {
   const [otimista, aplicar] = useOptimistic(crOutros, (_: number, novo: number) => novo);
   const [, startTransition] = useTransition();
   const [editando, setEditando] = useState(false);
 
-  const total = crBase(atributoScore, otimista) + bonusFixo;
+  const total = Math.max(crBase(atributoScore, otimista) + bonusFixo, minimo ?? 0);
 
   function commit(raw: string) {
     setEditando(false);

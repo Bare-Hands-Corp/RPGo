@@ -22,6 +22,7 @@ type Props = {
   // Bloco da sidebar observado; a faixa só aparece quando ele sai por cima.
   ancora: RefObject<HTMLElement | null>;
   onOtimista: (patch: PatchVitais) => void;
+  onDano: () => void;
 };
 
 const ALTURA = 46;
@@ -37,6 +38,7 @@ export function FaixaVitais({
   exaustao,
   ancora,
   onOtimista,
+  onDano,
 }: Props) {
   const [visivel, setVisivel] = useState(false);
 
@@ -89,6 +91,15 @@ export function FaixaVitais({
               />
             </span>
           )}
+          <button
+            type="button"
+            className="faixa-vital-dano"
+            onClick={onDano}
+            title="Receber dano"
+            aria-label="Receber dano"
+          >
+            <i className="fas fa-heart-crack" />
+          </button>
         </span>
 
         <span className="faixa-vital faixa-vital-pp">

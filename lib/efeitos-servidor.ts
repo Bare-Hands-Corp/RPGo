@@ -1,0 +1,238 @@
+// Agregado de efeitos no servidor, com os mesmos filtros da página da ficha.
+
+import { prisma } from "@/lib/prisma";
+import { habilidadesTravadas } from "@/lib/arvore";
+import {
+  agregarEfeitos,
+  fonteDeAliado,
+  fontesDeEfeitoDeItens,
+  type Atributo,
+  type EfeitosAgregados,
+  type HabilidadeFonte,
+} from "@/lib/op-rpg";
+
+type HabilidadeServidor = HabilidadeFonte & { id: string; itemId: string | null };
+
+type ItemFonte = {
+  id: string;
+  nome: string;
+  tipo: string;
+  equipado: boolean;
+  efeitos: unknown;
+};
+
+// Nível e atributos base do personagem, pras fórmulas dos efeitos.
+export type BaseFormula = { nivel: number } & Record<Atributo, number>;
+
+// Tira as habilidades travadas por árvore ou por item desequipado.
+export function agregadoDaFicha(dados: {
+  habilidades: HabilidadeServidor[];
+  itens: ItemFonte[];
+  nos: { habilidadeId: string | null; rankAtual: number }[];
+  slugsPericiaCustom: Iterable<string>;
+  base: BaseFormula;
+  // Habilidades de aliados ligadas neste personagem.
+  recebidas?: HabilidadeFonte[];
+}): EfeitosAgregados {
+  const travadas = habilidadesTravadas(dados.nos);
+  const equipados = new Set(dados.itens.filter((i) => i.equipado).map((i) => i.id));
+  const ativas = dados.habilidades.filter(
+    (h) => !travadas.has(h.id) && (!h.itemId || equipados.has(h.itemId)),
+  );
+  const { nivel, ...atributos } = dados.base;
+  return agregarEfeitos(
+    [...ativas, ...fontesDeEfeitoDeItens(dados.itens), ...(dados.recebidas ?? [])],
+    new Set(dados.slugsPericiaCustom),
+    undefined,
+    { nivel, atributos: atributosDe(atributos) },
+  );
+}
+
+function atributosDe(p: Record<Atributo, number>): Record<Atributo, number> {
+  return {
+    forca: p.forca,
+    destreza: p.destreza,
+    constituicao: p.constituicao,
+    sabedoria: p.sabedoria,
+    vontade: p.vontade,
+    presenca: p.presenca,
+  };
+}
+
+export const SELECT_HABILIDADE_FONTE = {
+  id: true,
+  nome: true,
+  tipo: true,
+  efeitos: true,
+  ligada: true,
+  itemId: true,
+  alternavel: true,
+  aliado: true,
+  usos: true,
+  usosAtual: true,
+  usosFormula: true,
+} as const;
+
+export const SELECT_ITEM_FONTE = {
+  id: true,
+  nome: true,
+  tipo: true,
+  equipado: true,
+  efeitos: true,
+  penalidadeDes: true,
+} as const;
+
+const SELECT_BASE_FORMULA = {
+  nivel: true,
+  forca: true,
+  destreza: true,
+  constituicao: true,
+  sabedoria: true,
+  vontade: true,
+  presenca: true,
+} as const;
+
+// Habilidade de aliado ligada neste personagem.
+export type HabilidadeRecebida = {
+  id: string;
+  nome: string;
+  efeitos: unknown;
+  personagem: { nome: string };
+};
+
+export const SELECT_RECEBIDA = {
+  id: true,
+  nome: true,
+  efeitos: true,
+  personagem: { select: { nome: true } },
+} as const;
+
+// Filtro das habilidades de aliados da mesma mesa ligadas em `personagemId`.
+export function ondeRecebidas(personagemId: string) {
+  return {
+    alvoPersonagemId: personagemId,
+    ligada: true,
+    aliado: true,
+    personagemId: { not: personagemId },
+    personagem: { mesa: { personagens: { some: { id: personagemId } } } },
+  };
+}
+
+export function fonteRecebida(h: HabilidadeRecebida): HabilidadeFonte {
+  return fonteDeAliado({ nome: h.nome, de: h.personagem.nome, efeitos: h.efeitos });
+}
+
+// Tira as que estão travadas no dono: item desequipado ou talento não comprado.
+async function semTravadasNoDono<
+  T extends { id: string; itemId: string | null; personagemId: string },
+>(habs: T[]): Promise<T[]> {
+  if (habs.length === 0) return habs;
+  const donos = [...new Set(habs.map((h) => h.personagemId))];
+  const [equipados, nos] = await Promise.all([
+    prisma.item.findMany({
+      where: { personagemId: { in: donos }, equipado: true },
+      select: { id: true },
+    }),
+    prisma.arvoreNo.findMany({
+      where: { habilidadeId: { in: habs.map((h) => h.id) } },
+      select: { habilidadeId: true, rankAtual: true },
+    }),
+  ]);
+  const ids = new Set(equipados.map((i) => i.id));
+  const travadas = habilidadesTravadas(nos);
+  return habs.filter((h) => !travadas.has(h.id) && (!h.itemId || ids.has(h.itemId)));
+}
+
+// Recebidas de aliados; falha vira lista vazia (dado auxiliar, não derruba a ficha).
+export async function carregarRecebidas(personagemId: string): Promise<HabilidadeRecebida[]> {
+  try {
+    return await semTravadasNoDono(
+      await prisma.habilidade.findMany({
+        where: ondeRecebidas(personagemId),
+        select: { ...SELECT_RECEBIDA, itemId: true, personagemId: true },
+        orderBy: { criadoEm: "asc" },
+      }),
+    );
+  } catch (err) {
+    console.error("[efeitos] habilidades recebidas", err);
+    return [];
+  }
+}
+
+// Recebidas de aliados por personagem, pra vários personagens da mesma mesa.
+export async function recebidasDaMesa(
+  mesaId: string,
+  ids: string[],
+): Promise<Map<string, HabilidadeFonte[]>> {
+  const out = new Map<string, HabilidadeFonte[]>();
+  if (ids.length === 0) return out;
+  try {
+    const habs = await semTravadasNoDono(
+      await prisma.habilidade.findMany({
+        where: { alvoPersonagemId: { in: ids }, ligada: true, aliado: true, personagem: { mesaId } },
+        select: { ...SELECT_RECEBIDA, itemId: true, personagemId: true, alvoPersonagemId: true },
+        orderBy: { criadoEm: "asc" },
+      }),
+    );
+    for (const h of habs) {
+      if (!h.alvoPersonagemId || h.alvoPersonagemId === h.personagemId) continue;
+      out.set(h.alvoPersonagemId, [...(out.get(h.alvoPersonagemId) ?? []), fonteRecebida(h)]);
+    }
+  } catch (err) {
+    console.error("[efeitos] habilidades recebidas da mesa", err);
+  }
+  return out;
+}
+
+// Carrega e agrega; `ligada` sobrepõe o estado de uma habilidade (ao ligar).
+export async function carregarAgregado(
+  personagemId: string,
+  ligada?: { id: string; ligada: boolean },
+): Promise<{
+  agg: EfeitosAgregados;
+  itens: (ItemFonte & { penalidadeDes: number })[];
+}> {
+  const [habilidades, itens, nos, pericias, base, recebidas] = await Promise.all([
+    prisma.habilidade.findMany({ where: { personagemId }, select: SELECT_HABILIDADE_FONTE }),
+    prisma.item.findMany({ where: { personagemId }, select: SELECT_ITEM_FONTE }),
+    prisma.arvoreNo.findMany({
+      where: { arvore: { personagemId } },
+      select: { habilidadeId: true, rankAtual: true },
+    }),
+    prisma.periciaCustom.findMany({ where: { personagemId }, select: { slug: true } }),
+    prisma.personagem.findUnique({ where: { id: personagemId }, select: SELECT_BASE_FORMULA }),
+    carregarRecebidas(personagemId),
+  ]);
+  const habs = ligada
+    ? habilidades.map((h) => (h.id === ligada.id ? { ...h, ligada: ligada.ligada } : h))
+    : habilidades;
+  return {
+    agg: agregadoDaFicha({
+      habilidades: habs,
+      itens,
+      nos,
+      slugsPericiaCustom: pericias.map((p) => p.slug),
+      base: base ?? {
+        nivel: 1,
+        forca: 10,
+        destreza: 10,
+        constituicao: 10,
+        sabedoria: 10,
+        vontade: 10,
+        presenca: 10,
+      },
+      recebidas: recebidas.map(fonteRecebida),
+    }),
+    itens,
+  };
+}
+
+// Penalidade de DES das armaduras equipadas (0 ou negativa).
+export function penalidadeDesDasArmaduras(
+  itens: { tipo: string; equipado: boolean; penalidadeDes: number }[],
+): number {
+  return itens.reduce(
+    (acc, i) => (i.tipo === "armadura" && i.equipado ? acc + i.penalidadeDes : acc),
+    0,
+  );
+}

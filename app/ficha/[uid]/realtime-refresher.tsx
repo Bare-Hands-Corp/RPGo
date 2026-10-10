@@ -86,6 +86,17 @@ export function FichaRealtime({
         },
         refresh,
       )
+      // Habilidade de aliado ligada (ou desligada) neste personagem.
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "habilidades",
+          filter: `alvo_personagem_id=eq.${personagemId}`,
+        },
+        refresh,
+      )
       .on(
         "postgres_changes",
         {

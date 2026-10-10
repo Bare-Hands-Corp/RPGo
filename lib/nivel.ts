@@ -1,7 +1,15 @@
 // Subir de nível: o assistente propõe e o jogador confirma; PE só sugere.
 
-import { PE_POR_NIVEL, bonusProficiencia, modificador, type Atributo } from "./op-rpg";
-import { TETO_ATRIBUTO_BASE } from "./op-rpg";
+import {
+  ATRIBUTOS,
+  PE_POR_NIVEL,
+  TETO_ATRIBUTO_BASE,
+  bonusProficiencia,
+  modificador,
+  tetoAtributo,
+  type Atributo,
+  type EfeitosAgregados,
+} from "./op-rpg";
 
 /** Valor fixo de PV por Dado de Vida (livro do jogador, tabela do cap. 2). */
 export const PV_FIXO_POR_DADO: Record<number, number> = {
@@ -14,7 +22,7 @@ export const PV_FIXO_POR_DADO: Record<number, number> = {
 export const NIVEL_MAXIMO = PE_POR_NIVEL.length;
 
 /** Padrão do livro; o jogador pode aplicar fora de nível-chave. */
-export const NIVEIS_APRIMORAMENTO = [4, 8, 12, 16, 19];
+export const NIVEIS_APRIMORAMENTO = [4, 8, 12, 16, 20];
 
 export function ehNivelDeAprimoramento(nivel: number): boolean {
   return NIVEIS_APRIMORAMENTO.includes(nivel);
@@ -22,6 +30,19 @@ export function ehNivelDeAprimoramento(nivel: number): boolean {
 
 /** Pontos distribuíveis num Aprimoramento: +2 num atributo OU +1 em dois. */
 export const PONTOS_APRIMORAMENTO = 2;
+
+/** PP máximo = 2 × nível: cada nível soma 2. */
+export const PP_POR_NIVEL = 2;
+
+/** Teto de cada atributo no nível, com os efeitos de Limite. */
+export function tetosNoNivel(
+  bonusTeto: EfeitosAgregados["bonusTetoAtributo"],
+  nivel: number,
+): Record<Atributo, number> {
+  const out = {} as Record<Atributo, number>;
+  for (const a of ATRIBUTOS) out[a.slug] = tetoAtributo(bonusTeto, a.slug, nivel).valor;
+  return out;
+}
 
 export function facesDoDado(tipoDadoVida: string | null | undefined): number {
   const n = Number(String(tipoDadoVida ?? "").replace(/^d/i, ""));
