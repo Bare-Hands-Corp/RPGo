@@ -4,17 +4,23 @@
 // senão o narrador vê um número e o jogador outro.
 
 import type { Arvore, ArvoreNo, Habilidade, Item, Personagem, PericiaCustom } from "@prisma/client";
-import { habilidadesTravadas } from "./arvore";
+import { agregadoDaFicha, penalidadeDesDasArmaduras } from "./efeitos-servidor";
 import {
-  type Atributo,
-  agregarEfeitos,
+  ATRIBUTOS,
+  type HabilidadeFonte,
   atributoDeCalculo,
+  atributosEfetivos,
+  bonusTesteAmplo,
+  comValoresIguais,
   crBase,
-  fontesDeEfeitoDeItens,
+  deslocamentoEfetivo,
+  exaustaoQueConta,
   iniciativa,
   lerProficiencias,
   modoDosEfeitos,
+  modosDeDeslocamento,
   penalidadeD20Exaustao,
+  poolsEfetivos,
   resolverTeste,
   testePassivo,
 } from "./op-rpg";
@@ -43,42 +49,68 @@ export type ResumoPersonagem = {
   destreza: number;
 };
 
-const ATRIBUTOS: Atributo[] = ["forca", "destreza", "constituicao", "sabedoria", "vontade", "presenca"];
-
-export function resumirPersonagem(p: PersonagemComFontes): ResumoPersonagem {
-  // Habilidades travadas por árvore ou por item desequipado ficam fora do agregado.
-  const travadas = habilidadesTravadas(p.arvores.flatMap((a) => a.nos));
-  const equipados = new Set(p.itens.filter((i) => i.equipado).map((i) => i.id));
-  const habilidades = p.habilidades.filter(
-    (h) => !travadas.has(h.id) && (!h.itemId || equipados.has(h.itemId)),
-  );
-  const ef = agregarEfeitos(
-    [...habilidades, ...fontesDeEfeitoDeItens(p.itens)],
-    new Set(p.periciasCustom.map((c) => c.slug)),
-  );
-
-  const efetivos = Object.fromEntries(
-    ATRIBUTOS.map((a) => [a, p[a] + (ef.bonusAtributo[a]?.valor ?? 0)]),
-  ) as Record<Atributo, number>;
+// `recebidas`: habilidades de aliados ligadas neste personagem.
+export function resumirPersonagem(
+  p: PersonagemComFontes,
+  recebidas: HabilidadeFonte[] = [],
+): ResumoPersonagem {
+  const ef = agregadoDaFicha({
+    habilidades: p.habilidades,
+    itens: p.itens,
+    nos: p.arvores.flatMap((a) => a.nos),
+    slugsPericiaCustom: p.periciasCustom.map((c) => c.slug),
+    base: p,
+    recebidas,
+  });
 
   // DES de testes/CR já com a penalidade das armaduras equipadas.
-  const penalidadeDes = p.itens.reduce(
-    (acc, i) => (i.tipo === "armadura" && i.equipado ? acc + i.penalidadeDes : acc),
-    0,
-  );
-  const paraTeste = { ...efetivos, destreza: efetivos.destreza + 2 * penalidadeDes };
+  const efetivos = atributosEfetivos(p, ef);
+  const paraTeste = {
+    ...efetivos,
+    destreza: efetivos.destreza + 2 * penalidadeDesDasArmaduras(p.itens),
+  };
   const subs = ef.substituicoesAtributo;
+  const exaustao = exaustaoQueConta(p.exaustao, ef);
 
   const caArmadura = p.itens.reduce(
     (acc, i) => (i.tipo === "armadura" && i.equipado ? acc + i.ca : acc),
     0,
   );
-  const crAtrib = atributoDeCalculo("cr", "destreza", subs).atributo;
-  const cr = crBase(paraTeste[crAtrib], p.crOutros) + caArmadura + ef.bonusCR.valor;
+  const crAtrib = atributoDeCalculo("cr", "destreza", subs, paraTeste).atributo;
+  const crPropria = Math.max(
+    crBase(paraTeste[crAtrib], p.crOutros) + caArmadura + ef.bonusCR.valor,
+    ef.valoresFixos["cr"]?.valor ?? 0,
+  );
 
-  const iniAtrib = atributoDeCalculo("iniciativa", "destreza", subs).atributo;
+  // "Valor igual" parte dos valores já calculados; vale o maior.
+  const modos = modosDeDeslocamento(ef);
+  const multDesloc = ef.multiplicadores["deslocamento"];
+  const deslocSemMult = Math.max(
+    0,
+    p.deslocamento + ef.bonusDeslocamento.valor,
+    ef.valoresFixos["deslocamento"]?.valor ?? 0,
+  );
+  const deslocBruto = multDesloc ? Math.floor(deslocSemMult * multDesloc.fator) : deslocSemMult;
+  const nadar = modos["nadar"];
+  const valores = comValoresIguais(
+    {
+      ...modos,
+      ...Object.fromEntries(
+        ATRIBUTOS.map((a) => [a.slug, { valor: efetivos[a.slug], fontes: [] as string[] }]),
+      ),
+      deslocamento: { valor: deslocamentoEfetivo(deslocBruto, 0, exaustao), fontes: [] },
+      nadar: nadar && nadar.valor >= p.nado ? nadar : { valor: p.nado, fontes: [] },
+      cr: { valor: crPropria, fontes: [] },
+    },
+    ef.valoresIguais ?? [],
+  );
+
+  const iniAtrib = atributoDeCalculo("iniciativa", "destreza", subs, paraTeste).atributo;
   const ini =
-    iniciativa(paraTeste[iniAtrib]) + ef.bonusIniciativa.valor - penalidadeD20Exaustao(p.exaustao);
+    iniciativa(paraTeste[iniAtrib]) +
+    ef.bonusIniciativa.valor +
+    bonusTesteAmplo(ef, "destreza").valor -
+    penalidadeD20Exaustao(exaustao);
 
   // Percepção Passiva: 10 + bônus da perícia (sem exaustão), ±5 com vantagem/desvantagem.
   const profManual = lerProficiencias(p.proficiencias);
@@ -105,11 +137,7 @@ export function resumirPersonagem(p: PersonagemComFontes): ResumoPersonagem {
       modoPercepcao.desvantagem.length > 0,
     ) + ef.bonusPercepcaoPassiva.valor;
 
-  // Pools: (base + aditivo) × fator, arredondado.
-  const multHp = ef.multiplicadores["hp-max"];
-  const multPp = ef.multiplicadores["pp-max"];
-  const hpBase = p.hpMax + ef.bonusHpMax.valor;
-  const ppBase = p.ppMax + ef.bonusPpMax.valor;
+  const pools = poolsEfetivos(p, ef);
 
   return {
     id: p.id,
@@ -118,11 +146,11 @@ export function resumirPersonagem(p: PersonagemComFontes): ResumoPersonagem {
     fotoUrl: p.fotoUrl,
     hpAtual: p.hpAtual,
     hpTemp: p.hpTemp,
-    hpMax: multHp ? Math.round(hpBase * multHp.fator) : hpBase,
+    hpMax: pools.hpMax,
     ppAtual: p.ppAtual,
-    ppMax: multPp ? Math.round(ppBase * multPp.fator) : ppBase,
+    ppMax: pools.ppMax,
     exaustao: p.exaustao,
-    cr,
+    cr: valores.cr.valor,
     iniciativa: ini,
     percepcaoPassiva: percepcao,
     destreza: p.destreza,

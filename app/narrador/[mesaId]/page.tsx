@@ -8,6 +8,7 @@ import {
 } from "@/lib/calendario/carregar";
 import { serializarCriatura } from "@/app/bestiario/utils";
 import { resumirPersonagem } from "@/lib/resumo-personagem";
+import { recebidasDaMesa } from "@/lib/efeitos-servidor";
 import { NarradorShell } from "./painel-narrador";
 import { serializarSessao } from "./sessao/utils";
 import "@/app/dashboard/dashboard.css";
@@ -24,7 +25,7 @@ export default async function NarradorPage({ params }: Params) {
   if (!user) redirect("/login");
 
   // Mesa + mensagens + calendário + objetivos + sessão/bestiário pré-carregados em paralelo.
-  const [mesa, mensagensIniciais, calendario, objetivosComPrazo, sessaoAtiva, criaturas, encontros] = await Promise.all([
+  const [mesa, mensagensIniciais, calendario, objetivosComPrazo, sessaoAtiva, criaturas, encontros, recebidas] = await Promise.all([
     prisma.mesa.findUnique({
       where: { id: mesaId },
       include: {
@@ -57,6 +58,10 @@ export default async function NarradorPage({ params }: Params) {
       select: { id: true, nome: true, itens: true },
       orderBy: { nome: "asc" },
     }),
+    // Habilidades de aliados ligadas em cada personagem, que a ficha também soma.
+    prisma.personagem
+      .findMany({ where: { mesaId }, select: { id: true } })
+      .then((ps) => recebidasDaMesa(mesaId, ps.map((p) => p.id))),
   ]);
   if (!mesa) notFound();
   if (!calendario) notFound();
@@ -72,7 +77,7 @@ export default async function NarradorPage({ params }: Params) {
         nome: mesa.nome,
         codigoAcesso: mesa.codigoAcesso,
         bannerUrl: mesa.bannerUrl,
-        personagens: mesa.personagens.map(resumirPersonagem),
+        personagens: mesa.personagens.map((p) => resumirPersonagem(p, recebidas.get(p.id))),
       }}
       userId={user.id}
       mensagensIniciais={mensagensIniciais}

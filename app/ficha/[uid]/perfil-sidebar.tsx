@@ -55,6 +55,7 @@ import {
   lerProficiencias,
   modificador,
   modoDosEfeitos,
+  modosDeDeslocamento,
   penalidadeD20Exaustao,
   poolsEfetivos,
   resolverFormula,
@@ -65,7 +66,6 @@ import {
   tetoAtributo,
   type Atributo,
   type DefesaAgregada,
-  type EfeitosAgregados,
 } from "@/lib/op-rpg";
 import { anunciarMensagem, empilharD20 } from "@/lib/empilhar-rolagem";
 
@@ -157,21 +157,6 @@ const ROTULO_MOV: Record<string, string> = {
   escalar: "Escalar",
   cavar: "Cavar",
 };
-
-// Voar/nadar/escalar/cavar: o maior entre efeito de deslocamento e valor fixo.
-function modosDeDeslocamento(
-  agg: EfeitosAgregados,
-): Record<string, { valor: number; fontes: string[] }> {
-  const out: Record<string, { valor: number; fontes: string[] }> = {};
-  for (const [tipo, fv] of Object.entries(agg.deslocamentosExtra)) {
-    if (fv) out[tipo] = fv;
-  }
-  for (const tipo of ["nadar", "voar", "escalar", "cavar"]) {
-    const fixo = agg.valoresFixos[tipo];
-    if (fixo && fixo.valor > (out[tipo]?.valor ?? 0)) out[tipo] = fixo;
-  }
-  return out;
-}
 
 function capitalizar(s: string): string {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
