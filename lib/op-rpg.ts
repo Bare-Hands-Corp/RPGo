@@ -1052,33 +1052,33 @@ export const META_EFEITOS: Record<
   TipoEfeito,
   { nome: string; icone: string; cor: string }
 > = {
-  modificador:      { nome: "Modificador",       icone: "fa-plus-minus",     cor: "var(--primary)" },
+  modificador:      { nome: "Bônus",       icone: "fa-plus-minus",     cor: "var(--primary)" },
   vantagem:         { nome: "Vantagem",          icone: "fa-arrow-up",       cor: "var(--color-bonus)" },
   desvantagem:      { nome: "Desvantagem",       icone: "fa-arrow-down",     cor: "#e74c3c" },
   proficiencia:     { nome: "Proficiência",      icone: "fa-check-double",   cor: "var(--color-power)" },
   recurso_delta:    { nome: "Recurso",           icone: "fa-droplet",        cor: "var(--color-bonus)" },
   cura:             { nome: "Cura",              icone: "fa-heart",          cor: "#27ae60" },
-  condicao_imune:   { nome: "Imune a",           icone: "fa-shield",         cor: "var(--color-react)" },
-  condicao_remover: { nome: "Remove",            icone: "fa-broom",          cor: "var(--color-bonus)" },
-  condicao_aplicar: { nome: "Aplica",            icone: "fa-bolt",           cor: "var(--color-power)" },
+  condicao_imune:   { nome: "Imune a Condição",           icone: "fa-shield",         cor: "var(--color-react)" },
+  condicao_remover: { nome: "Remove Condição",            icone: "fa-broom",          cor: "var(--color-bonus)" },
+  condicao_aplicar: { nome: "Aplica Condição",            icone: "fa-bolt",           cor: "var(--color-power)" },
   resistencia:      { nome: "Resistência",       icone: "fa-shield-halved",  cor: "var(--color-react)" },
   imunidade:        { nome: "Imunidade",         icone: "fa-shield",         cor: "var(--color-react)" },
   vulnerabilidade:  { nome: "Vulnerabilidade",   icone: "fa-heart-crack",    cor: "#e74c3c" },
   deslocamento:     { nome: "Deslocamento",      icone: "fa-person-running", cor: "var(--primary)" },
-  multiplicador:    { nome: "Multiplica",        icone: "fa-xmark",          cor: "var(--color-power)" },
+  multiplicador:    { nome: "Multiplicador",        icone: "fa-xmark",          cor: "var(--color-power)" },
   substituir_atributo: { nome: "Trocar Atributo", icone: "fa-right-left",    cor: "var(--primary)" },
-  rolagem:          { nome: "Rolagem",           icone: "fa-dice",           cor: "var(--primary)" },
+  rolagem:          { nome: "Rolagem à Parte",           icone: "fa-dice",           cor: "var(--primary)" },
   trigger:          { nome: "Gatilho",           icone: "fa-bell",           cor: "var(--color-power)" },
   crit_range:       { nome: "Crítico Expandido", icone: "fa-burst",          cor: "var(--color-power)" },
-  reroll:           { nome: "Rolar de novo",     icone: "fa-rotate",         cor: "var(--color-bonus)" },
+  reroll:           { nome: "Rolar de Novo",     icone: "fa-rotate",         cor: "var(--color-bonus)" },
   floor_d20:        { nome: "Mínimo no d20",     icone: "fa-circle-up",      cor: "var(--primary)" },
   sentido:          { nome: "Sentido",            icone: "fa-eye",            cor: "var(--color-react)" },
   acao_extra:       { nome: "Ação Extra",         icone: "fa-forward",        cor: "var(--color-power)" },
-  sucesso_auto:     { nome: "Sucesso Auto",       icone: "fa-check",          cor: "var(--color-bonus)" },
+  sucesso_auto:     { nome: "Sucesso Automático",       icone: "fa-check",          cor: "var(--color-bonus)" },
   dano_min:         { nome: "Piso de Dano",       icone: "fa-shield-halved",  cor: "var(--color-power)" },
   alcance:          { nome: "Alcance Extra",      icone: "fa-ruler-horizontal", cor: "var(--primary)" },
   ignora:           { nome: "Ignora Defesa",      icone: "fa-bolt-lightning", cor: "var(--color-power)" },
-  trocar_dano:      { nome: "Troca Tipo de Dano", icone: "fa-fire",           cor: "var(--color-power)" },
+  trocar_dano:      { nome: "Troca de Dano", icone: "fa-fire",           cor: "var(--color-power)" },
   crit_imune:       { nome: "Imune a Crítico",    icone: "fa-shield",         cor: "var(--color-react)" },
   margem_critico:   { nome: "Margem de Crítico",  icone: "fa-burst",          cor: "var(--color-power)" },
   passo_dano:       { nome: "Passo de Dano",      icone: "fa-angles-up",      cor: "var(--color-power)" },
@@ -1087,7 +1087,7 @@ export const META_EFEITOS: Record<
   dano_extra:       { nome: "Dano Extra",         icone: "fa-plus",           cor: "var(--color-power)" },
   dados_extra:      { nome: "Dados Extras",       icone: "fa-dice-d6",        cor: "var(--color-power)" },
   valor_fixo:       { nome: "Valor Fixo",         icone: "fa-equals",         cor: "var(--primary)" },
-  falha_auto:       { nome: "Falha Auto",         icone: "fa-xmark",          cor: "#e74c3c" },
+  falha_auto:       { nome: "Falha Automática",         icone: "fa-xmark",          cor: "#e74c3c" },
   reducao_dano:     { nome: "Redução de Dano",    icone: "fa-shield-halved",  cor: "var(--color-react)" },
   dano_maximo:      { nome: "Dano Máximo",        icone: "fa-maximize",       cor: "var(--color-power)" },
   piso_dado:        { nome: "Dado Mínimo",        icone: "fa-dice-five",      cor: "var(--color-power)" },
@@ -1096,7 +1096,7 @@ export const META_EFEITOS: Record<
   ignora_exaustao:  { nome: "Ignora Exaustão",    icone: "fa-battery-full",   cor: "var(--color-bonus)" },
   descanso:         { nome: "No Descanso",        icone: "fa-bed",            cor: "var(--color-bonus)" },
   por_turno:        { nome: "A Cada Turno",       icone: "fa-clock-rotate-left", cor: "var(--color-bonus)" },
-  livre:            { nome: "Livre",             icone: "fa-feather",        cor: "var(--text-sec)" },
+  livre:            { nome: "Texto Livre",             icone: "fa-feather",        cor: "var(--text-sec)" },
 };
 
 // Presets em linguagem natural pro picker do modal. Cada preset cria um
@@ -1143,7 +1143,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   },
   {
     id: "cura",
-    nome: "Curar PV",
+    nome: "Cura",
     descricao: "Recupera PV (fórmula ou valor fixo)",
     icone: "fa-heart",
     cor: "#27ae60",
@@ -1152,7 +1152,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   },
   {
     id: "bonus",
-    nome: "Bônus em…",
+    nome: "Bônus",
     descricao: "Bônus numérico (perícia, atributo, CR, ataque…)",
     icone: "fa-plus-minus",
     cor: "var(--primary)",
@@ -1161,7 +1161,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   },
   {
     id: "dado_em",
-    nome: "Dado em…",
+    nome: "Dado Extra",
     descricao: "Soma dados num ataque, teste ou salvaguarda (+1d4)",
     icone: "fa-dice-four",
     cor: "var(--primary)",
@@ -1170,7 +1170,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   },
   {
     id: "multiplicador",
-    nome: "Multiplica…",
+    nome: "Multiplicador",
     descricao: "Dobra capacidade de carga, etc",
     icone: "fa-xmark",
     cor: "var(--color-power)",
@@ -1197,7 +1197,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   },
   {
     id: "substituir_atributo",
-    nome: "Trocar atributo de…",
+    nome: "Trocar Atributo",
     descricao: "CR, iniciativa ou teste usa outro atributo (ex: CR via FOR)",
     icone: "fa-right-left",
     cor: "var(--primary)",
@@ -1207,7 +1207,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   // ─ Buff / Debuff ─
   {
     id: "vantagem",
-    nome: "Vantagem em…",
+    nome: "Vantagem",
     descricao: "Vantagem em um tipo de teste",
     icone: "fa-arrow-up",
     cor: "var(--color-bonus)",
@@ -1216,7 +1216,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   },
   {
     id: "desvantagem",
-    nome: "Desvantagem em…",
+    nome: "Desvantagem",
     descricao: "Desvantagem em um tipo de teste",
     icone: "fa-arrow-down",
     cor: "#e74c3c",
@@ -1225,7 +1225,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   },
   {
     id: "proficiencia",
-    nome: "Proficiência em…",
+    nome: "Proficiência",
     descricao: "Proficiência em perícia ou salvaguarda",
     icone: "fa-check-double",
     cor: "var(--color-power)",
@@ -1235,7 +1235,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   // ─ Defesa ─
   {
     id: "resistencia",
-    nome: "Resistência a…",
+    nome: "Resistência",
     descricao: "Reduz dano de um tipo pela metade",
     icone: "fa-shield-halved",
     cor: "var(--color-react)",
@@ -1244,7 +1244,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   },
   {
     id: "imunidade",
-    nome: "Imune a…",
+    nome: "Imunidade",
     descricao: "Imune a um tipo de dano",
     icone: "fa-shield",
     cor: "var(--color-react)",
@@ -1253,7 +1253,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   },
   {
     id: "vulnerabilidade",
-    nome: "Vulnerável a…",
+    nome: "Vulnerabilidade",
     descricao: "Recebe o dobro de um tipo de dano",
     icone: "fa-heart-crack",
     cor: "#e74c3c",
@@ -1272,7 +1272,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   // ─ Condição ─
   {
     id: "condicao_imune",
-    nome: "Imune à Condição",
+    nome: "Imune a Condição",
     descricao: "Imune a envenenado, atordoado, etc",
     icone: "fa-virus-slash",
     cor: "var(--color-react)",
@@ -1309,7 +1309,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   // ─ Movimento ─
   {
     id: "deslocamento",
-    nome: "Velocidade",
+    nome: "Deslocamento",
     descricao: "Velocidade extra (voar, nadar, escalar…)",
     icone: "fa-person-running",
     cor: "var(--primary)",
@@ -1337,7 +1337,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   },
   {
     id: "passo_dano",
-    nome: "Aumentar Passos",
+    nome: "Passo de Dano",
     descricao: "Sobe o dado de dano (1d8 → 1d10 → 1d12 → 2d6)",
     icone: "fa-angles-up",
     cor: "var(--color-power)",
@@ -1355,7 +1355,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   },
   {
     id: "dano_melhor_de",
-    nome: "Melhor de N no Dano",
+    nome: "Melhor no Dano",
     descricao: "Rola o dano N vezes e fica com o maior",
     icone: "fa-dice",
     cor: "var(--color-bonus)",
@@ -1436,7 +1436,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   },
   {
     id: "recurso_delta",
-    nome: "Ganha/Gasta Recurso",
+    nome: "Recurso",
     descricao: "Mexe num recurso customizado (PC, PN…)",
     icone: "fa-droplet",
     cor: "var(--color-bonus)",
@@ -1445,7 +1445,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   },
   {
     id: "sentido",
-    nome: "Sentido Especial",
+    nome: "Sentido",
     descricao: "Visão noturna, sentir presença, sonar…",
     icone: "fa-eye",
     cor: "var(--color-react)",
@@ -1508,7 +1508,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   },
   {
     id: "trocar_dano",
-    nome: "Troca Tipo de Dano",
+    nome: "Troca de Dano",
     descricao: "Muda o tipo de dano (vira Verdadeiro, Fogo…)",
     icone: "fa-fire",
     cor: "var(--color-power)",
@@ -1537,7 +1537,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   },
   {
     id: "trigger",
-    nome: "Gatilho (Quando X, faz Y)",
+    nome: "Gatilho",
     descricao: "Reage a uma situação específica",
     icone: "fa-bell",
     cor: "var(--color-power)",

@@ -7271,3 +7271,156 @@ form > .turno-campo,
     transform: none;
   }
 }
+
+/* ─── Efeitos: uma caixa só, resumo no cabeçalho e controles iguais ─ */
+.efeito-editor {
+  border-left-color: color-mix(in oklch, var(--primary) 55%, var(--border));
+}
+
+.efeito-editor-topo {
+  color: var(--text-main);
+}
+
+.efeito-editor-topo > i {
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+}
+
+.efeito-editor-topo > strong {
+  flex-shrink: 0;
+}
+
+/* O que vai aparecer no card, enquanto edita. */
+.efeito-editor-resumo {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-sec);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.efeito-editor-resumo::before {
+  content: "·";
+  margin-right: 8px;
+  opacity: 0.5;
+}
+
+.efeito-editor-resumo.falta {
+  color: #e0a000;
+  font-style: italic;
+}
+
+.efeito-editor-corpo {
+  align-items: start;
+  gap: 10px 12px;
+}
+
+.efeito-editor-corpo .seg,
+.efeito-editor-corpo .passo,
+.efeito-editor-corpo .busca-botao {
+  margin-top: 5px;
+}
+
+.efeito-editor-corpo .passo {
+  display: flex;
+  width: fit-content;
+}
+
+.efeito-editor-corpo .formula-campo label,
+.efeito-editor-corpo .tipo-dano-campo label {
+  margin-top: 0;
+}
+
+.efeito-editor-corpo .tipo-dano-campo {
+  margin-top: 0;
+}
+
+/* Sim ou não: mesmo botão em todo efeito. */
+.origem-pill.efeito-alternar {
+  grid-column: 1 / -1;
+  justify-self: start;
+  padding: 6px 12px;
+}
+
+.origem-pill.efeito-alternar i {
+  font-size: 0.78rem;
+}
+
+.efeito-detalhes-corpo {
+  align-items: start;
+  gap: 10px 12px;
+}
+
+/* Busca do seletor de efeitos. */
+.picker-preset-busca {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-surface);
+  color: var(--text-sec);
+  transition:
+    border-color var(--dur-rapida) var(--ease-saida),
+    box-shadow var(--dur-rapida) var(--ease-saida);
+}
+
+.picker-preset-busca:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--primary) 28%, transparent);
+}
+
+.modal-box .picker-preset-busca input {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 9px 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.picker-preset-vazio {
+  margin: 0;
+  padding: 14px 0;
+  color: var(--text-sec);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+/* Paleta: os grupos quebram de linha em vez de cortar o último. */
+.paleta-grupos {
+  flex-wrap: wrap;
+  overflow-x: visible;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .picker-preset-busca {
+    transition: none;
+  }
+}
+
+/* Rótulos do corpo do efeito começam na mesma linha. */
+.modal-box .efeito-editor-corpo label,
+.modal-box .efeito-detalhes-corpo label {
+  margin-top: 0;
+}
+
+/* Celular: um campo por linha no efeito e segmentos mais justos. */
+@media (max-width: 520px) {
+  .efeito-editor-corpo,
+  .efeito-detalhes-corpo {
+    grid-template-columns: 1fr;
+  }
+
+  .efeito-editor-corpo .seg-opcao {
+    padding-inline: 2px;
+    font-size: 0.74rem;
+  }
+}
