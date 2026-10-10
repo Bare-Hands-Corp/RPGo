@@ -222,6 +222,7 @@ const ALLOWED_ACAO = [
   "aliado",
   "duracao",
   "tipoDano",
+  "pasta",
 ] as const;
 
 type AcaoInput = Partial<Record<(typeof ALLOWED_ACAO)[number], unknown>>;
@@ -260,6 +261,7 @@ function normalizarAcaoInput(input: AcaoInput) {
     }
   }
   if (input.dano !== undefined) data.dano = input.dano ? String(input.dano) : null;
+  if (input.pasta !== undefined) data.pasta = nomeDePasta(input.pasta) || null;
   if (input.tipoDano !== undefined) {
     data.tipoDano = input.tipoDano ? String(input.tipoDano).trim().slice(0, 40) || null : null;
   }
@@ -311,6 +313,7 @@ function dadosDaAcao(personagemId: string, data: Record<string, unknown>) {
     atributoCd: (data.atributoCd as string | null) ?? null,
     dano: (data.dano as string | null) ?? null,
     tipoDano: (data.tipoDano as string | null) ?? null,
+    pasta: (data.pasta as string | null) ?? null,
     alcance: (data.alcance as string | null) ?? null,
     armaIds: (data.armaIds as string[]) ?? [],
     itemId: (data.itemId as string | null) ?? null,
@@ -380,11 +383,6 @@ export async function usarAcao(
     if (acao.itemId && !itens.some((i) => i.id === acao.itemId && i.equipado)) {
       throw new ErroDeUso("Equipe o item pra usar esta ação.");
     }
-    const usadas = normalizarIds(acao.armaIds).filter((id) => itens.some((i) => i.id === id));
-    if (usadas.length > 0 && !itens.some((i) => usadas.includes(i.id) && i.equipado)) {
-      throw new ErroDeUso("Equipe a arma pra usar esta ação.");
-    }
-
     const ids = new Set([...normalizarIds(acao.armaIds), ...(acao.itemId ? [acao.itemId] : [])]);
     const armas = itens.filter((i) => ids.has(i.id));
     const aggAcao = efeitosDaTecnica(agg, acao);
@@ -1073,6 +1071,7 @@ const ALLOWED_HABILIDADE = [
   "aliado",
   "duracao",
   "itemUsa",
+  "pasta",
 ] as const;
 
 type HabilidadeInput = Partial<
@@ -1180,6 +1179,7 @@ function normalizarHabilidadeInput(input: HabilidadeInput) {
   // Item que concede a habilidade.
   if (input.itemId !== undefined) data.itemId = input.itemId ? String(input.itemId) : null;
   if (input.itemUsa !== undefined) data.itemUsa = Boolean(input.itemUsa);
+  if (input.pasta !== undefined) data.pasta = nomeDePasta(input.pasta) || null;
   if (input.efeitos !== undefined) data.efeitos = normalizarEfeitosInput(input.efeitos);
   if (input.alternavel !== undefined) data.alternavel = Boolean(input.alternavel);
   if (input.aliado !== undefined) data.aliado = Boolean(input.aliado);
@@ -1213,6 +1213,7 @@ function dadosDaHabilidade(personagemId: string, data: Record<string, unknown>) 
     ordem: (data.ordem as number) ?? 0,
     itemId: (data.itemId as string | null) ?? null,
     itemUsa: (data.itemUsa as boolean) ?? false,
+    pasta: (data.pasta as string | null) ?? null,
     efeitos: (data.efeitos as EfeitoHabilidade[]) ?? [],
     alternavel: (data.alternavel as boolean) ?? false,
     aliado: (data.aliado as boolean) ?? false,
@@ -3209,22 +3210,32 @@ export async function guardarNaPasta(
       prisma.recurso.findMany({ where: { personagemId }, select: { id: true, nome: true } }),
     ]);
     if (!origem) throw new ErroDeUso("Não encontrado. Pode ter sido apagado.");
-    const total = await prisma.modelo.count({ where: { userId: user.id } });
-    if (total >= MAX_MODELOS) throw new ErroDeUso("Limite de itens guardados atingido.");
-    const criado = await prisma.modelo.create({
-      data: {
-        userId: user.id,
-        pasta: nomePasta,
-        tipo,
-        nome: origem.nome,
-        dados: paraModelo(
-          tipo,
-          origem as unknown as Record<string, unknown>,
-          recursos,
-        ) as Prisma.InputJsonObject,
-      },
-    });
-    return { modelo: modeloView(criado) };
+    const dados = paraModelo(
+      tipo,
+      origem as unknown as Record<string, unknown>,
+      recursos,
+    ) as Prisma.InputJsonObject;
+    // Guardar de novo com o mesmo nome atualiza a cópia.
+    const [existente, total] = await Promise.all([
+      prisma.modelo.findFirst({
+        where: { userId: user.id, pasta: nomePasta, tipo, nome: origem.nome },
+        select: { id: true },
+      }),
+      prisma.modelo.count({ where: { userId: user.id } }),
+    ]);
+    if (!existente && total >= MAX_MODELOS) throw new ErroDeUso("Limite de itens guardados atingido.");
+    const etiqueta =
+      tipo === "acao"
+        ? prisma.acao.update({ where: { id: origemId, personagemId }, data: { pasta: nomePasta } })
+        : prisma.habilidade.update({ where: { id: origemId, personagemId }, data: { pasta: nomePasta } });
+    const copia = existente
+      ? prisma.modelo.update({ where: { id: existente.id }, data: { dados } })
+      : prisma.modelo.create({
+          data: { userId: user.id, pasta: nomePasta, tipo, nome: origem.nome, dados },
+        });
+    const [salvo] = await prisma.$transaction([copia, etiqueta]);
+    revalidatePath(`/ficha/${personagemId}`);
+    return { modelo: modeloView(salvo) };
   });
 }
 
@@ -3248,9 +3259,14 @@ export async function adicionarDaPasta(personagemId: string, modeloIds: unknown)
       const input = doModelo(m.tipo, m.dados, recursos);
       ops.push(
         m.tipo === "acao"
-          ? prisma.acao.create({ data: dadosDaAcao(personagemId, normalizarAcaoInput(input)) })
+          ? prisma.acao.create({
+              data: { ...dadosDaAcao(personagemId, normalizarAcaoInput(input)), pasta: m.pasta },
+            })
           : prisma.habilidade.create({
-              data: dadosDaHabilidade(personagemId, normalizarHabilidadeInput(input)),
+              data: {
+                ...dadosDaHabilidade(personagemId, normalizarHabilidadeInput(input)),
+                pasta: m.pasta,
+              },
             }),
       );
     }
@@ -3267,10 +3283,18 @@ export async function apagarModelo(modeloId: string) {
   });
 }
 
+// Apaga a pasta e tira a etiqueta dela das fichas do usuário (os itens ficam).
 export async function apagarPasta(pasta: unknown) {
   return executar("pastas", async () => {
     const user = await requireUser();
-    await prisma.modelo.deleteMany({ where: { pasta: String(pasta ?? ""), userId: user.id } });
+    const nome = String(pasta ?? "");
+    const daFicha = { pasta: nome, personagem: { userId: user.id } };
+    await prisma.$transaction([
+      prisma.modelo.deleteMany({ where: { pasta: nome, userId: user.id } }),
+      prisma.habilidade.updateMany({ where: daFicha, data: { pasta: null } }),
+      prisma.acao.updateMany({ where: daFicha, data: { pasta: null } }),
+    ]);
+    revalidatePath("/ficha/[uid]", "page");
   });
 }
 
@@ -3279,9 +3303,13 @@ export async function renomearPasta(de: unknown, para: unknown) {
     const user = await requireUser();
     const novo = nomeDePasta(para);
     if (!novo) throw new ErroDeUso("Dê um nome pra pasta.");
-    await prisma.modelo.updateMany({
-      where: { pasta: String(de ?? ""), userId: user.id },
-      data: { pasta: novo },
-    });
+    const antigo = String(de ?? "");
+    const daFicha = { pasta: antigo, personagem: { userId: user.id } };
+    await prisma.$transaction([
+      prisma.modelo.updateMany({ where: { pasta: antigo, userId: user.id }, data: { pasta: novo } }),
+      prisma.habilidade.updateMany({ where: daFicha, data: { pasta: novo } }),
+      prisma.acao.updateMany({ where: daFicha, data: { pasta: novo } }),
+    ]);
+    revalidatePath("/ficha/[uid]", "page");
   });
 }

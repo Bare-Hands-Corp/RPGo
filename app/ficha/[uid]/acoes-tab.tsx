@@ -3,7 +3,16 @@
 import { Fragment, useMemo, useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { ehTemporario, exigir, idTemporario } from "@/lib/acoes";
-import { adicionarDaPasta, atualizarAcao, criarAcao, deletarAcao, usarAcao } from "./actions";
+import {
+  adicionarDaPasta,
+  atualizarAcao,
+  criarAcao,
+  deletarAcao,
+  guardarNaPasta,
+  usarAcao,
+} from "./actions";
+import { BarraFiltros, casaBusca, pastasDe } from "./barra-filtros";
+import { useConfirmarUso } from "./usar-modal";
 import { doModelo, type ModeloView } from "@/lib/pastas";
 import { BotaoGuardar, BotaoPastas } from "./pastas";
 import { useRefreshAgrupado } from "@/lib/use-refresh-agrupado";
@@ -108,7 +117,16 @@ type Acao = {
   efeitos: unknown;
   aliado: boolean;
   duracao?: unknown;
+  pasta?: string | null;
 };
+
+type Filtro = "todas" | "tecnicas" | "sem_custo";
+
+const FILTROS = [
+  ["todas", "Todas"],
+  ["tecnicas", "Técnicas"],
+  ["sem_custo", "Sem custo"],
+] as const;
 
 // Efeitos que cabem numa ação: rolagem dela ou na hora do uso.
 const PRESETS_ACAO = [
@@ -295,6 +313,7 @@ const ACAO_BASE: Omit<Acao, "id"> = {
   efeitos: [],
   aliado: false,
   duracao: null,
+  pasta: null,
 };
 
 // Lê um Json de ids vindo do banco com defesa contra lixo/legado.
@@ -411,6 +430,10 @@ export function AcoesTab({
   ];
 
   const [modalAberto, setModalAberto] = useState(false);
+  const [filtro, setFiltro] = useState<Filtro>("todas");
+  const [busca, setBusca] = useState("");
+  const [pastaFiltro, setPastaFiltro] = useState<string | null>(null);
+  const uso = useConfirmarUso();
   const [form, setForm] = useState<FormState>(FORM_VAZIO);
   const [, startTransition] = useTransition();
   const atualizar = useRefreshAgrupado(0);
@@ -568,17 +591,25 @@ export function AcoesTab({
       if (!escolhido) return;
       alvoId = escolhido;
     } else {
-      const c = await Swal.fire({
-        title: sobrecarga ? `${acao.nome} com Sobrecarga?` : `Usar ${acao.nome}?`,
-        html: linhas.join("<br>"),
-        icon: "question",
-        showCancelButton: true,
-        confirmButtonText: sobrecarga ? "Sobrecarga" : "Usar",
-        cancelButtonText: "Cancelar",
-        background: "var(--bg-card)",
-        color: "var(--text-main)",
+      const ok = await uso.confirmar({
+        titulo: sobrecarga ? "Usar com Sobrecarga" : "Usar",
+        nome: acao.nome,
+        icone: sobrecarga ? "fa-bolt" : "fa-play",
+        botao: sobrecarga ? "Sobrecarga" : "Usar",
+        aviso: sobrecarga ? `Sem PP: recebe ${acao.grau} de exaustão.` : undefined,
+        itens: [
+          {
+            id: acao.id,
+            nome: acao.nome,
+            custos: [
+              ...(pp > 0 ? [{ valor: pp, nome: "PP" }] : []),
+              ...(recurso ? [{ valor: acao.custoRecursoValor, nome: recurso.nome }] : []),
+            ],
+            faz: [...curas.map((c) => `Cura ${c}`), ...(concentra ? ["Concentração"] : [])],
+          },
+        ],
       });
-      if (!c.isConfirmed) return;
+      if (!ok) return;
     }
 
     // Cura com fórmula rola aqui; vai pra action e, se ela passar, pro chat.
@@ -632,11 +663,29 @@ export function AcoesTab({
       for (const m of modelos) {
         aplicarPatch({
           kind: "create",
-          acao: { ...ACAO_BASE, ...doModelo("acao", m.dados, recursos), id: idTemporario() } as Acao,
+          acao: {
+            ...ACAO_BASE,
+            ...doModelo("acao", m.dados, recursos),
+            pasta: m.pasta,
+            id: idTemporario(),
+          } as Acao,
         });
       }
       try {
         exigir(await adicionarDaPasta(personagemId, modelos.map((m) => m.id)));
+      } catch (err) {
+        mostrarErro(err);
+      }
+    });
+  }
+
+  // Põe na pasta (etiqueta + cópia guardada) ou tira a etiqueta.
+  function guardarEmPasta(acao: Acao, pasta: string | null) {
+    startTransition(async () => {
+      aplicarPatch({ kind: "update", id: acao.id, patch: { pasta } });
+      try {
+        if (pasta) exigir(await guardarNaPasta(personagemId, "acao", acao.id, pasta));
+        else exigir(await atualizarAcao(personagemId, acao.id, { pasta: null }));
       } catch (err) {
         mostrarErro(err);
       }
@@ -668,6 +717,20 @@ export function AcoesTab({
     });
   }
 
+  // Pastas da ficha: filtro e busca.
+  const pastas = pastasDe(acoesOtimistas);
+  const nomesDasPastas = pastas.map((p) => p.nome);
+  const pastaAtiva = pastas.some((p) => p.nome === pastaFiltro) ? pastaFiltro : null;
+  const visiveis = acoesOtimistas.filter(
+    (a) =>
+      (filtro !== "tecnicas" || a.tecnica) &&
+      (filtro !== "sem_custo" ||
+        (a.custoPp === 0 && a.custoPa === 0 && (!a.custoRecursoId || a.custoRecursoValor === 0))) &&
+      (!pastaAtiva || a.pasta === pastaAtiva) &&
+      casaBusca(busca, [a.nome, a.descricao, a.tag, a.pasta, a.dano, a.tipoDano, a.tecnica ? "técnica" : null]),
+  );
+  const filtrando = filtro !== "todas" || !!pastaAtiva || busca.trim() !== "";
+
   return (
     <NomesRecursoContext.Provider value={new Map(recursos.map((r) => [r.id, r.nome]))}>
     <FormulaContext.Provider value={ctxFormula}>
@@ -675,7 +738,7 @@ export function AcoesTab({
       <div className="tab-topo">
         <h1>Ações de Combate</h1>
         <div className="tab-topo-botoes">
-          <BotaoPastas personagemId={personagemId} tipo="acao" onAdicionar={adicionarDasPastas} />
+          <BotaoPastas tipo="acao" onAdicionar={adicionarDasPastas} />
           <button
             type="button"
             className="btn-rect primary"
@@ -686,8 +749,21 @@ export function AcoesTab({
         </div>
       </div>
 
+      <BarraFiltros
+        busca={busca}
+        onBusca={setBusca}
+        rotulo="ação"
+        filtros={FILTROS}
+        filtro={filtro}
+        onFiltro={setFiltro}
+        pastas={pastas}
+        pasta={pastaAtiva}
+        onPasta={setPastaFiltro}
+      />
+
       {GRUPOS.map((grupo) => {
-        const lista = acoesOtimistas.filter((a) => a.tipo === grupo.tipo);
+        const lista = visiveis.filter((a) => a.tipo === grupo.tipo);
+        if (filtrando && lista.length === 0) return null;
         return (
           <section key={grupo.tipo}>
             <div className="section-header">
@@ -745,12 +821,8 @@ export function AcoesTab({
                     ? itens.find((i) => i.id === acao.itemId)
                     : undefined;
                   const travadaPorItem = !!acao.itemId && !itemOrigem?.equipado;
-                  // Usa arma e nenhuma está equipada.
-                  const travadaPorArma = armasDaAcao.length > 0 && armasEquipadas.length === 0;
-                  const travada = travadaPorItem || travadaPorArma;
-                  const faltaEquipar = travadaPorItem
-                    ? (itemOrigem?.nome ?? "o item")
-                    : armasDaAcao.map((a) => a.nome).join(" ou ");
+                  // Só o item de onde a ação vem trava; arma que ela usa, não.
+                  const travada = travadaPorItem;
                   // Acerto: vem da arma (que já embute o bônus de habilidade do
                   // alcance) ou do cálculo manual da técnica.
                   const bonusAtq = ataqueArma
@@ -874,9 +946,10 @@ export function AcoesTab({
                       inert={ehTemporario(acao.id)}
                     >
                       <BotaoGuardar
-                        personagemId={personagemId}
-                        tipo="acao"
-                        origem={{ id: acao.id, nome: acao.nome }}
+                        origem={{ nome: acao.nome, pasta: acao.pasta ?? null }}
+                        pastasDaFicha={nomesDasPastas}
+                        sugestoes={[...habsDerivadas.map((h) => h.nome), ...(acao.tag ? [acao.tag] : [])]}
+                        onGuardar={(p) => guardarEmPasta(acao, p)}
                       />
                       <button
                         type="button"
@@ -1047,7 +1120,7 @@ export function AcoesTab({
                         )}
                         {travada && (
                           <div className="hab-travada-nota">
-                            <i className="fas fa-lock" /> Ação travada · equipe {faltaEquipar}
+                            <i className="fas fa-lock" /> Ação travada · equipe {itemOrigem?.nome ?? "o item"}
                           </div>
                         )}
                         {chipsAcao.length > 0 && (
@@ -1063,7 +1136,7 @@ export function AcoesTab({
                         )}
                         <div className="card-desc">{acao.descricao}</div>
                       </div>
-                      {(custos.length > 0 || podeUsar || acao.tag || origens.length > 0 || armasDaAcao.length > 0) && (
+                      {(custos.length > 0 || podeUsar || acao.tag || acao.pasta || origens.length > 0 || armasDaAcao.length > 0) && (
                         <div className="card-tags">
                           {custos.map((c, i) => (
                             <TagChip
@@ -1086,6 +1159,16 @@ export function AcoesTab({
                           )}
                           {acao.tag && (
                             <span className="tag tag-damage">{acao.tag}</span>
+                          )}
+                          {acao.pasta && (
+                            <button
+                              type="button"
+                              className="tag tag-pasta"
+                              title="Filtrar por esta pasta"
+                              onClick={() => setPastaFiltro(acao.pasta!)}
+                            >
+                              <i className="fas fa-folder" /> {acao.pasta}
+                            </button>
                           )}
                           {(origens.length > 0 || armasDaAcao.length > 0) && (
                           <span className="acao-derivas">
@@ -1134,7 +1217,10 @@ export function AcoesTab({
         );
       })}
 
+      {filtrando && visiveis.length === 0 && <p className="filtros-vazio">Nada encontrado.</p>}
+
       {alvo.modal}
+      {uso.modal}
 
       {modalAberto && (
         <div className="modal-overlay" onClick={fecharModal}>

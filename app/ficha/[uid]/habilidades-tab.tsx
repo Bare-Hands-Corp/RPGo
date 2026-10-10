@@ -10,6 +10,7 @@ import {
   atualizarHabilidade,
   criarHabilidade,
   deletarHabilidade,
+  guardarNaPasta,
   usarHabilidade,
 } from "./actions";
 import {
@@ -37,6 +38,8 @@ import {
 import { SeletorUnico } from "./seletor-multiplo";
 import { doModelo, type ModeloView } from "@/lib/pastas";
 import { BotaoGuardar, BotaoPastas } from "./pastas";
+import { BarraFiltros, casaBusca, pastasDe } from "./barra-filtros";
+import { useConfirmarUso, type ItemDeUso } from "./usar-modal";
 import { Segmentos } from "./campos-modal";
 import {
   AlvosCustomContext,
@@ -94,6 +97,7 @@ type Habilidade = {
   ligada: boolean;
   itemId: string | null;
   itemUsa?: boolean;
+  pasta?: string | null;
   alternavel: boolean;
   usosFormula: string | null;
   aliado: boolean;
@@ -154,6 +158,12 @@ function mostrarErro(err: unknown) {
 
 type Filtro = "todas" | "disponiveis" | "sem_custo";
 
+const FILTROS = [
+  ["todas", "Todas"],
+  ["disponiveis", "Disponíveis"],
+  ["sem_custo", "Sem custo"],
+] as const;
+
 // Habilidade recém-trazida de uma pasta, antes do servidor responder.
 const HABILIDADE_BASE: Omit<Habilidade, "id"> = {
   nome: "",
@@ -175,6 +185,7 @@ const HABILIDADE_BASE: Omit<Habilidade, "id"> = {
   ligada: false,
   itemId: null,
   itemUsa: false,
+  pasta: null,
   alternavel: false,
   usosFormula: null,
   aliado: false,
@@ -205,6 +216,9 @@ export function HabilidadesTab({
   const [modalAberto, setModalAberto] = useState(false);
   const [edit, setEdit] = useState<Habilidade | null>(null);
   const [filtro, setFiltro] = useState<Filtro>("todas");
+  const [busca, setBusca] = useState("");
+  const [pastaFiltro, setPastaFiltro] = useState<string | null>(null);
+  const uso = useConfirmarUso();
 
   // Itens por id.
   const itemPorId = useMemo(() => {
@@ -226,7 +240,7 @@ export function HabilidadesTab({
   );
   const extraCura = useMemo(() => extrasDeCura(efeitosAgregados), [efeitosAgregados]);
 
-  const filtradas = useMemo(() => {
+  const porFiltro = useMemo(() => {
     if (filtro === "todas") return otimistas;
     if (filtro === "sem_custo") {
       return otimistas.filter(
@@ -243,6 +257,23 @@ export function HabilidadesTab({
       return max == null || (h.usosAtual ?? max) > 0;
     });
   }, [otimistas, filtro, ctxFormula]);
+
+  // Pastas da ficha: filtro e busca.
+  const pastas = useMemo(() => pastasDe(otimistas), [otimistas]);
+  const nomesDasPastas = useMemo(() => pastas.map((p) => p.nome), [pastas]);
+  const pastaAtiva = pastas.some((p) => p.nome === pastaFiltro) ? pastaFiltro : null;
+  const filtradas = porFiltro.filter(
+    (h) =>
+      (!pastaAtiva || h.pasta === pastaAtiva) &&
+      casaBusca(busca, [
+        h.nome,
+        h.descricao,
+        h.tags,
+        h.pasta,
+        ORIGENS_HABILIDADE.find((o) => o.slug === h.origem)?.nome,
+      ]),
+  );
+  const filtrando = filtro !== "todas" || !!pastaAtiva || busca.trim() !== "";
 
   const favoritas = filtradas.filter((h) => h.favorita);
 
@@ -336,33 +367,7 @@ export function HabilidadesTab({
       return;
     }
 
-    const custos: string[] = [];
-    if (h.custoPp > 0) custos.push(`<b>${h.custoPp}</b> PP`);
-    if (h.custoPa > 0) custos.push(`<b>${h.custoPa}</b> PA`);
-    if (h.custoRecursoId && h.custoRecursoValor > 0) {
-      custos.push(
-        `<b>${h.custoRecursoValor}</b> ${recursoNomePorId.get(h.custoRecursoId) ?? "recurso"}`,
-      );
-    }
-    if (usosMaximos(h, ctxFormula) != null) custos.push(`<b>1</b> uso`);
-    const efeitos = lerEfeitos(h.efeitos);
-    const curas = efeitos.flatMap((e) =>
-      e.tipo === "cura"
-        ? [
-            formulaResolvidaTexto(e.valor, atributos, nivel) +
-              (extraCura.texto && alvoDaCura(e) === "hp" ? ` + ${extraCura.texto}` : ""),
-          ]
-        : [],
-    );
-    const exaustao = efeitos.reduce(
-      (soma, e) => soma + (e.tipo === "recurso_delta" && e.recurso === "exaustao" ? e.valor : 0),
-      0,
-    );
-    const linhas = [
-      custos.length > 0 ? `Vai consumir: ${custos.join(", ")}.` : null,
-      curas.length > 0 ? `Cura: <b>${curas.join(" + ")}</b>.` : null,
-      exaustao ? `Exaustão: <b>${formatarMod(exaustao)}</b>.` : null,
-    ].filter((l): l is string => !!l);
+    const item = itemDeUso(h);
 
     // Em aliado: escolher quem já confirma.
     if (h.aliado) {
@@ -371,29 +376,114 @@ export function HabilidadesTab({
         return;
       }
       const alvoId = await alvo.escolher(`${ligar ? "Ligar" : "Usar"} ${h.nome} em quem?`, {
-        detalhe: linhas.map((l) => l.replace(/<\/?b>/g, "")).join(" "),
+        detalhe: [
+          item.custos.length > 0
+            ? `Vai consumir: ${item.custos.map((c) => `${c.valor} ${c.nome}`).join(", ")}.`
+            : null,
+          ...item.faz,
+        ]
+          .filter(Boolean)
+          .join(" "),
       });
       if (alvoId) executarUso(h, ligar, alvoId);
       return;
     }
 
-    const c = await Swal.fire({
-      title: ligar ? `Ligar ${h.nome}?` : `Usar ${h.nome}?`,
-      html:
-        linhas.length > 0
-          ? linhas.join("<br>")
-          : ligar
-            ? "Sem custo configurado — só liga a habilidade."
-            : "Sem custo configurado — só marca a habilidade como usada.",
-      icon: "question",
-      showCancelButton: true,
-      confirmButtonText: ligar ? "Ligar" : "Usar",
-      cancelButtonText: "Cancelar",
-      background: "var(--bg-card)",
-      color: "var(--text-main)",
+    const ok = await uso.confirmar({
+      titulo: ligar ? "Ligar" : "Usar",
+      nome: h.nome,
+      icone: ligar ? "fa-toggle-on" : "fa-play",
+      botao: ligar ? "Ligar" : "Usar",
+      itens: [item],
     });
-    if (!c.isConfirmed) return;
+    if (!ok) return;
     executarUso(h, ligar);
+  }
+
+  // Custo e o que acontece ao usar ou ligar, pra confirmação.
+  function itemDeUso(h: Habilidade): ItemDeUso {
+    const custos: ItemDeUso["custos"] = [];
+    if (h.custoPp > 0) custos.push({ valor: h.custoPp, nome: "PP" });
+    if (h.custoPa > 0) custos.push({ valor: h.custoPa, nome: "PA" });
+    if (h.custoRecursoId && h.custoRecursoValor > 0) {
+      custos.push({
+        valor: h.custoRecursoValor,
+        nome: recursoNomePorId.get(h.custoRecursoId) ?? "recurso",
+      });
+    }
+    if (usosMaximos(h, ctxFormula) != null) custos.push({ valor: 1, nome: "uso", proprio: true });
+    const efeitos = lerEfeitos(h.efeitos);
+    const faz: string[] = [];
+    for (const e of efeitos) {
+      if (e.tipo !== "cura") continue;
+      const extra = extraCura.texto && alvoDaCura(e) === "hp" ? ` + ${extraCura.texto}` : "";
+      faz.push(`Cura ${formulaResolvidaTexto(e.valor, atributos, nivel)}${extra}`);
+    }
+    const exaustao = efeitos.reduce(
+      (soma, e) => soma + (e.tipo === "recurso_delta" && e.recurso === "exaustao" ? e.valor : 0),
+      0,
+    );
+    if (exaustao) faz.push(`Exaustão ${formatarMod(exaustao)}`);
+    const duracao = textoDuracao(lerDuracao(h.duracao));
+    if (duracao) faz.push(duracao);
+    return { id: h.id, nome: h.nome, custos, faz };
+  }
+
+  const ehAlternavel = (h: Habilidade) => h.alternavel || temEfeitoSustentado(lerEfeitos(h.efeitos));
+  const estaTravada = (h: Habilidade) =>
+    travadasSet.has(h.id) || (!!h.itemId && !itemPorId.get(h.itemId)?.equipado);
+
+  // Liga (ou usa) de uma vez o que dá pra ativar numa pasta.
+  async function ativarPasta(pasta: string) {
+    const daPasta = otimistas.filter((h) => h.pasta === pasta && h.tipo !== "passiva");
+    const itens = daPasta.map((h) => {
+      const max = usosMaximos(h, ctxFormula);
+      const fora = estaTravada(h)
+        ? "travada"
+        : ehAlternavel(h) && h.ligada
+          ? "já ligada"
+          : h.aliado
+            ? "em aliado"
+            : max != null && (h.usosAtual ?? max) <= 0
+              ? "sem usos"
+              : undefined;
+      return { ...itemDeUso(h), ...(fora ? { fora } : {}) };
+    });
+    if (!itens.some((i) => !i.fora)) {
+      mostrarErro(new Error("Nada pra ativar nesta pasta."));
+      return;
+    }
+    const ids = await uso.confirmar({
+      titulo: "Ativar pasta",
+      nome: pasta,
+      icone: "fa-bolt",
+      botao: "Ativar",
+      itens,
+      lista: true,
+    });
+    for (const id of ids ?? []) {
+      const h = daPasta.find((x) => x.id === id);
+      if (h) executarUso(h, ehAlternavel(h) ? true : null);
+    }
+  }
+
+  function desligarPasta(pasta: string) {
+    for (const h of otimistas) {
+      if (h.pasta === pasta && h.ligada && ehAlternavel(h)) acionar(h, false);
+    }
+  }
+
+  // Põe na pasta (etiqueta + cópia guardada) ou tira a etiqueta.
+  function guardarEmPasta(h: Habilidade, pasta: string | null) {
+    startTransition(async () => {
+      aplicar({ kind: "update", id: h.id, patch: { pasta } });
+      try {
+        if (pasta) exigir(await guardarNaPasta(personagemId, "habilidade", h.id, pasta));
+        else exigir(await atualizarHabilidade(personagemId, h.id, { pasta: null }));
+      } catch (err) {
+        mostrarErro(err);
+      }
+    });
   }
 
   // Debita e aplica (Usar ou Ligar), com otimismo; `ligar` null = Usar. Com
@@ -498,6 +588,7 @@ export function HabilidadesTab({
           habilidade: {
             ...HABILIDADE_BASE,
             ...dados,
+            pasta: m.pasta,
             usosAtual: (dados.usos as number | null | undefined) ?? null,
             id: idTemporario(),
           } as Habilidade,
@@ -558,7 +649,6 @@ export function HabilidadesTab({
           <h1>Habilidades</h1>
           <div className="tab-topo-botoes">
             <BotaoPastas
-              personagemId={personagemId}
               tipo="habilidade"
               onAdicionar={adicionarDasPastas}
             />
@@ -572,24 +662,30 @@ export function HabilidadesTab({
           </div>
         </div>
 
-        <div className="hab-filtros">
-          {(
-            [
-              ["todas", "Todas"],
-              ["disponiveis", "Disponíveis"],
-              ["sem_custo", "Sem custo"],
-            ] as const
-          ).map(([slug, label]) => (
-            <button
-              key={slug}
-              type="button"
-              className={`hab-filtro ${filtro === slug ? "ativo" : ""}`}
-              onClick={() => setFiltro(slug)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <BarraFiltros
+          busca={busca}
+          onBusca={setBusca}
+          rotulo="habilidade"
+          filtros={FILTROS}
+          filtro={filtro}
+          onFiltro={setFiltro}
+          pastas={pastas}
+          pasta={pastaAtiva}
+          onPasta={setPastaFiltro}
+        >
+          {pastaAtiva && otimistas.some((h) => h.pasta === pastaAtiva && h.tipo !== "passiva") && (
+            <>
+              <button type="button" className="hab-usar" onClick={() => ativarPasta(pastaAtiva)}>
+                <i className="fas fa-bolt" /> Ativar pasta
+              </button>
+              {otimistas.some((h) => h.pasta === pastaAtiva && h.ligada && ehAlternavel(h)) && (
+                <button type="button" className="hab-filtro" onClick={() => desligarPasta(pastaAtiva)}>
+                  Desligar
+                </button>
+              )}
+            </>
+          )}
+        </BarraFiltros>
 
         {favoritas.length > 0 && (
           <section>
@@ -601,7 +697,9 @@ export function HabilidadesTab({
               {favoritas.map((h) => (
                 <CardHabilidade
                   key={`fav-${h.id}`}
-                  personagemId={personagemId}
+                  pastasDaFicha={nomesDasPastas}
+                  onPasta={(p) => guardarEmPasta(h, p)}
+                  onFiltrarPasta={setPastaFiltro}
                   habilidade={h}
                   travada={travadasSet.has(h.id)}
                   itemOrigem={h.itemId ? itemPorId.get(h.itemId) : undefined}
@@ -637,7 +735,9 @@ export function HabilidadesTab({
                 {lista.map((h) => (
                   <CardHabilidade
                     key={h.id}
-                    personagemId={personagemId}
+                    pastasDaFicha={nomesDasPastas}
+                    onPasta={(p) => guardarEmPasta(h, p)}
+                    onFiltrarPasta={setPastaFiltro}
                     habilidade={h}
                     travada={travadasSet.has(h.id)}
                     itemOrigem={h.itemId ? itemPorId.get(h.itemId) : undefined}
@@ -668,11 +768,12 @@ export function HabilidadesTab({
               padding: "40px 0",
             }}
           >
-            Nenhuma habilidade cadastrada{filtro !== "todas" ? " com esse filtro" : ""}.
+            {filtrando ? "Nada encontrado." : "Nenhuma habilidade cadastrada."}
           </p>
         )}
 
         {alvo.modal}
+        {uso.modal}
 
         {modalAberto && (
           <HabilidadeModal
@@ -693,7 +794,9 @@ export function HabilidadesTab({
 
 // ─── Card de habilidade ────────────────────────────────────────────────
 function CardHabilidade({
-  personagemId,
+  pastasDaFicha,
+  onPasta,
+  onFiltrarPasta,
   habilidade,
   travada,
   itemOrigem,
@@ -708,7 +811,10 @@ function CardHabilidade({
   onAlternar,
   onFavorita,
 }: {
-  personagemId: string;
+  // Pastas que já existem na ficha.
+  pastasDaFicha: string[];
+  onPasta: (pasta: string | null) => void;
+  onFiltrarPasta: (pasta: string) => void;
   habilidade: Habilidade;
   travada: boolean;
   itemOrigem?: ItemRef;
@@ -776,6 +882,11 @@ function CardHabilidade({
   }
   const tags = separarTags(habilidade.tags);
   const estilosTag = lerEstilosTag(habilidade.tagsEstilo);
+  // Nome pronto pra uma pasta nova.
+  const origemNome =
+    habilidade.origem === "livre"
+      ? undefined
+      : ORIGENS_HABILIDADE.find((o) => o.slug === habilidade.origem)?.nome;
 
   // Mapeia tipo de habilidade pra classe de cor de borda (reusa as do .action-card).
   const tipoClass =
@@ -806,9 +917,10 @@ function CardHabilidade({
         <i className={`fa-star ${habilidade.favorita ? "fas" : "far"}`} />
       </button>
       <BotaoGuardar
-        personagemId={personagemId}
-        tipo="habilidade"
-        origem={{ id: habilidade.id, nome: habilidade.nome }}
+        origem={{ nome: habilidade.nome, pasta: habilidade.pasta ?? null }}
+        pastasDaFicha={pastasDaFicha}
+        sugestoes={[...(origemNome ? [origemNome] : []), ...tags]}
+        onGuardar={onPasta}
       />
       <button
         type="button"
@@ -897,6 +1009,7 @@ function CardHabilidade({
 
       {(custos.length > 0 ||
         tags.length > 0 ||
+        !!habilidade.pasta ||
         mostrarUsar ||
         mostrarToggle ||
         rolagens.length > 0) && (
@@ -909,6 +1022,16 @@ function CardHabilidade({
           {tags.map((t, i) => (
             <TagChip key={`t${i}`} nome={t} estilo={estilosTag[t]} />
           ))}
+          {habilidade.pasta && (
+            <button
+              type="button"
+              className="tag tag-pasta"
+              title="Filtrar por esta pasta"
+              onClick={() => onFiltrarPasta(habilidade.pasta!)}
+            >
+              <i className="fas fa-folder" /> {habilidade.pasta}
+            </button>
+          )}
           {rolagens.map((r, i) => (
             <button
               key={`r${i}`}

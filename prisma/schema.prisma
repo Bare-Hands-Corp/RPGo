@@ -366,6 +366,9 @@ model Acao {
   // Efeitos na hora do uso vão pra um aliado da mesa.
   aliado Boolean @default(false)
 
+  // Pasta em que a ação está (etiqueta de filtro; lib/pastas.ts).
+  pasta String?
+
   // { unidade, quantidade?, concentracao? } (lib/duracao.ts); null = não informada.
   duracao Json?
 
@@ -429,6 +432,9 @@ model Habilidade {
   itemId String? @map("item_id")
   // A habilidade usa o item em vez de vir dele (só muda o rótulo).
   itemUsa Boolean @default(false) @map("item_usa")
+
+  // Pasta em que a habilidade está (etiqueta de filtro; lib/pastas.ts).
+  pasta String?
 
   // Lista de efeitos estruturados (ver lib/op-rpg.ts EfeitoHabilidade).
   efeitos Json @default("[]")

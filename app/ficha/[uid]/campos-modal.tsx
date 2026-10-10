@@ -25,8 +25,14 @@ export function Segmentos<T extends string | number>({
   onChange: (v: T) => void;
   rotulo: string;
 }) {
+  const indice = opcoes.findIndex((o) => o.valor === valor);
   return (
-    <div className="seg" role="group" aria-label={rotulo}>
+    <div
+      className="seg"
+      role="group"
+      aria-label={rotulo}
+      style={{ "--seg-n": opcoes.length, "--seg-i": Math.max(0, indice) } as React.CSSProperties}
+    >
       {opcoes.map((o) => {
         const ativo = o.valor === valor;
         return (
@@ -43,6 +49,8 @@ export function Segmentos<T extends string | number>({
           </button>
         );
       })}
+      {/* Marca que desliza até a opção ativa. */}
+      {indice >= 0 && <span className="seg-pilula" aria-hidden />}
     </div>
   );
 }
@@ -172,7 +180,7 @@ export function TipoDanoCampo({
               onChange(i === indice ? "" : t.nome);
             }}
           >
-            <i className={`fas ${t.icone}`} /> {t.nome}
+            {t.nome}
           </button>
         ))}
         <button
@@ -185,7 +193,7 @@ export function TipoDanoCampo({
             setEscrevendo(!escrevendo);
           }}
         >
-          <i className="fas fa-pen" /> Outro
+          Outro
         </button>
       </Sugestoes>
       {escrevendo && (
