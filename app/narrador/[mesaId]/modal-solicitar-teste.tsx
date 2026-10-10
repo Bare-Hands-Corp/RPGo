@@ -41,9 +41,11 @@ type Props = {
   onFechar: () => void;
   onCriada: (msg: MensagemSerializada) => void;
   personagens?: { id: string; nome: string; fotoUrl?: string | null }[];
+  /** Jogador já marcado ao abrir (teste pedido pela linha dele). */
+  alvoInicial?: string | null;
 };
 
-export function ModalSolicitarTeste({ mesaId, aberto, onFechar, onCriada, personagens }: Props) {
+export function ModalSolicitarTeste({ mesaId, aberto, onFechar, onCriada, personagens, alvoInicial }: Props) {
   const [aba, setAba] = useState<AbaTeste>("pericias");
   const [filtroAtributo, setFiltroAtributo] = useState<Atributo | "">("");
   const [pericias, setPericias] = useState<PericiaAgregada[]>([]);
@@ -55,7 +57,7 @@ export function ModalSolicitarTeste({ mesaId, aberto, onFechar, onCriada, person
   const [ocultarRolagem, setOcultarRolagem] = useState(false);
   const [ocultarResultado, setOcultarResultado] = useState(false);
   const [privacidadeAberta, setPrivacidadeAberta] = useState(false);
-  const [alvos, setAlvos] = useState<string[] | "TODOS">("TODOS");
+  const [alvos, setAlvos] = useState<string[] | "TODOS">(alvoInicial ? [alvoInicial] : "TODOS");
   const [modosPorAlvo, setModosPorAlvo] = useState<Record<string, ModoTeste>>({});
   const [bonusPorAlvo, setBonusPorAlvo] = useState<Record<string, { bonus: number; detalhe: string }>>({});
   const [carregandoMeta, setCarregandoMeta] = useState(false);

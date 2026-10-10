@@ -61,7 +61,7 @@
 
 .bandeja-header {
   background: var(--primary);
-  color: white;
+  color: var(--on-primary);
   padding: 0 15px;
   cursor: grab;
   font-weight: 700;
@@ -170,28 +170,28 @@
 }
 .dice-grid-buttons.negative-mode .dice-btn[data-faces],
 .dice-grid-buttons.negative-mode .dice-btn:not(.sign-btn) {
-  border-color: #ef9a9a;
-  background-color: #ffebee;
-  color: #c62828;
+  border-color: color-mix(in oklch, var(--danger) 45%, var(--bg-card));
+  background-color: color-mix(in oklch, var(--danger) 10%, var(--bg-card));
+  color: var(--danger);
 }
 .dice-grid-buttons.negative-mode .dice-btn:not(.sign-btn):hover {
-  background-color: #c62828;
+  background-color: var(--danger);
   color: white;
 }
 .dark-mode .dice-grid-buttons.negative-mode .dice-btn:not(.sign-btn) {
-  border-color: #ef9a9a;
-  background-color: #3a1010;
-  color: #ff8a80;
+  border-color: color-mix(in oklch, var(--danger) 45%, var(--bg-card));
+  background-color: color-mix(in oklch, var(--danger) 18%, var(--bg-card));
+  color: color-mix(in oklch, var(--danger) 60%, #fff);
 }
 .dark-mode .dice-grid-buttons.negative-mode .dice-btn:not(.sign-btn):hover {
-  background-color: #c62828;
+  background-color: var(--danger);
   color: white;
 }
 .sign-btn {
   font-size: 1.2rem;
-  background: #e3f2fd;
-  color: #1976d2;
-  border-color: #bbdefb;
+  background: color-mix(in oklch, var(--info) 12%, var(--bg-card));
+  color: var(--info);
+  border-color: color-mix(in oklch, var(--info) 35%, var(--bg-card));
 }
 
 .tray-footer {
@@ -311,13 +311,13 @@
   gap: 8px;
   padding: 8px 10px;
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--color-bonus) 40%, transparent);
-  background: color-mix(in srgb, var(--color-bonus) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
 }
 .rolador-pendente-info {
   font-size: 0.78rem;
   font-weight: 700;
-  color: var(--color-bonus);
+  color: var(--warning);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -330,13 +330,13 @@
   flex: 1;
 }
 .rolador-pendente-btn.rerrolar {
-  border-color: color-mix(in srgb, var(--color-bonus) 50%, transparent);
-  color: var(--color-bonus);
+  border-color: color-mix(in srgb, var(--warning) 50%, transparent);
+  color: var(--warning);
 }
 .rolador-pendente-btn.manter {
-  background: var(--color-padrao);
-  border-color: var(--color-padrao);
-  color: #fff;
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
 }
 
 /* Dado descartado na vantagem/desvantagem + linha de fontes dos efeitos.
@@ -354,15 +354,15 @@
   opacity: 0.8;
 }
 .roll-btn {
-  background: var(--color-padrao);
-  color: white;
+  background: var(--primary);
+  color: var(--on-primary);
   border: none;
   padding: 12px;
   font-weight: 800;
   font-size: 1.1rem;
   border-radius: 8px;
   cursor: pointer;
-  box-shadow: 0 4px 0 #2980b9;
+  box-shadow: 0 4px 0 color-mix(in oklch, var(--primary) 70%, #000);
   transition: 0.1s;
   font-family: inherit;
 }
@@ -389,30 +389,30 @@
   font-family: inherit;
 }
 .roll-toggle-btn.vantagem {
-  color: #1e8e3e;
-  box-shadow: 0 4px 0 #1e8e3e;
+  color: color-mix(in oklch, var(--success) 75%, #000);
+  box-shadow: 0 4px 0 color-mix(in oklch, var(--success) 75%, #000);
 }
 .roll-toggle-btn.desvantagem {
-  color: #c0392b;
-  box-shadow: 0 4px 0 #a93226;
+  color: var(--danger);
+  box-shadow: 0 4px 0 color-mix(in oklch, var(--danger) 75%, #000);
 }
 .roll-toggle-btn.vantagem.active {
-  background: #27ae60;
+  background: var(--success);
   color: white;
-  box-shadow: 0 4px 0 #1e8e3e;
+  box-shadow: 0 4px 0 color-mix(in oklch, var(--success) 75%, #000);
 }
 .roll-toggle-btn.desvantagem.active {
-  background: #c0392b;
+  background: var(--danger);
   color: white;
-  box-shadow: 0 4px 0 #a93226;
+  box-shadow: 0 4px 0 color-mix(in oklch, var(--danger) 75%, #000);
 }
 .roll-toggle-btn.vantagem:not(.active) {
   background: var(--bg-button);
-  box-shadow: 0 4px 0 #1e8e3e;
+  box-shadow: 0 4px 0 color-mix(in oklch, var(--success) 75%, #000);
 }
 .roll-toggle-btn.desvantagem:not(.active) {
   background: var(--bg-button);
-  box-shadow: 0 4px 0 #a93226;
+  box-shadow: 0 4px 0 color-mix(in oklch, var(--danger) 75%, #000);
 }
 .roll-toggle-btn:active {
   transform: translateY(4px);
@@ -446,8 +446,8 @@
   transform: none;
 }
 .roll-btn.recording {
-  background: #c62828;
-  box-shadow: 0 4px 0 #8e0000;
+  background: var(--danger);
+  box-shadow: 0 4px 0 color-mix(in oklch, var(--danger) 60%, #000);
 }
 .tray-result-box {
   background: var(--bg-card);
@@ -509,12 +509,12 @@
   text-overflow: ellipsis;
 }
 .crit-success {
-  color: #27ae60;
+  color: var(--success);
   font-weight: 900;
   text-decoration: underline;
 }
 .crit-fail {
-  color: #c0392b;
+  color: var(--danger);
   font-weight: 900;
 }
 .dice-discarded {
@@ -556,10 +556,10 @@
   flex-shrink: 0;
 }
 .roll-message.success {
-  border-left-color: #27ae60;
+  border-left-color: var(--success);
 }
 .roll-message.fail {
-  border-left-color: #c0392b;
+  border-left-color: var(--danger);
 }
 .roll-header {
   font-size: 0.78rem;
@@ -759,7 +759,7 @@
   border: none;
   border-radius: 6px;
   background: var(--primary);
-  color: white;
+  color: var(--on-primary);
   padding: 8px 10px;
   font-weight: 800;
   cursor: pointer;
@@ -906,7 +906,7 @@
 }
 .chat-input-row button {
   background: var(--primary);
-  color: white;
+  color: var(--on-primary);
   border: none;
   padding: 8px 14px;
   border-radius: 6px;
@@ -924,7 +924,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #c62828;
+  background: var(--danger);
   color: white;
   padding: 6px 12px;
   border-radius: 6px;
@@ -951,10 +951,10 @@
 @keyframes preset-rec-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 rgba(198, 40, 40, 0);
+    box-shadow: 0 0 0 color-mix(in srgb, var(--danger) 0%, transparent);
   }
   50% {
-    box-shadow: 0 0 8px rgba(198, 40, 40, 0.5);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--danger) 50%, transparent);
   }
 }
 .preset-rec-cancel {
@@ -1166,6 +1166,6 @@
   opacity: 1;
 }
 .preset-card-del:hover {
-  color: #c62828;
+  color: var(--danger);
 }
 

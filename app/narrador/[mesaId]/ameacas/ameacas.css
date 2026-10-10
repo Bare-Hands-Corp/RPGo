@@ -241,7 +241,7 @@
 .ameaca-card-acao {
   border: 0;
   background: transparent;
-  color: #c0392b;
+  color: var(--danger);
   font: inherit;
   cursor: pointer;
   display: inline-flex;

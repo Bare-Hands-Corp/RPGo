@@ -33,12 +33,15 @@ import { ModalEvento } from "./modal-evento";
 import { ModalConfig } from "./modal-config";
 import { ModalTiposClima } from "./modal-tipos-clima";
 import { ModalGerarClima } from "./modal-gerar-clima";
+import { RelogioControles } from "./relogio";
+import type { RelogioSerializado } from "@/lib/calendario/relogio";
 
 type Props = {
   mesaId: string;
   isNarrador: boolean;
   config: CalendarioConfig;
   dataAtualDias: number;
+  relogio: RelogioSerializado;
   eventos: EventoCal[];
   tiposClima: TipoClima[];
   /** Prazos de objetivo já filtrados no servidor por quem pode ver. */
@@ -50,6 +53,7 @@ export function CalendarioView({
   isNarrador,
   config,
   dataAtualDias,
+  relogio,
   eventos,
   tiposClima,
   objetivos,
@@ -488,6 +492,8 @@ export function CalendarioView({
           </div>
         </div>
       </div>
+
+      {comoNarrador && <RelogioControles mesaId={mesaId} relogio={relogio} config={config} />}
 
       <GridMensal
         config={config}

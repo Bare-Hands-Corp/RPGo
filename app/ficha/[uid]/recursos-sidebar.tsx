@@ -216,8 +216,8 @@ export function RecursosSidebar({
       showCancelButton: true,
       confirmButtonText: "Apagar",
       cancelButtonText: "Cancelar",
-      confirmButtonColor: "#d33",
-      cancelButtonColor: "#3085d6",
+      confirmButtonColor: "var(--danger)",
+      cancelButtonColor: "var(--text-sec)",
       background: "var(--bg-card)",
       color: "var(--text-main)",
     });
@@ -257,7 +257,7 @@ export function RecursosSidebar({
       )}
 
       {ordenados.map((r) => {
-        const cor = r.cor || "var(--color-power)";
+        const cor = r.cor || "var(--bar-recurso)";
         const estilo = { cor: r.cor, cor2: r.cor2, efeito: normalizarEfeitoCor(r.efeito) };
         const fxNome = estiloAplicado(estilo, "texto");
         const fxBarra = estiloAplicado(estilo, "barra");

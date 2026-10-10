@@ -158,7 +158,7 @@ export const PainelChat = forwardRef<PainelChatHandle, Props>(function PainelCha
     <>
       <div className="chat-messages" ref={containerRef}>
         {mensagens.length === 0 ? (
-          <p style={{ color: "#999", textAlign: "center", fontSize: "0.9rem" }}>
+          <p style={{ color: "var(--text-sec)", textAlign: "center", fontSize: "0.9rem" }}>
             Nenhuma mensagem ainda...
           </p>
         ) : (

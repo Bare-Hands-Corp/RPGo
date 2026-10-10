@@ -7,6 +7,7 @@ import {
   carregarObjetivosComPrazo,
 } from "@/lib/calendario/carregar";
 import { serializarCriatura } from "@/app/bestiario/utils";
+import { resumirPersonagem } from "@/lib/resumo-personagem";
 import { NarradorShell } from "./painel-narrador";
 import { serializarSessao } from "./sessao/utils";
 import "@/app/dashboard/dashboard.css";
@@ -29,6 +30,13 @@ export default async function NarradorPage({ params }: Params) {
       include: {
         personagens: {
           orderBy: { nome: "asc" },
+          // Fontes de efeito pra calcular CR/iniciativa/percepção igual à ficha.
+          include: {
+            itens: true,
+            habilidades: true,
+            periciasCustom: { select: { slug: true } },
+            arvores: { select: { id: true, nos: true } },
+          },
         },
       },
     }),
@@ -59,7 +67,13 @@ export default async function NarradorPage({ params }: Params) {
 
   return (
     <NarradorShell
-      mesa={mesa}
+      mesa={{
+        id: mesa.id,
+        nome: mesa.nome,
+        codigoAcesso: mesa.codigoAcesso,
+        bannerUrl: mesa.bannerUrl,
+        personagens: mesa.personagens.map(resumirPersonagem),
+      }}
       userId={user.id}
       mensagensIniciais={mensagensIniciais}
       calendario={calendario}

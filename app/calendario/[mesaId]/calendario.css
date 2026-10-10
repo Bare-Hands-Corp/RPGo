@@ -274,21 +274,21 @@
 }
 
 .cal-chip-tint-estacao {
-  border-left-color: var(--color-react);
+  border-left-color: var(--success);
 }
 .cal-chip-tint-estacao .cal-chip-main {
-  color: var(--color-react);
+  color: var(--success);
 }
 
 .cal-chip-tint-lua {
-  border-left-color: var(--color-bonus);
+  border-left-color: var(--highlight);
 }
 
 .cal-chip-tint-clima {
-  border-left-color: var(--color-padrao);
+  border-left-color: var(--info);
 }
 .cal-chip-tint-clima .cal-chip-main {
-  color: var(--color-padrao);
+  color: var(--info);
 }
 
 /* Tracejado fixo: no toque não há hover pra indicar que é editável. */
@@ -305,9 +305,9 @@
 /* ─── Grade mensal ─────────────────────────────────────────── */
 
 .calendario-grid-wrapper {
-  --cal-cor-clima: var(--color-padrao);
+  --cal-cor-clima: var(--info);
   --cal-cor-narrativo: var(--color-livre);
-  --cal-cor-objetivo: var(--color-power);
+  --cal-cor-objetivo: var(--accent);
   gap: 12px;
 }
 
@@ -567,9 +567,9 @@
 
 .cal-eventos-card,
 .cal-prazos-card {
-  --cal-cor-clima: var(--color-padrao);
+  --cal-cor-clima: var(--info);
   --cal-cor-narrativo: var(--color-livre);
-  --cal-cor-objetivo: var(--color-power);
+  --cal-cor-objetivo: var(--accent);
   gap: 12px;
 }
 
@@ -719,9 +719,9 @@
 }
 
 .cal-selo.tipo-climatico {
-  color: var(--color-padrao);
-  border-color: color-mix(in oklch, var(--color-padrao) 40%, var(--border));
-  background: color-mix(in oklch, var(--color-padrao) 10%, transparent);
+  color: var(--info);
+  border-color: color-mix(in oklch, var(--info) 40%, var(--border));
+  background: color-mix(in oklch, var(--info) 10%, transparent);
 }
 
 .cal-selo.tipo-narrativo {
@@ -731,15 +731,15 @@
 }
 
 .cal-selo.status-visivel {
-  color: var(--color-react);
-  border-color: color-mix(in oklch, var(--color-react) 40%, var(--border));
-  background: color-mix(in oklch, var(--color-react) 10%, transparent);
+  color: var(--success);
+  border-color: color-mix(in oklch, var(--success) 40%, var(--border));
+  background: color-mix(in oklch, var(--success) 10%, transparent);
 }
 
 .cal-selo.status-futuro {
-  color: var(--color-power);
-  border-color: color-mix(in oklch, var(--color-power) 40%, var(--border));
-  background: color-mix(in oklch, var(--color-power) 10%, transparent);
+  color: var(--accent);
+  border-color: color-mix(in oklch, var(--accent) 40%, var(--border));
+  background: color-mix(in oklch, var(--accent) 10%, transparent);
 }
 
 .cal-selo.status-oculto {
@@ -788,8 +788,8 @@
 }
 
 .cal-acao-delete:hover {
-  color: #e74c3c;
-  border-color: #e74c3c;
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 .cal-empty {
@@ -841,12 +841,12 @@
   width: 34px;
   height: 34px;
   border-radius: 9px;
-  background: color-mix(in oklch, var(--color-padrao) 18%, transparent);
-  border: 1px solid color-mix(in oklch, var(--color-padrao) 40%, var(--border));
+  background: color-mix(in oklch, var(--info) 18%, transparent);
+  border: 1px solid color-mix(in oklch, var(--info) 40%, var(--border));
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-padrao);
+  color: var(--info);
   font-size: 0.95rem;
   flex-shrink: 0;
 }
@@ -1185,9 +1185,9 @@ textarea.cal-input {
 }
 
 .cal-tipo-delete-btn:hover {
-  color: #ff6b6b;
-  border-color: #ff6b6b;
-  background: color-mix(in srgb, #ff6b6b 8%, transparent);
+  color: var(--danger);
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
 }
 
 .cal-tipo-pesos {
@@ -1419,8 +1419,8 @@ textarea.cal-input {
 }
 
 .cal-icone-picker-limpar:hover {
-  border-color: #e74c3c;
-  color: #e74c3c;
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 /* ─── Customizar calendário (modal config) ───────────────── */
@@ -1518,8 +1518,8 @@ textarea.cal-input {
 }
 
 .cal-row-delete-btn:hover {
-  color: #ff6b6b;
-  border-color: #ff6b6b;
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 .cal-tag-cloud {
@@ -1567,8 +1567,8 @@ textarea.cal-input {
 }
 
 .cal-tag-remove:hover {
-  background: color-mix(in srgb, #ff6b6b 15%, transparent);
-  color: #ff6b6b;
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  color: var(--danger);
 }
 
 .cal-tag-add-row {
@@ -1606,7 +1606,7 @@ textarea.cal-input {
 .cal-estacao-cruza {
   grid-column: 1 / -1;
   font-size: 0.75rem;
-  color: var(--color-bonus);
+  color: var(--warning);
   padding: 0 4px;
   margin-top: 2px;
   display: flex;
@@ -1622,13 +1622,13 @@ textarea.cal-input {
   gap: 12px;
   padding: 12px 14px;
   border-radius: 12px;
-  border: 1px solid color-mix(in oklch, var(--color-power) 45%, var(--border));
-  background: color-mix(in oklch, var(--color-power) 12%, var(--bg-card));
+  border: 1px solid color-mix(in oklch, var(--accent) 45%, var(--border));
+  background: color-mix(in oklch, var(--accent) 12%, var(--bg-card));
   flex-wrap: wrap;
 }
 
 .dark-mode .cal-previa-faixa {
-  background: color-mix(in oklch, var(--color-power) 14%, var(--bg-surface));
+  background: color-mix(in oklch, var(--accent) 14%, var(--bg-surface));
 }
 
 .cal-previa-icone {
@@ -1641,9 +1641,9 @@ textarea.cal-input {
   /* Centraliza o <i> por dentro; como item flex o glifo desalinha. */
   font-size: 0.95rem;
   line-height: 1;
-  background: color-mix(in oklch, var(--color-power) 20%, transparent);
-  border: 1px solid color-mix(in oklch, var(--color-power) 40%, var(--border));
-  color: var(--color-power);
+  background: color-mix(in oklch, var(--accent) 20%, transparent);
+  border: 1px solid color-mix(in oklch, var(--accent) 40%, var(--border));
+  color: var(--accent);
   flex-shrink: 0;
 }
 
@@ -1664,9 +1664,9 @@ textarea.cal-input {
 }
 
 .cal-icon-btn.ativo {
-  border-color: var(--color-power);
-  color: var(--color-power);
-  background: color-mix(in oklch, var(--color-power) 14%, transparent);
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
 }
 
 /* ─── Prazos de objetivo ───────────────────────────────────── */
@@ -1688,29 +1688,29 @@ textarea.cal-input {
 }
 
 .cal-prazo-row.vencendo {
-  border-left-color: var(--color-bonus);
+  border-left-color: var(--warning);
 }
 
 .cal-prazo-row.atrasado {
-  border-left-color: #e74c3c;
+  border-left-color: var(--danger);
 }
 
 .cal-selo.prazo-no-prazo {
-  color: var(--color-power);
-  border-color: color-mix(in oklch, var(--color-power) 40%, var(--border));
-  background: color-mix(in oklch, var(--color-power) 10%, transparent);
+  color: var(--accent);
+  border-color: color-mix(in oklch, var(--accent) 40%, var(--border));
+  background: color-mix(in oklch, var(--accent) 10%, transparent);
 }
 
 .cal-selo.prazo-vencendo {
-  color: #e0a000;
-  border-color: color-mix(in oklch, #e0a000 45%, var(--border));
-  background: color-mix(in oklch, #e0a000 10%, transparent);
+  color: var(--warning);
+  border-color: color-mix(in oklch, var(--warning) 45%, var(--border));
+  background: color-mix(in oklch, var(--warning) 10%, transparent);
 }
 
 .cal-selo.prazo-atrasado {
-  color: #e74c3c;
-  border-color: color-mix(in oklch, #e74c3c 45%, var(--border));
-  background: color-mix(in oklch, #e74c3c 10%, transparent);
+  color: var(--danger);
+  border-color: color-mix(in oklch, var(--danger) 45%, var(--border));
+  background: color-mix(in oklch, var(--danger) 10%, transparent);
 }
 
 /* ─── Campos do calendário dentro de .modal-box ────────────── */
@@ -1819,5 +1819,369 @@ textarea.cal-input {
   .cal-evento-lado {
     grid-column: 2;
     justify-content: flex-start;
+  }
+}
+
+/* ─── Relógio da mesa ─────────────────────────────────────── */
+
+/* Chip sempre visível (topo do calendário, da ficha e do narrador). */
+.relogio-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-main);
+  font-size: 0.85rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.dark-mode .relogio-chip {
+  background: var(--bg-surface);
+}
+
+.relogio-chip-icone {
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+
+.relogio-chip-hora {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.relogio-chip-data {
+  color: var(--text-sec);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.relogio-chip-vivo {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  animation: relogio-pulso 1.6s ease-in-out infinite;
+}
+
+@keyframes relogio-pulso {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.35; transform: scale(0.8); }
+}
+
+/* Aviso discreto pra mesa inteira quando o narrador mexe no tempo. */
+.relogio-aviso {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  padding: 10px 18px 10px 14px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  pointer-events: none;
+  animation: relogio-aviso 5s ease forwards;
+}
+
+.relogio-aviso > div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.relogio-aviso-icone {
+  color: var(--accent);
+  font-size: 1.1rem;
+  animation: relogio-ampulheta 1.2s ease-in-out 1;
+}
+
+.relogio-aviso-texto {
+  font-size: 0.78rem;
+  font-style: italic;
+  color: var(--text-sec);
+}
+
+.relogio-aviso-hora {
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.relogio-aviso-hora small {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-sec);
+}
+
+@keyframes relogio-aviso {
+  0%   { opacity: 0; transform: translate(-50%, -12px); }
+  6%   { opacity: 1; transform: translate(-50%, 0); }
+  88%  { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -8px); }
+}
+
+@keyframes relogio-ampulheta {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(180deg); }
+}
+
+@keyframes relogio-aviso-sem-movimento {
+  0%, 100% { opacity: 0; transform: translateX(-50%); }
+  6%, 88%  { opacity: 1; transform: translateX(-50%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .relogio-chip-vivo,
+  .relogio-aviso-icone {
+    animation: none;
+  }
+  .relogio-aviso {
+    animation-name: relogio-aviso-sem-movimento;
+  }
+}
+
+/* Card de controles (aba Calendário do narrador). */
+.relogio-card-topo {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.relogio-display {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.relogio-display i {
+  color: var(--accent);
+  font-size: 1.3rem;
+}
+
+.relogio-display strong {
+  font-size: 2rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  color: var(--text-main);
+}
+
+.relogio-display-sub {
+  font-size: 0.8rem;
+  color: var(--text-sec);
+}
+
+.relogio-status-vivo {
+  color: var(--success);
+  font-weight: 700;
+}
+
+.relogio-card-acoes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.relogio-play {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.relogio-play:hover {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.relogio-play.ativo {
+  background: var(--success);
+  border-color: var(--success);
+  color: #fff;
+}
+
+.relogio-segmentado {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-surface);
+}
+
+.relogio-segmentado button {
+  padding: 6px 10px;
+  border: none;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-sec);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.relogio-segmentado button:last-child {
+  border-right: none;
+}
+
+.relogio-segmentado button.ativo {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.relogio-linhas {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.relogio-presets {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.relogio-presets button {
+  padding: 8px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.relogio-presets button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.relogio-presets button:active {
+  transform: translateY(1px);
+}
+
+.relogio-presets.menos button {
+  color: var(--text-sec);
+  font-weight: 600;
+}
+
+.relogio-forms {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.relogio-forms label,
+.relogio-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-sec);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.relogio-form-linha {
+  display: flex;
+  gap: 6px;
+}
+
+.relogio-form-linha input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.85rem;
+}
+
+/* Versão compacta (Hoje na campanha, visão geral do narrador). */
+.relogio-compacto {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0 2px;
+  border-top: 1px solid var(--border);
+}
+
+.relogio-compacto-hora {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.relogio-compacto-hora > i {
+  color: var(--accent);
+}
+
+.relogio-compacto-hora strong {
+  font-size: 1.2rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.relogio-compacto-hora .relogio-status-vivo {
+  font-size: 0.72rem;
+}
+
+.relogio-compacto-hora .relogio-play {
+  margin-left: auto;
+}
+
+.relogio-compacto .relogio-presets {
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+}
+
+.relogio-compacto .relogio-presets button {
+  padding: 6px 2px;
+  font-size: 0.78rem;
+}
+
+.relogio-compacto .relogio-presets button:first-child {
+  color: var(--text-sec);
+  font-weight: 600;
+}
+
+@media (max-width: 600px) {
+  .relogio-chip-data {
+    display: none;
+  }
+  .relogio-display strong {
+    font-size: 1.6rem;
   }
 }

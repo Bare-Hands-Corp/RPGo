@@ -467,6 +467,16 @@ model Calendario {
 
   dataAtualDias Int @default(0) @map("data_atual_dias")
 
+  // Relógio da mesa. Com o tempo real ligado, a hora efetiva é
+  // (dataAtualDias, segundoDoDia) + (agora - relogioRodandoDesde) × velocidade,
+  // calculada por quem lê — o banco só é escrito quando o narrador mexe.
+  segundoDoDia        Int       @default(28800) @map("segundo_do_dia") // 0..86399, padrão 08:00
+  relogioRodandoDesde DateTime? @map("relogio_rodando_desde") // null = pausado
+  relogioVelocidade   Float     @default(1) @map("relogio_velocidade")
+  relogioFormato12h   Boolean   @default(false) @map("relogio_formato_12h")
+  // { id, tipo, delta, dias, segundo, em } do último ajuste — o realtime usa pra disparar o aviso.
+  ultimoAjusteRelogio Json?     @map("ultimo_ajuste_relogio")
+
   tiposClima TipoClima[]
   eventos    EventoCalendario[]
 

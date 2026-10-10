@@ -11,6 +11,7 @@ import { EfeitosEditor, UsosLimitadosEditor } from "../componente-editor";
 import { CATEGORIAS_ACAO, CATEGORIAS_COMPONENTE } from "../types";
 import type { CondicaoEfeito, ComponenteCategoria, EfeitoAcao, TemplatePayload, TemplateSerializado } from "../types";
 import { ListaTextoInput } from "../inputs";
+import { EstiloPicker } from "@/app/ficha/[uid]/estilo-cor-picker";
 
 function draftDeTemplate(t: TemplateSerializado): TemplatePayload {
   const { id: _id, criadoEm: _criadoEm, ...payload } = t;
@@ -377,17 +378,6 @@ export function TraitsManager({ templatesIniciais }: Props) {
                 Nome
                 <input value={draft.nome} onChange={(e) => campo("nome", e.target.value)} autoFocus />
               </label>
-              {ehCondicao && (
-                <label>
-                  Cor
-                  <input
-                    type="color"
-                    className="trait-condicao-cor-input"
-                    value={draft.formula.cor || corDaCondicao(draft.nome || "condicao")}
-                    onChange={(e) => formulaCampo("cor", e.target.value)}
-                  />
-                </label>
-              )}
               {!pastaAtiva && (
                 <label>
                   Categoria
@@ -413,6 +403,27 @@ export function TraitsManager({ templatesIniciais }: Props) {
                 </>
               )}
             </div>
+
+            {ehCondicao && (
+              // <div> e não <label>: o picker tem vários botões, e um label
+              // repassaria o clique pro primeiro deles.
+              <div className="trait-condicao-estilo">
+                <span className="trait-condicao-estilo-titulo">Cor e brilho</span>
+                <EstiloPicker
+                  cor={draft.formula.cor || corDaCondicao(draft.nome || "condicao")}
+                  cor2={draft.formula.cor2}
+                  efeito={draft.formula.efeito}
+                  permitirSemCor={false}
+                  familiaAmostra="chip"
+                  amostra={draft.nome.trim().slice(0, 8) || "Aa"}
+                  onChange={(patch) => {
+                    if (patch.cor !== undefined) formulaCampo("cor", patch.cor);
+                    if (patch.cor2 !== undefined) formulaCampo("cor2", patch.cor2);
+                    if (patch.efeito !== undefined) formulaCampo("efeito", patch.efeito);
+                  }}
+                />
+              </div>
+            )}
 
             {ehCondicao ? (
               <label>

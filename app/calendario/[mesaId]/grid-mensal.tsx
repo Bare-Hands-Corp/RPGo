@@ -196,7 +196,7 @@ export function GridMensal({
           Dia atual
         </span>
         <span className="cal-legenda-item">
-          <span className="cal-legenda-dot" style={{ background: "var(--color-padrao)" }} />
+          <span className="cal-legenda-dot" style={{ background: "var(--info)" }} />
           Clima
         </span>
         <span className="cal-legenda-item">
@@ -205,7 +205,7 @@ export function GridMensal({
         </span>
         {objetivos.length > 0 && (
           <span className="cal-legenda-item">
-            <span className="cal-legenda-dot" style={{ background: "var(--color-power)" }} />
+            <span className="cal-legenda-dot" style={{ background: "var(--accent)" }} />
             Prazo de objetivo
           </span>
         )}

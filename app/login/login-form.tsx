@@ -108,7 +108,7 @@ export function LoginForm() {
       {toast && (
         <div
           className="auth-toast show"
-          style={{ borderLeftColor: toast.tipo === "sucesso" ? "#27ae60" : "#e74c3c" }}
+          style={{ borderLeftColor: toast.tipo === "sucesso" ? "var(--success)" : "var(--danger)" }}
         >
           <span>{toast.msg}</span>
           <button

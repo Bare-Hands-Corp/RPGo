@@ -108,7 +108,7 @@ export function BotaoNovaMesa() {
                 )}
               </div>
               {erro && (
-                <p style={{ color: "#e74c3c", fontSize: "0.85rem", marginTop: 10 }}>{erro}</p>
+                <p style={{ color: "var(--danger)", fontSize: "0.85rem", marginTop: 10 }}>{erro}</p>
               )}
               <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
                 <button type="submit" className="btn-primary" style={{ flex: 1 }} disabled={pending}>

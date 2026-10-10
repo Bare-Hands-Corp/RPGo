@@ -15,6 +15,7 @@ import { carregarRecebidas, fonteRecebida } from "@/lib/efeitos-servidor";
 import { habilidadesTravadas } from "@/lib/arvore";
 import { PerfilSidebar } from "./perfil-sidebar";
 import { FichaTabs } from "./ficha-tabs";
+import { RelogioMesa } from "../../calendario/[mesaId]/relogio";
 import { FichaRealtime } from "./realtime-refresher";
 import { Bandeja } from "@/components/bandeja/bandeja";
 import { ThemeButton } from "@/components/temas/theme-button";
@@ -174,7 +175,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
   ]);
 
   return (
-    <div className="ficha-layout">
+    <div className={"ficha-layout" + (calendario ? " com-relogio" : "")}>
       <FichaRealtime personagemId={personagem.id} mesaId={personagem.mesaId} />
       <PerfilSidebar
         personagem={personagem}
@@ -267,6 +268,15 @@ export default async function FichaPage({ params, searchParams }: Params) {
         }
       />
       <div className="ficha-topo-acoes">
+        {personagem.mesaId && calendario && (
+          <RelogioMesa
+            mesaId={personagem.mesaId}
+            relogio={calendario.relogio}
+            config={calendario.config}
+            dataAtualDias={calendario.dataAtualDias}
+            isNarrador={isNarrador}
+          />
+        )}
         <ThemeButton />
       </div>
       <Bandeja

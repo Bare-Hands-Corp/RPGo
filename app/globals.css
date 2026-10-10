@@ -14,19 +14,37 @@
   --text-sec:   #7f8c8d;
   --border:     #e0e0e0;
 
+  /* Destaque secundário (abas ativas, marcações...). Tema customizado
+     antigo sem --accent herda a cor principal (ver aplicarTema). */
+  --accent:     #e67e22;
+  /* Texto por cima de --primary (botões cheios). */
+  --on-primary: #fff;
+
   --bg-sidebar:         var(--bg-card);
   --sidebar-text-main:  var(--text-main);
   --sidebar-text-sec:   var(--text-sec);
 
+  /* Tipos de ação — usar SÓ onde a coisa é de fato um tipo de ação.
+     Pra destaque genérico use --accent; pra estados, as cores abaixo. */
   --color-padrao: #3498db;
   --color-bonus:  #f1c40f;
   --color-power:  #e67e22;
   --color-react:  #2ecc71;
   --color-livre:  #9b59b6;
 
-  /* Cores das barras de HP/PP — usadas em dashboard, ficha e narrador */
-  --bar-hp: #d32f2f;
-  --bar-pp: #1976d2;
+  /* Barras e valores de combate — dashboard, ficha e narrador */
+  --bar-hp:       #d32f2f;
+  --bar-hp-temp:  #f1c40f;
+  --bar-pp:       #1976d2;
+  --bar-recurso:  var(--accent);
+  --color-defesa: #2ecc71;
+
+  /* Estados */
+  --danger:    #e74c3c;
+  --warning:   #e0a000;
+  --success:   #27ae60;
+  --info:      #3498db;
+  --highlight: #d4af37;
 
   --bg-slot:    #f5f5f5;
   --border-slot:#ddd;
@@ -119,7 +137,7 @@ a {
   width: 100%;
   padding: 12px;
   background: var(--primary);
-  color: white;
+  color: var(--on-primary);
   border: none;
   border-radius: 8px;
   font-weight: 700;
@@ -162,7 +180,7 @@ a {
   left: 50%;
   transform: translateX(-50%);
   background: var(--bg-card);
-  border-left: 5px solid #e74c3c;
+  border-left: 5px solid var(--danger);
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
   padding: 15px 40px 15px 20px;
   border-radius: 8px;
@@ -415,7 +433,7 @@ a {
 
 .modal-btn-save {
   background: var(--primary);
-  color: white;
+  color: var(--on-primary);
 }
 
 .modal-btn-save:hover {
@@ -617,7 +635,7 @@ a {
 
 .btn-rect.primary {
   background: var(--primary);
-  color: white;
+  color: var(--on-primary);
 }
 
 .btn-rect.primary:hover:not(:disabled) {
@@ -637,7 +655,7 @@ a {
 
 .btn-rect.outline.active {
   background: var(--primary);
-  color: white;
+  color: var(--on-primary);
 }
 
 .btn-rect.neutro {
@@ -671,16 +689,16 @@ a {
 }
 
 .btn-rect.danger {
-  color: #c0392b;
+  color: var(--danger);
 }
 
 .btn-rect.neutro.danger {
-  border-color: color-mix(in oklch, #c0392b 28%, var(--border));
+  border-color: color-mix(in oklch, var(--danger) 28%, var(--border));
 }
 
 .btn-rect.neutro.danger:hover:not(:disabled) {
-  border-color: #c0392b;
-  color: #c0392b;
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 /* ─── CAMPOS DE FORMULÁRIO ────────────────────────── */

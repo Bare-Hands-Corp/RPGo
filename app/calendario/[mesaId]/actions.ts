@@ -6,6 +6,14 @@ import { usuarioDaRequest } from "@/lib/supabase/server";
 import { ErroDeUso, executar as executarEm, type Resultado } from "@/lib/acoes";
 import { ANO_MAX, dataParaDias, diasMaximos, estacaoDoMes, sortearTipoClima, validarConfig, type CalendarioConfig } from "@/lib/calendario/engine";
 import { TEMPLATES, TIPOS_CLIMA_DEFAULT } from "@/lib/calendario/templates";
+import {
+  SEGUNDOS_DIA,
+  ehVelocidadeValida,
+  relogioEfetivo,
+  somarTempo,
+  type AjusteRelogio,
+  type TipoAjusteRelogio,
+} from "@/lib/calendario/relogio";
 
 const executar = <T extends object = object>(corpo: () => Promise<T | void>) =>
   executarEm("calendario", corpo);
@@ -59,7 +67,16 @@ export async function setarDataAtual(
     const [user, mesa, calendario] = await Promise.all([
       usuarioDaRequest(),
       prisma.mesa.findUnique({ where: { id: mesaId }, select: { userId: true } }),
-      prisma.calendario.findUnique({ where: { mesaId }, select: { config: true } }),
+      prisma.calendario.findUnique({
+        where: { mesaId },
+        select: {
+          config: true,
+          dataAtualDias: true,
+          segundoDoDia: true,
+          relogioRodandoDesde: true,
+          relogioVelocidade: true,
+        },
+      }),
     ]);
     if (!user) throw new ErroDeUso("Não autenticado.");
     if (!mesa) throw new ErroDeUso("Mesa não encontrada.");
@@ -77,11 +94,152 @@ export async function setarDataAtual(
       throw new ErroDeUso(`Data ultrapassa o ano máximo (${ANO_MAX}).`);
     }
 
+    // Mantém a hora; com o tempo real ligado, fixa a hora que já andou antes de trocar o dia.
+    const agora = new Date();
+    const { segundo } = relogioEfetivo(baseDoBanco(calendario), agora.getTime(), diasMaximos(config));
     await prisma.calendario.update({
       where: { mesaId },
-      data: { dataAtualDias },
+      data: {
+        dataAtualDias,
+        ...(calendario.relogioRodandoDesde ? { segundoDoDia: segundo, relogioRodandoDesde: agora } : {}),
+      },
     });
     revalidar(mesaId);
+  });
+}
+
+// ─── Relógio ───────────────────────────────────────────────────
+type LinhaRelogio = {
+  dataAtualDias: number;
+  segundoDoDia: number;
+  relogioRodandoDesde: Date | null;
+  relogioVelocidade: number;
+};
+
+function baseDoBanco(c: LinhaRelogio) {
+  return {
+    dias: c.dataAtualDias,
+    segundo: c.segundoDoDia,
+    rodandoDesdeMs: c.relogioRodandoDesde?.getTime() ?? null,
+    velocidade: c.relogioVelocidade,
+  };
+}
+
+type MudancaRelogio = {
+  dias?: number;
+  segundo?: number;
+  rodando?: boolean;
+  velocidade?: number;
+  formato12h?: boolean;
+  /** Presente = dispara o aviso pra mesa. */
+  aviso?: { tipo: TipoAjusteRelogio; delta: number };
+};
+
+// Trava a linha, fixa a hora que o tempo real já andou (nova base = agora) e
+// aplica a mudança. A trava faz cliques seguidos somarem em vez de se perderem.
+async function mudarRelogio(
+  mesaId: string,
+  calcular: (atual: {
+    dias: number;
+    segundo: number;
+    maxDias: number;
+    rodando: boolean;
+    diasGravados: number;
+  }) => MudancaRelogio | null,
+): Promise<void> {
+  await autorizarNarrador(mesaId);
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM calendarios WHERE mesa_id = ${mesaId} FOR UPDATE`;
+    const c = await tx.calendario.findUnique({ where: { mesaId } });
+    if (!c) throw new ErroDeUso("Calendário não encontrado.");
+
+    const agora = new Date();
+    const maxDias = diasMaximos(c.config as unknown as CalendarioConfig);
+    const atual = relogioEfetivo(baseDoBanco(c), agora.getTime(), maxDias);
+    const rodandoAntes = c.relogioRodandoDesde !== null;
+    const m = calcular({ ...atual, maxDias, rodando: rodandoAntes, diasGravados: c.dataAtualDias });
+    if (!m) return;
+
+    const dias = m.dias ?? atual.dias;
+    const segundo = m.segundo ?? atual.segundo;
+    const rodando = m.rodando ?? rodandoAntes;
+    const ajuste: AjusteRelogio | undefined = m.aviso && {
+      id: crypto.randomUUID(),
+      tipo: m.aviso.tipo,
+      delta: m.aviso.delta,
+      dias,
+      segundo,
+      em: agora.toISOString(),
+    };
+
+    await tx.calendario.update({
+      where: { mesaId },
+      data: {
+        dataAtualDias: dias,
+        segundoDoDia: segundo,
+        relogioRodandoDesde: rodando ? agora : null,
+        ...(m.velocidade !== undefined ? { relogioVelocidade: m.velocidade } : {}),
+        ...(m.formato12h !== undefined ? { relogioFormato12h: m.formato12h } : {}),
+        ...(ajuste ? { ultimoAjusteRelogio: ajuste } : {}),
+      },
+    });
+  });
+  revalidar(mesaId);
+}
+
+// Soma (ou subtrai) tempo; vira o dia quando passa da meia-noite.
+export async function ajustarRelogio(mesaId: string, deltaSeg: number): Promise<Resultado> {
+  return executar(async () => {
+    if (!Number.isInteger(deltaSeg) || deltaSeg === 0) throw new ErroDeUso("Tempo inválido.");
+    if (Math.abs(deltaSeg) > 365 * SEGUNDOS_DIA) throw new ErroDeUso("Máximo de um ano por ajuste.");
+    await mudarRelogio(mesaId, ({ dias, segundo, maxDias }) => ({
+      ...somarTempo(dias, segundo, deltaSeg, maxDias),
+      aviso: { tipo: "ajuste", delta: deltaSeg },
+    }));
+  });
+}
+
+// Pula pra um horário exato do mesmo dia.
+export async function definirHorario(mesaId: string, segundo: number): Promise<Resultado> {
+  return executar(async () => {
+    if (!Number.isInteger(segundo) || segundo < 0 || segundo >= SEGUNDOS_DIA) {
+      throw new ErroDeUso("Horário inválido.");
+    }
+    await mudarRelogio(mesaId, (atual) => ({
+      segundo,
+      aviso: { tipo: "definir", delta: segundo - atual.segundo },
+    }));
+  });
+}
+
+export async function alternarTempoReal(mesaId: string, rodando: boolean): Promise<Resultado> {
+  return executar(async () => {
+    await mudarRelogio(mesaId, (atual) => (atual.rodando === rodando ? null : { rodando }));
+  });
+}
+
+export async function definirVelocidadeRelogio(mesaId: string, velocidade: number): Promise<Resultado> {
+  return executar(async () => {
+    if (!ehVelocidadeValida(velocidade)) throw new ErroDeUso("Velocidade inválida.");
+    await mudarRelogio(mesaId, () => ({ velocidade }));
+  });
+}
+
+export async function definirFormatoRelogio(mesaId: string, formato12h: boolean): Promise<Resultado> {
+  return executar(async () => {
+    await mudarRelogio(mesaId, () => ({ formato12h }));
+  });
+}
+
+// Tempo real passou da meia-noite: grava o dia novo pra prazos, clima e avisos.
+// Chamado pela tela do narrador; não faz nada se o dia gravado já está certo.
+export async function sincronizarRelogio(mesaId: string): Promise<Resultado> {
+  return executar(async () => {
+    await mudarRelogio(mesaId, (atual) =>
+      atual.rodando && atual.dias !== atual.diasGravados
+        ? { aviso: { tipo: "virada", delta: 0 } }
+        : null,
+    );
   });
 }
 

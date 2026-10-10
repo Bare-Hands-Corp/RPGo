@@ -1,4 +1,5 @@
 import type { Criatura, Encontro, Esquadrao, Linhagem, TraitInstance, TraitTemplate } from "@prisma/client";
+import { EFEITO_COR_PADRAO, normalizarEfeitoCor } from "@/lib/estilos-cor";
 import type {
   AtributoSalvaguarda,
   CaracteristicasPayload,
@@ -181,6 +182,8 @@ function comoEfeito(e: Record<string, unknown>): EfeitoAcao | null {
         nome: String(e.nome ?? ""),
         descricao: String(e.descricao ?? ""),
         cor: String(e.cor ?? ""),
+        cor2: String(e.cor2 ?? ""),
+        efeito: normalizarEfeitoCor(e.efeito),
         duracaoTurnos: e.duracaoTurnos === null || e.duracaoTurnos === undefined ? null : Number(e.duracaoTurnos),
       };
     case "livre":
@@ -314,7 +317,7 @@ export function serializarCriatura(
 // ─── Biblioteca de traits ─────────────────────────────────────────────────
 
 function formulaVazia(): TemplateFormula {
-  return { efeitos: [], usos: null, recarga: null, cor: "", alcance: "", custo: "" };
+  return { efeitos: [], usos: null, recarga: null, cor: "", cor2: "", efeito: EFEITO_COR_PADRAO, alcance: "", custo: "" };
 }
 
 export function criarTemplateVazio(): TemplatePayload {
@@ -389,6 +392,8 @@ export function serializarTemplate(template: TraitTemplate): TemplateSerializado
       usos: f.usos === null || f.usos === undefined ? null : Number(f.usos),
       recarga: comoRecarga(f.recarga),
       cor: String(f.cor ?? ""),
+      cor2: String(f.cor2 ?? ""),
+      efeito: normalizarEfeitoCor(f.efeito),
       alcance: String(f.alcance ?? ""),
       custo: String(f.custo ?? ""),
     },

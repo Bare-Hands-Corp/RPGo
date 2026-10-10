@@ -252,8 +252,8 @@ export function HabilidadesTab({
       text: `Apagar "${nome}"?`,
       icon: "warning",
       showCancelButton: true,
-      confirmButtonColor: "#d33",
-      cancelButtonColor: "#3085d6",
+      confirmButtonColor: "var(--danger)",
+      cancelButtonColor: "var(--text-sec)",
       confirmButtonText: "Deletar",
       cancelButtonText: "Cancelar",
       background: "var(--bg-card)",
@@ -530,7 +530,7 @@ export function HabilidadesTab({
         {favoritas.length > 0 && (
           <section>
             <div className="section-header">
-              <i className="fas fa-star" style={{ color: "#d4af37" }} />
+              <i className="fas fa-star" style={{ color: "var(--highlight)" }} />
               <h3>Destaques</h3>
             </div>
             <div className="action-grid">

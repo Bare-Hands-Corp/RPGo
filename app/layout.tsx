@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { TemaGuardado } from "@/components/temas/tema-guardado";
 import { ThemeScript } from "./theme-script";
 import "./globals.css";
+import "./estilos-cor.css";
 
 export const metadata: Metadata = {
   title: "RPGo",

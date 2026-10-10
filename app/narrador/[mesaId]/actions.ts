@@ -427,6 +427,29 @@ export async function calcularBonusTesteMesa(
   });
 }
 
+// Mesmo limite do campo em editar-mesa-modal.tsx.
+const NOME_MESA_MAX = 60;
+
+// Nome e banner da mesa. `bannerUrl: null` remove a imagem.
+export async function atualizarMesa(
+  mesaId: string,
+  input: { nome: string; bannerUrl: string | null },
+) {
+  await requireNarradorMesa(mesaId);
+
+  const nome = input.nome.trim();
+  if (!nome) throw new Error("Dê um nome para a mesa.");
+  if (nome.length > NOME_MESA_MAX) throw new Error(`O nome pode ter até ${NOME_MESA_MAX} caracteres.`);
+
+  const bannerUrl = input.bannerUrl?.trim() || null;
+  if (bannerUrl && !/^https:\/\//.test(bannerUrl)) throw new Error("Imagem inválida.");
+
+  await prisma.mesa.update({ where: { id: mesaId }, data: { nome, bannerUrl } });
+
+  revalidatePath(`/narrador/${mesaId}`);
+  revalidatePath("/dashboard");
+}
+
 export async function removerPersonagemDaMesa(mesaId: string, personagemId: string) {
   await requireNarradorMesa(mesaId);
   const personagem = await prisma.personagem.findFirst({

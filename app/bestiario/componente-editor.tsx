@@ -371,8 +371,15 @@ function renderCampos(
                   const escolhida = condicoesDisponiveis.find((c) => c.id === e.target.value);
                   onAtualizar(
                     escolhida
-                      ? { condicaoId: escolhida.id, nome: escolhida.nome, descricao: escolhida.textoTemplate, cor: escolhida.formula.cor }
-                      : { condicaoId: "", nome: "", descricao: "", cor: "" },
+                      ? {
+                          condicaoId: escolhida.id,
+                          nome: escolhida.nome,
+                          descricao: escolhida.textoTemplate,
+                          cor: escolhida.formula.cor,
+                          cor2: escolhida.formula.cor2,
+                          efeito: escolhida.formula.efeito,
+                        }
+                      : { condicaoId: "", nome: "", descricao: "", cor: "", cor2: "", efeito: undefined },
                   );
                 }}
               >
