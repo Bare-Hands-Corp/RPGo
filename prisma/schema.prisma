@@ -344,6 +344,8 @@ model Acao {
   atributoSalv   String? @map("atributo_salv") // atributo que o alvo testa pra resistir
   atributoCd     String? @map("atributo_cd") // atributo primário do usuário pra CD (8+prof+mod)
   dano           String? // "1d8 cortante", "2d6 fogo"
+  // Tipo do dano escolhido no modal (lib/dano.ts TIPOS_DANO ou texto).
+  tipoDano       String? @map("tipo_dano")
   alcance        String? // "cc 1,5 m", "9 m", "linha 18 m"
   // Armas que desferem esta ação (Item.id[], sem FK).
   armaIds        Json    @default("[]") @map("arma_ids")
@@ -425,6 +427,8 @@ model Habilidade {
 
   // Item que concede esta habilidade (sem FK); travada se não estiver equipado.
   itemId String? @map("item_id")
+  // A habilidade usa o item em vez de vir dele (só muda o rótulo).
+  itemUsa Boolean @default(false) @map("item_usa")
 
   // Lista de efeitos estruturados (ver lib/op-rpg.ts EfeitoHabilidade).
   efeitos Json @default("[]")
@@ -434,6 +438,22 @@ model Habilidade {
   @@index([personagemId])
   @@index([alvoPersonagemId])
   @@map("habilidades")
+}
+
+// Habilidade ou ação guardada numa pasta do usuário, pra reaproveitar em qualquer ficha.
+// `dados` é o input de criar sem vínculos da ficha de origem (lib/pastas.ts).
+model Modelo {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+  pasta  String
+  tipo   String // "habilidade" | "acao"
+  nome   String
+  dados  Json
+
+  criadoEm DateTime @default(now()) @map("criado_em")
+
+  @@index([userId])
+  @@map("modelos")
 }
 
 model Mensagem {

@@ -5,6 +5,7 @@ import Swal from "sweetalert2";
 import { ehTemporario, exigir, idTemporario } from "@/lib/acoes";
 import { useRefreshAgrupado } from "@/lib/use-refresh-agrupado";
 import {
+  adicionarDaPasta,
   alternarHabilidade,
   atualizarHabilidade,
   criarHabilidade,
@@ -34,6 +35,9 @@ import {
   type TipoHabilidade,
 } from "@/lib/op-rpg";
 import { SeletorUnico } from "./seletor-multiplo";
+import { doModelo, type ModeloView } from "@/lib/pastas";
+import { BotaoGuardar, BotaoPastas } from "./pastas";
+import { Segmentos } from "./campos-modal";
 import {
   AlvosCustomContext,
   ChipEfeito,
@@ -41,13 +45,14 @@ import {
   NomesRecursoContext,
   DatalistAlvos,
   EfeitosEditor,
+  StatsPorTurno,
   type RecursoMinimo,
 } from "./efeitos-editor";
 import type { Dado } from "@/lib/dice";
 import { empilharRolagem, rolarCuras } from "@/lib/empilhar-rolagem";
 import { TagChip, TagsEditor } from "./estilo-cor-picker";
 import { useEscolherAlvo } from "./escolher-alvo";
-import { DuracaoCampo } from "./duracao-campo";
+import { ACadaTurnoCampo, DuracaoCampo, comPorTurno, porTurnoDe } from "./duracao-campo";
 import { CustosCampo } from "./custos-campo";
 import { CampoFormula } from "./campo-formula";
 import {
@@ -88,6 +93,7 @@ type Habilidade = {
   efeitos: unknown;
   ligada: boolean;
   itemId: string | null;
+  itemUsa?: boolean;
   alternavel: boolean;
   usosFormula: string | null;
   aliado: boolean;
@@ -147,6 +153,34 @@ function mostrarErro(err: unknown) {
 }
 
 type Filtro = "todas" | "disponiveis" | "sem_custo";
+
+// Habilidade recém-trazida de uma pasta, antes do servidor responder.
+const HABILIDADE_BASE: Omit<Habilidade, "id"> = {
+  nome: "",
+  origem: "livre",
+  tipo: "passiva",
+  descricao: "",
+  custoPp: 0,
+  custoPa: 0,
+  custoRecursoId: null,
+  custoRecursoValor: 0,
+  usos: null,
+  usosAtual: null,
+  recarga: null,
+  tags: null,
+  tagsEstilo: null,
+  favorita: false,
+  ordem: 0,
+  efeitos: [],
+  ligada: false,
+  itemId: null,
+  itemUsa: false,
+  alternavel: false,
+  usosFormula: null,
+  aliado: false,
+  alvoPersonagemId: null,
+  duracao: null,
+};
 
 export function HabilidadesTab({
   personagemId,
@@ -454,6 +488,29 @@ export function HabilidadesTab({
     return () => window.removeEventListener("rpgo:gastar-habilidade", ouvir);
   }, []);
 
+  // Traz das pastas: aparece na hora e o servidor cria de verdade.
+  function adicionarDasPastas(modelos: ModeloView[]) {
+    startTransition(async () => {
+      for (const m of modelos) {
+        const dados = doModelo("habilidade", m.dados, recursos);
+        aplicar({
+          kind: "create",
+          habilidade: {
+            ...HABILIDADE_BASE,
+            ...dados,
+            usosAtual: (dados.usos as number | null | undefined) ?? null,
+            id: idTemporario(),
+          } as Habilidade,
+        });
+      }
+      try {
+        exigir(await adicionarDaPasta(personagemId, modelos.map((m) => m.id)));
+      } catch (err) {
+        mostrarErro(err);
+      }
+    });
+  }
+
   function salvarForm(dados: HabilidadeFormDados) {
     const editandoId = edit?.id ?? null;
     setModalAberto(false);
@@ -499,13 +556,20 @@ export function HabilidadesTab({
           }}
         >
           <h1>Habilidades</h1>
-          <button
-            type="button"
-            className="btn-rect primary"
-            onClick={abrirNova}
-          >
-            + Nova Habilidade
-          </button>
+          <div className="tab-topo-botoes">
+            <BotaoPastas
+              personagemId={personagemId}
+              tipo="habilidade"
+              onAdicionar={adicionarDasPastas}
+            />
+            <button
+              type="button"
+              className="btn-rect primary"
+              onClick={abrirNova}
+            >
+              + Nova Habilidade
+            </button>
+          </div>
         </div>
 
         <div className="hab-filtros">
@@ -537,6 +601,7 @@ export function HabilidadesTab({
               {favoritas.map((h) => (
                 <CardHabilidade
                   key={`fav-${h.id}`}
+                  personagemId={personagemId}
                   habilidade={h}
                   travada={travadasSet.has(h.id)}
                   itemOrigem={h.itemId ? itemPorId.get(h.itemId) : undefined}
@@ -572,6 +637,7 @@ export function HabilidadesTab({
                 {lista.map((h) => (
                   <CardHabilidade
                     key={h.id}
+                    personagemId={personagemId}
                     habilidade={h}
                     travada={travadasSet.has(h.id)}
                     itemOrigem={h.itemId ? itemPorId.get(h.itemId) : undefined}
@@ -627,6 +693,7 @@ export function HabilidadesTab({
 
 // ─── Card de habilidade ────────────────────────────────────────────────
 function CardHabilidade({
+  personagemId,
   habilidade,
   travada,
   itemOrigem,
@@ -641,6 +708,7 @@ function CardHabilidade({
   onAlternar,
   onFavorita,
 }: {
+  personagemId: string;
   habilidade: Habilidade;
   travada: boolean;
   itemOrigem?: ItemRef;
@@ -658,6 +726,8 @@ function CardHabilidade({
   onFavorita: () => void;
 }) {
   const efeitos = lerEfeitos(habilidade.efeitos);
+  // O "a cada turno" aparece junto da duração.
+  const chips = efeitos.filter((e) => e.tipo !== "por_turno");
   // Concedida por item: só vale com ele equipado.
   const travadaPorItem = !!habilidade.itemId && !itemOrigem?.equipado;
   const bloqueada = travada || travadaPorItem;
@@ -735,6 +805,11 @@ function CardHabilidade({
       >
         <i className={`fa-star ${habilidade.favorita ? "fas" : "far"}`} />
       </button>
+      <BotaoGuardar
+        personagemId={personagemId}
+        tipo="habilidade"
+        origem={{ id: habilidade.id, nome: habilidade.nome }}
+      />
       <button
         type="button"
         className="btn-card-edit"
@@ -788,44 +863,29 @@ function CardHabilidade({
                 : textoDuracao(lerDuracao(habilidade.duracao))}
             </span>
           )}
+          <StatsPorTurno efeitos={efeitos} />
           {habilidade.aliado && (
             <span className="acao-stat acao-aliado">
               <i className="fas fa-hand-holding-heart" />{" "}
               {ligadaAtiva && nomeDoAlvo ? `em ${nomeDoAlvo}` : "Em aliado"}
             </span>
           )}
-        </div>
-        {itemOrigem && (
-          <div className="acao-stats">
-            <span
-              className="acao-stat"
-              style={travadaPorItem ? { color: "var(--text-sec)" } : undefined}
-              title={
-                travadaPorItem
-                  ? "Vem de um item que não está equipado"
-                  : "Vem deste item"
-              }
-            >
-              <i className={`fas ${travadaPorItem ? "fa-lock" : "fa-sack-dollar"}`} />{" "}
-              {itemOrigem.nome}
+          {itemOrigem && !travadaPorItem && (
+            <span className="acao-stat">
+              <i className={`fas ${habilidade.itemUsa ? "fa-khanda" : "fa-sack-dollar"}`} />{" "}
+              {habilidade.itemUsa ? "Usa" : "Vem de"} {itemOrigem.nome}
             </span>
-          </div>
-        )}
-        {travada && (
+          )}
+        </div>
+        {bloqueada && (
           <div className="hab-travada-nota">
-            <i className="fas fa-lock" /> travada por um talento não liberado —
-            os efeitos não contam
+            <i className="fas fa-lock" /> Habilidade travada ·{" "}
+            {travadaPorItem ? `equipe ${itemOrigem?.nome ?? "o item"}` : "talento não liberado"}
           </div>
         )}
-        {travadaPorItem && (
-          <div className="hab-travada-nota">
-            <i className="fas fa-lock" /> equipe {itemOrigem?.nome ?? "o item"} pra
-            valer — os efeitos não contam
-          </div>
-        )}
-        {efeitos.length > 0 && (
+        {chips.length > 0 && (
           <div className="efeito-chips">
-            {efeitos.map((e, i) => (
+            {chips.map((e, i) => (
               <ChipEfeito key={i} efeito={e} />
             ))}
           </div>
@@ -910,6 +970,7 @@ type HabilidadeFormDados = {
   tagsEstilo: MapaEstilosTag;
   efeitos: EfeitoHabilidade[];
   itemId: string | null;
+  itemUsa: boolean;
   alternavel: boolean;
   aliado: boolean;
   duracao: Duracao | null;
@@ -964,6 +1025,7 @@ function HabilidadeModal({
     lerEfeitos(inicial?.efeitos),
   );
   const [itemId, setItemId] = useState(inicial?.itemId ?? "");
+  const [itemUsa, setItemUsa] = useState(inicial?.itemUsa ?? false);
   // Com efeito que fica valendo, a habilidade só pode ser de Liga e desliga.
   const temSustentado = temEfeitoSustentado(efeitos);
   const ligaDesliga = alternavel || temSustentado;
@@ -1006,6 +1068,7 @@ function HabilidadeModal({
       tagsEstilo: podarEstilosTag(tagsEstilo, tags),
       efeitos,
       itemId: itemId || null,
+      itemUsa: !!itemId && itemUsa,
       alternavel: tipo !== "passiva" && alternavel,
       aliado: tipo !== "passiva" && aliado,
       duracao: tipo !== "passiva" ? duracao : null,
@@ -1102,8 +1165,21 @@ function HabilidadeModal({
                 ))}
               </div>
 
-              <DuracaoCampo valor={duracao} onChange={setDuracao} />
+              <DuracaoCampo
+                valor={duracao}
+                onChange={setDuracao}
+                porTurno={porTurnoDe(efeitos)}
+                onPorTurno={(lista) => setEfeitos(comPorTurno(efeitos, lista))}
+                recursos={recursos}
+              />
             </>
+          )}
+          {tipo === "passiva" && (
+            <ACadaTurnoCampo
+              lista={porTurnoDe(efeitos)}
+              onChange={(lista) => setEfeitos(comPorTurno(efeitos, lista))}
+              recursos={recursos}
+            />
           )}
 
           <label>Nome</label>
@@ -1122,7 +1198,18 @@ function HabilidadeModal({
             placeholder="Como funciona, quando se aplica, regras especiais..."
           />
 
-          <label>Vem do item</label>
+          <label>Item</label>
+          {itemId && (
+            <Segmentos
+              rotulo="Relação com o item"
+              valor={itemUsa ? "usa" : "vem"}
+              onChange={(v) => setItemUsa(v === "usa")}
+              opcoes={[
+                { valor: "vem", rotulo: "Vem de" },
+                { valor: "usa", rotulo: "Usa" },
+              ]}
+            />
+          )}
           <SeletorUnico
             opcoes={itens.map((i) => ({
               id: i.id,
@@ -1186,9 +1273,13 @@ function HabilidadeModal({
             </div>
           </details>
 
-          <details className="modal-secao-detalhe" open={efeitos.length > 0}>
+          <details
+            className="modal-secao-detalhe"
+            open={efeitos.some((e) => e.tipo !== "por_turno")}
+          >
             <summary>
-              <i className="fas fa-list-check" /> Efeitos ({efeitos.length})
+              <i className="fas fa-list-check" /> Efeitos (
+              {efeitos.filter((e) => e.tipo !== "por_turno").length})
             </summary>
             <div className="modal-secao-corpo">
               <EfeitosEditor

@@ -31,6 +31,8 @@ import {
   anunciarTurnos,
   concentracaoEmCurso,
   duracoesEmCurso,
+  facesDoTurno,
+  porTurnoDaConcentracao,
   rolarTurno,
 } from "@/lib/turno";
 import {
@@ -250,6 +252,7 @@ export function PerfilSidebar({
   penalidadeDesArmadura,
   camadasQueAbrem,
   tiposDosAtaques,
+  acoes,
 }: {
   personagem: Personagem;
   // Habilidades cruas — a sidebar recomputa o agregado client-side pra refletir
@@ -261,6 +264,8 @@ export function PerfilSidebar({
   camadasQueAbrem: CamadaQueAbre[];
   // Tipos de dano lidos dos ataques e efeitos (sugestões do dano recebido).
   tiposDosAtaques: string[];
+  // Ações da ficha: a técnica em concentração traz o "a cada turno" dela.
+  acoes: { id: string; nome: string; efeitos: unknown }[];
 }) {
   // useOptimistic do personagem inteiro: o EditFichaModal e qualquer outro
   // editor podem aplicar patches via `aplicarOtimista` pra refletir mudanças
@@ -592,7 +597,10 @@ export function PerfilSidebar({
   );
 
   // A cada turno: efeitos que repetem e durações em turnos das ligadas.
-  const porTurno = efeitosAgregados.porTurno;
+  const porTurno = [
+    ...efeitosAgregados.porTurno,
+    ...porTurnoDaConcentracao(p.concentracao, acoes),
+  ];
   const duracoesTurno = duracoesEmCurso(
     habilidades
       .filter((h) => ligadaOverlay[h.id] ?? h.ligada)
@@ -620,10 +628,10 @@ export function PerfilSidebar({
   // Rola aqui, mostra na hora e manda os totais pro servidor conferir.
   function passarTurnoAgora() {
     const resolver = (f: string) => resolverFormula(f, ctxTurno.atributos, ctxTurno.nivel);
-    const valores = rolarTurno(porTurno, resolver);
+    const rolagens = rolarTurno(porTurno, resolver);
     const r = aplicarTurno({
       porTurno,
-      valores,
+      rolagens,
       estado: {
         hpAtual: p.hpAtual,
         hpTemp: p.hpTemp,
@@ -669,6 +677,7 @@ export function PerfilSidebar({
       (r.estado.hpAtual <= 0 ||
         r.estado.exaustao >= 6 ||
         r.concentracaoTurnos === 0 ||
+        r.concentracaoSemRecurso ||
         r.desligar.some((h) => h.id === c.id));
     if (perde) anunciarConcentracao(null);
     else if (c && r.concentracaoTurnos != null) anunciarConcentracao({ ...c, turnos: r.concentracaoTurnos });
@@ -680,7 +689,7 @@ export function PerfilSidebar({
         pvNegativos: r.estado.pvNegativos,
       });
       try {
-        const res = exigir(await passarTurno(p.id, valores));
+        const res = exigir(await passarTurno(p.id, facesDoTurno(rolagens)));
         anunciarMensagem(res.mensagem);
         if (res.testes.length > 0) {
           const cd = Math.max(...res.testes);

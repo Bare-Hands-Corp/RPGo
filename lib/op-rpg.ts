@@ -1435,15 +1435,6 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     criar: () => ({ tipo: "floor_d20", minimo: 10, alvo: "teste" }),
   },
   {
-    id: "por_turno",
-    nome: "A cada turno",
-    descricao: "Cura, dano ou gasto que se repete todo turno",
-    icone: "fa-clock-rotate-left",
-    cor: "var(--color-bonus)",
-    grupo: "ativo",
-    criar: () => ({ tipo: "por_turno", o: "cura", valor: "" }),
-  },
-  {
     id: "recurso_delta",
     nome: "Ganha/Gasta Recurso",
     descricao: "Mexe num recurso customizado (PC, PN…)",
@@ -2286,6 +2277,8 @@ export type PorTurno = {
   tipoDano?: string;
   fonte: string;
   habilidadeId?: string;
+  // Técnica em concentração que traz o efeito.
+  acaoId?: string;
 };
 
 // Efeito de dano só em certos graus de técnica ou tipos de dano.

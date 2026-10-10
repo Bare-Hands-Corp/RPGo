@@ -1,13 +1,14 @@
 // Passar turno: aplica o "a cada turno" e conta as durações em turnos.
 // Puro (cliente e servidor), como o dano; o combate reaproveita.
 
-import { faixaDaRolagem, rolarDados, type Dado } from "./dice";
+import { faixaDaRolagem, rolarDados, type Dado, type DadoRolado } from "./dice";
 import {
   defesasDesligadasDePadrao,
+  descreverParte,
   resolverDano,
   type DefesaDano,
 } from "./dano";
-import { nomeDoPool, type PorTurno } from "./op-rpg";
+import { lerEfeitos, nomeDoPool, type PorTurno } from "./op-rpg";
 import { lerConcentracao, lerDuracao, turnosDaDuracao } from "./duracao";
 
 export type EstadoTurno = {
@@ -27,7 +28,17 @@ export type DuracaoEmCurso = { id: string; nome: string; turnos: number };
 // Técnica em concentração com duração em turnos.
 export type ConcentracaoEmCurso = { id: string; nome: string; turnos: number };
 
-export type LinhaTurno = { fonte: string; texto: string };
+// Rolagem de um efeito: os dados, o que soma e o total.
+export type RolagemTurno = { total: number; detalhes: DadoRolado[]; modificador: number };
+
+// `rolagem` abre os dados no chat; `detalhe` mostra as defesas do dano.
+export type LinhaTurno = {
+  fonte: string;
+  texto: string;
+  o?: PorTurno["o"] | "fim";
+  rolagem?: { detalhes: DadoRolado[]; modificador: number };
+  detalhe?: string;
+};
 
 export type ResultadoTurno = {
   estado: EstadoTurno;
@@ -40,6 +51,8 @@ export type ResultadoTurno = {
   concentracaoTurnos: number | null;
   // Dano final de cada fonte (um teste de concentração por fonte).
   danos: number[];
+  // O gasto da técnica em concentração zerou o recurso.
+  concentracaoSemRecurso: boolean;
   caiu: boolean;
   morreu: boolean;
 };
@@ -64,29 +77,71 @@ export function concentracaoEmCurso(raw: unknown): ConcentracaoEmCurso | null {
   return c?.tipo === "acao" && c.turnos ? { id: c.id, nome: c.nome, turnos: c.turnos } : null;
 }
 
-// Total rolado de cada efeito (cliente); número fixo vale como está.
-export function rolarTurno(porTurno: PorTurno[], resolver: Resolver): number[] {
-  return porTurno.map((p) => {
-    const f = resolver(p.valor);
-    return f.dados.length ? rolarDados(f.dados, f.modificador).total : f.modificador;
-  });
+// "A cada turno" da técnica em que o personagem concentra.
+export function porTurnoDaConcentracao(
+  concentracao: unknown,
+  acoes: { id: string; nome: string; efeitos: unknown }[],
+): PorTurno[] {
+  const c = lerConcentracao(concentracao);
+  if (c?.tipo !== "acao") return [];
+  const acao = acoes.find((a) => a.id === c.id);
+  if (!acao) return [];
+  return lerEfeitos(acao.efeitos).flatMap((e) =>
+    e.tipo === "por_turno"
+      ? [
+          {
+            o: e.o,
+            valor: e.valor,
+            ...(e.recurso ? { recurso: e.recurso } : {}),
+            ...(e.gasta ? { gasta: true } : {}),
+            ...(e.tipoDano ? { tipoDano: e.tipoDano } : {}),
+            fonte: acao.nome,
+            acaoId: acao.id,
+          },
+        ]
+      : [],
+  );
 }
 
-// Confere os totais do cliente na faixa de cada fórmula; o que falta, rola aqui.
+function rolar(f: { dados: Dado[]; modificador: number }): RolagemTurno {
+  const r = rolarDados(f.dados, f.modificador);
+  return { total: r.total, detalhes: r.detalhes, modificador: f.modificador };
+}
+
+// Rola cada efeito (cliente); número fixo vale como está.
+export function rolarTurno(porTurno: PorTurno[], resolver: Resolver): RolagemTurno[] {
+  return porTurno.map((p) => rolar(resolver(p.valor)));
+}
+
+// O que vai pro servidor: as faces de cada efeito.
+export function facesDoTurno(rolagens: RolagemTurno[]): number[][] {
+  return rolagens.map((r) => r.detalhes.map((d) => d.resultado));
+}
+
+// Confere as faces do cliente contra os dados de cada fórmula; o que falta, rola aqui.
+// Total solto (cliente antigo) fica preso na faixa da fórmula.
 export function validarRolagensTurno(
   porTurno: PorTurno[],
   rolagens: unknown,
   resolver: Resolver,
-): number[] {
+): RolagemTurno[] {
   const lista = Array.isArray(rolagens) ? rolagens : [];
   return porTurno.map((p, i) => {
     const f = resolver(p.valor);
-    const bruto = Number(lista[i]);
-    if (!Number.isFinite(bruto)) {
-      return f.dados.length ? rolarDados(f.dados, f.modificador).total : f.modificador;
+    const bruto: unknown = lista[i];
+    if (Array.isArray(bruto) && bruto.length === f.dados.length) {
+      const faces = bruto.map((x) => Math.trunc(Number(x)));
+      if (faces.every((x, j) => x >= 1 && x <= f.dados[j].faces)) {
+        const detalhes = f.dados.map((d, j) => ({ faces: d.faces, sinal: d.sinal, resultado: faces[j] }));
+        const total = detalhes.reduce((soma, d) => soma + d.resultado * d.sinal, f.modificador);
+        return { total, detalhes, modificador: f.modificador };
+      }
     }
-    const { min, max } = faixaDaRolagem(f.dados, f.modificador);
-    return Math.min(max, Math.max(min, Math.trunc(bruto)));
+    if (typeof bruto === "number" && Number.isFinite(bruto)) {
+      const { min, max } = faixaDaRolagem(f.dados, f.modificador);
+      return { total: Math.min(max, Math.max(min, Math.trunc(bruto))), detalhes: [], modificador: 0 };
+    }
+    return rolar(f);
   });
 }
 
@@ -98,7 +153,7 @@ function somarAteOMaximo(atual: number, delta: number, max: number): number {
 
 export function aplicarTurno(entrada: {
   porTurno: PorTurno[];
-  valores: number[];
+  rolagens: RolagemTurno[];
   estado: EstadoTurno;
   defesas: DefesaDano[];
   duracoes: DuracaoEmCurso[];
@@ -115,13 +170,25 @@ export function aplicarTurno(entrada: {
   const danos: number[] = [];
   let caiu = false;
   let morreu = false;
+  let concentracaoSemRecurso = false;
   const desligadasDePadrao = defesasDesligadasDePadrao(entrada.defesas);
 
   entrada.porTurno.forEach((p, i) => {
     // O que vem de uma habilidade que já desligou neste turno para.
     if (p.habilidadeId && desligar.has(p.habilidadeId)) return;
-    const v = Math.max(0, Math.trunc(entrada.valores[i] ?? 0));
-    const linha = (texto: string) => linhas.push({ fonte: p.fonte, texto });
+    if (p.acaoId && concentracaoSemRecurso) return;
+    const rolagem = entrada.rolagens[i];
+    const v = Math.max(0, Math.trunc(rolagem?.total ?? 0));
+    const linha = (texto: string, detalhe?: string) =>
+      linhas.push({
+        fonte: p.fonte,
+        texto,
+        o: p.o,
+        ...(rolagem?.detalhes.length
+          ? { rolagem: { detalhes: rolagem.detalhes, modificador: rolagem.modificador } }
+          : {}),
+        ...(detalhe ? { detalhe } : {}),
+      });
 
     if (p.o === "cura") {
       const antes = e.hpAtual;
@@ -147,7 +214,11 @@ export function aplicarTurno(entrada: {
       caiu ||= r.caiu;
       morreu ||= r.morreu;
       danos.push(r.final);
-      linha(`${r.final} de dano${p.tipoDano ? ` ${p.tipoDano.toLowerCase()}` : ""}`);
+      const parte = r.partes[0];
+      linha(
+        `${r.final} de dano${p.tipoDano ? ` ${p.tipoDano.toLowerCase()}` : ""}`,
+        parte?.passos.length ? descreverParte(parte) : undefined,
+      );
     } else {
       const id = p.recurso ?? "";
       const nome = nomeDoPool(id, (x) => e.recursos[x]?.nome);
@@ -171,10 +242,11 @@ export function aplicarTurno(entrada: {
       } else {
         return;
       }
-      // Gasto que zera o recurso desliga a habilidade que o cobra.
-      if (zerou && p.habilidadeId) {
-        desligar.set(p.habilidadeId, p.fonte);
-        linha(`acabou (sem ${nome})`);
+      // Gasto que zera o recurso desliga a habilidade (ou a técnica) que o cobra.
+      if (zerou && (p.habilidadeId || p.acaoId)) {
+        if (p.habilidadeId) desligar.set(p.habilidadeId, p.fonte);
+        else concentracaoSemRecurso = true;
+        linhas.push({ fonte: p.fonte, texto: `acabou (sem ${nome})`, o: "fim" });
       }
     }
   });
@@ -186,7 +258,7 @@ export function aplicarTurno(entrada: {
     const resta = d.turnos - 1;
     if (resta <= 0) {
       desligar.set(d.id, d.nome);
-      linhas.push({ fonte: d.nome, texto: "acabou" });
+      linhas.push({ fonte: d.nome, texto: "acabou", o: "fim" });
     } else {
       turnos[d.id] = resta;
     }
@@ -195,11 +267,13 @@ export function aplicarTurno(entrada: {
   let concentracaoTurnos: number | null = null;
   if (entrada.concentracao) {
     concentracaoTurnos = Math.max(0, entrada.concentracao.turnos - 1);
-    if (concentracaoTurnos === 0) linhas.push({ fonte: entrada.concentracao.nome, texto: "acabou" });
+    if (concentracaoTurnos === 0 && !concentracaoSemRecurso) {
+      linhas.push({ fonte: entrada.concentracao.nome, texto: "acabou", o: "fim" });
+    }
   }
 
   if (e.exaustao >= 6 && entrada.estado.exaustao < 6) {
-    linhas.push({ fonte: "Exaustão", texto: "desmaiou" });
+    linhas.push({ fonte: "Exaustão", texto: "desmaiou", o: "fim" });
   }
 
   return {
@@ -209,6 +283,7 @@ export function aplicarTurno(entrada: {
     turnos,
     concentracaoTurnos,
     danos,
+    concentracaoSemRecurso,
     caiu,
     morreu,
   };

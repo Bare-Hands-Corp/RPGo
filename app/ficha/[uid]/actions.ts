@@ -59,9 +59,18 @@ import {
   aplicarTurno,
   concentracaoEmCurso,
   duracoesEmCurso,
+  porTurnoDaConcentracao,
   validarRolagensTurno,
 } from "@/lib/turno";
 import { serializarMensagem } from "@/lib/mensagens";
+import {
+  MAX_MODELOS,
+  doModelo,
+  nomeDePasta,
+  paraModelo,
+  type ModeloView,
+  type TipoModelo,
+} from "@/lib/pastas";
 import { TAMANHOS_VALIDOS, MADEIRAS_VALIDAS, statsTamanho } from "@/lib/navio";
 import {
   corValida,
@@ -212,6 +221,7 @@ const ALLOWED_ACAO = [
   "efeitos",
   "aliado",
   "duracao",
+  "tipoDano",
 ] as const;
 
 type AcaoInput = Partial<Record<(typeof ALLOWED_ACAO)[number], unknown>>;
@@ -250,6 +260,9 @@ function normalizarAcaoInput(input: AcaoInput) {
     }
   }
   if (input.dano !== undefined) data.dano = input.dano ? String(input.dano) : null;
+  if (input.tipoDano !== undefined) {
+    data.tipoDano = input.tipoDano ? String(input.tipoDano).trim().slice(0, 40) || null : null;
+  }
   if (input.alcance !== undefined) data.alcance = input.alcance ? String(input.alcance) : null;
   // Refs soltas a Item e Habilidade (sem checar ownership).
   if (input.armaIds !== undefined) data.armaIds = normalizarIds(input.armaIds);
@@ -281,38 +294,42 @@ function normalizarIds(raw: unknown): string[] {
   return out;
 }
 
+// Linha de `acoes` a partir do input já normalizado.
+function dadosDaAcao(personagemId: string, data: Record<string, unknown>) {
+  return {
+    personagemId,
+    nome: data.nome as string,
+    descricao: (data.descricao as string) ?? "",
+    tipo: (data.tipo as string) ?? "padrao",
+    tag: (data.tag as string) ?? "",
+    custoPp: (data.custoPp as number) ?? 0,
+    custoPa: (data.custoPa as number) ?? 0,
+    custoRecursoId: (data.custoRecursoId as string | null) ?? null,
+    custoRecursoValor: (data.custoRecursoValor as number) ?? 0,
+    atributoAtaque: (data.atributoAtaque as string | null) ?? null,
+    atributoSalv: (data.atributoSalv as string | null) ?? null,
+    atributoCd: (data.atributoCd as string | null) ?? null,
+    dano: (data.dano as string | null) ?? null,
+    tipoDano: (data.tipoDano as string | null) ?? null,
+    alcance: (data.alcance as string | null) ?? null,
+    armaIds: (data.armaIds as string[]) ?? [],
+    itemId: (data.itemId as string | null) ?? null,
+    habilidadeIds: (data.habilidadeIds as string[]) ?? [],
+    tecnica: (data.tecnica as boolean) ?? false,
+    grau: (data.grau as number) ?? 0,
+    efeitos: (data.efeitos as EfeitoHabilidade[]) ?? [],
+    aliado: (data.aliado as boolean) ?? false,
+    duracao: (data.duracao as Prisma.InputJsonValue | typeof Prisma.DbNull) ?? Prisma.DbNull,
+  };
+}
+
 export async function criarAcao(personagemId: string, input: AcaoInput) {
   return executar("ficha", async () => {
     await autorizar(personagemId);
     const data = normalizarAcaoInput(input);
     if (data.nome === undefined) throw new ErroDeUso("Nome é obrigatório.");
 
-    await prisma.acao.create({
-      data: {
-        personagemId,
-        nome: data.nome as string,
-        descricao: (data.descricao as string) ?? "",
-        tipo: (data.tipo as string) ?? "padrao",
-        tag: (data.tag as string) ?? "",
-        custoPp: (data.custoPp as number) ?? 0,
-        custoPa: (data.custoPa as number) ?? 0,
-        custoRecursoId: (data.custoRecursoId as string | null) ?? null,
-        custoRecursoValor: (data.custoRecursoValor as number) ?? 0,
-        atributoAtaque: (data.atributoAtaque as string | null) ?? null,
-        atributoSalv: (data.atributoSalv as string | null) ?? null,
-        atributoCd: (data.atributoCd as string | null) ?? null,
-        dano: (data.dano as string | null) ?? null,
-        alcance: (data.alcance as string | null) ?? null,
-        armaIds: (data.armaIds as string[]) ?? [],
-        itemId: (data.itemId as string | null) ?? null,
-        habilidadeIds: (data.habilidadeIds as string[]) ?? [],
-        tecnica: (data.tecnica as boolean) ?? false,
-        grau: (data.grau as number) ?? 0,
-        efeitos: (data.efeitos as EfeitoHabilidade[]) ?? [],
-        aliado: (data.aliado as boolean) ?? false,
-        duracao: (data.duracao as Prisma.InputJsonValue | typeof Prisma.DbNull) ?? Prisma.DbNull,
-      },
-    });
+    await prisma.acao.create({ data: dadosDaAcao(personagemId, data) });
     revalidatePath(`/ficha/${personagemId}`);
   });
 }
@@ -362,6 +379,10 @@ export async function usarAcao(
     if (!acao) throw new ErroDeUso("Ação não encontrada.");
     if (acao.itemId && !itens.some((i) => i.id === acao.itemId && i.equipado)) {
       throw new ErroDeUso("Equipe o item pra usar esta ação.");
+    }
+    const usadas = normalizarIds(acao.armaIds).filter((id) => itens.some((i) => i.id === id));
+    if (usadas.length > 0 && !itens.some((i) => usadas.includes(i.id) && i.equipado)) {
+      throw new ErroDeUso("Equipe a arma pra usar esta ação.");
     }
 
     const ids = new Set([...normalizarIds(acao.armaIds), ...(acao.itemId ? [acao.itemId] : [])]);
@@ -1051,6 +1072,7 @@ const ALLOWED_HABILIDADE = [
   "usosFormula",
   "aliado",
   "duracao",
+  "itemUsa",
 ] as const;
 
 type HabilidadeInput = Partial<
@@ -1157,6 +1179,7 @@ function normalizarHabilidadeInput(input: HabilidadeInput) {
   if (input.ordem !== undefined) data.ordem = Math.trunc(Number(input.ordem) || 0);
   // Item que concede a habilidade.
   if (input.itemId !== undefined) data.itemId = input.itemId ? String(input.itemId) : null;
+  if (input.itemUsa !== undefined) data.itemUsa = Boolean(input.itemUsa);
   if (input.efeitos !== undefined) data.efeitos = normalizarEfeitosInput(input.efeitos);
   if (input.alternavel !== undefined) data.alternavel = Boolean(input.alternavel);
   if (input.aliado !== undefined) data.aliado = Boolean(input.aliado);
@@ -1168,6 +1191,36 @@ function normalizarHabilidadeInput(input: HabilidadeInput) {
   return data;
 }
 
+// Linha de `habilidades` a partir do input já normalizado.
+function dadosDaHabilidade(personagemId: string, data: Record<string, unknown>) {
+  return {
+    personagemId,
+    nome: data.nome as string,
+    origem: (data.origem as string) ?? "livre",
+    tipo: (data.tipo as string) ?? "passiva",
+    descricao: (data.descricao as string) ?? "",
+    custoPp: (data.custoPp as number) ?? 0,
+    custoPa: (data.custoPa as number) ?? 0,
+    custoRecursoId: (data.custoRecursoId as string | null) ?? null,
+    custoRecursoValor: (data.custoRecursoValor as number) ?? 0,
+    usos: (data.usos as number | null) ?? null,
+    usosAtual: (data.usosAtual as number | null) ?? null,
+    recarga: (data.recarga as string | null) ?? null,
+    tags: (data.tags as string | null) ?? null,
+    tagsEstilo:
+      (data.tagsEstilo as Prisma.InputJsonValue | typeof Prisma.DbNull) ?? Prisma.DbNull,
+    favorita: (data.favorita as boolean) ?? false,
+    ordem: (data.ordem as number) ?? 0,
+    itemId: (data.itemId as string | null) ?? null,
+    itemUsa: (data.itemUsa as boolean) ?? false,
+    efeitos: (data.efeitos as EfeitoHabilidade[]) ?? [],
+    alternavel: (data.alternavel as boolean) ?? false,
+    aliado: (data.aliado as boolean) ?? false,
+    usosFormula: (data.usosFormula as string | null) ?? null,
+    duracao: (data.duracao as Prisma.InputJsonValue | typeof Prisma.DbNull) ?? Prisma.DbNull,
+  };
+}
+
 export async function criarHabilidade(
   personagemId: string,
   input: HabilidadeInput,
@@ -1177,34 +1230,7 @@ export async function criarHabilidade(
     const data = normalizarHabilidadeInput(input);
     if (data.nome === undefined) throw new ErroDeUso("Nome é obrigatório.");
 
-    await prisma.habilidade.create({
-      data: {
-        personagemId,
-        nome: data.nome as string,
-        origem: (data.origem as string) ?? "livre",
-        tipo: (data.tipo as string) ?? "passiva",
-        descricao: (data.descricao as string) ?? "",
-        custoPp: (data.custoPp as number) ?? 0,
-        custoPa: (data.custoPa as number) ?? 0,
-        custoRecursoId: (data.custoRecursoId as string | null) ?? null,
-        custoRecursoValor: (data.custoRecursoValor as number) ?? 0,
-        usos: (data.usos as number | null) ?? null,
-        usosAtual: (data.usosAtual as number | null) ?? null,
-        recarga: (data.recarga as string | null) ?? null,
-        tags: (data.tags as string | null) ?? null,
-        tagsEstilo:
-          (data.tagsEstilo as Prisma.InputJsonValue | typeof Prisma.DbNull) ??
-          Prisma.DbNull,
-        favorita: (data.favorita as boolean) ?? false,
-        ordem: (data.ordem as number) ?? 0,
-        itemId: (data.itemId as string | null) ?? null,
-        efeitos: (data.efeitos as EfeitoHabilidade[]) ?? [],
-        alternavel: (data.alternavel as boolean) ?? false,
-        aliado: (data.aliado as boolean) ?? false,
-        usosFormula: (data.usosFormula as string | null) ?? null,
-        duracao: (data.duracao as Prisma.InputJsonValue | typeof Prisma.DbNull) ?? Prisma.DbNull,
-      },
-    });
+    await prisma.habilidade.create({ data: dadosDaHabilidade(personagemId, data) });
     revalidatePath(`/ficha/${personagemId}`);
   });
 }
@@ -2577,6 +2603,7 @@ export async function receberDano(
     const teste = concentracao && cd ? { nome: concentracao.nome, cd } : null;
 
     const detalhes = {
+      personagemId,
       partes: r.partes.map((p) => ({
         valor: p.valor,
         tipo: p.tipo,
@@ -2675,7 +2702,7 @@ export async function curarPv(personagemId: string, valor: unknown) {
           mensagem: `recuperou ${depois - personagem.hpAtual} PV`,
           tipo: "cura",
           total: depois - personagem.hpAtual,
-          detalhes: { valor: cura, hpAtual: [personagem.hpAtual, depois], hpMax },
+          detalhes: { personagemId, valor: cura, hpAtual: [personagem.hpAtual, depois], hpMax },
         },
       }),
     ]);
@@ -2687,7 +2714,7 @@ export async function curarPv(personagemId: string, valor: unknown) {
 // ─── Turno ─────────────────────────────────────────────────
 
 // Passar turno: aplica o "a cada turno" e conta as durações em turnos. O
-// cliente rola; o servidor prende cada total na faixa da fórmula. Publica no chat.
+// cliente rola; o servidor confere cada dado contra a fórmula. Publica no chat.
 export async function passarTurno(personagemId: string, rolagens?: unknown) {
   return executar("ficha", async () => {
     const [{ user, personagem }, { agg }, recursos, ligadas] = await Promise.all([
@@ -2702,7 +2729,18 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
     const duracoes = duracoesEmCurso(ligadas);
     const concentracao = lerConcentracao(personagem.concentracao);
     const tecnica = concentracaoEmCurso(personagem.concentracao);
-    if (agg.porTurno.length === 0 && duracoes.length === 0 && !tecnica) {
+    const acaoConcentrada =
+      concentracao?.tipo === "acao"
+        ? await prisma.acao.findFirst({
+            where: { id: concentracao.id, personagemId },
+            select: { id: true, nome: true, efeitos: true },
+          })
+        : null;
+    const porTurno = [
+      ...agg.porTurno,
+      ...porTurnoDaConcentracao(personagem.concentracao, acaoConcentrada ? [acaoConcentrada] : []),
+    ];
+    if (porTurno.length === 0 && duracoes.length === 0 && !tecnica) {
       throw new ErroDeUso("Nada acontece a cada turno.");
     }
 
@@ -2710,8 +2748,8 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
     const resolver = (f: string) => resolverFormula(f, ctx.atributos, ctx.nivel);
     const pools = poolsEfetivos(personagem, agg);
     const r = aplicarTurno({
-      porTurno: agg.porTurno,
-      valores: validarRolagensTurno(agg.porTurno, rolagens, resolver),
+      porTurno,
+      rolagens: validarRolagensTurno(porTurno, rolagens, resolver),
       estado: {
         hpAtual: personagem.hpAtual,
         hpTemp: personagem.hpTemp,
@@ -2729,12 +2767,13 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
       concentracao: tecnica,
     });
 
-    // Incapacitado, duração acabou ou a habilidade que segurava desligou: a concentração acaba.
+    // Incapacitado, duração acabou, faltou recurso ou a habilidade que segurava desligou: a concentração acaba.
     const perdeu =
       !!concentracao &&
       (r.estado.hpAtual <= 0 ||
         r.estado.exaustao >= 6 ||
         r.concentracaoTurnos === 0 ||
+        r.concentracaoSemRecurso ||
         r.desligar.some((h) => h.id === concentracao.id));
     const testes =
       concentracao && !perdeu
@@ -2778,6 +2817,7 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
         mensagem: "passou o turno",
         tipo: "turno",
         detalhes: {
+          personagemId,
           linhas: r.linhas,
           hpAtual: [personagem.hpAtual, r.estado.hpAtual],
           hpMax: pools.hpMax,
@@ -3106,5 +3146,142 @@ export async function deletarObjetivo(personagemId: string, objetivoId: string) 
       where: { id: objetivoId, personagemId },
     });
     revalidatePath(`/ficha/${personagemId}`);
+  });
+}
+
+// ─── Pastas ────────────────────────────────────────────────
+
+const MAX_POR_VEZ = 60;
+
+function modeloView(m: {
+  id: string;
+  pasta: string;
+  tipo: string;
+  nome: string;
+  dados: Prisma.JsonValue;
+}): ModeloView {
+  return {
+    id: m.id,
+    pasta: m.pasta,
+    tipo: m.tipo === "acao" ? "acao" : "habilidade",
+    nome: m.nome,
+    dados:
+      m.dados && typeof m.dados === "object" && !Array.isArray(m.dados)
+        ? (m.dados as Record<string, unknown>)
+        : {},
+  };
+}
+
+async function requireUser() {
+  const user = await usuarioDaRequest();
+  if (!user) throw new ErroDeUso("Não autenticado.");
+  return user;
+}
+
+// Tudo que o usuário logado guardou.
+export async function listarPastas() {
+  return executar("pastas", async () => {
+    const user = await requireUser();
+    const modelos = await prisma.modelo.findMany({
+      where: { userId: user.id },
+      orderBy: [{ pasta: "asc" }, { criadoEm: "asc" }],
+    });
+    return { modelos: modelos.map(modeloView) };
+  });
+}
+
+// Guarda uma habilidade ou ação da ficha numa pasta do usuário.
+export async function guardarNaPasta(
+  personagemId: string,
+  tipo: TipoModelo,
+  origemId: string,
+  pasta: unknown,
+) {
+  return executar("pastas", async () => {
+    const nomePasta = nomeDePasta(pasta);
+    if (!nomePasta) throw new ErroDeUso("Dê um nome pra pasta.");
+    if (tipo !== "habilidade" && tipo !== "acao") throw new ErroDeUso("Tipo inválido.");
+    const [{ user }, origem, recursos] = await Promise.all([
+      autorizar(personagemId),
+      tipo === "acao"
+        ? prisma.acao.findFirst({ where: { id: origemId, personagemId } })
+        : prisma.habilidade.findFirst({ where: { id: origemId, personagemId } }),
+      prisma.recurso.findMany({ where: { personagemId }, select: { id: true, nome: true } }),
+    ]);
+    if (!origem) throw new ErroDeUso("Não encontrado. Pode ter sido apagado.");
+    const total = await prisma.modelo.count({ where: { userId: user.id } });
+    if (total >= MAX_MODELOS) throw new ErroDeUso("Limite de itens guardados atingido.");
+    const criado = await prisma.modelo.create({
+      data: {
+        userId: user.id,
+        pasta: nomePasta,
+        tipo,
+        nome: origem.nome,
+        dados: paraModelo(
+          tipo,
+          origem as unknown as Record<string, unknown>,
+          recursos,
+        ) as Prisma.InputJsonObject,
+      },
+    });
+    return { modelo: modeloView(criado) };
+  });
+}
+
+// Cria na ficha as habilidades e ações escolhidas das pastas do usuário.
+export async function adicionarDaPasta(personagemId: string, modeloIds: unknown) {
+  return executar("pastas", async () => {
+    const ids = (Array.isArray(modeloIds) ? modeloIds : [])
+      .filter((id): id is string => typeof id === "string" && id.length > 0)
+      .slice(0, MAX_POR_VEZ);
+    if (ids.length === 0) throw new ErroDeUso("Escolha o que adicionar.");
+    const [{ user }, recursos] = await Promise.all([
+      autorizar(personagemId),
+      prisma.recurso.findMany({ where: { personagemId }, select: { id: true, nome: true } }),
+    ]);
+    const modelos = await prisma.modelo.findMany({ where: { id: { in: ids }, userId: user.id } });
+    const ops: Prisma.PrismaPromise<unknown>[] = [];
+    for (const id of ids) {
+      const achado = modelos.find((m) => m.id === id);
+      if (!achado) continue;
+      const m = modeloView(achado);
+      const input = doModelo(m.tipo, m.dados, recursos);
+      ops.push(
+        m.tipo === "acao"
+          ? prisma.acao.create({ data: dadosDaAcao(personagemId, normalizarAcaoInput(input)) })
+          : prisma.habilidade.create({
+              data: dadosDaHabilidade(personagemId, normalizarHabilidadeInput(input)),
+            }),
+      );
+    }
+    if (ops.length === 0) throw new ErroDeUso("Não encontrado. Pode ter sido apagado.");
+    await prisma.$transaction(ops);
+    revalidatePath(`/ficha/${personagemId}`);
+  });
+}
+
+export async function apagarModelo(modeloId: string) {
+  return executar("pastas", async () => {
+    const user = await requireUser();
+    await prisma.modelo.deleteMany({ where: { id: String(modeloId), userId: user.id } });
+  });
+}
+
+export async function apagarPasta(pasta: unknown) {
+  return executar("pastas", async () => {
+    const user = await requireUser();
+    await prisma.modelo.deleteMany({ where: { pasta: String(pasta ?? ""), userId: user.id } });
+  });
+}
+
+export async function renomearPasta(de: unknown, para: unknown) {
+  return executar("pastas", async () => {
+    const user = await requireUser();
+    const novo = nomeDePasta(para);
+    if (!novo) throw new ErroDeUso("Dê um nome pra pasta.");
+    await prisma.modelo.updateMany({
+      where: { pasta: String(de ?? ""), userId: user.id },
+      data: { pasta: novo },
+    });
   });
 }

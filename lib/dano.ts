@@ -3,6 +3,22 @@
 
 import type { EfeitoHabilidade, EfeitosAgregados } from "@/lib/op-rpg";
 
+// Tipos de dano do livro (cap. 12).
+export const TIPOS_DANO: { nome: string; icone: string; cor: string }[] = [
+  { nome: "Contundente", icone: "fa-hammer", cor: "#b08d57" },
+  { nome: "Cortante", icone: "fa-khanda", cor: "#c0c7d1" },
+  { nome: "Perfurante", icone: "fa-location-arrow", cor: "#9fb3c8" },
+  { nome: "Fogo", icone: "fa-fire", cor: "#e67e22" },
+  { nome: "Frio", icone: "fa-snowflake", cor: "#5dade2" },
+  { nome: "Elétrico", icone: "fa-bolt", cor: "#f4d03f" },
+  { nome: "Ácido", icone: "fa-flask", cor: "#7dce5a" },
+  { nome: "Veneno", icone: "fa-skull-crossbones", cor: "#27ae60" },
+  { nome: "Psíquico", icone: "fa-brain", cor: "#c57be0" },
+  { nome: "Trovejante", icone: "fa-cloud-bolt", cor: "#8e9fd6" },
+  { nome: "Energia", icone: "fa-sun", cor: "#f5b041" },
+  { nome: "Verdadeiro", icone: "fa-certificate", cor: "#e74c3c" },
+];
+
 // Abreviações do livro ("Cont./Cort./Perf.") e sinônimos comuns.
 const SINONIMOS: Record<string, string> = {
   cont: "contundente",

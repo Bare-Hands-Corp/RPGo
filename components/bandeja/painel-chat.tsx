@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import Swal from "sweetalert2";
-import { formatarResultadoRolagemHtml, rolarDados } from "@/lib/dice";
+import { formatarResultadoRolagemHtml, rolarDados, type DadoRolado } from "@/lib/dice";
 import { createClient } from "@/lib/supabase/client";
 import {
   enviarMensagemTexto,
@@ -357,12 +357,15 @@ function MensagemView({
     );
   }
 
-  if ((msg.tipo === "dano" || msg.tipo === "cura") && msg.detalhes) {
-    return <VidaMensagemView msg={msg} hora={hora} />;
-  }
-
-  if (msg.tipo === "turno" && msg.detalhes) {
-    return <TurnoMensagemView msg={msg} hora={hora} />;
+  if ((msg.tipo === "dano" || msg.tipo === "cura" || msg.tipo === "turno") && msg.detalhes) {
+    // O PV só aparece pra quem é o personagem (ou está na ficha dele).
+    const de = (msg.detalhes as { personagemId?: unknown }).personagemId;
+    const dono = msg.uid === meuUid || (typeof de === "string" && de === personagemId);
+    return msg.tipo === "turno" ? (
+      <TurnoMensagemView msg={msg} hora={hora} dono={dono} />
+    ) : (
+      <VidaMensagemView msg={msg} hora={hora} dono={dono} />
+    );
   }
 
   return (
@@ -373,7 +376,15 @@ function MensagemView({
 }
 
 // Dano recebido ou cura manual, gravados pela ficha (lib/dano.ts).
-function VidaMensagemView({ msg, hora }: { msg: MensagemSerializada; hora: string }) {
+function VidaMensagemView({
+  msg,
+  hora,
+  dono,
+}: {
+  msg: MensagemSerializada;
+  hora: string;
+  dono: boolean;
+}) {
   const d = msg.detalhes as {
     partes?: { texto: string }[];
     final?: number;
@@ -404,18 +415,18 @@ function VidaMensagemView({ msg, hora }: { msg: MensagemSerializada; hora: strin
           {(d.partes ?? []).map((p, i) => (
             <div key={i}>{p.texto}</div>
           ))}
-          {dano && tempAntes !== tempDepois && (
+          {dono && dano && tempAntes !== tempDepois && (
             <div>
               PV temporário {tempAntes} → {tempDepois}
             </div>
           )}
-          {pvAntes !== pvDepois && (
+          {dono && pvAntes !== pvDepois && (
             <div>
               PV {pvAntes} → {pvDepois}
               {d.hpMax ? ` / ${d.hpMax}` : ""}
             </div>
           )}
-          {dano && negDepois > 0 && (
+          {dono && dano && negDepois > 0 && (
             <div>
               PV negativos {negAntes} → {negDepois}
               {d.hpMax ? ` / ${d.hpMax}` : ""}
@@ -441,10 +452,44 @@ function VidaMensagemView({ msg, hora }: { msg: MensagemSerializada; hora: strin
   );
 }
 
-// Passar turno, gravado pela ficha (lib/turno.ts).
-function TurnoMensagemView({ msg, hora }: { msg: MensagemSerializada; hora: string }) {
+const ICONE_TURNO: Record<string, string> = {
+  cura: "fa-heart",
+  pv_temp: "fa-shield-heart",
+  dano: "fa-heart-crack",
+  recurso: "fa-droplet",
+  fim: "fa-hourglass-end",
+};
+
+// Dados gravados no turno, só com números (vão pra HTML).
+function dadosDoTurno(raw: unknown): { detalhes: DadoRolado[]; modificador: number } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const obj = raw as { detalhes?: unknown; modificador?: unknown };
+  if (!Array.isArray(obj.detalhes) || obj.detalhes.length === 0) return null;
+  return {
+    detalhes: obj.detalhes.map((x) => {
+      const dado = (x ?? {}) as { faces?: unknown; sinal?: unknown; resultado?: unknown };
+      return {
+        faces: Math.trunc(Number(dado.faces) || 0),
+        sinal: Number(dado.sinal) === -1 ? -1 : 1,
+        resultado: Math.trunc(Number(dado.resultado) || 0),
+      };
+    }),
+    modificador: Math.trunc(Number(obj.modificador) || 0),
+  };
+}
+
+// Passar turno, gravado pela ficha (lib/turno.ts): cada efeito com a rolagem aberta.
+function TurnoMensagemView({
+  msg,
+  hora,
+  dono,
+}: {
+  msg: MensagemSerializada;
+  hora: string;
+  dono: boolean;
+}) {
   const d = msg.detalhes as {
-    linhas?: { fonte: string; texto: string }[];
+    linhas?: { fonte: string; texto: string; o?: string; rolagem?: unknown; detalhe?: string }[];
     hpAtual?: [number, number];
     hpMax?: number;
     caiu?: boolean;
@@ -459,13 +504,26 @@ function TurnoMensagemView({ msg, hora }: { msg: MensagemSerializada; hora: stri
         {hora} <strong>{msg.nome}</strong> passou o turno
       </div>
       <div className="roll-box">
-        <div className="vida-linhas">
-          {(d.linhas ?? []).map((l, i) => (
-            <div key={i}>
-              {l.fonte}: {l.texto}
+        {(d.linhas ?? []).map((l, i) => {
+          const rolagem = dadosDoTurno(l.rolagem);
+          return (
+            <div key={i} className={`turno-efeito ${l.o ?? ""}`}>
+              <div className="turno-efeito-fonte">
+                <i className={`fas ${ICONE_TURNO[l.o ?? ""] ?? "fa-clock-rotate-left"}`} /> {l.fonte}
+              </div>
+              <div className="turno-efeito-total">{l.texto}</div>
+              {rolagem && (
+                <div
+                  className="roll-details"
+                  dangerouslySetInnerHTML={{ __html: formatarResultadoRolagemHtml(rolagem) }}
+                />
+              )}
+              {l.detalhe && <div className="roll-details">{l.detalhe}</div>}
             </div>
-          ))}
-          {pvAntes !== pvDepois && (
+          );
+        })}
+        <div className="vida-linhas">
+          {dono && pvAntes !== pvDepois && (
             <div>
               PV {pvAntes} → {pvDepois}
               {d.hpMax ? ` / ${d.hpMax}` : ""}

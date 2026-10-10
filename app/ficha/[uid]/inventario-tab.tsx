@@ -57,6 +57,7 @@ import {
   EfeitosEditor,
   type RecursoMinimo,
 } from "./efeitos-editor";
+import { ACadaTurnoCampo, comPorTurno, porTurnoDe } from "./duracao-campo";
 import { useExaustaoOtimista } from "./use-exaustao-otimista";
 import { useGastoMunicao } from "./use-municao";
 import { SeletorUnico } from "./seletor-multiplo";
@@ -1258,7 +1259,8 @@ export function InventarioTab({
 
               <details className="modal-secao-detalhe" open={form.efeitos.length > 0}>
                 <summary>
-                  <i className="fas fa-list-check" /> Efeitos ({form.efeitos.length})
+                  <i className="fas fa-list-check" /> Efeitos (
+                  {form.efeitos.filter((e) => e.tipo !== "por_turno").length})
                 </summary>
                 <div className="modal-secao-corpo">
                   <EfeitosEditor
@@ -1266,6 +1268,11 @@ export function InventarioTab({
                     onChange={(v) => set("efeitos", v)}
                     recursos={recursos}
                     pergunta="O que esse item faz?"
+                  />
+                  <ACadaTurnoCampo
+                    lista={porTurnoDe(form.efeitos)}
+                    onChange={(lista) => set("efeitos", comPorTurno(form.efeitos, lista))}
+                    recursos={recursos}
                   />
                 </div>
               </details>

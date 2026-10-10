@@ -1169,3 +1169,47 @@
   color: #c62828;
 }
 
+
+/* Passar turno: um bloco por efeito, com a rolagem aberta. */
+.turno-efeito {
+  padding: 6px 0;
+  border-top: 1px dashed var(--border);
+}
+.turno-efeito:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+.turno-efeito-fonte {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-sec);
+}
+.turno-efeito-total {
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 1.2;
+  color: var(--text-main);
+}
+.turno-efeito.cura .turno-efeito-total,
+.turno-efeito.cura .turno-efeito-fonte i {
+  color: #27ae60;
+}
+.turno-efeito.pv_temp .turno-efeito-total,
+.turno-efeito.pv_temp .turno-efeito-fonte i {
+  color: var(--color-bonus);
+}
+.turno-efeito.dano .turno-efeito-total,
+.turno-efeito.dano .turno-efeito-fonte i {
+  color: #e74c3c;
+}
+.turno-efeito.fim .turno-efeito-total {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-sec);
+}
+.vida-message.turno .vida-linhas:empty {
+  display: none;
+}

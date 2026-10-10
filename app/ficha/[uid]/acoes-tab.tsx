@@ -3,7 +3,9 @@
 import { Fragment, useMemo, useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { ehTemporario, exigir, idTemporario } from "@/lib/acoes";
-import { atualizarAcao, criarAcao, deletarAcao, usarAcao } from "./actions";
+import { adicionarDaPasta, atualizarAcao, criarAcao, deletarAcao, usarAcao } from "./actions";
+import { doModelo, type ModeloView } from "@/lib/pastas";
+import { BotaoGuardar, BotaoPastas } from "./pastas";
 import { useRefreshAgrupado } from "@/lib/use-refresh-agrupado";
 import {
   ATRIBUTOS,
@@ -44,6 +46,7 @@ import {
   EfeitosEditor,
   FormulaContext,
   NomesRecursoContext,
+  StatsPorTurno,
 } from "./efeitos-editor";
 import { useExaustaoOtimista, usePpOtimista } from "./use-exaustao-otimista";
 import { useEscolherAlvo } from "./escolher-alvo";
@@ -52,11 +55,11 @@ import { MarcaExausto } from "./marca-exausto";
 import { TagChip } from "./estilo-cor-picker";
 import { normalizarEfeitoCor, type EstiloCor } from "@/lib/estilos-cor";
 import { SeletorMultiplo, SeletorUnico, type OpcaoVinculo } from "./seletor-multiplo";
-import { DuracaoCampo } from "./duracao-campo";
-import { Segmentos, type OpcaoSegmento } from "./campos-modal";
+import { DuracaoCampo, comPorTurno, porTurnoDe } from "./duracao-campo";
+import { Segmentos, Sugestoes, TipoDanoCampo, type OpcaoSegmento } from "./campos-modal";
 import { CustosCampo } from "./custos-campo";
 import { CampoFormula } from "./campo-formula";
-import { juntarTipos, tiposDoDano } from "@/lib/dano";
+import { juntarTipos, mesmoTipo, tiposDoDano } from "@/lib/dano";
 import { danoComMunicao, municaoDaArma, textoMunicao } from "@/lib/municao";
 import { useGastoMunicao } from "./use-municao";
 import {
@@ -95,6 +98,7 @@ type Acao = {
   atributoSalv: string | null;
   atributoCd: string | null;
   dano: string | null;
+  tipoDano?: string | null;
   alcance: string | null;
   armaIds: unknown;
   itemId: string | null;
@@ -230,6 +234,7 @@ type FormState = {
   atributoSalv: string;
   atributoCd: string;
   dano: string;
+  tipoDano: string;
   alcance: string;
   armaIds: string[];
   itemId: string;
@@ -254,9 +259,36 @@ const FORM_VAZIO: FormState = {
   atributoSalv: "",
   atributoCd: "",
   dano: "",
+  tipoDano: "",
   alcance: "",
   armaIds: [],
   itemId: "",
+  habilidadeIds: [],
+  tecnica: false,
+  grau: 0,
+  efeitos: [],
+  aliado: false,
+  duracao: null,
+};
+
+// Ação recém-trazida de uma pasta, antes do servidor responder.
+const ACAO_BASE: Omit<Acao, "id"> = {
+  nome: "",
+  descricao: "",
+  tipo: "padrao",
+  tag: null,
+  custoPp: 0,
+  custoPa: 0,
+  custoRecursoId: null,
+  custoRecursoValor: 0,
+  atributoAtaque: null,
+  atributoSalv: null,
+  atributoCd: null,
+  dano: null,
+  tipoDano: null,
+  alcance: null,
+  armaIds: [],
+  itemId: null,
   habilidadeIds: [],
   tecnica: false,
   grau: 0,
@@ -402,6 +434,7 @@ export function AcoesTab({
       atributoSalv: acao.atributoSalv || "",
       atributoCd: acao.atributoCd || "",
       dano: acao.dano || "",
+      tipoDano: acao.tipoDano || "",
       alcance: acao.alcance || "",
       armaIds: lerIds(acao.armaIds),
       itemId: acao.itemId || "",
@@ -449,6 +482,7 @@ export function AcoesTab({
       atributoSalv: form.atributoSalv || null,
       atributoCd: form.atributoCd || null,
       dano: form.dano || null,
+      tipoDano: form.dano ? form.tipoDano.trim() || null : null,
       alcance: form.alcance || null,
       armaIds: form.armaIds,
       itemId: form.itemId || null,
@@ -592,6 +626,23 @@ export function AcoesTab({
     });
   }
 
+  // Traz das pastas: aparece na hora e o servidor cria de verdade.
+  function adicionarDasPastas(modelos: ModeloView[]) {
+    startTransition(async () => {
+      for (const m of modelos) {
+        aplicarPatch({
+          kind: "create",
+          acao: { ...ACAO_BASE, ...doModelo("acao", m.dados, recursos), id: idTemporario() } as Acao,
+        });
+      }
+      try {
+        exigir(await adicionarDaPasta(personagemId, modelos.map((m) => m.id)));
+      } catch (err) {
+        mostrarErro(err);
+      }
+    });
+  }
+
   async function apagar(acaoId: string) {
     const confirm = await Swal.fire({
       title: "Deletar Ação",
@@ -623,13 +674,16 @@ export function AcoesTab({
     <div>
       <div className="tab-topo">
         <h1>Ações de Combate</h1>
-        <button
-          type="button"
-          className="btn-rect primary"
-          onClick={abrirNova}
-        >
-          + Nova Ação
-        </button>
+        <div className="tab-topo-botoes">
+          <BotaoPastas personagemId={personagemId} tipo="acao" onAdicionar={adicionarDasPastas} />
+          <button
+            type="button"
+            className="btn-rect primary"
+            onClick={abrirNova}
+          >
+            + Nova Ação
+          </button>
+        </div>
       </div>
 
       {GRUPOS.map((grupo) => {
@@ -691,6 +745,12 @@ export function AcoesTab({
                     ? itens.find((i) => i.id === acao.itemId)
                     : undefined;
                   const travadaPorItem = !!acao.itemId && !itemOrigem?.equipado;
+                  // Usa arma e nenhuma está equipada.
+                  const travadaPorArma = armasDaAcao.length > 0 && armasEquipadas.length === 0;
+                  const travada = travadaPorItem || travadaPorArma;
+                  const faltaEquipar = travadaPorItem
+                    ? (itemOrigem?.nome ?? "o item")
+                    : armasDaAcao.map((a) => a.nome).join(" ou ");
                   // Acerto: vem da arma (que já embute o bônus de habilidade do
                   // alcance) ou do cálculo manual da técnica.
                   const bonusAtq = ataqueArma
@@ -728,6 +788,7 @@ export function AcoesTab({
                       : null;
                     // Tipos escritos no dano da técnica e na arma, pros efeitos só de um tipo.
                     const tiposDano = juntarTipos(
+                      acao.tipoDano ? [acao.tipoDano] : [],
                       tiposDoDano(acao.dano ?? ""),
                       tiposDoDano((arma ? danoComMunicao(arma.dano, municaoDe(arma)) : null) ?? ""),
                       tiposDoDano(arma?.danoBonus ?? ""),
@@ -796,14 +857,27 @@ export function AcoesTab({
                     efeitosAcao.some(efeitoInstantaneo) ||
                     pedeConcentracao(acao.duracao);
                   const duracaoTexto = textoDuracao(lerDuracao(acao.duracao));
+                  const temPorTurno = efeitosAcao.some((e) => e.tipo === "por_turno");
+                  const chipsAcao = efeitosAcao.filter((e) => e.tipo !== "por_turno");
+                  // Tipo escolhido que o texto do dano ainda não diz.
+                  const tipoNoChip =
+                    acao.tipoDano && !tiposDoDano(acao.dano ?? "").some((t) => mesmoTipo(t, acao.tipoDano!))
+                      ? ` ${acao.tipoDano.toLowerCase()}`
+                      : "";
+                  const origens = [...habsDerivadas.map((h) => h.nome), ...(itemOrigem ? [itemOrigem.nome] : [])];
                   return (
                     <div
                       key={acao.id}
-                      className={`action-card type-${acao.tipo}${travadaPorItem ? " hab-travada" : ""}${
+                      className={`action-card type-${acao.tipo}${travada ? " hab-travada" : ""}${
                         ehTemporario(acao.id) ? " item-pendente" : ""
                       }`}
                       inert={ehTemporario(acao.id)}
                     >
+                      <BotaoGuardar
+                        personagemId={personagemId}
+                        tipo="acao"
+                        origem={{ id: acao.id, nome: acao.nome }}
+                      />
                       <button
                         type="button"
                         className="btn-card-edit"
@@ -822,7 +896,7 @@ export function AcoesTab({
                       </button>
                       <div>
                         <div className="card-title">{acao.nome}</div>
-                        {(bonusAtq != null || cd != null || atributoSalv || acao.dano || acao.alcance || armasDaAcao.length > 0 || acao.itemId || acao.tecnica || duracaoTexto) && (
+                        {(bonusAtq != null || cd != null || atributoSalv || acao.dano || acao.alcance || golpes.length > 0 || acao.tecnica || duracaoTexto || temPorTurno) && (
                           <div className="acao-stats">
                             {acao.tecnica && (
                               <span className="acao-stat acao-tecnica">
@@ -835,6 +909,10 @@ export function AcoesTab({
                                 <i className="fas fa-hourglass-half" /> {duracaoTexto}
                               </span>
                             )}
+                            <StatsPorTurno
+                              efeitos={efeitosAcao}
+                              grau={acao.tecnica && acao.grau > 0 ? acao.grau : undefined}
+                            />
                             {acao.aliado && (
                               <span className="acao-stat acao-aliado">
                                 <i className="fas fa-hand-holding-heart" /> Em aliado
@@ -847,7 +925,7 @@ export function AcoesTab({
                                     <button
                                       key={arma.id}
                                       type="button"
-                                      disabled={travadaPorItem || semMunicao}
+                                      disabled={travada || semMunicao}
                                       className={`acao-stat acao-rolar ${penD20 > 0 || (atq.atributo === "destreza" && desReduz) ? "valor-exausto" : ""}`}
                                       title={`${semMunicao ? textoMunicao(municao) : `Empilhar ataque com ${arma.nome}`}${
                                         atq.fontes.length
@@ -882,7 +960,7 @@ export function AcoesTab({
                               : bonusAtq != null && (
                                   <button
                                     type="button"
-                                    disabled={travadaPorItem}
+                                    disabled={travada}
                                     className={`acao-stat acao-rolar ${penD20 > 0 || desReduzAtq ? "valor-exausto" : ""}`}
                                     title={`Empilhar ataque no Rolador${
                                       fontesAtaque.length
@@ -914,10 +992,11 @@ export function AcoesTab({
                                   <i className="fas fa-burst" />{" "}
                                   {rotulo ? `${rotulo}: ` : ""}
                                   {d.formula}
+                                  {tipoNoChip}
                                   {d.partes.length > 1 && <i className="fas fa-link prof-fonte" />}
                                 </>
                               );
-                              return d.rolavel && !travadaPorItem ? (
+                              return d.rolavel && !travada ? (
                                 <button
                                   key={`d${i}`}
                                   type="button"
@@ -964,47 +1043,16 @@ export function AcoesTab({
                             {acao.alcance && (
                               <span className="acao-stat"><i className="fas fa-ruler-horizontal" /> {acao.alcance}</span>
                             )}
-                            {itemOrigem && (
-                              <span
-                                className="acao-stat"
-                                style={travadaPorItem ? { color: "var(--text-sec)" } : undefined}
-                                title={
-                                  travadaPorItem
-                                    ? "Vem de um item que não está equipado"
-                                    : "Vem deste item"
-                                }
-                              >
-                                <i className={`fas ${travadaPorItem ? "fa-lock" : "fa-sack-dollar"}`} />{" "}
-                                {itemOrigem.nome}
-                              </span>
-                            )}
-                            {armasDaAcao.map((a) => (
-                              <span
-                                key={a.id}
-                                className="acao-stat"
-                                style={a.equipado ? undefined : { color: "var(--text-sec)" }}
-                                title={
-                                  a.equipado
-                                    ? "Arma desta ação"
-                                    : "Arma não equipada"
-                                }
-                              >
-                                <i className={`fas ${a.equipado ? "fa-khanda" : "fa-link-slash"}`} />{" "}
-                                {a.nome}
-                                {a.danoBonus && a.equipado ? ` ${comSinal(a.danoBonus)}` : ""}
-                              </span>
-                            ))}
                           </div>
                         )}
-                        {travadaPorItem && (
+                        {travada && (
                           <div className="hab-travada-nota">
-                            <i className="fas fa-lock" /> vem de{" "}
-                            {itemOrigem?.nome ?? "um item"} — equipe o item pra usar
+                            <i className="fas fa-lock" /> Ação travada · equipe {faltaEquipar}
                           </div>
                         )}
-                        {efeitosAcao.length > 0 && (
+                        {chipsAcao.length > 0 && (
                           <div className="efeito-chips">
-                            {efeitosAcao.map((e, i) => (
+                            {chipsAcao.map((e, i) => (
                               <ChipEfeito
                                 key={i}
                                 efeito={e}
@@ -1015,7 +1063,7 @@ export function AcoesTab({
                         )}
                         <div className="card-desc">{acao.descricao}</div>
                       </div>
-                      {(custos.length > 0 || podeUsar || acao.tag || habsDerivadas.length > 0) && (
+                      {(custos.length > 0 || podeUsar || acao.tag || origens.length > 0 || armasDaAcao.length > 0) && (
                         <div className="card-tags">
                           {custos.map((c, i) => (
                             <TagChip
@@ -1030,7 +1078,7 @@ export function AcoesTab({
                             <button
                               type="button"
                               className="hab-usar"
-                              disabled={travadaPorItem}
+                              disabled={travada}
                               onClick={() => usar(acao, ppFinal, recursoGasto)}
                             >
                               <i className="fas fa-play" /> Usar
@@ -1039,16 +1087,37 @@ export function AcoesTab({
                           {acao.tag && (
                             <span className="tag tag-damage">{acao.tag}</span>
                           )}
-                          {habsDerivadas.length > 0 && (
+                          {(origens.length > 0 || armasDaAcao.length > 0) && (
+                          <span className="acao-derivas">
+                          {origens.length > 0 && (
                             <span className="acao-deriva">
                               Vem de{" "}
-                              {habsDerivadas.map((h, i) => (
-                                <span key={h.id}>
+                              {origens.map((nome, i) => (
+                                <span key={i}>
                                   {i > 0 && ", "}
-                                  <span className="acao-deriva-nome">{h.nome}</span>
+                                  <span className="acao-deriva-nome">{nome}</span>
                                 </span>
                               ))}
                             </span>
+                          )}
+                          {armasDaAcao.length > 0 && (
+                            <span className="acao-deriva">
+                              Usa{" "}
+                              {armasDaAcao.map((a, i) => (
+                                <span key={a.id}>
+                                  {i > 0 && ", "}
+                                  <span
+                                    className={`acao-deriva-nome${a.equipado ? "" : " fora"}`}
+                                    title={a.equipado ? undefined : "Não equipada"}
+                                  >
+                                    {a.nome}
+                                    {a.danoBonus && a.equipado ? ` ${comSinal(a.danoBonus)}` : ""}
+                                  </span>
+                                </span>
+                              ))}
+                            </span>
+                          )}
+                          </span>
                           )}
                         </div>
                       )}
@@ -1155,7 +1224,14 @@ export function AcoesTab({
                 </>
               )}
 
-              <DuracaoCampo valor={form.duracao} onChange={(d) => setF("duracao", d)} />
+              <DuracaoCampo
+                valor={form.duracao}
+                onChange={(d) => setF("duracao", d)}
+                porTurno={porTurnoDe(form.efeitos)}
+                onPorTurno={(lista) => setF("efeitos", comPorTurno(form.efeitos, lista))}
+                recursos={recursos}
+                aCadaTurno="concentrando"
+              />
 
               <h3 className="modal-secao">
                 <i className="fas fa-link" /> De onde vem
@@ -1179,7 +1255,11 @@ export function AcoesTab({
                 vazio="Nenhum item no inventário."
               />
 
-              <label style={{ marginTop: 14 }}>Armas</label>
+              <h3 className="modal-secao">
+                <i className="fas fa-khanda" /> Usa
+              </h3>
+
+              <label>Armas</label>
               <SeletorMultiplo
                 opcoes={opcoesArma}
                 marcados={form.armaIds}
@@ -1209,7 +1289,7 @@ export function AcoesTab({
                     onChange={(e) => setF("alcance", e.target.value)}
                     placeholder="Ex: 9 m"
                   />
-                  <div className="sugestoes">
+                  <Sugestoes>
                     {ALCANCES_RAPIDOS.map((a) => (
                       <button
                         type="button"
@@ -1221,9 +1301,12 @@ export function AcoesTab({
                         {a}
                       </button>
                     ))}
-                  </div>
+                  </Sugestoes>
                 </div>
               </div>
+              {form.dano.trim() && (
+                <TipoDanoCampo valor={form.tipoDano} onChange={(t) => setF("tipoDano", t)} />
+              )}
 
               <div className="atrib-grade">
                 {(
@@ -1263,9 +1346,13 @@ export function AcoesTab({
                 </div>
               </details>
 
-              <details className="modal-secao-detalhe" open={form.efeitos.length > 0}>
+              <details
+                className="modal-secao-detalhe"
+                open={form.efeitos.some((e) => e.tipo !== "por_turno")}
+              >
                 <summary>
-                  <i className="fas fa-list-check" /> Efeitos ({form.efeitos.length})
+                  <i className="fas fa-list-check" /> Efeitos (
+                  {form.efeitos.filter((e) => e.tipo !== "por_turno").length})
                 </summary>
                 <div className="modal-secao-corpo">
                   <label>Efeitos na hora em</label>

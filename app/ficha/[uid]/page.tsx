@@ -128,7 +128,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
 
   // Tipos de dano dos ataques e efeitos, pras sugestões do dano recebido.
   const tiposDosAtaques = juntarTipos(
-    ...personagem.acoes.map((a) => tiposDoDano(a.dano ?? "")),
+    ...personagem.acoes.map((a) => [...(a.tipoDano ? [a.tipoDano] : []), ...tiposDoDano(a.dano ?? "")]),
     ...personagem.itens.flatMap((i) => [tiposDoDano(i.dano ?? ""), tiposDoDano(i.danoBonus ?? "")]),
     ...[...personagem.habilidades, ...personagem.itens, ...personagem.acoes].map((f) =>
       tiposDosEfeitos(lerEfeitos(f.efeitos)),
@@ -189,6 +189,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
         penalidadeDesArmadura={penalidadeDesArmadura}
         camadasQueAbrem={camadasQueAbrem}
         tiposDosAtaques={tiposDosAtaques}
+        acoes={personagem.acoes.map((a) => ({ id: a.id, nome: a.nome, efeitos: a.efeitos }))}
       />
       <FichaTabs
         personagemId={personagem.id}
