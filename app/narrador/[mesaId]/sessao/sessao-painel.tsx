@@ -491,6 +491,7 @@ export function SessaoPainel({ mesaId, sessaoInicial, criaturas, personagensMesa
                     className="sessao-iniciativa-pv"
                     value={pvExibido}
                     max={pvMax || undefined}
+                    min={p.personagemId ? -pvMax : 0}
                     onChange={(novo) => {
                       setPvOverrides((atual) => ({ ...atual, [p.id]: novo }));
                       if (p.personagemId) void atualizarPvPersonagem(mesaId, p.personagemId, novo);

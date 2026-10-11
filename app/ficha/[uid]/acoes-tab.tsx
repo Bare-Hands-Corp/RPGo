@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useOptimistic, useState, useTransition } from "react";
+import { Fragment, useEffect, useMemo, useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { ehTemporario, exigir, idTemporario } from "@/lib/acoes";
 import {
@@ -14,7 +14,9 @@ import {
 import { BarraFiltros, casaBusca, pastasDe } from "./barra-filtros";
 import { useConfirmarUso } from "./usar-modal";
 import { doModelo, type ModeloView } from "@/lib/pastas";
+import { agruparFormas } from "@/lib/formas";
 import { BotaoGuardar, BotaoPastas } from "./pastas";
+import { BotaoPacotes, EVENTO_IMPORTADO, type Importado } from "./pacotes";
 import { useRefreshAgrupado } from "@/lib/use-refresh-agrupado";
 import {
   ATRIBUTOS,
@@ -481,18 +483,7 @@ export function AcoesTab({
 
   // Formas alternativas ficam dentro do card da ação de origem.
   const acoesPorId = new Map(acoesOtimistas.map((a) => [a.id, a]));
-  function origemDe(acao: Acao): Acao | undefined {
-    let origem = acao.formaDe && acao.formaDe !== acao.id ? acoesPorId.get(acao.formaDe) : undefined;
-    for (let i = 0; i < 5 && origem?.formaDe && acoesPorId.has(origem.formaDe); i++) {
-      origem = acoesPorId.get(origem.formaDe);
-    }
-    return origem?.id === acao.id ? undefined : origem;
-  }
-  const formasDe = new Map<string, Acao[]>();
-  for (const a of acoesOtimistas) {
-    const origem = origemDe(a);
-    if (origem) formasDe.set(origem.id, [...(formasDe.get(origem.id) ?? []), a]);
-  }
+  const { origemDe, grupoDe } = agruparFormas(acoesOtimistas);
 
   function abrirNova() {
     setForm(FORM_VAZIO);
@@ -783,6 +774,17 @@ export function AcoesTab({
     });
   }
 
+  // Importadas por código: aparecem na hora; quem importou grava.
+  useEffect(() => {
+    function ouvir(e: Event) {
+      for (const a of (e as CustomEvent<Importado>).detail?.acoes ?? []) {
+        aplicarPatch({ kind: "create", acao: { ...ACAO_BASE, ...a.input, id: a.id } as Acao });
+      }
+    }
+    window.addEventListener(EVENTO_IMPORTADO, ouvir);
+    return () => window.removeEventListener(EVENTO_IMPORTADO, ouvir);
+  }, [aplicarPatch]);
+
   // Contador do bônus progressivo: muda na hora e grava os efeitos.
   function mudarEfeitos(acao: Acao, efeitos: EfeitoHabilidade[]) {
     startTransition(async () => {
@@ -797,11 +799,11 @@ export function AcoesTab({
   useContagemDoRolador(acoesOtimistas, mudarEfeitos);
 
   // Põe na pasta (etiqueta + cópia guardada) ou tira a etiqueta.
-  function guardarEmPasta(acao: Acao, pasta: string | null) {
+  function guardarEmPasta(acao: Acao, pasta: string | null, exclusiva?: boolean) {
     startTransition(async () => {
       aplicarPatch({ kind: "update", id: acao.id, patch: { pasta } });
       try {
-        if (pasta) exigir(await guardarNaPasta(personagemId, "acao", acao.id, pasta));
+        if (pasta) exigir(await guardarNaPasta(personagemId, "acao", acao.id, pasta, exclusiva));
         else exigir(await atualizarAcao(personagemId, acao.id, { pasta: null }));
       } catch (err) {
         mostrarErro(err);
@@ -845,9 +847,7 @@ export function AcoesTab({
     (!pastaAtiva || a.pasta === pastaAtiva) &&
     casaBusca(busca, [a.nome, a.descricao, a.tag, a.pasta, a.dano, a.tipoDano, a.tecnica ? "técnica" : null]);
   // Um card por ação de origem; aparece se ela ou uma forma dela casar.
-  const visiveis = acoesOtimistas.filter(
-    (a) => !origemDe(a) && [a, ...(formasDe.get(a.id) ?? [])].some(casaFiltros),
-  );
+  const visiveis = acoesOtimistas.filter((a) => !origemDe(a) && grupoDe(a).some(casaFiltros));
   const filtrando = filtro !== "todas" || !!pastaAtiva || busca.trim() !== "";
 
   return (
@@ -858,7 +858,8 @@ export function AcoesTab({
       <div className="tab-topo">
         <h1>Ações de Combate</h1>
         <div className="tab-topo-botoes">
-          <BotaoPastas tipo="acao" onAdicionar={adicionarDasPastas} />
+          <BotaoPacotes />
+          <BotaoPastas tipo="acao" personagemId={personagemId} onAdicionar={adicionarDasPastas} />
           <button
             type="button"
             className="btn-rect primary"
@@ -893,7 +894,7 @@ export function AcoesTab({
             {lista.length > 0 ? (
               <div className="action-grid">
                 {lista.map((origem) => {
-                  const formas = [origem, ...(formasDe.get(origem.id) ?? [])];
+                  const formas = grupoDe(origem);
                   // A forma escolhida; filtrando, a primeira que casa.
                   const acao =
                     formas.find((f) => f.id === formaAtiva[origem.id]) ??
@@ -1106,9 +1107,10 @@ export function AcoesTab({
                       </button>
                       <BotaoGuardar
                         origem={{ nome: acao.nome, pasta: acao.pasta ?? null }}
+                        personagemId={personagemId}
                         pastasDaFicha={nomesDasPastas}
                         sugestoes={[...habsDerivadas.map((h) => h.nome), ...(acao.tag ? [acao.tag] : [])]}
-                        onGuardar={(p) => guardarEmPasta(acao, p)}
+                        onGuardar={(p, exclusiva) => guardarEmPasta(acao, p, exclusiva)}
                       />
                       <button
                         type="button"

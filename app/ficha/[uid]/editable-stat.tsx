@@ -18,6 +18,7 @@ type Props = {
   campo: string; // ex: "hpAtual" | "ppAtual" | "nivel" | "cargaMaxima"
   valor: number;
   max?: number; // se definido, clampa
+  min?: number; // piso; sem ele, 0
   formato?: Formato;
   // Permite reportar o novo valor pro pai (ex: PerfilSidebar) aplicar otimismo
   // em derivados visuais — barra de HP usa hpAtual/hpTemp diretamente.
@@ -26,7 +27,7 @@ type Props = {
 
 // Click no número → input com mesmo tamanho. Aceita +/- delta ou valor absoluto.
 // Salva no blur ou enter. Optimistic update.
-export function EditableStat({ personagemId, campo, valor, max, formato, onOtimista }: Props) {
+export function EditableStat({ personagemId, campo, valor, max, min = 0, formato, onOtimista }: Props) {
   const formatar = formato ? FORMATADORES[formato] : null;
   const [editando, setEditando] = useState(false);
   const [otimista, setOtimista] = useState<number | null>(null);
@@ -39,13 +40,15 @@ export function EditableStat({ personagemId, campo, valor, max, formato, onOtimi
   }, [valor]);
 
   const valorAtual = otimista ?? valor;
+  // Negativo sai com o sinal de menos tipográfico.
+  const mostrado = formatar ? formatar(valorAtual) : String(valorAtual).replace("-", "−");
 
   useEffect(() => {
     if (editando) inputRef.current?.focus();
   }, [editando]);
 
   function calcularNovo(entrada: string): number | null {
-    let trim = entrada.trim();
+    let trim = entrada.trim().replace(/−/g, "-");
     if (!trim) return null;
     // Quando o display usa separador de milhar (ex: berries), aceita entrada
     // com `.` no meio (`6.200.000`) removendo-os antes do parse.
@@ -60,7 +63,7 @@ export function EditableStat({ personagemId, campo, valor, max, formato, onOtimi
       if (Number.isNaN(novo)) return null;
     }
     if (max != null && novo > max) novo = max;
-    if (novo < 0) novo = 0;
+    if (novo < min) novo = min;
     return novo;
   }
 
@@ -87,7 +90,7 @@ export function EditableStat({ personagemId, campo, valor, max, formato, onOtimi
         ref={inputRef}
         type="text"
         defaultValue=""
-        placeholder={formatar ? formatar(valorAtual) : String(valorAtual)}
+        placeholder={mostrado}
         className="input-edit-stat"
         onBlur={salvar}
         onKeyDown={(e) => {
@@ -114,7 +117,7 @@ export function EditableStat({ personagemId, campo, valor, max, formato, onOtimi
       role="button"
       tabIndex={0}
     >
-      {formatar ? formatar(valorAtual) : valorAtual}
+      {mostrado}
     </span>
   );
 }

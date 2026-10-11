@@ -62,7 +62,10 @@ export default async function FichaPage({ params, searchParams }: Params) {
   if (!carregado) notFound();
 
   // Habilidades travadas por árvore ou por item desequipado ficam fora do agregado.
-  const travadasPorArvore = habilidadesTravadas(carregado.arvores.flatMap((a) => a.nos));
+  const travadasPorArvore = habilidadesTravadas(
+    carregado.arvores.flatMap((a) => a.nos),
+    carregado.habilidades,
+  );
   const itensEquipados = new Set(carregado.itens.filter((i) => i.equipado).map((i) => i.id));
   const estaAtiva = (h: { id: string; itemId: string | null }) =>
     !travadasPorArvore.has(h.id) && (!h.itemId || itensEquipados.has(h.itemId));
@@ -208,7 +211,12 @@ export default async function FichaPage({ params, searchParams }: Params) {
         penalidadeDesArmadura={penalidadeDesArmadura}
         camadasQueAbrem={camadasQueAbrem}
         tiposDosAtaques={tiposDosAtaques}
-        acoes={personagem.acoes.map((a) => ({ id: a.id, nome: a.nome, efeitos: a.efeitos }))}
+        acoes={personagem.acoes.map((a) => ({
+          id: a.id,
+          nome: a.nome,
+          efeitos: a.efeitos,
+          duracao: a.duracao,
+        }))}
       />
       <FichaTabs
         personagemId={personagem.id}

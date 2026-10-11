@@ -4,6 +4,7 @@
 // senão o narrador vê um número e o jogador outro.
 
 import type { Arvore, ArvoreNo, Habilidade, Item, Personagem, PericiaCustom } from "@prisma/client";
+import { pvComSinal } from "./dano";
 import { agregadoDaFicha, penalidadeDesDasArmaduras } from "./efeitos-servidor";
 import {
   ATRIBUTOS,
@@ -37,6 +38,7 @@ export type ResumoPersonagem = {
   nome: string;
   nivel: number;
   fotoUrl: string | null;
+  // PV com sinal: abaixo de 0 são os PV negativos.
   hpAtual: number;
   hpTemp: number;
   hpMax: number;
@@ -144,7 +146,7 @@ export function resumirPersonagem(
     nome: p.nome,
     nivel: p.nivel,
     fotoUrl: p.fotoUrl,
-    hpAtual: p.hpAtual,
+    hpAtual: pvComSinal(p.hpAtual, p.pvNegativos),
     hpTemp: p.hpTemp,
     hpMax: pools.hpMax,
     ppAtual: p.ppAtual,

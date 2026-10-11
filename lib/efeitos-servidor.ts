@@ -11,7 +11,11 @@ import {
   type HabilidadeFonte,
 } from "@/lib/op-rpg";
 
-type HabilidadeServidor = HabilidadeFonte & { id: string; itemId: string | null };
+type HabilidadeServidor = HabilidadeFonte & {
+  id: string;
+  itemId: string | null;
+  formaDe?: string | null;
+};
 
 type ItemFonte = {
   id: string;
@@ -34,7 +38,7 @@ export function agregadoDaFicha(dados: {
   // Habilidades de aliados ligadas neste personagem.
   recebidas?: HabilidadeFonte[];
 }): EfeitosAgregados {
-  const travadas = habilidadesTravadas(dados.nos);
+  const travadas = habilidadesTravadas(dados.nos, dados.habilidades);
   const equipados = new Set(dados.itens.filter((i) => i.equipado).map((i) => i.id));
   const ativas = dados.habilidades.filter(
     (h) => !travadas.has(h.id) && (!h.itemId || equipados.has(h.itemId)),
@@ -66,6 +70,7 @@ export const SELECT_HABILIDADE_FONTE = {
   efeitos: true,
   ligada: true,
   itemId: true,
+  formaDe: true,
   alternavel: true,
   aliado: true,
   usos: true,
@@ -124,22 +129,27 @@ export function fonteRecebida(h: HabilidadeRecebida): HabilidadeFonte {
 
 // Tira as que estão travadas no dono: item desequipado ou talento não comprado.
 async function semTravadasNoDono<
-  T extends { id: string; itemId: string | null; personagemId: string },
+  T extends { id: string; itemId: string | null; personagemId: string; formaDe: string | null },
 >(habs: T[]): Promise<T[]> {
   if (habs.length === 0) return habs;
   const donos = [...new Set(habs.map((h) => h.personagemId))];
-  const [equipados, nos] = await Promise.all([
+  // A forma alternativa trava junto da habilidade de origem.
+  const origens = [...new Set(habs.flatMap((h) => (h.formaDe ? [h.formaDe] : [])))];
+  const [equipados, nos, existentes] = await Promise.all([
     prisma.item.findMany({
       where: { personagemId: { in: donos }, equipado: true },
       select: { id: true },
     }),
     prisma.arvoreNo.findMany({
-      where: { habilidadeId: { in: habs.map((h) => h.id) } },
+      where: { habilidadeId: { in: [...habs.map((h) => h.id), ...origens] } },
       select: { habilidadeId: true, rankAtual: true },
     }),
+    origens.length > 0
+      ? prisma.habilidade.findMany({ where: { id: { in: origens } }, select: { id: true } })
+      : [],
   ]);
   const ids = new Set(equipados.map((i) => i.id));
-  const travadas = habilidadesTravadas(nos);
+  const travadas = habilidadesTravadas(nos, [...habs, ...existentes]);
   return habs.filter((h) => !travadas.has(h.id) && (!h.itemId || ids.has(h.itemId)));
 }
 
@@ -149,7 +159,7 @@ export async function carregarRecebidas(personagemId: string): Promise<Habilidad
     return await semTravadasNoDono(
       await prisma.habilidade.findMany({
         where: ondeRecebidas(personagemId),
-        select: { ...SELECT_RECEBIDA, itemId: true, personagemId: true },
+        select: { ...SELECT_RECEBIDA, itemId: true, personagemId: true, formaDe: true },
         orderBy: { criadoEm: "asc" },
       }),
     );
@@ -170,7 +180,13 @@ export async function recebidasDaMesa(
     const habs = await semTravadasNoDono(
       await prisma.habilidade.findMany({
         where: { alvoPersonagemId: { in: ids }, ligada: true, aliado: true, personagem: { mesaId } },
-        select: { ...SELECT_RECEBIDA, itemId: true, personagemId: true, alvoPersonagemId: true },
+        select: {
+          ...SELECT_RECEBIDA,
+          itemId: true,
+          personagemId: true,
+          alvoPersonagemId: true,
+          formaDe: true,
+        },
         orderBy: { criadoEm: "asc" },
       }),
     );

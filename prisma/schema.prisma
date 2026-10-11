@@ -188,6 +188,7 @@ model Personagem {
   periciasCustom PericiaCustom[]
   arvores        Arvore[]
   objetivos      Objetivo[]
+  modelos        Modelo[]
 
   @@map("personagens")
 }
@@ -454,6 +455,9 @@ model Habilidade {
   // Pasta em que a habilidade está (etiqueta de filtro; lib/pastas.ts).
   pasta String?
 
+  // Habilidade de que esta é forma alternativa (Habilidade.id, sem FK).
+  formaDe String? @map("forma_de")
+
   // Lista de efeitos estruturados (ver lib/op-rpg.ts EfeitoHabilidade).
   efeitos Json @default("[]")
 
@@ -474,10 +478,30 @@ model Modelo {
   nome   String
   dados  Json
 
+  // Pasta só deste personagem; null = vale em todas as fichas do usuário.
+  personagemId String?     @map("personagem_id")
+  personagem   Personagem? @relation(fields: [personagemId], references: [id], onDelete: Cascade)
+
   criadoEm DateTime @default(now()) @map("criado_em")
 
   @@index([userId])
+  @@index([personagemId])
   @@map("modelos")
+}
+
+// Habilidades, ações e árvores exportadas por código, pra outro usuário importar.
+// `dados` é o conteúdo sem vínculos da ficha de origem (lib/pacote.ts).
+model Pacote {
+  id     String @id @default(uuid())
+  codigo String @unique
+  userId String @map("user_id")
+  nome   String
+  dados  Json
+
+  criadoEm DateTime @default(now()) @map("criado_em")
+
+  @@index([userId])
+  @@map("pacotes")
 }
 
 model Mensagem {

@@ -56,6 +56,11 @@ export function textoDuracao(d: Duracao | null): string | null {
   return d.concentracao ? `${base} · Concentração` : base;
 }
 
+// Dura enquanto houver PV temporário: acaba quando ele zera.
+export function acabaSemPvTemp(raw: unknown): boolean {
+  return lerDuracao(raw)?.unidade === "pv_temp";
+}
+
 export function pedeConcentracao(raw: unknown): boolean {
   return lerDuracao(raw)?.concentracao === true;
 }

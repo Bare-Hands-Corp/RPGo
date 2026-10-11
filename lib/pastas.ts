@@ -9,6 +9,8 @@ export type ModeloView = {
   tipo: TipoModelo;
   nome: string;
   dados: Record<string, unknown>;
+  // Personagem dono da pasta; null = vale em todas as fichas do usuário.
+  personagemId: string | null;
 };
 
 export type RecursoRef = { id: string; nome: string };
@@ -73,6 +75,21 @@ function chave(nome: string): string {
     .replace(/[̀-ͯ]/g, "")
     .trim()
     .toLowerCase();
+}
+
+export function mesmoNome(a: string, b: string): boolean {
+  return chave(a) === chave(b);
+}
+
+// Nomes dos recursos próprios que o modelo cita (custo e efeitos).
+export function recursosDoModelo(dados: Record<string, unknown>): string[] {
+  const nomes: string[] = [];
+  if (typeof dados.custoRecurso === "string" && dados.custoRecurso) nomes.push(dados.custoRecurso);
+  for (const e of Array.isArray(dados.efeitos) ? dados.efeitos : []) {
+    const ref = e && typeof e === "object" ? (e as Record<string, unknown>).recurso : null;
+    if (typeof ref === "string" && ref.startsWith(PREFIXO_NOME)) nomes.push(ref.slice(PREFIXO_NOME.length));
+  }
+  return nomes;
 }
 
 export function nomeDePasta(raw: unknown): string {
@@ -140,15 +157,21 @@ export function doModelo(
   return input;
 }
 
+// `exclusiva`: a pasta é só de um personagem.
+export type PastaGuardada = {
+  pasta: string;
+  modelos: ModeloView[];
+  total: number;
+  exclusiva: boolean;
+};
+
 // Pastas em ordem, com o que cada uma guarda do tipo pedido.
-export function agruparPastas(
-  modelos: ModeloView[],
-  tipo: TipoModelo,
-): { pasta: string; modelos: ModeloView[]; total: number }[] {
-  const mapa = new Map<string, { pasta: string; modelos: ModeloView[]; total: number }>();
+export function agruparPastas(modelos: ModeloView[], tipo: TipoModelo): PastaGuardada[] {
+  const mapa = new Map<string, PastaGuardada>();
   for (const m of modelos) {
-    const atual = mapa.get(m.pasta) ?? { pasta: m.pasta, modelos: [], total: 0 };
+    const atual = mapa.get(m.pasta) ?? { pasta: m.pasta, modelos: [], total: 0, exclusiva: true };
     atual.total += 1;
+    if (m.personagemId === null) atual.exclusiva = false;
     if (m.tipo === tipo) atual.modelos.push(m);
     mapa.set(m.pasta, atual);
   }

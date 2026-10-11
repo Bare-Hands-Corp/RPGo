@@ -13,6 +13,7 @@ import {
   ALVOS_VALOR_FIXO,
   ALVOS_VALOR_IGUAL,
   ATRIBUTOS,
+  DEFESAS_IGNORADAS,
   EVENTO_PASSOS,
   GRUPOS_PRESET,
   META_EFEITOS,
@@ -20,6 +21,7 @@ import {
   PRESETS_EFEITO,
   alvoDeRolagem,
   comPassosProgressivos,
+  defesasIgnoradas,
   extraNoDano,
   formatarMod,
   formulaResolvidaTexto,
@@ -602,6 +604,55 @@ function FiltroDanoCampos({
         />
       </div>
     </Detalhes>
+  );
+}
+
+// Defesas que o ataque ignora: as do livro em chips e outras por escrito.
+function DefesasIgnoradasCampo({
+  valor,
+  onChange,
+}: {
+  valor: string;
+  onChange: (defesas: string) => void;
+}) {
+  const todas = defesasIgnoradas(valor);
+  const marcadas = DEFESAS_IGNORADAS.filter((d) => todas.includes(d));
+  const [outras, setOutras] = useState(() =>
+    todas.filter((d) => !DEFESAS_IGNORADAS.includes(d)).join(", "),
+  );
+  const montar = (lista: string[], extras: string) =>
+    onChange([...lista, extras.trim()].filter(Boolean).join(", "));
+  return (
+    <div className="chips-campo" style={{ gridColumn: "1 / -1" }}>
+      <label>Defesa</label>
+      <Sugestoes limite={DEFESAS_IGNORADAS.length}>
+        {DEFESAS_IGNORADAS.map((d) => {
+          const ativo = marcadas.includes(d);
+          return (
+            <button
+              type="button"
+              key={d}
+              className={`sugestao chip-opcao${ativo ? " ativo" : ""}`}
+              aria-pressed={ativo}
+              onClick={() => montar(ativo ? marcadas.filter((x) => x !== d) : [...marcadas, d], outras)}
+            >
+              {d}
+            </button>
+          );
+        })}
+      </Sugestoes>
+      <input
+        type="text"
+        value={outras}
+        maxLength={80}
+        aria-label="Outra defesa"
+        placeholder="Outra"
+        onChange={(ev) => {
+          setOutras(ev.target.value);
+          montar(marcadas, ev.target.value);
+        }}
+      />
+    </div>
   );
 }
 
@@ -1195,24 +1246,29 @@ function renderCorpo(
     }
     case "ignora":
       return (
-        <div style={{ gridColumn: "1 / -1" }}>
-          <label>O que ignora</label>
-          <input
-            type="text"
-            value={e.alvo}
-            onChange={(ev) =>
-              onPatch({ alvo: ev.target.value } as Partial<EfeitoHabilidade>)
-            }
-            placeholder="resistência, imunidade, reação, cobertura…"
-            list="ignora-comuns"
+        <>
+          <DefesasIgnoradasCampo
+            valor={e.alvo}
+            onChange={(v) => onPatch({ alvo: v } as Partial<EfeitoHabilidade>)}
           />
-          <datalist id="ignora-comuns">
-            <option value="resistência" />
-            <option value="imunidade" />
-            <option value="reação" />
-            <option value="cobertura" />
-          </datalist>
-        </div>
+          {!daAcao && (
+            <SelectLista
+              label="Onde"
+              valor={e.em ?? "ataque"}
+              opcoes={ALVOS_ATAQUE}
+              onChange={(v) => onPatch({ em: v === "ataque" ? undefined : v } as Partial<EfeitoHabilidade>)}
+            />
+          )}
+          <FiltroDanoCampos graus={e.graus} tipos={e.tipos} onPatch={onPatch} aberto={!!e.quando}>
+            <Campo
+              label="Quando"
+              valor={e.quando ?? ""}
+              onChange={(v) => onPatch({ quando: v || undefined } as Partial<EfeitoHabilidade>)}
+              placeholder="contra usuário de Akuma no Mi…"
+              title="Preenchido, fica desligado no Rolador até você ligar"
+            />
+          </FiltroDanoCampos>
+        </>
       );
     case "trocar_dano":
       return (

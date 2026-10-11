@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { usuarioDaRequest } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
+import { pvComSinal } from "@/lib/dano";
 import { CardPersonagem } from "./card-personagem";
 import { CardMesa } from "./card-mesa";
 import { BotaoNovaMesa } from "./nova-mesa";
@@ -48,7 +49,10 @@ export default async function DashboardPage() {
       </div>
       <div id="listaPersonagens" className="cards-grid">
         {personagens.map((p) => (
-          <CardPersonagem key={p.id} personagem={p} />
+          <CardPersonagem
+            key={p.id}
+            personagem={{ ...p, hpAtual: pvComSinal(p.hpAtual, p.pvNegativos) }}
+          />
         ))}
         <Link href="/criacao-personagem" className="btn-criar-card">
           <div className="plus-icon">

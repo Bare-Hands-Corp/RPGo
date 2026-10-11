@@ -1001,8 +1001,9 @@ export type EfeitoHabilidade =
   // `alvo` = em qual ataque (ausente = qualquer).
   | { tipo: "alcance"; valor: number; vira?: string; alvo?: string; quando?: string }
   // Ignora uma defesa do alvo (resistência, imunidade, reação, cobertura).
-  // Informativo: anota no chip de ataque/dano. `alvo` = o que ignora.
-  | { tipo: "ignora"; alvo: string }
+  // Informativo: anota no chip de ataque/dano. `alvo` = quais defesas ("Resistência,
+  // Imunidade"), `em` = em qual ataque (ausente = qualquer).
+  | ({ tipo: "ignora"; alvo: string; em?: string; quando?: string } & FiltroDano)
   // Substitui o tipo de dano (ex: Destruição Interna → Verdadeiro; Haki Ígneo →
   // Fogo). Informativo: anota no chip de dano.
   | { tipo: "trocar_dano"; tipoDano: string }
@@ -1583,11 +1584,11 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   {
     id: "ignora",
     nome: "Ignora Defesa",
-    descricao: "Ignora resistência, imunidade, reação ou cobertura",
+    descricao: "Passa por resistência, imunidade ou redução de dano do alvo",
     icone: "fa-bolt-lightning",
     cor: "var(--color-power)",
     grupo: "ativo",
-    criar: () => ({ tipo: "ignora", alvo: "resistência" }),
+    criar: () => ({ tipo: "ignora", alvo: "Resistência" }),
   },
   {
     id: "trocar_dano",
@@ -1670,6 +1671,44 @@ function lerGraus(raw: unknown): number[] {
   return [...new Set(raw.map((g) => Math.trunc(Number(g))))]
     .filter((g) => g >= 1 && g <= 7)
     .sort((a, b) => a - b);
+}
+
+// Defesas que o efeito "Ignora Defesa" oferece; fora delas, texto livre.
+export const DEFESAS_IGNORADAS = [
+  "Resistência",
+  "Imunidade",
+  "Redução de Dano",
+  "PV temporário",
+  "Reação",
+  "Cobertura",
+];
+
+// "resistência; imunidade" → ["Resistência", "Imunidade"]: na grafia da lista, sem repetir.
+export function defesasIgnoradas(texto: string): string[] {
+  const chave = (s: string) =>
+    s
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .trim()
+      .toLowerCase();
+  const out: string[] = [];
+  for (const parte of texto.split(/[,;]/)) {
+    const limpa = parte.trim().slice(0, 40);
+    const nome = DEFESAS_IGNORADAS.find((d) => chave(d) === chave(limpa)) ?? limpa;
+    if (nome && !out.some((o) => chave(o) === chave(nome))) out.push(nome);
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
+// "Ignora resistência e imunidade a cortante".
+export function rotuloIgnora(g: { defesas: string; tipos?: string }): string {
+  const lista = defesasIgnoradas(g.defesas).map((d) => d.toLowerCase().replace(/\bpv\b/g, "PV"));
+  const defesas =
+    lista.length > 1 ? `${lista.slice(0, -1).join(", ")} e ${lista[lista.length - 1]}` : (lista[0] ?? "defesa");
+  const tipos = (g.tipos ?? "").trim().toLowerCase();
+  if (!tipos) return `Ignora ${defesas}`;
+  return /^todos\b/.test(tipos) ? `Ignora ${defesas} (${tipos})` : `Ignora ${defesas} a ${tipos}`;
 }
 
 // Graus e tipos de dano em que um efeito de dano vale; vazio = todos.
@@ -1841,9 +1880,18 @@ export function normalizarEfeito(
         ...(str(obj.quando) ? { quando: str(obj.quando) } : {}),
       };
     }
-    case "ignora":
-      if (!str(obj.alvo)) return null;
-      return { tipo, alvo: str(obj.alvo) };
+    case "ignora": {
+      const alvo = defesasIgnoradas(str(obj.alvo)).join(", ");
+      if (!alvo) return null;
+      const em = str(obj.em).trim().toLowerCase();
+      return {
+        tipo,
+        alvo,
+        ...lerFiltroDano(obj),
+        ...(em && em !== "ataque" ? { em } : {}),
+        ...(str(obj.quando) ? { quando: str(obj.quando) } : {}),
+      };
+    }
     case "trocar_dano":
       if (!str(obj.tipoDano)) return null;
       return { tipo, tipoDano: str(obj.tipoDano) };
@@ -2675,9 +2723,18 @@ export type EfeitosAgregados = {
   dadoArmaFixo: { formula: string; fontes: string[] } | null;
   // Troca de tipo de dano. Primeira habilidade a definir vence; fontes acumulam.
   trocaDano: { tipoDano: string; fontes: string[] } | null;
-  // Defesas ignoradas (resistência/imunidade/reação/cobertura). Indexado pelo
-  // que ignora; fontes acumulam.
-  ignora: Partial<Record<string, FonteLista>>;
+  // Defesas do alvo ignoradas, por ataque — DESCRITIVO (chip da rolagem).
+  // `opcional`: tem `quando`; `gasta` = habilidade de Usar (sob demanda).
+  ignoras: (FiltroDano & {
+    defesas: string;
+    em: string;
+    quando?: string;
+    opcional?: boolean;
+    fonte: string;
+    gasta?: string;
+    usos?: string;
+    custo?: string;
+  })[];
   // Alcance a mais ou trocado, por alvo de ataque — DESCRITIVO (chip da rolagem).
   // `opcional`: vem de habilidade de Usar ou tem `quando`; nasce desligado.
   alcances: {
@@ -2773,7 +2830,7 @@ function vazio(): EfeitosAgregados {
     valoresFixos: {},
     dadoArmaFixo: null,
     trocaDano: null,
-    ignora: {},
+    ignoras: [],
     alcances: [],
     critImune: { fontes: [], passiva: false },
     margemCritico: { valor: 0, fontes: [] },
@@ -2796,16 +2853,6 @@ function somarFonteValor(
 ) {
   const atual = bucket[key] ?? { valor: 0, fontes: [] };
   atual.valor += valor;
-  if (!atual.fontes.includes(fonte)) atual.fontes.push(fonte);
-  bucket[key] = atual;
-}
-
-function adicionarFonteLista(
-  bucket: Partial<Record<string, FonteLista>>,
-  key: string,
-  fonte: string,
-) {
-  const atual = bucket[key] ?? { fontes: [] };
   if (!atual.fontes.includes(fonte)) atual.fontes.push(fonte);
   bucket[key] = atual;
 }
@@ -3150,7 +3197,6 @@ export function efeitoEhSustentado(e: EfeitoHabilidade): boolean {
     case "deslocamento":
     case "sentido":
     case "dano_min":
-    case "ignora":
     case "trocar_dano":
     case "margem_critico":
     case "passo_dano":
@@ -3483,6 +3529,21 @@ function alcanceDe(
   };
 }
 
+// Efeito de ignorar defesa no formato do agregado; com `quando`, nasce desligado.
+function ignoraDe(
+  e: Extract<EfeitoHabilidade, { tipo: "ignora" }>,
+  fonte: string,
+): EfeitosAgregados["ignoras"][number] {
+  const quando = e.quando?.trim();
+  return {
+    defesas: e.alvo,
+    ...filtroDe(e),
+    em: (e.em ?? "ataque").trim().toLowerCase() || "ataque",
+    ...(quando ? { quando, opcional: true } : {}),
+    fonte,
+  };
+}
+
 // Agrega os efeitos sustentados de habilidades passivas ou ligadas.
 // Instantâneos ficam com `computarDeltasInstantaneos`.
 export function agregarEfeitos(
@@ -3560,6 +3621,10 @@ export function agregarEfeitos(
       ].filter((n): n is number => n != null);
       const vezes = tetos.length ? Math.min(MAX_EMPILHAR, ...tetos) : 1;
       for (const e of efeitos) {
+        if (e.tipo === "ignora") {
+          out.ignoras.push({ ...ignoraDe(e, h.nome), opcional: true, gasta: h.id, ...usos });
+          continue;
+        }
         if (e.tipo === "dano_maximo") {
           out.danosMaximos.push({
             em: e.em ?? "dano",
@@ -3791,8 +3856,7 @@ export function agregarEfeitos(
       } else if (e.tipo === "alcance") {
         out.alcances.push(alcanceDe(e, h.nome));
       } else if (e.tipo === "ignora") {
-        const k = e.alvo.trim().toLowerCase();
-        if (k) adicionarFonteLista(out.ignora, k, h.nome);
+        out.ignoras.push(ignoraDe(e, h.nome));
       } else if (e.tipo === "trocar_dano") {
         const t = e.tipoDano.trim();
         if (t) {
@@ -3977,7 +4041,7 @@ export type EfeitosContexto = Pick<
   | "rerolls"
   | "danosMin"
   | "trocaDano"
-  | "ignora"
+  | "ignoras"
   | "alcances"
   | "danoMelhorDe"
   | "extrasDano"
@@ -4001,7 +4065,7 @@ export function efeitosDoContexto(agg: EfeitosAgregados): EfeitosContexto {
     rerolls: agg.rerolls,
     danosMin: agg.danosMin,
     trocaDano: agg.trocaDano,
-    ignora: agg.ignora,
+    ignoras: agg.ignoras ?? [],
     alcances: agg.alcances ?? [],
     danoMelhorDe: agg.danoMelhorDe,
     extrasDano: agg.extrasDano,
@@ -4385,13 +4449,40 @@ export function chipsDoContexto(
       fontes: agg.trocaDano.fontes,
     });
   }
-  // Ignora defesa: vale em ataque e em dano (anotação informativa).
+  // Ignora defesa: descritivo, no ataque e no dano. As que valem sempre e dizem o
+  // mesmo viram um chip só; com `quando`, tipo incerto ou sob demanda, um chip cada.
   if (ctx.tipo === "ataque" || ehDano) {
-    for (const [alvo, fl] of Object.entries(agg.ignora)) {
-      if (fl) {
-        chips.push({ chave: `ignora-${alvo}`, tipo: "ignora", rotulo: `Ignora ${alvo}`, fontes: fl.fontes });
+    const fixos = new Map<string, string[]>();
+    const opcionais: ChipContexto[] = [];
+    (agg.ignoras ?? []).forEach((g, i) => {
+      // O chip que gasta uso aparece só no dano, pra não gastar duas vezes.
+      if (g.gasta && !ehDano) return;
+      const casa = ehDano ? casaDano(g.em.replace(/^ataque/, "dano"), ctx) : casaContexto(g.em, ctx);
+      const filtro = ehDano ? filtroDeDano(g, ctx) : "sim";
+      if (!casa || filtro === "nao") return;
+      const rotulo = rotuloIgnora(g);
+      if (!g.opcional && filtro === "sim") {
+        fixos.set(rotulo, [...(fixos.get(rotulo) ?? []), g.fonte]);
+        return;
       }
+      opcionais.push({
+        chave: `ignora-${i}`,
+        tipo: "ignora",
+        rotulo,
+        fontes: [g.fonte],
+        opcional: true,
+        ...(g.gasta ? { gasta: g.gasta } : {}),
+        detalhe: juntarDetalhes(
+          g.quando ? `quando: ${g.quando}` : undefined,
+          detalheDoGasto(g),
+          filtro === "talvez" ? textoFiltroDano(g) : undefined,
+        ),
+      });
+    });
+    for (const [rotulo, fontes] of fixos) {
+      chips.push({ chave: `ignora-${rotulo}`, tipo: "ignora", rotulo, fontes: dedup(fontes) });
     }
+    chips.push(...opcionais);
   }
   // Alcance: descritivo, no ataque e no dano. Os metros que valem sempre somam num
   // chip só; alcance trocado e os opcionais ganham um chip cada.
@@ -4665,7 +4756,9 @@ export function resumoEfeito(
         e.alvo && e.alvo !== "ataque" ? ` · ${rotuloAlvo(e.alvo)}` : ""
       }${quando(e.quando)}`;
     case "ignora":
-      return `ignora ${e.alvo}`;
+      return `${rotuloIgnora({ defesas: e.alvo, tipos: e.tipos }).replace(/^Ignora /, "")}${
+        e.em && e.em !== "ataque" ? ` · ${rotuloAlvo(e.em)}` : ""
+      }${quando(e.quando)}`;
     case "trocar_dano":
       return `→ ${e.tipoDano}`;
     case "crit_imune":

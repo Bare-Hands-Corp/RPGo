@@ -1,6 +1,6 @@
 "use server";
 
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -49,9 +49,11 @@ import {
   mesmoTipo,
   negativosAtuais,
   resolverDano,
+  separarPv,
   type ParteDano,
 } from "@/lib/dano";
 import {
+  acabaSemPvTemp,
   lerConcentracao,
   lerDuracao,
   pedeConcentracao,
@@ -74,6 +76,21 @@ import {
   type ModeloView,
   type TipoModelo,
 } from "@/lib/pastas";
+import {
+  MAX_ARVORES_PACOTE,
+  MAX_ITENS_PACOTE,
+  MAX_NOME_PACOTE,
+  MAX_NOS_ARVORE,
+  MAX_PACOTES,
+  contarPacote,
+  lerCodigo,
+  lerPacote,
+  montarPacote,
+  nomeDoPacote,
+  novoCodigo,
+  planejarImportacao,
+  type PacoteView,
+} from "@/lib/pacote";
 import { TAMANHOS_VALIDOS, MADEIRAS_VALIDAS, statsTamanho } from "@/lib/navio";
 import {
   corValida,
@@ -183,19 +200,26 @@ export async function patchPersonagem(
     for (const key of ALLOWED_PERSONAGEM) {
       if (patch[key] !== undefined) data[key] = patch[key];
     }
-    // PV editado à mão zera os PV negativos.
-    if (data.hpAtual !== undefined) data.pvNegativos = 0;
+    // PV editado à mão: abaixo de 0 vira PV negativo; de 0 pra cima, os negativos zeram.
+    if (data.hpAtual !== undefined) Object.assign(data, separarPv(Number(data.hpAtual)));
     // 0 PV ou exaustão 6 incapacitam: a concentração acaba.
     const incapacitou =
       (data.hpAtual !== undefined && Number(data.hpAtual) <= 0) ||
       (data.exaustao !== undefined && Number(data.exaustao) >= 6);
+    // PV temporário zerado à mão: acaba o que durava enquanto ele durasse.
+    const semPvTemp =
+      data.hpTemp !== undefined && Number(data.hpTemp) <= 0 && personagem.hpTemp > 0;
+    const fim = semPvTemp ? await acabaComOPvTemp(personagemId, personagem.concentracao) : null;
 
     await prisma.$transaction([
       prisma.personagem.update({
         where: { id: personagemId },
         data,
       }),
-      ...(incapacitou ? opsConcentracao(personagemId, personagem.concentracao, null) : []),
+      ...(fim?.ops ?? []),
+      ...(incapacitou || fim?.soltaConcentracao
+        ? opsConcentracao(personagemId, personagem.concentracao, null)
+        : []),
     ]);
     revalidatePath(`/ficha/${personagemId}`);
   });
@@ -340,19 +364,24 @@ function normalizarAcaoInput(input: AcaoInput) {
   return data;
 }
 
-// Forma alternativa: a origem tem que ser outra ação do personagem, e nunca outra forma.
+// Forma alternativa: a origem tem que ser outra do personagem, e nunca outra forma.
 async function conferirForma(
+  tipo: TipoModelo,
   personagemId: string,
   data: Record<string, unknown>,
-  acaoId?: string,
+  proprioId?: string,
 ) {
   if (!data.formaDe) return;
-  const origem = await prisma.acao.findFirst({
+  const consulta = {
     where: { id: data.formaDe as string, personagemId },
     select: { id: true, formaDe: true },
-  });
+  };
+  const origem =
+    tipo === "acao"
+      ? await prisma.acao.findFirst(consulta)
+      : await prisma.habilidade.findFirst(consulta);
   const raiz = origem?.formaDe ?? origem?.id ?? null;
-  data.formaDe = raiz && raiz !== acaoId ? raiz : null;
+  data.formaDe = raiz && raiz !== proprioId ? raiz : null;
 }
 
 // Lista de ids: só strings não-vazias, sem repetição, com teto defensivo.
@@ -410,7 +439,7 @@ export async function criarAcao(personagemId: string, input: AcaoInput) {
     await autorizar(personagemId);
     const data = normalizarAcaoInput(input);
     if (data.nome === undefined) throw new ErroDeUso("Nome é obrigatório.");
-    await conferirForma(personagemId, data);
+    await conferirForma("acao", personagemId, data);
 
     await prisma.acao.create({ data: dadosDaAcao(personagemId, data) });
     revalidatePath(`/ficha/${personagemId}`);
@@ -425,7 +454,7 @@ export async function atualizarAcao(
   return executar("ficha", async () => {
     await autorizar(personagemId);
     const data = normalizarAcaoInput(patch);
-    await conferirForma(personagemId, data, acaoId);
+    await conferirForma("acao", personagemId, data, acaoId);
     await prisma.acao.update({
       where: { id: acaoId, personagemId },
       data,
@@ -550,6 +579,37 @@ function opsConcentracao(
     }),
   );
   return ops;
+}
+
+// O que acaba quando o PV temporário zera: as habilidades ligadas que duram
+// enquanto ele durar e a concentração que dependia de uma delas (ou de técnica assim).
+async function acabaComOPvTemp(personagemId: string, concentracaoRaw: unknown) {
+  const concentracao = lerConcentracao(concentracaoRaw);
+  const [ligadas, tecnica] = await Promise.all([
+    prisma.habilidade.findMany({
+      where: { personagemId, ligada: true },
+      select: { id: true, nome: true, duracao: true },
+    }),
+    concentracao?.tipo === "acao"
+      ? prisma.acao.findFirst({
+          where: { id: concentracao.id, personagemId },
+          select: { duracao: true },
+        })
+      : null,
+  ]);
+  const habilidades = ligadas.filter((h) => acabaSemPvTemp(h.duracao));
+  return {
+    habilidades,
+    soltaConcentracao:
+      !!concentracao &&
+      (habilidades.some((h) => h.id === concentracao.id) || acabaSemPvTemp(tecnica?.duracao)),
+    ops: habilidades.map((h) =>
+      prisma.habilidade.update({
+        where: { id: h.id, personagemId },
+        data: { ligada: false, turnosRestantes: null },
+      }),
+    ),
+  };
 }
 
 // A habilidade ou ação apagada/desligada era a da concentração: ela acaba.
@@ -1172,6 +1232,7 @@ const ALLOWED_HABILIDADE = [
   "pasta",
   "custoPpFormula",
   "custoRecursoFormula",
+  "formaDe",
 ] as const;
 
 type HabilidadeInput = Partial<
@@ -1262,6 +1323,7 @@ function normalizarHabilidadeInput(input: HabilidadeInput) {
   if (input.alternavel !== undefined) data.alternavel = Boolean(input.alternavel);
   if (input.aliado !== undefined) data.aliado = Boolean(input.aliado);
   if (input.duracao !== undefined) data.duracao = lerDuracao(input.duracao) ?? Prisma.DbNull;
+  if (input.formaDe !== undefined) data.formaDe = input.formaDe ? String(input.formaDe) : null;
   return data;
 }
 
@@ -1295,6 +1357,7 @@ function dadosDaHabilidade(personagemId: string, data: Record<string, unknown>) 
     aliado: (data.aliado as boolean) ?? false,
     usosFormula: (data.usosFormula as string | null) ?? null,
     duracao: (data.duracao as Prisma.InputJsonValue | typeof Prisma.DbNull) ?? Prisma.DbNull,
+    ...(data.formaDe ? { formaDe: data.formaDe as string } : {}),
   };
 }
 
@@ -1306,6 +1369,7 @@ export async function criarHabilidade(
     await autorizar(personagemId);
     const data = normalizarHabilidadeInput(input);
     if (data.nome === undefined) throw new ErroDeUso("Nome é obrigatório.");
+    await conferirForma("habilidade", personagemId, data);
 
     await prisma.habilidade.create({ data: dadosDaHabilidade(personagemId, data) });
     revalidatePath(`/ficha/${personagemId}`);
@@ -1320,6 +1384,7 @@ export async function atualizarHabilidade(
   return executar("ficha", async () => {
     await autorizar(personagemId);
     const data = normalizarHabilidadeInput(patch);
+    await conferirForma("habilidade", personagemId, data, habilidadeId);
     await prisma.habilidade.update({
       where: { id: habilidadeId, personagemId },
       data,
@@ -2677,19 +2742,11 @@ export async function receberDano(
 
     // Habilidade que dura "enquanto tiver PV temporário" desliga quando ele acaba.
     const semTempAgora = r.hpTemp.antes > 0 && r.hpTemp.depois === 0;
-    const acabaram = semTempAgora
-      ? (
-          await prisma.habilidade.findMany({
-            where: { personagemId, ligada: true },
-            select: { id: true, nome: true, duracao: true },
-          })
-        ).filter((h) => lerDuracao(h.duracao)?.unidade === "pv_temp")
-      : [];
-    // A 0 PV (incapacitado), ou sem a habilidade que a segurava, a concentração acaba.
+    const fim = semTempAgora ? await acabaComOPvTemp(personagemId, personagem.concentracao) : null;
+    const acabaram = fim?.habilidades ?? [];
+    // A 0 PV (incapacitado), ou sem o que a segurava, a concentração acaba.
     const concentracao = lerConcentracao(personagem.concentracao);
-    const perdeu =
-      !!concentracao &&
-      (r.hpAtual.depois <= 0 || acabaram.some((h) => h.id === concentracao.id));
+    const perdeu = !!concentracao && (r.hpAtual.depois <= 0 || !!fim?.soltaConcentracao);
     const cd = concentracao && !perdeu ? cdConcentracao(r.final) : null;
     const teste = concentracao && cd ? { nome: concentracao.nome, cd } : null;
 
@@ -2740,9 +2797,7 @@ export async function receberDano(
             : {}),
         },
       }),
-      ...acabaram.map((h) =>
-        prisma.habilidade.update({ where: { id: h.id, personagemId }, data: { ligada: false } }),
-      ),
+      ...(fim?.ops ?? []),
       ...(perdeu ? opsConcentracao(personagemId, concentracao, null) : []),
     ]);
     revalidatePath(`/ficha/${personagemId}`);
@@ -2834,7 +2889,7 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
       concentracao?.tipo === "acao"
         ? await prisma.acao.findFirst({
             where: { id: concentracao.id, personagemId },
-            select: { id: true, nome: true, efeitos: true },
+            select: { id: true, nome: true, efeitos: true, duracao: true },
           })
         : null;
     const porTurno = [
@@ -2878,6 +2933,12 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
       defesas: defesasDoAgregado(agg),
       duracoes,
       concentracao: tecnica,
+      enquantoPvTemp: {
+        habilidades: ligadas.filter((h) => acabaSemPvTemp(h.duracao)),
+        ...(acaoConcentrada && acabaSemPvTemp(acaoConcentrada.duracao)
+          ? { tecnica: acaoConcentrada.nome }
+          : {}),
+      },
     });
 
     // Incapacitado, duração acabou, faltou recurso ou a habilidade que segurava desligou: a concentração acaba.
@@ -2887,6 +2948,7 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
         r.estado.exaustao >= 6 ||
         r.concentracaoTurnos === 0 ||
         r.concentracaoSemRecurso ||
+        r.concentracaoSemPvTemp ||
         r.desligar.some((h) => h.id === concentracao.id));
     const testes =
       concentracao && !perdeu
@@ -2970,7 +3032,8 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
 
 /**
  * Curto recupera o que é "encontro" e "descansoCurto"; longo também o "descansoLongo", PV/PP cheios,
- * PV temporário zerado, exaustão −1 e metade dos Dados de Vida. Sustentada não é desligada.
+ * PV temporário zerado, exaustão −1 e metade dos Dados de Vida. Sustentada não é desligada,
+ * salvo a que durava enquanto houvesse PV temporário.
  */
 export async function descansar(personagemId: string, tipo: TipoDescanso) {
   return executar("ficha", async () => {
@@ -3065,6 +3128,14 @@ export async function descansar(personagemId: string, tipo: TipoDescanso) {
           },
         }),
       );
+      // Sem PV temporário, acaba o que durava enquanto ele durasse.
+      if (personagem.hpTemp > 0) {
+        const fim = await acabaComOPvTemp(personagemId, personagem.concentracao);
+        ops.push(...fim.ops);
+        if (fim.soltaConcentracao) {
+          ops.push(...opsConcentracao(personagemId, personagem.concentracao, null));
+        }
+      }
     } else {
       const ppNovo = somarAteOMaximo(personagem.ppAtual, extra.pp, maximos.ppMax);
       resumo.ppRestaurado = ppNovo - personagem.ppAtual;
@@ -3294,6 +3365,7 @@ function modeloView(m: {
   tipo: string;
   nome: string;
   dados: Prisma.JsonValue;
+  personagemId: string | null;
 }): ModeloView {
   return {
     id: m.id,
@@ -3304,6 +3376,7 @@ function modeloView(m: {
       m.dados && typeof m.dados === "object" && !Array.isArray(m.dados)
         ? (m.dados as Record<string, unknown>)
         : {},
+    personagemId: m.personagemId,
   };
 }
 
@@ -3313,24 +3386,43 @@ async function requireUser() {
   return user;
 }
 
-// Tudo que o usuário logado guardou.
-export async function listarPastas() {
+// Pastas que a ficha enxerga: as de todas as fichas e as só dela.
+function visiveisNa(personagemId: string) {
+  return [{ personagemId: null }, { personagemId }];
+}
+
+// De quem é a pasta: de um personagem (conferido) ou de todas as fichas do usuário.
+async function donoDaPasta(exclusivaDe: unknown) {
+  if (typeof exclusivaDe !== "string" || !exclusivaDe) {
+    return { user: await requireUser(), personagemId: null };
+  }
+  const { user } = await autorizar(exclusivaDe);
+  return { user, personagemId: exclusivaDe };
+}
+
+// O que o usuário logado guardou; com a ficha, entram as pastas só dela.
+export async function listarPastas(personagemId?: string) {
   return executar("pastas", async () => {
     const user = await requireUser();
     const modelos = await prisma.modelo.findMany({
-      where: { userId: user.id },
+      where: {
+        userId: user.id,
+        OR: personagemId ? visiveisNa(String(personagemId)) : [{ personagemId: null }],
+      },
       orderBy: [{ pasta: "asc" }, { criadoEm: "asc" }],
     });
     return { modelos: modelos.map(modeloView) };
   });
 }
 
-// Guarda uma habilidade ou ação da ficha numa pasta do usuário.
+// Guarda uma habilidade ou ação da ficha numa pasta. Pasta nova nasce só do
+// personagem se `exclusiva`; a que já existe segue como está.
 export async function guardarNaPasta(
   personagemId: string,
   tipo: TipoModelo,
   origemId: string,
   pasta: unknown,
+  exclusiva?: unknown,
 ) {
   return executar("pastas", async () => {
     const nomePasta = nomeDePasta(pasta);
@@ -3349,14 +3441,25 @@ export async function guardarNaPasta(
       origem as unknown as Record<string, unknown>,
       recursos,
     ) as Prisma.InputJsonObject;
-    // Guardar de novo com o mesmo nome atualiza a cópia.
-    const [existente, total] = await Promise.all([
-      prisma.modelo.findFirst({
-        where: { userId: user.id, pasta: nomePasta, tipo, nome: origem.nome },
-        select: { id: true },
+    const [naPasta, total] = await Promise.all([
+      prisma.modelo.findMany({
+        where: { userId: user.id, pasta: nomePasta, OR: visiveisNa(personagemId) },
+        select: { id: true, tipo: true, nome: true, personagemId: true },
       }),
       prisma.modelo.count({ where: { userId: user.id } }),
     ]);
+    const dono =
+      naPasta.length > 0
+        ? naPasta.some((m) => m.personagemId === null)
+          ? null
+          : personagemId
+        : exclusiva === true
+          ? personagemId
+          : null;
+    // Guardar de novo com o mesmo nome atualiza a cópia.
+    const existente = naPasta.find(
+      (m) => m.tipo === tipo && m.nome === origem.nome && m.personagemId === dono,
+    );
     if (!existente && total >= MAX_MODELOS) throw new ErroDeUso("Limite de itens guardados atingido.");
     const etiqueta =
       tipo === "acao"
@@ -3365,7 +3468,14 @@ export async function guardarNaPasta(
     const copia = existente
       ? prisma.modelo.update({ where: { id: existente.id }, data: { dados } })
       : prisma.modelo.create({
-          data: { userId: user.id, pasta: nomePasta, tipo, nome: origem.nome, dados },
+          data: {
+            userId: user.id,
+            pasta: nomePasta,
+            tipo,
+            nome: origem.nome,
+            dados,
+            personagemId: dono,
+          },
         });
     const [salvo] = await prisma.$transaction([copia, etiqueta]);
     revalidatePath(`/ficha/${personagemId}`);
@@ -3373,7 +3483,7 @@ export async function guardarNaPasta(
   });
 }
 
-// Cria na ficha as habilidades e ações escolhidas das pastas do usuário.
+// Cria na ficha as habilidades e ações escolhidas das pastas que ela enxerga.
 export async function adicionarDaPasta(personagemId: string, modeloIds: unknown) {
   return executar("pastas", async () => {
     const ids = (Array.isArray(modeloIds) ? modeloIds : [])
@@ -3384,7 +3494,9 @@ export async function adicionarDaPasta(personagemId: string, modeloIds: unknown)
       autorizar(personagemId),
       prisma.recurso.findMany({ where: { personagemId }, select: { id: true, nome: true } }),
     ]);
-    const modelos = await prisma.modelo.findMany({ where: { id: { in: ids }, userId: user.id } });
+    const modelos = await prisma.modelo.findMany({
+      where: { id: { in: ids }, userId: user.id, OR: visiveisNa(personagemId) },
+    });
     const ops: Prisma.PrismaPromise<unknown>[] = [];
     for (const id of ids) {
       const achado = modelos.find((m) => m.id === id);
@@ -3417,14 +3529,17 @@ export async function apagarModelo(modeloId: string) {
   });
 }
 
-// Apaga a pasta e tira a etiqueta dela das fichas do usuário (os itens ficam).
-export async function apagarPasta(pasta: unknown) {
+// Apaga a pasta e tira a etiqueta dela (os itens ficam): das fichas do usuário,
+// ou só do personagem em `exclusivaDe`.
+export async function apagarPasta(pasta: unknown, exclusivaDe?: unknown) {
   return executar("pastas", async () => {
-    const user = await requireUser();
+    const { user, personagemId } = await donoDaPasta(exclusivaDe);
     const nome = String(pasta ?? "");
-    const daFicha = { pasta: nome, personagem: { userId: user.id } };
+    const daFicha = personagemId
+      ? { pasta: nome, personagemId }
+      : { pasta: nome, personagem: { userId: user.id } };
     await prisma.$transaction([
-      prisma.modelo.deleteMany({ where: { pasta: nome, userId: user.id } }),
+      prisma.modelo.deleteMany({ where: { pasta: nome, userId: user.id, personagemId } }),
       prisma.habilidade.updateMany({ where: daFicha, data: { pasta: null } }),
       prisma.acao.updateMany({ where: daFicha, data: { pasta: null } }),
     ]);
@@ -3432,18 +3547,308 @@ export async function apagarPasta(pasta: unknown) {
   });
 }
 
-export async function renomearPasta(de: unknown, para: unknown) {
+export async function renomearPasta(de: unknown, para: unknown, exclusivaDe?: unknown) {
   return executar("pastas", async () => {
-    const user = await requireUser();
+    const { user, personagemId } = await donoDaPasta(exclusivaDe);
     const novo = nomeDePasta(para);
     if (!novo) throw new ErroDeUso("Dê um nome pra pasta.");
     const antigo = String(de ?? "");
-    const daFicha = { pasta: antigo, personagem: { userId: user.id } };
+    const daFicha = personagemId
+      ? { pasta: antigo, personagemId }
+      : { pasta: antigo, personagem: { userId: user.id } };
     await prisma.$transaction([
-      prisma.modelo.updateMany({ where: { pasta: antigo, userId: user.id }, data: { pasta: novo } }),
+      prisma.modelo.updateMany({
+        where: { pasta: antigo, userId: user.id, personagemId },
+        data: { pasta: novo },
+      }),
       prisma.habilidade.updateMany({ where: daFicha, data: { pasta: novo } }),
       prisma.acao.updateMany({ where: daFicha, data: { pasta: novo } }),
     ]);
     revalidatePath("/ficha/[uid]", "page");
+  });
+}
+
+// Deixa a pasta só do personagem, ou de volta em todas as fichas do usuário.
+export async function mudarDonoDaPasta(personagemId: string, pasta: unknown, exclusiva: unknown) {
+  return executar("pastas", async () => {
+    const { user } = await autorizar(personagemId);
+    const so = exclusiva === true;
+    await prisma.modelo.updateMany({
+      where: { userId: user.id, pasta: String(pasta ?? ""), personagemId: so ? null : personagemId },
+      data: { personagemId: so ? personagemId : null },
+    });
+  });
+}
+
+// ─── Pacotes ───────────────────────────────────────────────
+
+function pacoteView(p: {
+  id: string;
+  codigo: string;
+  nome: string;
+  dados: Prisma.JsonValue;
+}): PacoteView {
+  return { id: p.id, codigo: p.codigo, nome: p.nome, ...contarPacote(lerPacote(p.dados)) };
+}
+
+function idsUnicos(raw: unknown, max: number): string[] {
+  const ids = (Array.isArray(raw) ? raw : []).filter(
+    (id): id is string => typeof id === "string" && id !== "",
+  );
+  return [...new Set(ids)].slice(0, max);
+}
+
+// Códigos que o usuário logado gerou.
+export async function listarPacotes() {
+  return executar("pacotes", async () => {
+    const user = await requireUser();
+    const pacotes = await prisma.pacote.findMany({
+      where: { userId: user.id },
+      orderBy: { criadoEm: "desc" },
+    });
+    return { pacotes: pacotes.map(pacoteView) };
+  });
+}
+
+// Gera um código com as habilidades, ações e árvores escolhidas da ficha.
+export async function exportarPacote(
+  personagemId: string,
+  entrada: { nome?: unknown; habilidadeIds?: unknown; acaoIds?: unknown; arvoreIds?: unknown },
+) {
+  return executar("pacotes", async () => {
+    const habilidadeIds = idsUnicos(entrada?.habilidadeIds, MAX_ITENS_PACOTE);
+    const acaoIds = idsUnicos(entrada?.acaoIds, MAX_ITENS_PACOTE);
+    const arvoreIds = idsUnicos(entrada?.arvoreIds, MAX_ARVORES_PACOTE);
+    if (habilidadeIds.length + acaoIds.length + arvoreIds.length === 0) {
+      throw new ErroDeUso("Escolha o que exportar.");
+    }
+    const [{ user, personagem }, habilidades, acoes, arvores, recursos] = await Promise.all([
+      autorizar(personagemId),
+      // A forma alternativa vai junto da origem.
+      prisma.habilidade.findMany({
+        where: {
+          personagemId,
+          OR: [{ id: { in: habilidadeIds } }, { formaDe: { in: habilidadeIds } }],
+        },
+        orderBy: [{ ordem: "asc" }, { criadoEm: "asc" }],
+      }),
+      prisma.acao.findMany({
+        where: { personagemId, OR: [{ id: { in: acaoIds } }, { formaDe: { in: acaoIds } }] },
+        orderBy: { nome: "asc" },
+      }),
+      prisma.arvore.findMany({
+        where: { id: { in: arvoreIds }, personagemId },
+        orderBy: [{ ordem: "asc" }, { nome: "asc" }],
+        include: { camadas: true, ramos: true, nos: true },
+      }),
+      prisma.recurso.findMany({ where: { personagemId } }),
+    ]);
+    if (habilidades.length + acoes.length + arvores.length === 0) {
+      throw new ErroDeUso("Não encontrado. Pode ter sido apagado.");
+    }
+    const total = await prisma.pacote.count({ where: { userId: user.id } });
+    if (total >= MAX_PACOTES) throw new ErroDeUso("Limite de códigos atingido. Apague um antes.");
+    if (habilidades.length > MAX_ITENS_PACOTE) {
+      throw new ErroDeUso(`Um código leva até ${MAX_ITENS_PACOTE} habilidades.`);
+    }
+    if (acoes.length > MAX_ITENS_PACOTE) {
+      throw new ErroDeUso(`Um código leva até ${MAX_ITENS_PACOTE} ações.`);
+    }
+    if (arvores.some((a) => a.nos.length > MAX_NOS_ARVORE)) {
+      throw new ErroDeUso(`Um código leva árvores de até ${MAX_NOS_ARVORE} talentos.`);
+    }
+
+    const dados = montarPacote({ de: personagem.nome, habilidades, acoes, arvores, recursos });
+    const nome =
+      nomeDoPacote(entrada?.nome) || `Pacote de ${personagem.nome}`.slice(0, MAX_NOME_PACOTE);
+    // Código repetido: sorteia outro.
+    for (let tentativa = 0; ; tentativa++) {
+      try {
+        const pacote = await prisma.pacote.create({
+          data: {
+            codigo: novoCodigo((n) => randomInt(n)),
+            userId: user.id,
+            nome,
+            dados: dados as unknown as Prisma.InputJsonObject,
+          },
+        });
+        return { pacote: pacoteView(pacote) };
+      } catch (e) {
+        if (tentativa >= 4 || (e as { code?: unknown })?.code !== "P2002") throw e;
+      }
+    }
+  });
+}
+
+// Conteúdo de um código, pra conferir antes de importar.
+export async function verPacote(codigo: unknown) {
+  return executar("pacotes", async () => {
+    const limpo = lerCodigo(codigo);
+    if (!limpo) throw new ErroDeUso("Código inválido.");
+    const [, pacote] = await Promise.all([
+      requireUser(),
+      prisma.pacote.findUnique({ where: { codigo: limpo } }),
+    ]);
+    if (!pacote) throw new ErroDeUso("Código não encontrado.");
+    return { pacote: { codigo: pacote.codigo, nome: pacote.nome, dados: lerPacote(pacote.dados) } };
+  });
+}
+
+// Cria na ficha o que foi escolhido de um código.
+export async function importarPacote(personagemId: string, codigo: unknown, escolha: unknown) {
+  return executar("pacotes", async () => {
+    const limpo = lerCodigo(codigo);
+    if (!limpo) throw new ErroDeUso("Código inválido.");
+    const quer = (escolha && typeof escolha === "object" ? escolha : {}) as Record<string, unknown>;
+    const [, pacote, recursos, habilidades, arvoresNaFicha] = await Promise.all([
+      autorizar(personagemId),
+      prisma.pacote.findUnique({ where: { codigo: limpo } }),
+      prisma.recurso.findMany({ where: { personagemId }, select: { id: true, nome: true } }),
+      prisma.habilidade.findMany({ where: { personagemId }, select: { id: true, nome: true } }),
+      prisma.arvore.count({ where: { personagemId } }),
+    ]);
+    if (!pacote) throw new ErroDeUso("Código não encontrado.");
+    const plano = planejarImportacao(
+      lerPacote(pacote.dados),
+      {
+        habilidades: idsUnicos(quer.habilidades, MAX_ITENS_PACOTE),
+        acoes: idsUnicos(quer.acoes, MAX_ITENS_PACOTE),
+        arvores: idsUnicos(quer.arvores, MAX_ARVORES_PACOTE),
+      },
+      { recursos, habilidades },
+      randomUUID,
+    );
+    if (plano.habilidades.length + plano.acoes.length + plano.arvores.length === 0) {
+      throw new ErroDeUso("Escolha o que importar.");
+    }
+
+    const ops: Prisma.PrismaPromise<unknown>[] = [];
+    if (plano.recursos.length > 0) {
+      ops.push(
+        prisma.recurso.createMany({
+          data: plano.recursos.map((r, i) => {
+            const data = normalizarRecurso(
+              {
+                nome: r.nome,
+                valorMax: r.valorMax,
+                valorMaxFormula: r.valorMaxFormula,
+                cor: r.cor,
+                cor2: r.cor2,
+                efeito: r.efeito,
+                resetEm: r.resetEm,
+              },
+              false,
+            );
+            return {
+              id: r.id,
+              personagemId,
+              nome: data.nome as string,
+              valorAtual: (data.valorMax as number) ?? 0,
+              valorMax: (data.valorMax as number) ?? 0,
+              valorMaxFormula: (data.valorMaxFormula as string | null) ?? null,
+              ordem: recursos.length + i,
+              cor: (data.cor as string | null) ?? null,
+              cor2: (data.cor2 as string | null) ?? null,
+              efeito: (data.efeito as string) ?? "solido",
+              resetEm: (data.resetEm as string) ?? "manual",
+            };
+          }),
+        }),
+      );
+    }
+    if (plano.habilidades.length > 0) {
+      ops.push(
+        prisma.habilidade.createMany({
+          data: plano.habilidades.map((h) => ({
+            ...dadosDaHabilidade(personagemId, normalizarHabilidadeInput(h.input)),
+            id: h.id,
+          })),
+        }),
+      );
+    }
+    if (plano.acoes.length > 0) {
+      ops.push(
+        prisma.acao.createMany({
+          data: plano.acoes.map((a) => ({
+            ...dadosDaAcao(personagemId, normalizarAcaoInput(a.input)),
+            id: a.id,
+          })),
+        }),
+      );
+    }
+    plano.arvores.forEach((a, i) => {
+      const data = normalizarArvore(a);
+      ops.push(
+        prisma.arvore.create({
+          data: {
+            id: a.id,
+            personagemId,
+            nome: data.nome as string,
+            icone: data.icone as string,
+            cor: (data.cor as string | null) ?? null,
+            cor2: (data.cor2 as string | null) ?? null,
+            efeito: data.efeito as string,
+            ordem: arvoresNaFicha + i,
+            criterio: data.criterio as string,
+            recursoCustoId: a.recursoCustoId,
+            fundoUrl: (data.fundoUrl as string | null) ?? null,
+            camadas: {
+              create: a.camadas.map((c) => ({
+                id: c.id,
+                nome: c.nome.trim() || `Camada ${c.ordem + 1}`,
+                ordem: c.ordem,
+                limiar: c.limiar,
+              })),
+            },
+            ramos: {
+              create: a.ramos.map((r) => ({
+                id: r.id,
+                nome: r.nome.trim() || `Ramo ${r.ordem + 1}`,
+                ordem: r.ordem,
+              })),
+            },
+          },
+        }),
+      );
+      if (a.nos.length === 0) return;
+      ops.push(
+        prisma.arvoreNo.createMany({
+          data: a.nos.map((n) => {
+            const no = normalizarNo(n);
+            return {
+              id: n.id,
+              arvoreId: a.id,
+              camadaId: n.camadaId,
+              ramoId: n.ramoId,
+              coluna: no.coluna as number,
+              linha: no.linha as number,
+              nome: no.nome as string,
+              descricao: no.descricao as string,
+              icone: no.icone as string,
+              custo: no.custo as number,
+              maxRanks: no.maxRanks as number,
+              nivelMinimo: no.nivelMinimo as number,
+              habilidadeId: n.habilidadeId,
+              requisitos: no.requisitos as RequisitoNo[],
+              ordem: n.ordem,
+            };
+          }),
+        }),
+      );
+    });
+    await prisma.$transaction(ops);
+    revalidatePath(`/ficha/${personagemId}`);
+    return {
+      habilidades: plano.habilidades.length,
+      acoes: plano.acoes.length,
+      arvores: plano.arvores.map((a) => a.id),
+    };
+  });
+}
+
+export async function apagarPacote(pacoteId: string) {
+  return executar("pacotes", async () => {
+    const user = await requireUser();
+    await prisma.pacote.deleteMany({ where: { id: String(pacoteId), userId: user.id } });
   });
 }

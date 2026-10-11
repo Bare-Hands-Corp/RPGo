@@ -31,7 +31,10 @@ type Alerta = { rotulo: string; grave: boolean };
 
 function alertasDe(p: ResumoPersonagem): Alerta[] {
   const lista: Alerta[] = [];
-  if (p.hpAtual <= 0) lista.push({ rotulo: "Caído", grave: true });
+  // PV negativos que chegam ao PV máximo matam.
+  if (p.hpAtual <= 0) {
+    lista.push({ rotulo: p.hpMax > 0 && -p.hpAtual >= p.hpMax ? "Morto" : "Caído", grave: true });
+  }
   else if (p.hpMax > 0 && p.hpAtual / p.hpMax <= 0.25) lista.push({ rotulo: "Vida baixa", grave: true });
   if (p.exaustao > 0) lista.push({ rotulo: `Exaustão ${p.exaustao}`, grave: p.exaustao >= 3 });
   return lista;

@@ -6,6 +6,7 @@ import { ArvoresTab, type Arvore, type ArvoreCopiavel } from "./arvores-tab";
 import { HabilidadesTab } from "./habilidades-tab";
 import { InventarioTab } from "./inventario-tab";
 import { ObjetivosTab, type Objetivo } from "./objetivos-tab";
+import { PacotesContext } from "./pacotes";
 import { PericiasTab } from "./pericias-tab";
 import { TripulacaoTab } from "./tripulacao-tab";
 import { CalendarioView } from "@/app/calendario/[mesaId]/calendario-view";
@@ -145,6 +146,11 @@ export function FichaTabs({
     [objetivos, personagemId, personagemNome],
   );
 
+  const fichaDoPacote = useMemo(
+    () => ({ personagemId, habilidades, acoes, arvores, recursos }),
+    [personagemId, habilidades, acoes, arvores, recursos],
+  );
+
   const tabs = [...TABS_BASE];
   if (temCalendario) {
     tabs.push({ id: "calendario", label: "Calendário", icone: "fa-calendar-days" });
@@ -169,6 +175,7 @@ export function FichaTabs({
   }
 
   return (
+    <PacotesContext.Provider value={fichaDoPacote}>
     <main className="ficha-main">
       {/* Realtime do calendário fica sempre ativo enquanto a ficha está aberta,
           pra que mudanças cheguem mesmo quando outra aba estiver visível. */}
@@ -352,5 +359,6 @@ export function FichaTabs({
         </div>
       )}
     </main>
+    </PacotesContext.Provider>
   );
 }

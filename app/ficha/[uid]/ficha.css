@@ -6115,6 +6115,224 @@ form > .turno-campo,
   white-space: nowrap;
 }
 
+/* Pasta só desta ficha: marca na lista, escolha ao criar e alternador na pasta aberta. */
+.pasta-so-aqui {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-sec);
+  font-size: 0.64rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.pasta-card .pasta-so-aqui {
+  margin-top: 4px;
+  font-size: 0.64rem;
+}
+
+.guardar-dono {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.guardar-dono > span {
+  flex-shrink: 0;
+  color: var(--text-sec);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.guardar-dono .seg {
+  flex: 1;
+  margin-top: 0;
+}
+
+.sugestao.chip-opcao.pasta-dono {
+  margin-bottom: 10px;
+}
+
+/* ─── Pacotes: exportar e importar por código ─────────────── */
+.pastas-box > .seg {
+  margin: 0 0 14px;
+}
+
+.pacote-busca {
+  margin-bottom: 10px;
+}
+
+.pacote-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 44vh;
+  overflow-y: auto;
+}
+
+.pacote-lista .pasta-itens {
+  max-height: none;
+  overflow: visible;
+}
+
+.pacote-grupo > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.pacote-grupo > header strong {
+  color: var(--text-sec);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pacote-grupo > header span {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-sec);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.pacote-grupo > header button {
+  margin-left: auto;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--primary);
+  font-family: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pacote-grupo > header button:hover {
+  text-decoration: underline;
+}
+
+.pacote-tipo {
+  margin-right: 2px;
+  color: var(--text-sec);
+  font-size: 0.72rem;
+}
+
+.pacote-ja-tem {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--color-warning) 16%, transparent);
+  color: var(--color-warning);
+  font-size: 0.66rem;
+  font-weight: 700;
+}
+
+.pacote-abrir {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.pacote-abrir .guardar-campo {
+  flex: 1;
+  min-width: 0;
+}
+
+.guardar-campo.com-erro {
+  border-color: var(--color-danger);
+}
+
+.modal-box .guardar-campo .pacote-codigo-campo {
+  font-family: monospace;
+  font-size: 1rem;
+  letter-spacing: 0.12em;
+}
+
+.pacote-falha {
+  margin: 6px 2px 0;
+  color: var(--color-danger);
+  font-size: 0.8rem;
+}
+
+.pacote-cabecalho {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  margin: 16px 0 10px;
+}
+
+.pacote-cabecalho strong {
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.pacote-cabecalho span,
+.pacote-nota {
+  color: var(--text-sec);
+  font-size: 0.8rem;
+}
+
+.pacote-nota {
+  margin: 10px 0 0;
+}
+
+.pacote-pronto {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 0 4px;
+  text-align: center;
+}
+
+.pacote-pronto > span {
+  color: var(--text-sec);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.pacote-codigo {
+  padding: 12px 22px;
+  border: 1px dashed var(--primary);
+  border-radius: 12px;
+  background: color-mix(in oklch, var(--primary) 10%, var(--bg-surface));
+  color: var(--text-main);
+  font-family: monospace;
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  user-select: all;
+  transition: background var(--dur-rapida) var(--ease-saida);
+}
+
+.pacote-codigo:hover {
+  background: color-mix(in oklch, var(--primary) 18%, var(--bg-surface));
+}
+
+.pacote-meus .pasta-item-marcar > i {
+  color: var(--text-sec);
+}
+
+.pacote-meus code {
+  color: var(--text-main);
+  font-family: monospace;
+  letter-spacing: 0.06em;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .paleta-overlay,
   .paleta,
@@ -7169,6 +7387,17 @@ form > .turno-campo,
   background: color-mix(in srgb, var(--primary) 14%, transparent);
   border-color: color-mix(in srgb, var(--primary) 45%, transparent);
   color: var(--primary);
+}
+
+.acao-forma.ligada::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
 }
 
 .acao-forma:active {

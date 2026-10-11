@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
+import { separarPv } from "@/lib/dano";
 import { parseFormulaDados, rolarDados } from "@/lib/dice";
 import type { NovoParticipante } from "./types";
 import { serializarSessao } from "./utils";
@@ -179,7 +180,8 @@ export async function atualizarPvPersonagem(mesaId: string, personagemId: string
   const personagem = await prisma.personagem.findUniqueOrThrow({ where: { id: personagemId }, select: { mesaId: true } });
   if (personagem.mesaId !== mesaId) throw new Error("Personagem não pertence a esta mesa.");
 
-  await prisma.personagem.update({ where: { id: personagemId }, data: { hpAtual: novoHp } });
+  // PV com sinal: abaixo de 0 vira PV negativo, como na ficha.
+  await prisma.personagem.update({ where: { id: personagemId }, data: separarPv(novoHp) });
   revalidar(mesaId);
 }
 

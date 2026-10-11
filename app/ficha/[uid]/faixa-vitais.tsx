@@ -12,6 +12,7 @@ type PatchVitais = {
 
 type Props = {
   personagemId: string;
+  // PV com sinal: abaixo de 0 são os PV negativos.
   hpAtual: number;
   hpTemp: number;
   hpMax: number;
@@ -77,6 +78,7 @@ export function FaixaVitais({
             campo="hpAtual"
             valor={hpAtual}
             max={hpMax}
+            min={-hpMax}
             onOtimista={(novo) => onOtimista({ hpAtual: novo })}
           />
           <span className="faixa-vital-max">/{hpMax}</span>

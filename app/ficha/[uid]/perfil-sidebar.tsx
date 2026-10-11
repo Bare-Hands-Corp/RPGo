@@ -21,12 +21,20 @@ import { exigir } from "@/lib/acoes";
 import { useRefreshAgrupado } from "@/lib/use-refresh-agrupado";
 import {
   EVENTO_CONCENTRACAO,
+  acabaSemPvTemp,
   anunciarConcentracao,
   lerConcentracao,
   textoTurnosRestantes,
   type Concentracao,
 } from "@/lib/duracao";
-import { defesasDoAgregado, estaMorto, lerTiposSalvos, negativosAtuais } from "@/lib/dano";
+import {
+  defesasDoAgregado,
+  estaMorto,
+  lerTiposSalvos,
+  negativosAtuais,
+  pvComSinal,
+  separarPv,
+} from "@/lib/dano";
 import {
   aplicarTurno,
   anunciarTurnos,
@@ -256,7 +264,7 @@ export function PerfilSidebar({
   // Tipos de dano lidos dos ataques e efeitos (sugestões do dano recebido).
   tiposDosAtaques: string[];
   // Ações da ficha: a técnica em concentração traz o "a cada turno" dela.
-  acoes: { id: string; nome: string; efeitos: unknown }[];
+  acoes: { id: string; nome: string; efeitos: unknown; duracao?: unknown }[];
 }) {
   // useOptimistic do personagem inteiro: o EditFichaModal e qualquer outro
   // editor podem aplicar patches via `aplicarOtimista` pra refletir mudanças
@@ -429,6 +437,34 @@ export function PerfilSidebar({
         });
       }
     });
+  }
+
+  // O que dura enquanto houver PV temporário: habilidades ligadas e a técnica em concentração.
+  const enquantoPvTemp = {
+    habilidades: habilidades.filter(
+      (h) => (ligadaOverlay[h.id] ?? h.ligada) && acabaSemPvTemp(h.duracao),
+    ),
+    tecnica:
+      concentracaoAtual?.tipo === "acao"
+        ? acoes.find((a) => a.id === concentracaoAtual.id && acabaSemPvTemp(a.duracao))?.nome
+        : undefined,
+  };
+
+  // PV e PV temporário editados à mão. PV vem com sinal: abaixo de 0 vira PV negativo.
+  function aplicarVitais(patch: PatchPersonagem) {
+    // PV temporário zerado: o que durava enquanto ele durasse acaba junto.
+    if (patch.hpTemp !== undefined && patch.hpTemp <= 0 && p.hpTemp > 0) {
+      for (const h of enquantoPvTemp.habilidades) {
+        window.dispatchEvent(
+          new CustomEvent("rpgo:toggle-habilidade", { detail: { id: h.id, ligada: false } }),
+        );
+      }
+      if (enquantoPvTemp.tecnica) anunciarConcentracao(null);
+    }
+    if (patch.hpAtual === undefined) return aplicarOtimista(patch);
+    // A 0 PV fica incapacitado e perde a concentração.
+    if (patch.hpAtual <= 0 && concentracaoAtual) anunciarConcentracao(null);
+    aplicarOtimista({ ...patch, ...separarPv(patch.hpAtual) });
   }
 
   // Agregado recalculado no cliente com os overlays de `ligada`/`equipado`.
@@ -731,6 +767,7 @@ export function PerfilSidebar({
       defesas: defesasDoAgregado(efeitosAgregados),
       duracoes: duracoesTurno,
       concentracao: tecnicaTurnos,
+      enquantoPvTemp,
     });
 
     const deltaPp = r.estado.ppAtual - p.ppAtual;
@@ -770,6 +807,7 @@ export function PerfilSidebar({
         r.estado.exaustao >= 6 ||
         r.concentracaoTurnos === 0 ||
         r.concentracaoSemRecurso ||
+        r.concentracaoSemPvTemp ||
         r.desligar.some((h) => h.id === c.id));
     if (perde) anunciarConcentracao(null);
     else if (c && r.concentracaoTurnos != null) anunciarConcentracao({ ...c, turnos: r.concentracaoTurnos });
@@ -818,7 +856,7 @@ export function PerfilSidebar({
     <aside className="sidebar">
       <FaixaVitais
         personagemId={p.id}
-        hpAtual={p.hpAtual}
+        hpAtual={pvComSinal(p.hpAtual, p.pvNegativos)}
         hpTemp={p.hpTemp}
         hpMax={hpMaxEfetivo}
         ppAtual={p.ppAtual}
@@ -826,7 +864,7 @@ export function PerfilSidebar({
         cr={crTotal}
         exaustao={p.exaustao}
         ancora={vitaisRef}
-        onOtimista={aplicarOtimista}
+        onOtimista={aplicarVitais}
         onDano={() => setModalVida("dano")}
       />
       <div className="sidebar-icons right">
@@ -910,7 +948,7 @@ export function PerfilSidebar({
                 className={`vida-estado${morto ? " morto" : ""}`}
                 title={pvNegativos > 0 ? `PV negativos: ${pvNegativos} de ${hpMaxEfetivo}` : undefined}
               >
-                {morto ? "Morto" : pvNegativos > 0 ? `Incapacitado · −${pvNegativos}` : "Incapacitado"}
+                {morto ? "Morto" : "Incapacitado"}
               </span>
             )}
           </span>
@@ -918,13 +956,10 @@ export function PerfilSidebar({
             <EditableStat
               personagemId={p.id}
               campo="hpAtual"
-              valor={p.hpAtual}
+              valor={pvComSinal(p.hpAtual, p.pvNegativos)}
               max={hpMaxEfetivo}
-              onOtimista={(novo) => {
-                // A 0 PV fica incapacitado e perde a concentração.
-                if (novo <= 0 && concentracaoAtual) anunciarConcentracao(null);
-                aplicarOtimista({ hpAtual: novo, pvNegativos: 0 });
-              }}
+              min={-hpMaxEfetivo}
+              onOtimista={(novo) => aplicarVitais({ hpAtual: novo })}
             />
             {" / "}
             <span
@@ -952,7 +987,7 @@ export function PerfilSidebar({
                 personagemId={p.id}
                 campo="hpTemp"
                 valor={p.hpTemp}
-                onOtimista={(novo) => aplicarOtimista({ hpTemp: novo })}
+                onOtimista={(novo) => aplicarVitais({ hpTemp: novo })}
               />
             </span>
           </div>

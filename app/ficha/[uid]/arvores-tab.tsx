@@ -31,6 +31,7 @@ import {
 import { exigir } from "@/lib/acoes";
 import { EstiloPicker } from "./estilo-cor-picker";
 import { IconePicker } from "@/components/icone-picker";
+import { BotaoPacotes } from "./pacotes";
 import {
   EFEITO_COR_PADRAO,
   corValida,
@@ -441,6 +442,7 @@ export function ArvoresTab({
       <div className="arvores-topo">
         <h1>Árvores</h1>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <BotaoPacotes onArvore={setSelecionadaId} />
           {arvoresCopiaveis.length > 0 && (
             <button
               type="button"
