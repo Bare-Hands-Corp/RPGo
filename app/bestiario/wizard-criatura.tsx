@@ -5,7 +5,7 @@ import Swal from "sweetalert2";
 import { parseFormulaDados } from "@/lib/dice";
 import { criarCriatura } from "./actions";
 import { aplicarTemplate, criarComponenteVazio, criarCriaturaVazia, draftDeCriatura, ndParaValor } from "./utils";
-import { CATEGORIAS_COMPONENTE, TIPOS_DANO_SUGERIDOS } from "./types";
+import { CATEGORIAS_COMPONENTE, tiposDanoSugeridos } from "./types";
 import type { ComponenteCategoria, ComponentePayload, CriaturaPayload, CriaturaSerializada, TemplateSerializado } from "./types";
 import { NumeroInput, ListaTextoInput } from "./inputs";
 import { ComponenteEditor } from "./componente-editor";
@@ -508,7 +508,7 @@ export function WizardCriatura({ criaturas, templates, linhagens, onCriada, onCa
               condições impostas) direto aqui.
             </p>
             <datalist id="tipos-dano-sugeridos">
-              {TIPOS_DANO_SUGERIDOS.map((t) => (
+              {tiposDanoSugeridos(templates).map((t) => (
                 <option key={t} value={t} />
               ))}
             </datalist>

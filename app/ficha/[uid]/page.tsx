@@ -21,6 +21,8 @@ import { FichaTabs } from "./ficha-tabs";
 import { RelogioMesa } from "../../calendario/[mesaId]/relogio";
 import { FichaRealtime } from "./realtime-refresher";
 import { Bandeja } from "@/components/bandeja/bandeja";
+import { CatalogoTiposProvider } from "@/components/tipos-dano/tipos-dano";
+import { catalogoTiposDoNarrador } from "@/lib/tipos-dano-servidor";
 import { ThemeButton } from "@/components/temas/theme-button";
 import "../../calendario/[mesaId]/calendario.css";
 import "./ficha.css";
@@ -161,8 +163,10 @@ export default async function FichaPage({ params, searchParams }: Params) {
 
   // Pré-carrega mensagens do chat + calendário + tripulação/navio (se houver
   // mesa) em paralelo. Tripulação = personagens que compartilham o mesaId.
-  const [mensagensIniciais, calendario, tripulantes, navio, arvoresCopiaveis] =
+  const [catalogoTipos, mensagensIniciais, calendario, tripulantes, navio, arvoresCopiaveis] =
     await Promise.all([
+    // Tipos de dano do narrador da mesa (Biblioteca do bestiário).
+    catalogoTiposDoNarrador(personagem.mesa?.userId),
     listarMensagensSessao(sessionId),
     personagem.mesaId
       ? carregarCalendario(personagem.mesaId, { isNarrador })
@@ -195,6 +199,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
   return (
     <div className={"ficha-layout" + (calendario ? " com-relogio" : "")}>
       <FichaRealtime personagemId={personagem.id} mesaId={personagem.mesaId} />
+      <CatalogoTiposProvider tipos={catalogoTipos}>
       <PerfilSidebar
         personagem={personagem}
         habilidades={habilidadesAtivas}
@@ -286,6 +291,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
             : null
         }
       />
+      </CatalogoTiposProvider>
       <div className="ficha-topo-acoes">
         {personagem.mesaId && calendario && (
           <RelogioMesa

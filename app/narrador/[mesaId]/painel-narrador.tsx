@@ -27,6 +27,8 @@ type Mesa = {
   nome: string;
   codigoAcesso: string;
   bannerUrl: string | null;
+  // Catálogo de tipos de dano do narrador (Biblioteca do bestiário).
+  tiposDano: string[];
   personagens: ResumoPersonagem[];
 };
 
@@ -174,6 +176,7 @@ export function NarradorShell({
             <section className="narrador-sessao-embed">
               <SessaoPainel
                 mesaId={mesa.id}
+                tiposDano={mesa.tiposDano}
                 sessaoInicial={sessaoInicial}
                 criaturas={criaturas}
                 personagensMesa={mesa.personagens.map((p) => ({

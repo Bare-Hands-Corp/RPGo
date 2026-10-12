@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import Swal from "sweetalert2";
 import { criarCriatura, atualizarCriatura, deletarCriatura } from "./actions";
 import { aplicarTemplate, criarComponenteVazio, criarCriaturaVazia, draftDeCriatura, ndParaValor } from "./utils";
-import { CATEGORIAS_COMPONENTE, TIPOS_DANO_SUGERIDOS } from "./types";
+import { CATEGORIAS_COMPONENTE, tiposDanoSugeridos } from "./types";
 import type { ComponenteCategoria, ComponentePayload, CriaturaPayload, CriaturaSerializada, TemplateSerializado } from "./types";
 import { ListaTextoInput, NumeroInput } from "./inputs";
 import { ComponenteEditor } from "./componente-editor";
@@ -238,9 +238,6 @@ export function BestiarioManager({ criaturasIniciais, templates, linhagens }: Pr
                 </option>
               ))}
             </select>
-            <Link href="/bestiario/biblioteca" className="bestiario-btn-biblioteca">
-              <i className="fas fa-book" /> Biblioteca de traits
-            </Link>
             <Link href="/bestiario/encontros" className="bestiario-btn-biblioteca">
               <i className="fas fa-people-group" /> Esquadrões e Encontros
             </Link>
@@ -582,7 +579,7 @@ export function BestiarioManager({ criaturasIniciais, templates, linhagens }: Pr
             <i className="fas fa-bolt" /> Componentes
           </h3>
           <datalist id="tipos-dano-sugeridos">
-            {TIPOS_DANO_SUGERIDOS.map((t) => (
+            {tiposDanoSugeridos(templates).map((t) => (
               <option key={t} value={t} />
             ))}
           </datalist>

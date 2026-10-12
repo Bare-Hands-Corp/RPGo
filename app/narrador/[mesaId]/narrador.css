@@ -934,7 +934,7 @@ button.narrador-miniatura:focus-visible .narrador-miniatura-editar {
 
 .nv-atalhos {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -1429,7 +1429,7 @@ button.narrador-miniatura:focus-visible .narrador-miniatura-editar {
 
 .sessao-linha-iniciativa {
   display: grid;
-  grid-template-columns: 44px 1fr 90px auto 32px;
+  grid-template-columns: 44px 1fr 90px auto 32px 32px;
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
@@ -1520,6 +1520,93 @@ input.sessao-iniciativa-pv {
   color: var(--text-sec);
   border-radius: 6px;
   cursor: pointer;
+}
+
+.sessao-linha-iniciativa button {
+  min-height: 28px;
+}
+
+.dano-criatura-modal {
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dano-criatura-partes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dano-criatura-parte {
+  display: grid;
+  grid-template-columns: 90px 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.modal-box .dano-criatura-parte input,
+.modal-box .dano-criatura-parte select {
+  margin: 0;
+  min-width: 0;
+}
+
+.dano-criatura-parte .nv-btn {
+  align-self: auto;
+  padding: 0 10px;
+}
+
+.dano-criatura-defesas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dano-criatura-defesa {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-sec);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-decoration: line-through;
+  cursor: pointer;
+}
+
+.dano-criatura-defesa.ativo {
+  border-color: var(--primary);
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.dano-criatura-previa {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-surface);
+  font-size: 0.85rem;
+  color: var(--text-sec);
+}
+
+.dano-criatura-previa strong {
+  color: var(--text-main);
+}
+
+.dano-criatura-rodape {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dano-criatura-rodape .nv-btn {
+  align-self: auto;
+  padding: 0 16px;
 }
 
 .sessao-builder {

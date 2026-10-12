@@ -20,6 +20,7 @@ import {
   type ResultadoDano,
 } from "@/lib/dano";
 import type { EfeitosAgregados } from "@/lib/op-rpg";
+import { IconeTipoDano, useCatalogoTipos } from "@/components/tipos-dano/tipos-dano";
 
 export type ModoVida = "dano" | "cura";
 
@@ -83,7 +84,7 @@ function TipoDanoCampo({
       const letras = letrasDoTipo(s);
       return !digitado || (letras.includes(digitado) && letras !== digitado);
     })
-    .slice(0, 8);
+    .slice(0, 16);
 
   function escolher(t: string) {
     onChange(t);
@@ -140,7 +141,9 @@ function TipoDanoCampo({
                 escolher(s);
               }}
             >
-              <span>{s}</span>
+              <span>
+                <IconeTipoDano tipo={s} /> {s}
+              </span>
               {salvos.some((x) => mesmoTipo(x, s)) && (
                 <button
                   type="button"
@@ -217,8 +220,9 @@ export function VidaModal({
   const [, startTransition] = useTransition();
 
   const salvos = tiposSalvos.filter((s) => !esquecidos.some((e) => mesmoTipo(e, s)));
-  // Primeiro os tipos que mudam a conta, depois os já usados e os dos ataques.
-  const sugestoes = juntarTipos(tiposDasDefesas(defesas), salvos, tiposAtaques);
+  const catalogo = useCatalogoTipos();
+  // Primeiro os tipos que mudam a conta, depois o catálogo do narrador, os já usados e os dos ataques.
+  const sugestoes = juntarTipos(tiposDasDefesas(defesas), catalogo, salvos, tiposAtaques);
 
   const partesNum = partes
     .map((p) => ({ valor: Math.trunc(Number(p.valor) || 0), tipo: p.tipo.trim() }))

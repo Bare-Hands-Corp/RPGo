@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { usuarioDaRequest } from "@/lib/supabase/server";
 import type { TemplatePayload } from "./types";
 import { serializarTemplate } from "./utils";
+import { CATALOGO_PADRAO } from "@/lib/tipos-dano";
+import { CATEGORIA_TIPO_DANO } from "@/lib/tipos-dano-servidor";
 
 async function autorizarNarrador() {
   const user = await usuarioDaRequest();
@@ -30,7 +32,7 @@ function normalizarPayload(payload: TemplatePayload) {
 
 function revalidar() {
   revalidatePath("/bestiario");
-  revalidatePath("/bestiario/biblioteca");
+  revalidatePath("/biblioteca");
 }
 
 export async function criarTemplate(payload: TemplatePayload) {
@@ -43,6 +45,35 @@ export async function criarTemplate(payload: TemplatePayload) {
 
   revalidar();
   return serializarTemplate(template);
+}
+
+// Cadastra os tipos de dano do livro na biblioteca do narrador, pra ele
+// editar a partir deles. Só vale com a pasta vazia; `criadoEm` em passos de
+// 1 ms guarda a ordem do livro, que é a ordem do catálogo.
+export async function semearTiposDano() {
+  const user = await autorizarNarrador();
+
+  const jaTem = await prisma.traitTemplate.count({ where: { userId: user.id, categoria: CATEGORIA_TIPO_DANO } });
+  if (jaTem > 0) throw new Error("A pasta já tem tipos de dano.");
+
+  const agora = Date.now();
+  await prisma.traitTemplate.createMany({
+    data: CATALOGO_PADRAO.map((t, i) => ({
+      userId: user.id,
+      nome: t.nome,
+      categoria: CATEGORIA_TIPO_DANO,
+      textoTemplate: "",
+      formulaParametros: { cor: t.cor ?? "", cor2: "", efeito: t.efeito, icone: t.icone ?? "" },
+      criadoEm: new Date(agora + i),
+    })),
+  });
+
+  revalidar();
+  const criados = await prisma.traitTemplate.findMany({
+    where: { userId: user.id, categoria: CATEGORIA_TIPO_DANO },
+    orderBy: { criadoEm: "asc" },
+  });
+  return criados.map(serializarTemplate);
 }
 
 export async function atualizarTemplate(templateId: string, payload: TemplatePayload) {

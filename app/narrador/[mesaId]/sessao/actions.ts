@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { parseFormulaDados, rolarDados } from "@/lib/dice";
+import { defesasDaCriatura, resolverDano, type ParteDano } from "@/lib/dano";
+import { comoResistencias } from "@/app/bestiario/utils";
 import type { NovoParticipante } from "./types";
 import { serializarSessao } from "./utils";
 
@@ -170,6 +172,53 @@ export async function removerParticipante(mesaId: string, instanciaId: string) {
 export async function atualizarPvInstancia(mesaId: string, instanciaId: string, novoPv: number) {
   await autorizarNarrador(mesaId);
   await prisma.instanciaCombate.update({ where: { id: instanciaId }, data: { pvAtual: novoPv } });
+  revalidar(mesaId);
+}
+
+// Dano com tipo numa criatura: as defesas do bestiário (imunidade, resistência,
+// vulnerabilidade) entram na conta, que o servidor refaz. `desligadas` são as
+// defesas que o narrador mandou ignorar neste golpe.
+export async function aplicarDanoInstancia(
+  mesaId: string,
+  instanciaId: string,
+  partes: ParteDano[],
+  desligadas: string[] = [],
+) {
+  await autorizarNarrador(mesaId);
+
+  const instancia = await prisma.instanciaCombate.findUniqueOrThrow({
+    where: { id: instanciaId },
+    select: {
+      criaturaId: true,
+      pvAtual: true,
+      pvMax: true,
+      combate: { select: { sessao: { select: { mesaId: true } } } },
+    },
+  });
+  if (instancia.combate.sessao.mesaId !== mesaId) throw new Error("Participante não pertence a esta mesa.");
+  if (!instancia.criaturaId) throw new Error("Dano com tipo só vale pra criatura.");
+
+  const limpas = (Array.isArray(partes) ? partes : [])
+    .slice(0, 6)
+    .map((p) => ({ valor: Math.max(0, Math.trunc(Number(p?.valor) || 0)), tipo: String(p?.tipo ?? "").slice(0, 40) }))
+    .filter((p) => p.valor > 0);
+  if (limpas.length === 0) throw new Error("Informe o dano.");
+
+  const criatura = await prisma.criatura.findUnique({
+    where: { id: instancia.criaturaId },
+    select: { resistencias: true },
+  });
+  const resultado = resolverDano(
+    limpas,
+    defesasDaCriatura(comoResistencias(criatura?.resistencias)),
+    { hpAtual: instancia.pvAtual ?? 0, hpTemp: 0, hpMax: instancia.pvMax ?? 0 },
+    { desligadas: Array.isArray(desligadas) ? desligadas.map(String) : [] },
+  );
+
+  await prisma.instanciaCombate.update({
+    where: { id: instanciaId },
+    data: { pvAtual: resultado.hpAtual.depois },
+  });
   revalidar(mesaId);
 }
 

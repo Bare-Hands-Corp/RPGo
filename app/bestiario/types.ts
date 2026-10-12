@@ -1,4 +1,6 @@
 import type { EfeitoCor } from "@/lib/estilos-cor";
+import { juntarTipos } from "@/lib/dano";
+import { TIPOS_DANO_PADRAO } from "@/lib/tipos-dano";
 
 // Categorias possíveis de um TraitInstance — mesmos blocos do statblock do
 // manual, mais "condicao": não é algo que uma criatura "tem" como as outras,
@@ -12,24 +14,24 @@ export type ComponenteCategoria =
   | "reacao"
   | "acaoPoderosa"
   | "acaoLendaria"
-  | "condicao";
+  | "condicao"
+  // Tipo de dano do catálogo do narrador: só existe na biblioteca (nome +
+  // descrição), nunca vira bloco de statblock — por isso fica fora de
+  // CATEGORIAS_COMPONENTE.
+  | "tipoDano";
 
 export type AtributoSalvaguarda = "forca" | "destreza" | "constituicao" | "sabedoria" | "presenca" | "vontade";
 
 export type FormaArea = "nenhuma" | "cone" | "linha" | "esfera" | "emanacao" | "cilindro";
 
-// Sugestões de tipo de dano vistos no manual — texto livre, não enum fechado,
-// mesmo padrão que EfeitoHabilidade.tipoDano já usa em lib/op-rpg.ts (pra não
+// Sugestões de tipo de dano: os cadastrados na biblioteca (pasta Tipos de
+// dano) ou, sem nenhum, os do manual. Texto livre, não enum fechado, mesmo
+// padrão que EfeitoHabilidade.tipoDano já usa em lib/op-rpg.ts (pra não
 // travar homebrew com um tipo de dano fora da lista).
-export const TIPOS_DANO_SUGERIDOS = [
-  "Cortante",
-  "Contundente",
-  "Perfurante",
-  "Fogo",
-  "Psíquico",
-  "Veneno",
-  "Verdadeiro",
-];
+export function tiposDanoSugeridos(templates: { categoria: string; nome: string }[]): string[] {
+  const nomes = juntarTipos(templates.filter((t) => t.categoria === "tipoDano").map((t) => t.nome));
+  return nomes.length > 0 ? nomes : TIPOS_DANO_PADRAO;
+}
 
 // "nenhuma" é o alcance de toque — alvo único por definição. Qualquer outra
 // forma (cone, linha, esfera...) é área, logo alvo múltiplo por definição —
@@ -260,7 +262,7 @@ export const CATEGORIAS_COMPONENTE: { key: ComponenteCategoria; label: string; i
 // juntas — só "Aspectos" e "Condições" ganham pasta própria).
 export const CATEGORIAS_ACAO: ComponenteCategoria[] = ["acao", "acaoBonus", "reacao", "acaoPoderosa", "acaoLendaria"];
 
-// ─── Biblioteca de traits (TraitTemplate) ─────────────────────────────────
+// ─── Biblioteca (TraitTemplate) ─────────────────────────────────
 // Mesma lista de efeitos do componente — aplicar um template só copia os
 // efeitos literalmente pra criatura (o mestre ajusta os números à mão pro
 // ND dela depois; não tem cálculo automático de proficiência/atributo aqui).
@@ -268,12 +270,15 @@ export type TemplateFormula = {
   efeitos: EfeitoAcao[];
   usos: number | null;
   recarga: RecargaAcao | null;
-  // Só relevante pra templates de categoria "condicao" — estilo escolhido
-  // pelo narrador na criação (cor vazia = cor automática por hash do nome;
-  // cor2 vazia = derivada da primeira no gradiente).
+  // Só relevante pra templates de categoria "condicao" e "tipoDano" — estilo
+  // escolhido pelo narrador na criação (cor vazia = cor automática por hash
+  // do nome na condição, sem cor no tipo de dano; cor2 vazia = derivada da
+  // primeira no gradiente).
   cor: string;
   cor2: string;
   efeito: EfeitoCor;
+  // Ícone Font Awesome do tipo de dano ("fa-fire"); vazio = sem ícone.
+  icone: string;
   alcance: string;
   custo: string;
 };

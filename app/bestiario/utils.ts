@@ -134,7 +134,7 @@ function comoCaracteristicas(valor: unknown): CaracteristicasPayload {
   };
 }
 
-function comoResistencias(valor: unknown): ResistenciasPayload {
+export function comoResistencias(valor: unknown): ResistenciasPayload {
   if (!valor || typeof valor !== "object") return resistenciasVazias();
   const objeto = valor as Record<string, unknown>;
   const lista = (chave: string) => (Array.isArray(objeto[chave]) ? (objeto[chave] as string[]) : []);
@@ -317,7 +317,7 @@ export function serializarCriatura(
 // ─── Biblioteca de traits ─────────────────────────────────────────────────
 
 function formulaVazia(): TemplateFormula {
-  return { efeitos: [], usos: null, recarga: null, cor: "", cor2: "", efeito: EFEITO_COR_PADRAO, alcance: "", custo: "" };
+  return { efeitos: [], usos: null, recarga: null, cor: "", cor2: "", efeito: EFEITO_COR_PADRAO, icone: "", alcance: "", custo: "" };
 }
 
 export function criarTemplateVazio(): TemplatePayload {
@@ -394,6 +394,7 @@ export function serializarTemplate(template: TraitTemplate): TemplateSerializado
       cor: String(f.cor ?? ""),
       cor2: String(f.cor2 ?? ""),
       efeito: normalizarEfeitoCor(f.efeito),
+      icone: String(f.icone ?? ""),
       alcance: String(f.alcance ?? ""),
       custo: String(f.custo ?? ""),
     },

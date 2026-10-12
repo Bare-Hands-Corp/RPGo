@@ -3,15 +3,25 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Swal from "sweetalert2";
-import { criarTemplate, atualizarTemplate, deletarTemplate } from "../traits-actions";
-import { criarTemplateVazio } from "../utils";
-import { corDaCondicao } from "../cor-condicao";
-import { destacarCondicoes } from "../destacar-condicoes";
-import { EfeitosEditor, UsosLimitadosEditor } from "../componente-editor";
-import { CATEGORIAS_ACAO, CATEGORIAS_COMPONENTE } from "../types";
-import type { CondicaoEfeito, ComponenteCategoria, EfeitoAcao, TemplatePayload, TemplateSerializado } from "../types";
-import { ListaTextoInput } from "../inputs";
+import { criarTemplate, atualizarTemplate, deletarTemplate, semearTiposDano } from "@/app/bestiario/traits-actions";
+import { criarTemplateVazio } from "@/app/bestiario/utils";
+import { corDaCondicao } from "@/app/bestiario/cor-condicao";
+import { destacarCondicoes } from "@/app/bestiario/destacar-condicoes";
+import { EfeitosEditor, UsosLimitadosEditor } from "@/app/bestiario/componente-editor";
+import { CATEGORIAS_ACAO, CATEGORIAS_COMPONENTE } from "@/app/bestiario/types";
+import type {
+  CondicaoEfeito,
+  ComponenteCategoria,
+  EfeitoAcao,
+  TemplatePayload,
+  TemplateSerializado,
+} from "@/app/bestiario/types";
+import { ListaTextoInput } from "@/app/bestiario/inputs";
 import { EstiloPicker } from "@/app/ficha/[uid]/estilo-cor-picker";
+import { BarraFiltros, casaBusca } from "@/app/ficha/[uid]/barra-filtros";
+import { IconePicker } from "@/components/icone-picker";
+import { estiloAplicado } from "@/lib/estilos-cor";
+import { CATALOGO_PADRAO, caraDoLivro } from "@/lib/tipos-dano";
 
 function draftDeTemplate(t: TemplateSerializado): TemplatePayload {
   const { id: _id, criadoEm: _criadoEm, ...payload } = t;
@@ -62,18 +72,59 @@ function textoEfeito(e: EfeitoAcao): string | null {
   }
 }
 
-// As "pastas" da biblioteca — cada categoria vira uma pasta própria, exceto
-// as 5 variações de ação (padrão/bônus/reação/poderosa/lendária) que cabem
-// juntas dentro de uma pasta "Ações" só, igual o statblock trata como blocos
-// do mesmo grupo.
+// As pastas da biblioteca são filtros da lista, como as da ficha do jogador:
+// cada categoria é uma pasta, exceto as 5 variações de ação (padrão/bônus/
+// reação/poderosa/lendária), que cabem juntas na pasta "Ações", igual o
+// statblock trata como blocos do mesmo grupo.
 type Pasta = { key: string; categorias: ComponenteCategoria[]; label: string; icone: string };
 const PASTAS: Pasta[] = [
+  // Catálogo de tipos de dano do narrador: as fichas das mesas dele escolhem daqui.
+  { key: "tipoDano", categorias: ["tipoDano"], label: "Tipos de dano", icone: "fa-burst" },
   { key: "condicao", categorias: ["condicao"], label: "Condições", icone: "fa-triangle-exclamation" },
   { key: "aspecto", categorias: ["aspecto"], label: "Aspectos", icone: "fa-star" },
   { key: "acoes", categorias: CATEGORIAS_ACAO, label: "Ações", icone: "fa-bolt" },
 ];
 
-type Visualizacao = "pastas" | "lista" | "ficha" | "editor";
+// Rótulo e ícone da categoria; "tipoDano" não é bloco de statblock.
+function metaCategoria(categoria: ComponenteCategoria): { label: string; icone: string } {
+  if (categoria === "tipoDano") return { label: "Tipo de dano", icone: "fa-burst" };
+  const meta = CATEGORIAS_COMPONENTE.find((c) => c.key === categoria);
+  return { label: meta?.label ?? categoria, icone: meta?.icone ?? "fa-bolt" };
+}
+
+const TODAS_CATEGORIAS = PASTAS.flatMap((p) => p.categorias);
+
+// Cor do chip: a escolhida; condição sem cor cai na automática pelo nome.
+function corDoTemplate(t: { nome: string; categoria: ComponenteCategoria; formula: { cor: string } }): string {
+  return t.formula.cor || (t.categoria === "condicao" ? corDaCondicao(t.nome || "condicao") : "");
+}
+
+// Tipo de dano do livro ainda sem cor nem ícone ganha a cara do livro
+// (mesma regra do catálogo que a ficha lê, lib/tipos-dano.ts).
+function comCaraDoLivro<T extends Pick<TemplatePayload, "nome" | "categoria" | "formula">>(t: T): T {
+  if (t.categoria !== "tipoDano" || t.formula.cor || t.formula.icone) return t;
+  const cara = caraDoLivro(t.nome);
+  return cara ? { ...t, formula: { ...t.formula, cor: cara.cor, icone: cara.icone } } : t;
+}
+
+// Tipo de dano ou condição com a cara que o narrador deu (cor, brilho, ícone).
+function ChipDoTemplate({ t: cru }: { t: Pick<TemplatePayload, "nome" | "categoria" | "formula"> }) {
+  const t = comCaraDoLivro(cru);
+  const { className, style } = estiloAplicado(
+    { cor: corDoTemplate(t) || null, cor2: t.formula.cor2 || null, efeito: t.formula.efeito },
+    "chip",
+  );
+  return (
+    <span className={`biblioteca-chip ${className}`} style={style}>
+      {t.formula.icone && <i className={`fas ${t.formula.icone}`} />}
+      <span className="fx-texto">{t.nome || "Sem nome"}</span>
+    </span>
+  );
+}
+
+const temChip = (categoria: ComponenteCategoria) => categoria === "tipoDano" || categoria === "condicao";
+
+type Visualizacao = "lista" | "ficha" | "editor";
 
 type Props = { templatesIniciais: TemplateSerializado[] };
 
@@ -83,41 +134,30 @@ export function TraitsManager({ templatesIniciais }: Props) {
   const [selecionadoId, setSelecionadoId] = useState<string | null>(null);
   const [draft, setDraft] = useState<TemplatePayload>(() => criarTemplateVazio());
   const [salvando, setSalvando] = useState(false);
-  const [visualizacao, setVisualizacao] = useState<Visualizacao>("pastas");
+  const [visualizacao, setVisualizacao] = useState<Visualizacao>("lista");
+  // Pasta aberta no filtro; null = tudo.
   const [pastaAtiva, setPastaAtiva] = useState<Pasta | null>(null);
-  // Só a pasta "Ações" precisa escolher a categoria antes do formulário —
-  // Aspectos e Condições têm categoria única, então "Novo trait" já entra
-  // direto no formulário com ela preenchida.
+  const [busca, setBusca] = useState("");
+  // Pasta de categoria única já entra direto no formulário; "Ações" e a
+  // lista sem pasta escolhem a categoria antes.
   const [mostrarPicker, setMostrarPicker] = useState(false);
 
   const condicoesDisponiveis = templates.filter((t) => t.categoria === "condicao" && t.id !== selecionadoId);
-
-  function abrirPasta(pasta: Pasta) {
-    setPastaAtiva(pasta);
-    setVisualizacao("lista");
-  }
-
-  function voltarParaPastas() {
-    setPastaAtiva(null);
-    setVisualizacao("pastas");
-  }
 
   function voltarParaLista() {
     setVisualizacao("lista");
   }
 
   function abrirNovo() {
-    if (!pastaAtiva) return;
     setSelecionadoId(null);
-    if (pastaAtiva.categorias.length === 1) {
+    if (pastaAtiva?.categorias.length === 1) {
       setDraft({ ...criarTemplateVazio(), categoria: pastaAtiva.categorias[0] });
       setMostrarPicker(false);
-      setVisualizacao("editor");
     } else {
       setDraft(criarTemplateVazio());
       setMostrarPicker(true);
-      setVisualizacao("editor");
     }
+    setVisualizacao("editor");
   }
 
   function escolherCategoria(categoria: TemplatePayload["categoria"]) {
@@ -133,7 +173,7 @@ export function TraitsManager({ templatesIniciais }: Props) {
   function abrirEdicaoDaFicha() {
     const t = templates.find((x) => x.id === selecionadoId);
     if (!t) return;
-    setDraft(draftDeTemplate(t));
+    setDraft(comCaraDoLivro(draftDeTemplate(t)));
     setMostrarPicker(false);
     setVisualizacao("editor");
   }
@@ -157,7 +197,7 @@ export function TraitsManager({ templatesIniciais }: Props) {
       setTemplates((prev) => {
         const existe = prev.some((t) => t.id === salvo.id);
         const nova = existe ? prev.map((t) => (t.id === salvo.id ? salvo : t)) : [...prev, salvo];
-        return nova.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+        return nova;
       });
       setSelecionadoId(salvo.id);
       setDraft(draftDeTemplate(salvo));
@@ -167,6 +207,25 @@ export function TraitsManager({ templatesIniciais }: Props) {
       void Swal.fire({
         icon: "error",
         title: "Erro ao salvar",
+        text: err instanceof Error ? err.message : "Tente novamente.",
+        background: "var(--bg-card)",
+        color: "var(--text-main)",
+      });
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function semearTipos() {
+    setSalvando(true);
+    try {
+      const criados = await semearTiposDano();
+      setTemplates((prev) => [...prev.filter((t) => t.categoria !== "tipoDano"), ...criados]);
+      router.refresh();
+    } catch (err) {
+      void Swal.fire({
+        icon: "error",
+        title: "Erro",
         text: err instanceof Error ? err.message : "Tente novamente.",
         background: "var(--bg-card)",
         color: "var(--text-main)",
@@ -206,55 +265,109 @@ export function TraitsManager({ templatesIniciais }: Props) {
     }
   }
 
-  if (visualizacao === "pastas") {
-    return (
-      <div className="bestiario-grade-cards">
-        {PASTAS.map((pasta) => {
-          const total = templates.filter((t) => pasta.categorias.includes(t.categoria)).length;
-          return (
-            <button key={pasta.key} type="button" className="trait-pasta-card" onClick={() => abrirPasta(pasta)}>
-              <i className={`fas ${pasta.icone}`} />
-              <span className="bestiario-card-nome">{pasta.label}</span>
-              <span className="bestiario-card-meta">
-                {total} trait{total === 1 ? "" : "s"}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    );
-  }
+  if (visualizacao === "lista") {
+    const naPasta = (p: Pasta) => templates.filter((t) => p.categorias.includes(t.categoria));
+    const itens = (pastaAtiva ? naPasta(pastaAtiva) : templates)
+      .filter((t) => casaBusca(busca, [t.nome, t.textoTemplate, metaCategoria(t.categoria).label]))
+      // Na ordem das pastas; dentro delas, tipo de dano na ordem do catálogo e o resto por nome.
+      .map((t, i) => ({ t, i, pasta: PASTAS.findIndex((p) => p.categorias.includes(t.categoria)) }))
+      .sort(
+        (a, b) =>
+          a.pasta - b.pasta ||
+          (a.t.categoria === "tipoDano" ? a.i - b.i : a.t.nome.localeCompare(b.t.nome, "pt-BR")),
+      )
+      .map((x) => x.t);
+    const semTiposProprios = !templates.some((t) => t.categoria === "tipoDano");
+    const naPastaDeTipos = pastaAtiva?.key === "tipoDano";
 
-  if (visualizacao === "lista" && pastaAtiva) {
-    const itens = templates.filter((t) => pastaAtiva.categorias.includes(t.categoria));
     return (
       <div className="bestiario-lista-view">
-        <div className="bestiario-lista-toolbar">
-          <button type="button" className="bestiario-voltar-lista" onClick={voltarParaPastas}>
-            <i className="fas fa-arrow-left" /> Pastas
-          </button>
-          <span className="bestiario-page-chip">
-            <i className={`fas ${pastaAtiva.icone}`} /> {pastaAtiva.label}
-          </span>
+        <div className="biblioteca-topo">
+          <BarraFiltros
+            busca={busca}
+            onBusca={setBusca}
+            rotulo="na biblioteca"
+            filtros={[["tudo", "Tudo"]] as const}
+            filtro={(pastaAtiva ? "pasta" : "tudo") as "tudo"}
+            onFiltro={() => setPastaAtiva(null)}
+            pastas={PASTAS.map((p) => ({ nome: p.label, total: naPasta(p).length }))}
+            pasta={pastaAtiva?.label ?? null}
+            onPasta={(nome) => setPastaAtiva(PASTAS.find((p) => p.label === nome) ?? null)}
+          >
+            {naPastaDeTipos ? (
+              <>
+                <span className="biblioteca-pasta-dica">
+                  As fichas das suas mesas escolhem o tipo de dano desta lista.
+                </span>
+                {semTiposProprios && (
+                  <button type="button" className="bestiario-btn-salvar" onClick={semearTipos} disabled={salvando}>
+                    <i className="fas fa-book" /> Personalizar os do livro
+                  </button>
+                )}
+              </>
+            ) : pastaAtiva?.key === "condicao" ? (
+              <span className="biblioteca-pasta-dica">Condições que as ações das suas criaturas aplicam.</span>
+            ) : undefined}
+          </BarraFiltros>
           <button type="button" className="bestiario-btn-nova" onClick={abrirNovo}>
-            <i className="fas fa-plus" /> Novo trait
+            <i className="fas fa-plus" /> {naPastaDeTipos ? "Novo tipo" : "Novo"}
           </button>
         </div>
-        {itens.length === 0 ? (
-          <p className="bestiario-vazio">Nenhum trait nesta pasta ainda.</p>
-        ) : (
-          <div className="bestiario-grade-cards">
-            {itens.map((t) => (
-              <button key={t.id} type="button" className="bestiario-card-item" onClick={() => abrirFicha(t)}>
-                <span className="bestiario-card-nome">{t.nome}</span>
-                {pastaAtiva.categorias.length > 1 && (
-                  <span className="bestiario-card-meta">
-                    {CATEGORIAS_COMPONENTE.find((c) => c.key === t.categoria)?.label ?? t.categoria}
-                  </span>
+
+        {itens.length > 0 ? (
+          // Uma seção por pasta: ação não fica lado a lado com tipo de dano ou condição.
+          PASTAS.map((p) => {
+            const daPasta = itens.filter((t) => p.categorias.includes(t.categoria));
+            if (daPasta.length === 0) return null;
+            return (
+              <section key={p.key} className="biblioteca-secao">
+                {!pastaAtiva && (
+                  <h3 className="biblioteca-secao-titulo">
+                    <i className={`fas ${p.icone}`} /> {p.label}
+                    <span className="filtro-pasta-total">{daPasta.length}</span>
+                  </h3>
                 )}
-              </button>
-            ))}
+                <div className="bestiario-grade-cards">
+                  {daPasta.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className="bestiario-card-item biblioteca-card"
+                    onClick={() => abrirFicha(t)}
+                  >
+                    {temChip(t.categoria) ? (
+                      <ChipDoTemplate t={t} />
+                    ) : (
+                      <span className="bestiario-card-nome">{t.nome}</span>
+                    )}
+                    {t.textoTemplate && <span className="biblioteca-card-descricao">{t.textoTemplate}</span>}
+                    <span className="bestiario-card-meta">
+                      <i className={`fas ${metaCategoria(t.categoria).icone}`} /> {metaCategoria(t.categoria).label}
+                    </span>
+                  </button>
+                  ))}
+                </div>
+              </section>
+            );
+          })
+        ) : naPastaDeTipos && semTiposProprios && !busca ? (
+          <div className="filtros-vazio">
+            Nenhum tipo próprio: valem os do livro.
+            <div className="biblioteca-padrao">
+              {CATALOGO_PADRAO.map((t) => (
+                <ChipDoTemplate
+                  key={t.nome}
+                  t={{
+                    nome: t.nome,
+                    categoria: "tipoDano",
+                    formula: { ...criarTemplateVazio().formula, cor: t.cor ?? "", icone: t.icone ?? "" },
+                  }}
+                />
+              ))}
+            </div>
           </div>
+        ) : (
+          <p className="filtros-vazio">{busca ? "Nada encontrado." : "Nada por aqui ainda."}</p>
         )}
       </div>
     );
@@ -280,10 +393,9 @@ export function TraitsManager({ templatesIniciais }: Props) {
           </button>
         </div>
         <div className="bestiario-ficha-cabecalho">
-          <h2>{t.nome}</h2>
+          <h2>{temChip(t.categoria) ? <ChipDoTemplate t={t} /> : t.nome}</h2>
           <p className="bestiario-ficha-subtitulo">
-            <i className={`fas ${CATEGORIAS_COMPONENTE.find((c) => c.key === t.categoria)?.icone ?? "fa-bolt"}`} />{" "}
-            {CATEGORIAS_COMPONENTE.find((c) => c.key === t.categoria)?.label ?? t.categoria}
+            <i className={`fas ${metaCategoria(t.categoria).icone}`} /> {metaCategoria(t.categoria).label}
           </p>
         </div>
         {(badges.length > 0 || f.alcance || f.custo) && (
@@ -329,23 +441,28 @@ export function TraitsManager({ templatesIniciais }: Props) {
 
   // visualizacao === "editor"
   const ehCondicao = draft.categoria === "condicao";
+  // Tipo de dano é só nome e descrição.
+  const ehTipoDano = draft.categoria === "tipoDano";
+  const oQue = ehTipoDano ? "tipo de dano" : "trait";
 
   return (
     <section className="bestiario-editor">
       {mostrarPicker ? (
         <>
           <div className="bestiario-editor-header">
-            <h2>Novo trait — qual categoria?</h2>
+            <button type="button" className="bestiario-voltar-lista" onClick={voltarParaLista}>
+              <i className="fas fa-arrow-left" /> Voltar
+            </button>
+            <h2>O que você quer criar?</h2>
           </div>
           <div className="bestiario-secao">
-            <p className="bestiario-sublabel">Em qual bloco do statblock esse trait entra?</p>
             <div className="wizard-origem-opcoes">
-              {CATEGORIAS_ACAO.map((key) => {
-                const meta = CATEGORIAS_COMPONENTE.find((c) => c.key === key);
+              {(pastaAtiva?.categorias ?? TODAS_CATEGORIAS).map((key) => {
+                const meta = metaCategoria(key);
                 return (
                   <button key={key} type="button" className="wizard-origem-opcao" onClick={() => escolherCategoria(key)}>
-                    <i className={`fas ${meta?.icone ?? "fa-bolt"}`} />
-                    <strong>{meta?.label ?? key}</strong>
+                    <i className={`fas ${meta.icone}`} />
+                    <strong>{meta.label}</strong>
                   </button>
                 );
               })}
@@ -358,7 +475,7 @@ export function TraitsManager({ templatesIniciais }: Props) {
             <button type="button" className="bestiario-voltar-lista" onClick={voltarParaLista}>
               <i className="fas fa-arrow-left" /> Voltar
             </button>
-            <h2>{selecionadoId ? "Editar trait" : "Novo trait"}</h2>
+            <h2>{selecionadoId ? `Editar ${oQue}` : `Novo ${oQue}`}</h2>
             <div className="bestiario-editor-acoes">
               {selecionadoId && (
                 <button type="button" className="bestiario-btn-remover" onClick={remover}>
@@ -378,11 +495,11 @@ export function TraitsManager({ templatesIniciais }: Props) {
                 Nome
                 <input value={draft.nome} onChange={(e) => campo("nome", e.target.value)} autoFocus />
               </label>
-              {!pastaAtiva && (
+              {!pastaAtiva && !ehTipoDano && !ehCondicao && (
                 <label>
                   Categoria
                   <select value={draft.categoria} onChange={(e) => campo("categoria", e.target.value as TemplatePayload["categoria"])}>
-                    {CATEGORIAS_COMPONENTE.map((c) => (
+                    {CATEGORIAS_COMPONENTE.filter((c) => c.key !== "condicao").map((c) => (
                       <option key={c.key} value={c.key}>
                         {c.label}
                       </option>
@@ -390,7 +507,7 @@ export function TraitsManager({ templatesIniciais }: Props) {
                   </select>
                 </label>
               )}
-              {!ehCondicao && (
+              {!ehCondicao && !ehTipoDano && (
                 <>
                   <label>
                     Alcance
@@ -415,7 +532,7 @@ export function TraitsManager({ templatesIniciais }: Props) {
                   efeito={draft.formula.efeito}
                   permitirSemCor={false}
                   familiaAmostra="chip"
-                  amostra={draft.nome.trim().slice(0, 8) || "Aa"}
+                  amostra={draft.nome.trim().slice(0, 14) || "Aa"}
                   onChange={(patch) => {
                     if (patch.cor !== undefined) formulaCampo("cor", patch.cor);
                     if (patch.cor2 !== undefined) formulaCampo("cor2", patch.cor2);
@@ -425,7 +542,43 @@ export function TraitsManager({ templatesIniciais }: Props) {
               </div>
             )}
 
-            {ehCondicao ? (
+            {ehTipoDano && (
+              // <div> e não <label>, pelo mesmo motivo do estilo da condição.
+              <div className="trait-condicao-estilo">
+                <span className="trait-condicao-estilo-titulo">Como aparece na ficha</span>
+                <ChipDoTemplate t={draft} />
+                <IconePicker valor={draft.formula.icone} onChange={(slug) => formulaCampo("icone", slug)} />
+                {draft.formula.icone && (
+                  <button type="button" className="bestiario-voltar-lista" onClick={() => formulaCampo("icone", "")}>
+                    <i className="fas fa-xmark" /> Sem ícone
+                  </button>
+                )}
+                <EstiloPicker
+                  cor={draft.formula.cor}
+                  cor2={draft.formula.cor2}
+                  efeito={draft.formula.efeito}
+                  familiaAmostra="chip"
+                  amostra={draft.nome.trim().slice(0, 14) || "Aa"}
+                  onChange={(patch) => {
+                    if (patch.cor !== undefined) formulaCampo("cor", patch.cor);
+                    if (patch.cor2 !== undefined) formulaCampo("cor2", patch.cor2);
+                    if (patch.efeito !== undefined) formulaCampo("efeito", patch.efeito);
+                  }}
+                />
+              </div>
+            )}
+
+            {ehTipoDano ? (
+              <label>
+                Descrição (opcional)
+                <textarea
+                  className="bestiario-textarea-descricao"
+                  value={draft.textoTemplate}
+                  onChange={(e) => campo("textoTemplate", e.target.value)}
+                  placeholder="Ex: chamas, calor intenso, explosões."
+                />
+              </label>
+            ) : ehCondicao ? (
               <label>
                 Descrição da condição (o que ela faz — vira tooltip na ficha da criatura)
                 <textarea
@@ -463,6 +616,7 @@ export function TraitsManager({ templatesIniciais }: Props) {
               </>
             )}
 
+            {!ehTipoDano && (
             <div className="bestiario-grid">
               <label className="bestiario-span-2">
                 Provê (tags de sinergia, vírgula)
@@ -477,6 +631,7 @@ export function TraitsManager({ templatesIniciais }: Props) {
                 <ListaTextoInput value={draft.tagsReageA} onChange={(v) => campo("tagsReageA", v)} />
               </label>
             </div>
+            )}
           </div>
         </>
       )}

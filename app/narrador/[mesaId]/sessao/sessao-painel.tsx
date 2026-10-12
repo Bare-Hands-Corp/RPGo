@@ -13,12 +13,14 @@ import {
   removerParticipante,
   atualizarPvInstancia,
   atualizarPvPersonagem,
+  aplicarDanoInstancia,
   avancarTurno,
   encerrarCombate,
 } from "./actions";
 import { SessaoRealtime } from "./sessao-realtime";
 import { EditavelComDelta } from "@/app/bestiario/inputs";
 import { FichaCriaturaView } from "@/app/bestiario/ficha-view";
+import { DanoCriaturaModal } from "./dano-criatura-modal";
 import type {
   CriaturaParaCombate,
   EncontroParaCombate,
@@ -29,6 +31,8 @@ import type {
 
 type Props = {
   mesaId: string;
+  // Catálogo de tipos de dano do narrador.
+  tiposDano: string[];
   sessaoInicial: SessaoSerializada | null;
   criaturas: CriaturaParaCombate[];
   personagensMesa: PersonagemParaCombate[];
@@ -266,7 +270,7 @@ function ParticipanteBuilder({
   );
 }
 
-export function SessaoPainel({ mesaId, sessaoInicial, criaturas, personagensMesa, encontros }: Props) {
+export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, personagensMesa, encontros }: Props) {
   const router = useRouter();
   const [sessao, setSessao] = useState(sessaoInicial);
   const [sessaoPropSincronizada, setSessaoPropSincronizada] = useState(sessaoInicial);
@@ -275,6 +279,8 @@ export function SessaoPainel({ mesaId, sessaoInicial, criaturas, personagensMesa
   const [processando, setProcessando] = useState(false);
   const [criaturaAberta, setCriaturaAberta] = useState<CriaturaParaCombate | null>(null);
   const [criaturaAbertaInstanciaId, setCriaturaAbertaInstanciaId] = useState<string | null>(null);
+  // Criatura recebendo dano com tipo (id da InstanciaCombate).
+  const [danoEmInstanciaId, setDanoEmInstanciaId] = useState<string | null>(null);
   // Usos de ação gastos por cópia da criatura em combate (instanciaId ->
   // componenteId -> restantes). Só existe no navegador — não é persistido no
   // servidor (a InstanciaCombate já some quando o combate termina, então uma
@@ -398,6 +404,8 @@ export function SessaoPainel({ mesaId, sessaoInicial, criaturas, personagensMesa
   }
 
   const combate = sessao?.combateAtivo ?? null;
+  const danoEm = combate?.participantes.find((p) => p.id === danoEmInstanciaId && p.criaturaId) ?? null;
+  const criaturaDoDano = danoEm ? criaturas.find((c) => c.id === danoEm.criaturaId) : null;
 
   return (
     <div className="sessao-painel">
@@ -498,6 +506,18 @@ export function SessaoPainel({ mesaId, sessaoInicial, criaturas, personagensMesa
                     }}
                   />
                   <span className="sessao-iniciativa-pvmax">/ {pvMax} PV</span>
+                  {p.criaturaId ? (
+                    <button
+                      type="button"
+                      onClick={() => setDanoEmInstanciaId(p.id)}
+                      title="Dano com tipo (aplica resistências)"
+                      aria-label={`Dano com tipo em ${p.nomeExibicao}`}
+                    >
+                      <i className="fas fa-heart-crack" />
+                    </button>
+                  ) : (
+                    <span />
+                  )}
                   <button type="button" onClick={() => handleRemover(p.id)} title="Remover do combate">
                     <i className="fas fa-xmark" />
                   </button>
@@ -521,6 +541,29 @@ export function SessaoPainel({ mesaId, sessaoInicial, criaturas, personagensMesa
             />
           )}
         </div>
+      )}
+
+      {danoEm && (
+        <DanoCriaturaModal
+          nome={danoEm.nomeExibicao}
+          pvAtual={pvOverrides[danoEm.id] ?? danoEm.pvAtual ?? 0}
+          pvMax={danoEm.pvMax ?? 0}
+          resistencias={
+            criaturaDoDano?.resistencias ?? {
+              danoResistencia: [],
+              danoImunidade: [],
+              danoVulneravel: [],
+              condicaoImunidade: [],
+            }
+          }
+          tiposDano={tiposDano}
+          onAplicar={(partes, desligadas, pvDepois) => {
+            const id = danoEm.id;
+            setPvOverrides((atual) => ({ ...atual, [id]: pvDepois }));
+            void comErro(() => aplicarDanoInstancia(mesaId, id, partes, desligadas));
+          }}
+          onFechar={() => setDanoEmInstanciaId(null)}
+        />
       )}
 
       {criaturaAberta && criaturaAbertaInstanciaId && (
