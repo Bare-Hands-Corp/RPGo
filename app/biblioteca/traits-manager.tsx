@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Swal from "sweetalert2";
 import { criarTemplate, atualizarTemplate, deletarTemplate, semearTiposDano } from "@/app/bestiario/traits-actions";
-import { criarTemplateVazio } from "@/app/bestiario/utils";
+import { criarTemplateVazio, textoEfeitoAcao } from "@/app/bestiario/utils";
 import { corDaCondicao } from "@/app/bestiario/cor-condicao";
 import { destacarCondicoes } from "@/app/bestiario/destacar-condicoes";
 import { EfeitosEditor, UsosLimitadosEditor } from "@/app/bestiario/componente-editor";
@@ -12,7 +12,6 @@ import { CATEGORIAS_ACAO, CATEGORIAS_COMPONENTE } from "@/app/bestiario/types";
 import type {
   CondicaoEfeito,
   ComponenteCategoria,
-  EfeitoAcao,
   TemplatePayload,
   TemplateSerializado,
 } from "@/app/bestiario/types";
@@ -26,50 +25,6 @@ import { CATALOGO_PADRAO, caraDoLivro } from "@/lib/tipos-dano";
 function draftDeTemplate(t: TemplateSerializado): TemplatePayload {
   const { id: _id, criadoEm: _criadoEm, ...payload } = t;
   return payload;
-}
-
-function textoDano(formula: string, tipos: string[]) {
-  const f = formula.trim();
-  const t = tipos.filter(Boolean).join(" ou ");
-  if (!f) return t;
-  return t ? `${f} ${t}` : f;
-}
-
-const FORMA_LABEL: Record<string, string> = {
-  cone: "Cone",
-  linha: "Linha",
-  esfera: "Esfera",
-  emanacao: "Emanação",
-  cilindro: "Cilindro",
-};
-
-// Versão em texto de um efeito pra ficha de visualização (somente leitura,
-// sem opção de rolar — a biblioteca não tem Bandeja, ela não pertence a
-// nenhuma mesa). Condição não vira badge aqui — ela é destacada dentro do
-// texto pela `destacarCondicoes`, junto com a descrição.
-function textoEfeito(e: EfeitoAcao): string | null {
-  switch (e.tipo) {
-    case "ataque":
-      return e.bonus.trim() ? `Ataque ${e.bonus.trim()}` : null;
-    case "salvaguarda":
-      return `CD ${e.cd} (${e.atributo})`;
-    case "dano": {
-      const t = textoDano(e.formula, e.tipos);
-      return t ? `Dano: ${t}` : null;
-    }
-    case "area":
-      return e.forma !== "nenhuma" ? `Área: ${FORMA_LABEL[e.forma]}${e.tamanho ? ` (${e.tamanho})` : ""}` : null;
-    case "movimento":
-      return `Movimento: ${e.valor}m ${e.tipoMov}${e.duracao ? ` (${e.duracao})` : ""}`;
-    case "bonus_numerico":
-      return e.alvo.trim() ? `${e.alvo}: ${e.valor >= 0 ? "+" : ""}${e.valor}${e.duracao ? ` (${e.duracao})` : ""}` : null;
-    case "cura":
-      return e.formula.trim() ? `Recupera ${e.formula.trim()} PV` : null;
-    case "condicao":
-      return null;
-    case "livre":
-      return e.texto.trim() || null;
-  }
 }
 
 // As pastas da biblioteca são filtros da lista, como as da ficha do jogador:
@@ -380,7 +335,7 @@ export function TraitsManager({ templatesIniciais }: Props) {
       return null;
     }
     const f = t.formula;
-    const badges = f.efeitos.map(textoEfeito).filter((x): x is string => x !== null);
+    const badges = f.efeitos.map(textoEfeitoAcao).filter((x): x is string => x !== null);
     const condicoes = f.efeitos.filter((e): e is CondicaoEfeito => e.tipo === "condicao");
     return (
       <div className="bestiario-ficha-view">

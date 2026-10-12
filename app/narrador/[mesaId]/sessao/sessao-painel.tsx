@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Swal from "sweetalert2";
 import { modificador } from "@/lib/op-rpg";
@@ -13,7 +13,11 @@ import {
   removerParticipante,
   atualizarPvInstancia,
   atualizarPvPersonagem,
+  atualizarPpInstancia,
   aplicarDanoInstancia,
+  definirVisibilidade,
+  revelarAcao,
+  reordenarIniciativa,
   avancarTurno,
   encerrarCombate,
 } from "./actions";
@@ -21,9 +25,12 @@ import { SessaoRealtime } from "./sessao-realtime";
 import { EditavelComDelta } from "@/app/bestiario/inputs";
 import { FichaCriaturaView } from "@/app/bestiario/ficha-view";
 import { DanoCriaturaModal } from "./dano-criatura-modal";
+import { moverNaLista, useArrastar } from "./use-arrastar";
+import { CAMPOS_VISIVEIS, type CampoVisivel } from "@/lib/combate";
 import type {
   CriaturaParaCombate,
   EncontroParaCombate,
+  InstanciaCombateSerializada,
   NovoParticipante,
   PersonagemParaCombate,
   SessaoSerializada,
@@ -43,229 +50,450 @@ function uuid() {
   return crypto.randomUUID();
 }
 
-type LinhaBuilder = NovoParticipante & { id: string; nome: string };
+// O que o narrador pode mostrar de uma criatura aos jogadores.
+const OLHOS: Record<CampoVisivel, { rotulo: string; icone: string }> = {
+  pvVisivel: { rotulo: "PV", icone: "fa-heart" },
+  ppVisivel: { rotulo: "PP", icone: "fa-bolt" },
+  crVisivel: { rotulo: "CR", icone: "fa-shield-halved" },
+  fichaVisivel: { rotulo: "Ficha (ações já usadas)", icone: "fa-scroll" },
+};
 
-function rolarIniciativa(destreza: number): number {
-  return rolarDados([{ faces: 20, sinal: 1 }], modificador(destreza)).total;
+// Botões de revelação: de uma criatura ou, no topo, de todas.
+function Olhos({
+  ligado,
+  onAlternar,
+  alvo,
+}: {
+  ligado: (campo: CampoVisivel) => boolean;
+  onAlternar: (campo: CampoVisivel, valor: boolean) => void;
+  alvo: string;
+}) {
+  return (
+    <span className="sessao-olhos" role="group" aria-label={`O que os jogadores veem de ${alvo}`}>
+      {CAMPOS_VISIVEIS.map((campo) => {
+        const on = ligado(campo);
+        return (
+          <button
+            type="button"
+            key={campo}
+            className={on ? "ativo" : undefined}
+            aria-pressed={on}
+            title={`${OLHOS[campo].rotulo}: ${on ? "os jogadores veem" : "escondido dos jogadores"}`}
+            onClick={() => onAlternar(campo, !on)}
+          >
+            <i className={`fas ${OLHOS[campo].icone}`} />
+          </button>
+        );
+      })}
+    </span>
+  );
 }
 
-// Formulário de escolha de participantes, reaproveitado tanto pra iniciar um
-// combate quanto pra adicionar reforços no meio de um já em andamento (ex:
-// Tropas Intermináveis, que spawna soldados quando um morre).
+// `bonus` é o que soma no d20: a iniciativa da ficha (jogador) ou o
+// modificador de Destreza (criatura).
+type LinhaBuilder = NovoParticipante & { id: string; nome: string; bonus: number };
+
+function rolarIniciativa(bonus: number): number {
+  return rolarDados([{ faces: 20, sinal: 1 }], bonus).total;
+}
+
+const comSinal = (n: number) => (n >= 0 ? `+${n}` : `−${Math.abs(n)}`);
+
+// Alça de arrastar uma linha da iniciativa (mouse, dedo ou setas do teclado).
+function Alca({ nome, ...props }: { nome: string } & React.HTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      type="button"
+      className="sessao-alca"
+      title="Arraste pra mudar a ordem (ou use as setas ↑ ↓)"
+      aria-label={`Mudar ${nome} de posição`}
+      {...props}
+    >
+      <i className="fas fa-grip-vertical" />
+    </button>
+  );
+}
+
+// Foto redonda (jogador) ou quadrada (criatura); sem imagem, um ícone.
+function Retrato({ foto, criatura }: { foto: string | null | undefined; criatura: boolean }) {
+  return (
+    <span className={`sessao-retrato${criatura ? " criatura" : ""}`} aria-hidden>
+      {foto ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={foto} alt="" />
+      ) : (
+        <i className={`fas ${criatura ? "fa-skull" : "fa-user"}`} />
+      )}
+    </span>
+  );
+}
+
+// Maior iniciativa primeiro.
+function porIniciativa(linhas: LinhaBuilder[]): LinhaBuilder[] {
+  return linhas.slice().sort((a, b) => b.iniciativa - a.iniciativa);
+}
+
+// Põe a linha no lugar da iniciativa dela (antes da primeira que tem menos),
+// sem mexer na ordem que o narrador já arrumou à mão.
+function encaixar(linhas: LinhaBuilder[], linha: LinhaBuilder): LinhaBuilder[] {
+  const resto = linhas.filter((l) => l.id !== linha.id);
+  const i = resto.findIndex((l) => l.iniciativa < linha.iniciativa);
+  resto.splice(i < 0 ? resto.length : i, 0, linha);
+  return resto;
+}
+
+// Escolha de participantes, reaproveitada tanto pra preparar um combate
+// quanto pra adicionar reforços no meio de um já em andamento (ex: Tropas
+// Intermináveis, que spawna soldados quando um morre).
 function ParticipanteBuilder({
+  titulo,
   criaturas,
   personagensMesa,
   encontros,
   onConfirmar,
+  onCancelar,
   textoBotao,
+  processando,
   personagemIdsNoCombate = [],
 }: {
+  titulo: string;
   criaturas: CriaturaParaCombate[];
   personagensMesa: PersonagemParaCombate[];
   encontros: EncontroParaCombate[];
   onConfirmar: (participantes: NovoParticipante[]) => void;
+  onCancelar: () => void;
   textoBotao: string;
+  processando: boolean;
   // Jogadores já em combate (relevante só ao adicionar reforço no meio de um
   // combate ativo) — não aparecem nos seletores, pra não duplicar a entrada.
   personagemIdsNoCombate?: string[];
 }) {
   const [linhas, setLinhas] = useState<LinhaBuilder[]>([]);
   const [criaturaEscolhida, setCriaturaEscolhida] = useState("");
-  const [jogadorEscolhido, setJogadorEscolhido] = useState("");
+  const [quantidade, setQuantidade] = useState(1);
 
   const jogadoresDisponiveis = personagensMesa.filter(
     (p) => !personagemIdsNoCombate.includes(p.id) && !linhas.some((l) => l.personagemId === p.id),
   );
 
-  function adicionarLinha(linha: LinhaBuilder) {
-    setLinhas((atual) => [...atual, linha]);
+  function adicionar(novas: LinhaBuilder[]) {
+    setLinhas((atual) => novas.reduce(encaixar, atual));
   }
 
-  function adicionarTodosJogadores() {
-    const novas = jogadoresDisponiveis.map((p) => ({
+  function mudar(id: string, patch: Partial<LinhaBuilder>) {
+    setLinhas((atual) => atual.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  }
+
+  // Jogador: d20 + a iniciativa da ficha.
+  const linhaDoJogador = (p: PersonagemParaCombate): LinhaBuilder => ({
+    id: uuid(),
+    nome: p.nome,
+    personagemId: p.id,
+    quantidade: 1,
+    bonus: p.iniciativa,
+    iniciativa: rolarIniciativa(p.iniciativa),
+    agrupar: true,
+  });
+
+  // Criatura: d20 + o modificador de Destreza.
+  const linhaDaCriatura = (c: CriaturaParaCombate, qtd: number): LinhaBuilder => {
+    const bonus = modificador(c.destreza);
+    return {
       id: uuid(),
-      nome: p.nome,
-      personagemId: p.id,
-      quantidade: 1,
-      iniciativa: rolarIniciativa(p.destreza),
-      agrupar: false,
-    }));
-    setLinhas((atual) => [...atual, ...novas]);
+      nome: c.nome,
+      criaturaId: c.id,
+      quantidade: Math.max(1, qtd),
+      bonus,
+      iniciativa: rolarIniciativa(bonus),
+      agrupar: true,
+    };
+  };
+
+  function adicionarCriatura() {
+    const criatura = criaturas.find((c) => c.id === criaturaEscolhida);
+    if (!criatura) return;
+    adicionar([linhaDaCriatura(criatura, quantidade)]);
+    setCriaturaEscolhida("");
+    setQuantidade(1);
   }
 
   function adicionarEncontro(encontroId: string) {
     const encontro = encontros.find((e) => e.id === encontroId);
     if (!encontro) return;
-    const novas: LinhaBuilder[] = encontro.itens
-      .map((item): LinhaBuilder | null => {
+    adicionar(
+      encontro.itens.flatMap((item) => {
         const criatura = criaturas.find((c) => c.id === item.criaturaId);
-        if (!criatura) return null;
-        return {
-          id: uuid(),
-          nome: criatura.nome,
-          criaturaId: criatura.id,
-          personagemId: undefined,
-          quantidade: item.quantidade,
-          iniciativa: rolarIniciativa(criatura.destreza),
-          agrupar: true,
-        };
-      })
-      .filter((x): x is LinhaBuilder => x !== null);
-    setLinhas((atual) => [...atual, ...novas]);
+        return criatura ? [linhaDaCriatura(criatura, item.quantidade)] : [];
+      }),
+    );
   }
+
+  // Rola de novo uma linha (ela vai pro lugar da iniciativa nova) ou todas
+  // (a lista volta a ficar da maior pra menor).
+  function rolarDeNovo(id?: string) {
+    setLinhas((atual) => {
+      const rolada = (l: LinhaBuilder) => ({ ...l, iniciativa: rolarIniciativa(l.bonus) });
+      if (!id) return porIniciativa(atual.map(rolada));
+      const linha = atual.find((l) => l.id === id);
+      return linha ? encaixar(atual, rolada(linha)) : atual;
+    });
+  }
+
+  // Cada cópia vira uma linha com a própria rolagem.
+  function separarCopias(id: string) {
+    setLinhas((atual) => {
+      const linha = atual.find((l) => l.id === id);
+      if (!linha || linha.quantidade < 2) return atual;
+      const copias = Array.from({ length: linha.quantidade }, () => ({
+        ...linha,
+        id: uuid(),
+        quantidade: 1,
+        iniciativa: rolarIniciativa(linha.bonus),
+      }));
+      return copias.reduce(encaixar, atual.filter((l) => l.id !== id));
+    });
+  }
+
+  const arrastar = useArrastar((de, para) =>
+    setLinhas((atual) => {
+      const a = atual.find((l) => l.id === de);
+      const b = atual.find((l) => l.id === para);
+      return a && b ? moverNaLista(atual, a, b) : atual;
+    }),
+  );
+
+  const totalJogadores = linhas.filter((l) => l.personagemId).length;
+  const totalCriaturas = linhas.reduce((t, l) => t + (l.criaturaId ? l.quantidade : 0), 0);
 
   return (
     <div className="sessao-builder">
-      <div className="sessao-builder-atalhos">
-        {jogadoresDisponiveis.length > 0 && (
-          <>
-            <select value={jogadorEscolhido} onChange={(e) => setJogadorEscolhido(e.target.value)}>
-              <option value="">Escolher jogador...</option>
-              {jogadoresDisponiveis.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.nome}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className="bestiario-btn-add"
-              onClick={() => {
-                const personagem = jogadoresDisponiveis.find((p) => p.id === jogadorEscolhido);
-                if (!personagem) return;
-                adicionarLinha({
-                  id: uuid(),
-                  nome: personagem.nome,
-                  personagemId: personagem.id,
-                  quantidade: 1,
-                  iniciativa: rolarIniciativa(personagem.destreza),
-                  agrupar: false,
-                });
-                setJogadorEscolhido("");
-              }}
-            >
-              + Adicionar jogador
-            </button>
-            <button type="button" className="bestiario-btn-add" onClick={adicionarTodosJogadores}>
-              + Todos os jogadores
-            </button>
-          </>
-        )}
-        {encontros.length > 0 && (
-          <select
-            defaultValue=""
-            onChange={(e) => {
-              if (e.target.value) adicionarEncontro(e.target.value);
-              e.target.value = "";
-            }}
-          >
-            <option value="" disabled>
-              Inserir encontro salvo...
-            </option>
-            {encontros.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.nome}
-              </option>
-            ))}
-          </select>
-        )}
-        <select value={criaturaEscolhida} onChange={(e) => setCriaturaEscolhida(e.target.value)}>
-          <option value="">Escolher criatura do bestiário...</option>
-          {criaturas.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.nome} (ND {c.nd})
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          className="bestiario-btn-add"
-          onClick={() => {
-            const criatura = criaturas.find((c) => c.id === criaturaEscolhida);
-            if (!criatura) return;
-            adicionarLinha({
-              id: uuid(),
-              nome: criatura.nome,
-              criaturaId: criatura.id,
-              quantidade: 1,
-              iniciativa: rolarIniciativa(criatura.destreza),
-              agrupar: false,
-            });
-            setCriaturaEscolhida("");
-          }}
-        >
-          + Adicionar criatura
+      <div className="nv-card-topo">
+        <span className="nv-titulo">
+          <i className="fas fa-users-gear" /> {titulo}
+        </span>
+        <button type="button" className="nv-btn" onClick={onCancelar} disabled={processando}>
+          Cancelar
         </button>
       </div>
 
-      <div className="bestiario-lista-linhas">
-        {linhas.map((linha) => (
-          <div key={linha.id} className="sessao-linha-participante">
-            <span className="sessao-linha-nome">{linha.nome}</span>
-            {linha.criaturaId && (
-              <label className="sessao-linha-campo">
-                Qtd
-                <input
-                  type="number"
-                  min={1}
-                  value={linha.quantidade}
-                  onChange={(e) =>
-                    setLinhas((atual) =>
-                      atual.map((l) => (l.id === linha.id ? { ...l, quantidade: Number(e.target.value) || 1 } : l)),
-                    )
-                  }
-                />
-              </label>
-            )}
-            {linha.criaturaId && linha.quantidade > 1 && (
-              <label className="sessao-linha-campo sessao-linha-checkbox">
-                <input
-                  type="checkbox"
-                  checked={linha.agrupar}
-                  onChange={(e) =>
-                    setLinhas((atual) => atual.map((l) => (l.id === linha.id ? { ...l, agrupar: e.target.checked } : l)))
-                  }
-                />
-                Agrupar iniciativa
-              </label>
-            )}
-            <label className="sessao-linha-campo">
-              Iniciativa
+      <div className="sessao-fontes">
+        <div className="sessao-fonte">
+          <span className="nv-rotulo">Jogadores</span>
+          {jogadoresDisponiveis.length > 0 ? (
+            <div className="sessao-fonte-chips">
+              {jogadoresDisponiveis.map((p) => (
+                <button
+                  type="button"
+                  key={p.id}
+                  className="sessao-chip-jogador"
+                  onClick={() => adicionar([linhaDoJogador(p)])}
+                  title={`Adicionar ${p.nome}`}
+                >
+                  <Retrato foto={p.fotoUrl} criatura={false} />
+                  {p.nome}
+                </button>
+              ))}
+              {jogadoresDisponiveis.length > 1 && (
+                <button
+                  type="button"
+                  className="sessao-chip-jogador todos"
+                  onClick={() => adicionar(jogadoresDisponiveis.map(linhaDoJogador))}
+                >
+                  <i className="fas fa-plus" /> Todos
+                </button>
+              )}
+            </div>
+          ) : (
+            <span className="nv-sub">
+              {personagensMesa.length === 0 ? "A mesa ainda não tem jogadores." : "Todos os jogadores já estão na lista."}
+            </span>
+          )}
+        </div>
+
+        <div className="sessao-fonte">
+          <span className="nv-rotulo">Criaturas do bestiário</span>
+          {criaturas.length > 0 ? (
+            <div className="sessao-fonte-linha">
+              <select
+                value={criaturaEscolhida}
+                aria-label="Criatura"
+                onChange={(e) => setCriaturaEscolhida(e.target.value)}
+              >
+                <option value="">Escolher criatura…</option>
+                {criaturas.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nome} (ND {c.nd})
+                  </option>
+                ))}
+              </select>
               <input
                 type="number"
-                value={linha.iniciativa}
-                onChange={(e) =>
-                  setLinhas((atual) =>
-                    atual.map((l) => (l.id === linha.id ? { ...l, iniciativa: Number(e.target.value) || 0 } : l)),
-                  )
-                }
+                min={1}
+                max={30}
+                value={quantidade}
+                aria-label="Quantidade"
+                title="Quantidade"
+                onChange={(e) => setQuantidade(Math.min(30, Math.max(1, Number(e.target.value) || 1)))}
               />
-            </label>
-            <button type="button" onClick={() => setLinhas((atual) => atual.filter((l) => l.id !== linha.id))}>
-              <i className="fas fa-xmark" />
-            </button>
-          </div>
-        ))}
+              <button type="button" className="nv-btn" onClick={adicionarCriatura} disabled={!criaturaEscolhida}>
+                <i className="fas fa-plus" /> Adicionar
+              </button>
+            </div>
+          ) : (
+            <span className="nv-sub">Seu bestiário está vazio.</span>
+          )}
+          {encontros.length > 0 && (
+            <select
+              defaultValue=""
+              aria-label="Encontro salvo"
+              onChange={(e) => {
+                if (e.target.value) adicionarEncontro(e.target.value);
+                e.target.value = "";
+              }}
+            >
+              <option value="" disabled>
+                Ou inserir um encontro salvo…
+              </option>
+              {encontros.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.nome}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
       </div>
 
-      <button
-        type="button"
-        className="bestiario-btn-salvar"
-        disabled={linhas.length === 0}
-        onClick={() =>
-          onConfirmar(
-            linhas.map((l) => ({
-              criaturaId: l.criaturaId,
-              personagemId: l.personagemId,
-              quantidade: l.quantidade,
-              iniciativa: l.iniciativa,
-              agrupar: l.agrupar,
-            })),
-          )
-        }
-      >
-        {textoBotao}
-      </button>
+      <div className="nv-card-topo">
+        <span className="nv-rotulo">
+          Ordem do combate
+          {linhas.length > 0 && ` · ${totalJogadores} jogador${totalJogadores === 1 ? "" : "es"}, ${totalCriaturas} criatura${totalCriaturas === 1 ? "" : "s"}`}
+        </span>
+        {linhas.length > 1 && (
+          <button type="button" className="nv-btn" onClick={() => rolarDeNovo()}>
+            <i className="fas fa-dice-d20" /> Rolar todas de novo
+          </button>
+        )}
+        {linhas.length > 1 && linhas.some((l, i) => i > 0 && linhas[i - 1].iniciativa < l.iniciativa) && (
+          <button type="button" className="nv-btn" onClick={() => setLinhas(porIniciativa)}>
+            <i className="fas fa-arrow-down-wide-short" /> Ordenar pela iniciativa
+          </button>
+        )}
+      </div>
+
+      {linhas.length === 0 ? (
+        <div className="nv-vazio">
+          <i className="fas fa-people-arrows" />
+          <strong>Ninguém na lista ainda</strong>
+          <span>
+            Toque nos jogadores e adicione as criaturas acima. A iniciativa já sai rolada: d20 + a iniciativa da
+            ficha (jogador) ou o modificador de Destreza (criatura).
+          </span>
+        </div>
+      ) : (
+        <div className="sessao-preparo-lista">
+          {linhas.map((linha) => (
+            <div
+              key={linha.id}
+              className={`sessao-preparo-linha${arrastar.pega === linha.id ? " arrastando" : ""}`}
+              {...arrastar.linha(linha.id)}
+            >
+              <Alca nome={linha.nome} {...arrastar.alca(linha.id)} />
+              <span className="sessao-preparo-iniciativa">
+                <input
+                  type="number"
+                  value={linha.iniciativa}
+                  aria-label={`Iniciativa de ${linha.nome}`}
+                  title={`d20 ${comSinal(linha.bonus)}`}
+                  onChange={(e) => mudar(linha.id, { iniciativa: Number(e.target.value) || 0 })}
+                  // Vai pro lugar novo só ao sair do campo, pra linha não pular enquanto digita.
+                  onBlur={() => setLinhas((atual) => encaixar(atual, atual.find((l) => l.id === linha.id) ?? linha))}
+                />
+                <button
+                  type="button"
+                  onClick={() => rolarDeNovo(linha.id)}
+                  title={`Rolar de novo (d20 ${comSinal(linha.bonus)})`}
+                  aria-label="Rolar de novo"
+                >
+                  <i className="fas fa-dice-d20" />
+                </button>
+              </span>
+              <Retrato
+                criatura={!!linha.criaturaId}
+                foto={
+                  linha.criaturaId
+                    ? criaturas.find((c) => c.id === linha.criaturaId)?.imagemUrl
+                    : personagensMesa.find((p) => p.id === linha.personagemId)?.fotoUrl
+                }
+              />
+              <span className="sessao-preparo-nome">
+                {linha.nome}
+                <small>
+                  {linha.criaturaId ? `Criatura · DES ${comSinal(linha.bonus)}` : `Jogador · ficha ${comSinal(linha.bonus)}`}
+                </small>
+              </span>
+              {linha.criaturaId ? (
+                <span className="sessao-preparo-qtd">
+                  <label>
+                    Qtd
+                    <input
+                      type="number"
+                      min={1}
+                      max={30}
+                      value={linha.quantidade}
+                      onChange={(e) =>
+                        mudar(linha.id, { quantidade: Math.min(30, Math.max(1, Number(e.target.value) || 1)) })
+                      }
+                    />
+                  </label>
+                  {linha.quantidade > 1 && (
+                    <button
+                      type="button"
+                      className="nv-btn"
+                      onClick={() => separarCopias(linha.id)}
+                      title="Hoje as cópias agem juntas, na mesma iniciativa. Separar dá uma rolagem pra cada."
+                    >
+                      <i className="fas fa-dice" /> Rolar cada uma
+                    </button>
+                  )}
+                </span>
+              ) : (
+                <span />
+              )}
+              <button
+                type="button"
+                className="sessao-icone-btn"
+                onClick={() => setLinhas((atual) => atual.filter((l) => l.id !== linha.id))}
+                title="Tirar da lista"
+                aria-label={`Tirar ${linha.nome} da lista`}
+              >
+                <i className="fas fa-xmark" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="sessao-builder-rodape">
+        <button
+          type="button"
+          className="nv-btn primario"
+          disabled={linhas.length === 0 || processando}
+          onClick={() =>
+            onConfirmar(
+              linhas.map((l) => ({
+                criaturaId: l.criaturaId,
+                personagemId: l.personagemId,
+                quantidade: l.quantidade,
+                iniciativa: l.iniciativa,
+                agrupar: l.agrupar,
+              })),
+            )
+          }
+        >
+          <i className="fas fa-khanda" /> {textoBotao}
+        </button>
+      </div>
     </div>
   );
 }
@@ -342,8 +570,7 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
 
   async function handleIniciarCombate(participantes: NovoParticipante[]) {
     if (!sessao) return;
-    const expandido = expandirParticipantes(participantes, criaturas);
-    const nova = await comErro(() => iniciarCombate(mesaId, sessao.id, expandido));
+    const nova = await comErro(() => iniciarCombate(mesaId, sessao.id, participantes));
     if (nova) {
       setSessao(nova);
       setMostrarBuilder(false);
@@ -353,8 +580,7 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
 
   async function handleAdicionarParticipantes(participantes: NovoParticipante[]) {
     if (!sessao?.combateAtivo) return;
-    const expandido = expandirParticipantes(participantes, criaturas);
-    const nova = await comErro(() => adicionarParticipantes(mesaId, sessao.combateAtivo!.id, expandido));
+    const nova = await comErro(() => adicionarParticipantes(mesaId, sessao.combateAtivo!.id, participantes));
     if (nova) {
       setSessao(nova);
       setMostrarBuilder(false);
@@ -404,111 +630,244 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
   }
 
   const combate = sessao?.combateAtivo ?? null;
+  const criaturasEmCombate = combate?.participantes.filter((p) => p.criaturaId) ?? [];
+
+  // Muda participantes na tela antes do servidor responder.
+  function mudarLocal(mudar: (p: InstanciaCombateSerializada) => InstanciaCombateSerializada) {
+    setSessao((s) =>
+      s?.combateAtivo
+        ? { ...s, combateAtivo: { ...s.combateAtivo, participantes: s.combateAtivo.participantes.map(mudar) } }
+        : s,
+    );
+  }
+
+  // `instanciaId` nulo = todas as criaturas do combate.
+  function alternarVisivel(instanciaId: string | null, campo: CampoVisivel, valor: boolean) {
+    if (!combate) return;
+    mudarLocal((p) => (p.criaturaId && (!instanciaId || p.id === instanciaId) ? { ...p, [campo]: valor } : p));
+    void comErro(() => definirVisibilidade(mesaId, combate.id, instanciaId, { [campo]: valor }));
+  }
+
+  function alternarAcaoRevelada(instanciaId: string, componenteId: string, revelada: boolean) {
+    if (!combate) return;
+    mudarLocal((p) => {
+      if (p.id !== instanciaId) return p;
+      const sem = p.acoesReveladas.filter((x) => x !== componenteId);
+      return { ...p, acoesReveladas: revelada ? [...sem, componenteId] : sem };
+    });
+    void comErro(() => revelarAcao(mesaId, combate.id, instanciaId, componenteId, revelada));
+  }
+
+  // Ordem arrumada à mão: a lista se rearruma durante o arrasto e vai pro
+  // servidor ao soltar. A vez continua com quem já estava jogando.
+  const ordemArrastada = useRef<string[] | null>(null);
+  const arrastar = useArrastar(
+    (de, para) => {
+      if (!combate) return;
+      const ids = moverNaLista(ordemArrastada.current ?? combate.participantes.map((p) => p.id), de, para);
+      ordemArrastada.current = ids;
+      setSessao((s) => {
+        const c = s?.combateAtivo;
+        if (!s || !c) return s;
+        const daVezId = c.participantes[c.turnoAtual]?.id;
+        const participantes = c.participantes.slice().sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+        const turnoAtual = Math.max(0, participantes.findIndex((p) => p.id === daVezId));
+        return { ...s, combateAtivo: { ...c, participantes, turnoAtual } };
+      });
+    },
+    () => {
+      const ids = ordemArrastada.current;
+      ordemArrastada.current = null;
+      if (!ids || !combate) return;
+      void comErro(() => reordenarIniciativa(mesaId, combate.id, ids)).then((nova) => nova && setSessao(nova));
+    },
+  );
+
+  const instanciaAberta = combate?.participantes.find((p) => p.id === criaturaAbertaInstanciaId) ?? null;
   const danoEm = combate?.participantes.find((p) => p.id === danoEmInstanciaId && p.criaturaId) ?? null;
   const criaturaDoDano = danoEm ? criaturas.find((c) => c.id === danoEm.criaturaId) : null;
+
+  const daVez = combate?.participantes[combate.turnoAtual] ?? null;
 
   return (
     <div className="sessao-painel">
       <SessaoRealtime mesaId={mesaId} sessaoId={sessao?.id ?? null} combateId={combate?.id ?? null} />
 
       {!sessao ? (
-        <div className="sessao-vazio">
-          <p>Nenhuma sessão ativa nesta mesa.</p>
-          <button type="button" className="bestiario-btn-salvar" onClick={handleIniciarSessao} disabled={processando}>
-            <i className="fas fa-play" /> Iniciar sessão
-          </button>
-        </div>
+        <section className="nv-card">
+          <div className="nv-vazio">
+            <i className="fas fa-bolt" />
+            <strong>Nenhuma sessão ativa</strong>
+            <span>Inicie a sessão pra abrir combates nesta mesa.</span>
+            <button type="button" className="nv-btn primario" onClick={handleIniciarSessao} disabled={processando}>
+              <i className="fas fa-play" /> Iniciar sessão
+            </button>
+          </div>
+        </section>
       ) : !combate ? (
-        <div className="sessao-sem-combate">
-          <div className="sessao-topo-acoes">
-            <span className="sessao-status">
-              <i className="fas fa-circle" style={{ color: "var(--success)" }} /> Sessão ativa
+        <section className="nv-card">
+          <div className="nv-card-topo">
+            <span className="nv-titulo">
+              <i className="fas fa-bolt" /> Sessão
+              <span className="nv-status ativa">Ativa</span>
             </span>
-            <button type="button" className="bestiario-btn-remover" onClick={handleEncerrarSessao} disabled={processando}>
-              Encerrar sessão
+            <button type="button" className="nv-btn perigo" onClick={handleEncerrarSessao} disabled={processando}>
+              <i className="fas fa-stop" /> Encerrar sessão
             </button>
           </div>
 
           {!mostrarBuilder ? (
-            <button type="button" className="bestiario-btn-salvar" onClick={() => setMostrarBuilder(true)}>
-              <i className="fas fa-skull" /> Iniciar combate
-            </button>
+            <div className="nv-vazio">
+              <i className="fas fa-khanda" />
+              <strong>Nenhum combate em andamento</strong>
+              <span>Monte a lista de quem vai lutar; a iniciativa de cada um já sai rolada.</span>
+              <button type="button" className="nv-btn primario" onClick={() => setMostrarBuilder(true)}>
+                <i className="fas fa-users-gear" /> Preparar combate
+              </button>
+            </div>
           ) : (
             <ParticipanteBuilder
+              titulo="Preparar combate"
               criaturas={criaturas}
               personagensMesa={personagensMesa}
               encontros={encontros}
               onConfirmar={handleIniciarCombate}
-              textoBotao="Iniciar combate com esses participantes"
+              onCancelar={() => setMostrarBuilder(false)}
+              textoBotao="Iniciar combate"
+              processando={processando}
             />
           )}
-        </div>
+        </section>
       ) : (
-        <div className="sessao-combate">
-          <div className="sessao-topo-acoes">
-            <span className="sessao-status">
-              Rodada {combate.rodadaAtual} · Turno de{" "}
-              <strong>{combate.participantes[combate.turnoAtual]?.nomeExibicao ?? "—"}</strong>
+        <section className="nv-card">
+          <div className="nv-card-topo">
+            <span className="nv-titulo">
+              <i className="fas fa-khanda" /> Combate
+              <span className="nv-status combate">Rodada {combate.rodadaAtual}</span>
             </span>
             <div className="sessao-topo-botoes">
-              <button type="button" className="bestiario-btn-add" onClick={handleAvancarTurno} disabled={processando}>
-                <i className="fas fa-forward" /> Próximo turno
+              <button type="button" className="nv-btn perigo" onClick={handleEncerrarCombate} disabled={processando}>
+                <i className="fas fa-flag-checkered" /> Encerrar combate
               </button>
-              <button type="button" className="bestiario-btn-remover" onClick={handleEncerrarCombate} disabled={processando}>
-                Encerrar combate
+              <button type="button" className="nv-btn primario" onClick={handleAvancarTurno} disabled={processando}>
+                <i className="fas fa-forward" /> Próximo turno
               </button>
             </div>
           </div>
 
+          <div className="nv-vez">
+            <span>Vez de</span>
+            <strong>{daVez?.nomeExibicao ?? "—"}</strong>
+          </div>
+
+          {criaturasEmCombate.length > 0 && (
+            <div className="sessao-revelar-todas">
+              <span className="nv-rotulo">Jogadores veem de todas as criaturas</span>
+              <Olhos
+                alvo="todas as criaturas"
+                ligado={(campo) => criaturasEmCombate.every((p) => p[campo])}
+                onAlternar={(campo, valor) => alternarVisivel(null, campo, valor)}
+              />
+            </div>
+          )}
+
           <div className="sessao-iniciativa-lista">
+            <div className="sessao-linha-iniciativa cabecalho" aria-hidden>
+              <span />
+              <span>Inic.</span>
+              <span />
+              <span>Participante</span>
+              <span>Jogadores veem</span>
+              <span>PV</span>
+              <span>PP</span>
+              <span />
+              <span />
+            </div>
             {combate.participantes.map((p, indice) => {
               const personagem = p.personagemId ? personagensMesa.find((x) => x.id === p.personagemId) : null;
+              const criatura = p.criaturaId ? criaturas.find((x) => x.id === p.criaturaId) : null;
               const pvServidor = p.personagemId ? personagem?.hpAtual ?? 0 : p.pvAtual ?? 0;
               // Override local otimista — o campo mostra o que o mestre acabou
               // de digitar em vez de esperar o roundtrip do servidor/realtime.
               const pvExibido = pvOverrides[p.id] ?? pvServidor;
               const pvMax = p.personagemId ? personagem?.hpMax ?? 0 : p.pvMax ?? 0;
               const ehTurnoAtual = indice === combate.turnoAtual;
+              // PP só de criatura que tem PP (o máximo vem do bestiário).
+              const ppMax = criatura?.pontosPoder ?? 0;
 
               return (
-                <div key={p.id} className={"sessao-linha-iniciativa" + (ehTurnoAtual ? " ativo" : "")}>
+                <div
+                  key={p.id}
+                  className={
+                    "sessao-linha-iniciativa" +
+                    (ehTurnoAtual ? " ativo" : "") +
+                    (arrastar.pega === p.id ? " arrastando" : "")
+                  }
+                  {...arrastar.linha(p.id)}
+                >
+                  <Alca nome={p.nomeExibicao} {...arrastar.alca(p.id)} />
                   <span className="sessao-iniciativa-valor">{p.iniciativa}</span>
+                  <Retrato criatura={!!p.criaturaId} foto={p.criaturaId ? criatura?.imagemUrl : personagem?.fotoUrl} />
                   <span className="sessao-iniciativa-nome">
-                    {p.criaturaId ? (
+                    {criatura ? (
                       <button
                         type="button"
                         className="sessao-nome-link"
                         onClick={() => {
-                          const c = criaturas.find((x) => x.id === p.criaturaId);
-                          if (c) {
-                            setCriaturaAberta(c);
-                            setCriaturaAbertaInstanciaId(p.id);
-                          }
+                          setCriaturaAberta(criatura);
+                          setCriaturaAbertaInstanciaId(p.id);
                         }}
-                        title="Ver ficha"
+                        title="Abrir a ficha (ações roláveis)"
                       >
                         {p.nomeExibicao}
                       </button>
                     ) : (
-                      <>
-                        {p.nomeExibicao} {p.personagemId && <em>(jogador)</em>}
-                      </>
+                      p.nomeExibicao
                     )}
+                    <small>{p.personagemId ? "Jogador" : "Criatura"}</small>
                   </span>
-                  <EditavelComDelta
-                    className="sessao-iniciativa-pv"
-                    value={pvExibido}
-                    max={pvMax || undefined}
-                    onChange={(novo) => {
-                      setPvOverrides((atual) => ({ ...atual, [p.id]: novo }));
-                      if (p.personagemId) void atualizarPvPersonagem(mesaId, p.personagemId, novo);
-                      else void atualizarPvInstancia(mesaId, p.id, novo);
-                    }}
-                  />
-                  <span className="sessao-iniciativa-pvmax">/ {pvMax} PV</span>
+                  {p.criaturaId ? (
+                    <Olhos
+                      alvo={p.nomeExibicao}
+                      ligado={(campo) => p[campo]}
+                      onAlternar={(campo, valor) => alternarVisivel(p.id, campo, valor)}
+                    />
+                  ) : (
+                    <span />
+                  )}
+                  <span className="sessao-vital">
+                    <EditavelComDelta
+                      className="sessao-iniciativa-pv"
+                      value={pvExibido}
+                      max={pvMax || undefined}
+                      onChange={(novo) => {
+                        setPvOverrides((atual) => ({ ...atual, [p.id]: novo }));
+                        if (p.personagemId) void atualizarPvPersonagem(mesaId, p.personagemId, novo);
+                        else void atualizarPvInstancia(mesaId, p.id, novo);
+                      }}
+                    />
+                    <span className="sessao-iniciativa-pvmax">/ {pvMax}</span>
+                  </span>
+                  {ppMax > 0 ? (
+                    <span className="sessao-vital">
+                      <EditavelComDelta
+                        className="sessao-iniciativa-pv sessao-iniciativa-pp"
+                        value={Math.max(0, ppMax - p.ppGasto)}
+                        max={ppMax}
+                        onChange={(novo) => {
+                          mudarLocal((x) => (x.id === p.id ? { ...x, ppGasto: ppMax - novo } : x));
+                          void comErro(() => atualizarPpInstancia(mesaId, combate.id, p.id, novo));
+                        }}
+                      />
+                      <span className="sessao-iniciativa-pvmax">/ {ppMax}</span>
+                    </span>
+                  ) : (
+                    <span />
+                  )}
                   {p.criaturaId ? (
                     <button
                       type="button"
+                      className="sessao-icone-btn"
                       onClick={() => setDanoEmInstanciaId(p.id)}
                       title="Dano com tipo (aplica resistências)"
                       aria-label={`Dano com tipo em ${p.nomeExibicao}`}
@@ -518,7 +877,13 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
                   ) : (
                     <span />
                   )}
-                  <button type="button" onClick={() => handleRemover(p.id)} title="Remover do combate">
+                  <button
+                    type="button"
+                    className="sessao-icone-btn"
+                    onClick={() => handleRemover(p.id)}
+                    title="Remover do combate"
+                    aria-label={`Remover ${p.nomeExibicao} do combate`}
+                  >
                     <i className="fas fa-xmark" />
                   </button>
                 </div>
@@ -527,20 +892,23 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
           </div>
 
           {!mostrarBuilder ? (
-            <button type="button" className="bestiario-btn-add" onClick={() => setMostrarBuilder(true)}>
-              + Adicionar participante
+            <button type="button" className="nv-btn sessao-reforco" onClick={() => setMostrarBuilder(true)}>
+              <i className="fas fa-plus" /> Adicionar participante
             </button>
           ) : (
             <ParticipanteBuilder
+              titulo="Adicionar participantes"
               criaturas={criaturas}
               personagensMesa={personagensMesa}
               encontros={encontros}
               onConfirmar={handleAdicionarParticipantes}
+              onCancelar={() => setMostrarBuilder(false)}
               textoBotao="Adicionar ao combate"
+              processando={processando}
               personagemIdsNoCombate={combate.participantes.filter((p) => p.personagemId).map((p) => p.personagemId!)}
             />
           )}
-        </div>
+        </section>
       )}
 
       {danoEm && (
@@ -591,6 +959,19 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
                     [instanciaId]: { ...(atual[instanciaId] ?? {}), [componenteId]: novoValor },
                   }));
                 },
+                revelacao: instanciaAberta
+                  ? {
+                      reveladas: instanciaAberta.acoesReveladas,
+                      // Ação rolada entra sozinha na prévia dos jogadores.
+                      onUsar: (componenteId) => {
+                        if (instanciaAberta.autoRevelarAcoes && !instanciaAberta.acoesReveladas.includes(componenteId)) {
+                          alternarAcaoRevelada(instanciaAberta.id, componenteId, true);
+                        }
+                      },
+                      onRevelar: (componenteId, revelada) =>
+                        alternarAcaoRevelada(instanciaAberta.id, componenteId, revelada),
+                    }
+                  : undefined,
               }}
             />
           </div>
@@ -598,24 +979,4 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
       )}
     </div>
   );
-}
-
-// "Agrupar iniciativa" (padrão, 1 rolagem pra todas as cópias — já é o que
-// `iniciarCombate`/`adicionarParticipantes` fazem ao repetir `iniciativa` em
-// cada cópia) vs. "individual": aqui é onde a segunda opção vira realidade —
-// desmembra a linha em N participantes de quantidade 1, cada um com uma
-// rolagem própria a partir da Destreza da criatura.
-function expandirParticipantes(participantes: NovoParticipante[], criaturas: CriaturaParaCombate[]): NovoParticipante[] {
-  const resultado: NovoParticipante[] = [];
-  for (const p of participantes) {
-    if (p.criaturaId && p.quantidade > 1 && !p.agrupar) {
-      const destreza = criaturas.find((c) => c.id === p.criaturaId)?.destreza ?? 10;
-      for (let i = 0; i < p.quantidade; i += 1) {
-        resultado.push({ ...p, quantidade: 1, iniciativa: rolarIniciativa(destreza) });
-      }
-    } else {
-      resultado.push(p);
-    }
-  }
-  return resultado;
 }

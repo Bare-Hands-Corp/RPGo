@@ -459,3 +459,48 @@ export function serializarEncontro(encontro: Encontro): EncontroSerializado {
     criadoEm: encontro.criadoEm.toISOString(),
   };
 }
+
+// ─── Efeito em texto ──────────────────────────────────────────────────────
+
+function textoDano(formula: string, tipos: string[]) {
+  const f = formula.trim();
+  const t = tipos.filter(Boolean).join(" ou ");
+  if (!f) return t;
+  return t ? `${f} ${t}` : f;
+}
+
+const FORMA_LABEL: Record<string, string> = {
+  cone: "Cone",
+  linha: "Linha",
+  esfera: "Esfera",
+  emanacao: "Emanação",
+  cilindro: "Cilindro",
+};
+
+// Versão em texto de um efeito, pra onde não dá pra rolar: a ficha de leitura
+// da biblioteca e a prévia que o jogador vê em combate. Condição não vira
+// linha aqui — ela é destacada dentro da descrição.
+export function textoEfeitoAcao(e: EfeitoAcao): string | null {
+  switch (e.tipo) {
+    case "ataque":
+      return e.bonus.trim() ? `Ataque ${e.bonus.trim()}` : null;
+    case "salvaguarda":
+      return `CD ${e.cd} (${e.atributo})`;
+    case "dano": {
+      const t = textoDano(e.formula, e.tipos);
+      return t ? `Dano: ${t}` : null;
+    }
+    case "area":
+      return e.forma !== "nenhuma" ? `Área: ${FORMA_LABEL[e.forma]}${e.tamanho ? ` (${e.tamanho})` : ""}` : null;
+    case "movimento":
+      return `Movimento: ${e.valor}m ${e.tipoMov}${e.duracao ? ` (${e.duracao})` : ""}`;
+    case "bonus_numerico":
+      return e.alvo.trim() ? `${e.alvo}: ${e.valor >= 0 ? "+" : ""}${e.valor}${e.duracao ? ` (${e.duracao})` : ""}` : null;
+    case "cura":
+      return e.formula.trim() ? `Recupera ${e.formula.trim()} PV` : null;
+    case "condicao":
+      return null;
+    case "livre":
+      return e.texto.trim() || null;
+  }
+}

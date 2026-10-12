@@ -185,6 +185,8 @@ export function NarradorShell({
                   hpAtual: p.hpAtual,
                   hpMax: p.hpMax,
                   destreza: p.destreza,
+                  iniciativa: p.iniciativa,
+                  fotoUrl: p.fotoUrl,
                 }))}
                 encontros={encontros}
               />

@@ -17,6 +17,13 @@ const D6: Dado = { faces: 6, sinal: 1 };
 export type UsosContexto = {
   usosAcoes: Record<string, number>;
   onDefinir: (componenteId: string, novoValor: number) => void;
+  // Revelação pros jogadores: as ações que eles já veem na prévia da ficha,
+  // o aviso de que uma ação foi usada (rolada) e o botão de revelar/esconder.
+  revelacao?: {
+    reveladas: string[];
+    onUsar: (componenteId: string) => void;
+    onRevelar: (componenteId: string, revelada: boolean) => void;
+  };
 };
 
 const D20: Dado = { faces: 20, sinal: 1 };
@@ -141,12 +148,20 @@ function StatEfeito({
   item,
   nomeCriatura,
   permitirRolagem,
+  onUsar,
 }: {
   efeito: EfeitoAcao;
   item: ComponentePayload;
   nomeCriatura: string;
   permitirRolagem: boolean;
+  // Chamado quando a ação é rolada.
+  onUsar?: () => void;
 }) {
+  // Rolar a ação conta como usá-la.
+  const rolando = (rolar: () => void) => () => {
+    rolar();
+    onUsar?.();
+  };
   switch (efeito.tipo) {
     case "ataque":
       if (!efeito.bonus.trim()) return null;
@@ -154,7 +169,7 @@ function StatEfeito({
         <Stat
           icone="fa-crosshairs"
           titulo={permitirRolagem ? "Empilhar ataque no Rolador" : undefined}
-          onRolar={permitirRolagem ? () => rolarAtaque(nomeCriatura, item, efeito.bonus) : undefined}
+          onRolar={permitirRolagem ? rolando(() => rolarAtaque(nomeCriatura, item, efeito.bonus)) : undefined}
         >
           Acerto <strong>{efeito.bonus.trim()}</strong>
         </Stat>
@@ -173,7 +188,7 @@ function StatEfeito({
         <Stat
           icone="fa-burst"
           titulo={rolavel ? "Empilhar dano no Rolador" : undefined}
-          onRolar={rolavel ? () => rolarDano(nomeCriatura, item, efeito.formula, efeito.tipos) : undefined}
+          onRolar={rolavel ? rolando(() => rolarDano(nomeCriatura, item, efeito.formula, efeito.tipos)) : undefined}
         >
           {efeito.formula.trim() && <strong>{efeito.formula.trim()}</strong>}
           {tipo && ` ${tipo}`}
@@ -210,7 +225,7 @@ function StatEfeito({
         <Stat
           icone="fa-heart"
           titulo={rolavel ? "Empilhar cura no Rolador" : undefined}
-          onRolar={rolavel ? () => rolarCura(nomeCriatura, item, efeito.formula) : undefined}
+          onRolar={rolavel ? rolando(() => rolarCura(nomeCriatura, item, efeito.formula)) : undefined}
         >
           Recupera <strong>{efeito.formula.trim()}</strong> PV
         </Stat>
@@ -318,6 +333,7 @@ export function FichaCriaturaView({ criatura: c, onEditar, onFechar, permitirRol
     c.resistencias.danoVulneravel.length > 0 ||
     c.resistencias.condicaoImunidade.length > 0;
   const vidaRolavel = permitirRolagem && temDado(c.pvFormula);
+  const revelacao = usosContexto?.revelacao;
 
   return (
     <div className="bestiario-ficha-view">
@@ -515,8 +531,10 @@ export function FichaCriaturaView({ criatura: c, onEditar, onFechar, permitirRol
                     item={item}
                     nomeCriatura={c.nome}
                     permitirRolagem={permitirRolagem}
+                    onUsar={revelacao ? () => revelacao.onUsar(item.id) : undefined}
                   />
                 ));
+                const revelada = revelacao?.reveladas.includes(item.id) ?? false;
                 const alcance = item.alcance.trim();
                 const custo = item.custo.trim();
                 // Condições citadas no texto ficam destacadas nele; as que não
@@ -527,6 +545,17 @@ export function FichaCriaturaView({ criatura: c, onEditar, onFechar, permitirRol
                     <div className="bestiario-acao-topo">
                       <div className="bestiario-acao-titulo">{item.nome || "(sem nome)"}</div>
                       {item.usos !== null && <ControleUsos item={item} usosContexto={usosContexto} />}
+                      {revelacao && (
+                        <button
+                          type="button"
+                          className={`bestiario-acao-revelar${revelada ? " ativo" : ""}`}
+                          aria-pressed={revelada}
+                          title={revelada ? "Os jogadores veem esta ação. Clique pra esconder." : "Mostrar esta ação aos jogadores"}
+                          onClick={() => revelacao.onRevelar(item.id, !revelada)}
+                        >
+                          <i className={`fas ${revelada ? "fa-eye" : "fa-eye-slash"}`} />
+                        </button>
+                      )}
                     </div>
                     <div className="bestiario-acao-stats">
                       {stats}

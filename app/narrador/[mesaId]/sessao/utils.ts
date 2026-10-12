@@ -1,4 +1,5 @@
 import type { Combate, InstanciaCombate, Sessao } from "@prisma/client";
+import { ordenarParticipantes } from "@/lib/combate";
 import type { CombateSerializado, InstanciaCombateSerializada, SessaoSerializada } from "./types";
 
 export function serializarInstancia(i: InstanciaCombate): InstanciaCombateSerializada {
@@ -11,6 +12,13 @@ export function serializarInstancia(i: InstanciaCombate): InstanciaCombateSerial
     ordem: i.ordem,
     pvAtual: i.pvAtual,
     pvMax: i.pvMax,
+    ppGasto: i.ppGasto,
+    pvVisivel: i.pvVisivel,
+    ppVisivel: i.ppVisivel,
+    crVisivel: i.crVisivel,
+    fichaVisivel: i.fichaVisivel,
+    acoesReveladas: i.acoesReveladas,
+    autoRevelarAcoes: i.autoRevelarAcoes,
   };
 }
 
@@ -20,10 +28,7 @@ export function serializarCombate(c: Combate & { participantes: InstanciaCombate
     sessaoId: c.sessaoId,
     rodadaAtual: c.rodadaAtual,
     turnoAtual: c.turnoAtual,
-    participantes: c.participantes
-      .slice()
-      .sort((a, b) => a.ordem - b.ordem)
-      .map(serializarInstancia),
+    participantes: ordenarParticipantes(c.participantes).map(serializarInstancia),
   };
 }
 

@@ -994,6 +994,27 @@ button.bestiario-ficha-badge-rolavel:hover {
   border-color: color-mix(in srgb, var(--primary) 35%, transparent);
 }
 
+/* Olho no card da ação: está ou não na prévia que os jogadores veem. */
+.bestiario-acao-revelar {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-sec);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.bestiario-acao-revelar:hover {
+  border-color: var(--border);
+}
+
+.bestiario-acao-revelar.ativo {
+  color: var(--primary);
+}
+
 .bestiario-acao-desc {
   font-size: 0.85rem;
   color: var(--text-sec);

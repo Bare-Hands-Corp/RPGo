@@ -964,6 +964,11 @@ model InstanciaCombate {
   // Revelação progressiva pro jogador (seção "Modo Sessão" combinada antes) —
   // só relevante quando é criatura; PJ não tem nada disso, é sempre visível.
   pvVisivel        Boolean  @default(false) @map("pv_visivel")
+  // Barra de PP (Criatura.pontosPoder − ppGasto) e Classe de Resistência.
+  ppVisivel        Boolean  @default(false) @map("pp_visivel")
+  crVisivel        Boolean  @default(false) @map("cr_visivel")
+  // Prévia da ficha: o jogador vê as ações em `acoesReveladas`.
+  fichaVisivel     Boolean  @default(false) @map("ficha_visivel")
   ameacaVisivel    Boolean  @default(false) @map("ameaca_visivel")
   acoesReveladas   String[] @default([]) @map("acoes_reveladas")
   autoRevelarAcoes Boolean  @default(true) @map("auto_revelar_acoes")

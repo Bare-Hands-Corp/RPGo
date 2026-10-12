@@ -23,6 +23,9 @@ import { FichaRealtime } from "./realtime-refresher";
 import { Bandeja } from "@/components/bandeja/bandeja";
 import { CatalogoTiposProvider } from "@/components/tipos-dano/tipos-dano";
 import { catalogoTiposDoNarrador } from "@/lib/tipos-dano-servidor";
+import { carregarCombateDoJogador } from "@/lib/combate-servidor";
+import { SessaoRealtime } from "@/app/narrador/[mesaId]/sessao/sessao-realtime";
+import { IniciativaJogador } from "./iniciativa-jogador";
 import { ThemeButton } from "@/components/temas/theme-button";
 import "../../calendario/[mesaId]/calendario.css";
 import "./ficha.css";
@@ -163,10 +166,12 @@ export default async function FichaPage({ params, searchParams }: Params) {
 
   // Pré-carrega mensagens do chat + calendário + tripulação/navio (se houver
   // mesa) em paralelo. Tripulação = personagens que compartilham o mesaId.
-  const [catalogoTipos, mensagensIniciais, calendario, tripulantes, navio, arvoresCopiaveis] =
+  const [catalogoTipos, { sessaoId, combate }, mensagensIniciais, calendario, tripulantes, navio, arvoresCopiaveis] =
     await Promise.all([
     // Tipos de dano do narrador da mesa (Biblioteca do bestiário).
     catalogoTiposDoNarrador(personagem.mesa?.userId),
+    // Combate ativo da mesa, só com o que o narrador liberou das criaturas.
+    carregarCombateDoJogador(personagem.mesaId, personagem.id),
     listarMensagensSessao(sessionId),
     personagem.mesaId
       ? carregarCalendario(personagem.mesaId, { isNarrador })
@@ -197,8 +202,14 @@ export default async function FichaPage({ params, searchParams }: Params) {
   ]);
 
   return (
+    <>
+    {/* Fora do grid da ficha pra faixa grudar no topo ao rolar a página. */}
+    {combate && <IniciativaJogador combate={combate} />}
     <div className={"ficha-layout" + (calendario ? " com-relogio" : "")}>
       <FichaRealtime personagemId={personagem.id} mesaId={personagem.mesaId} />
+      {personagem.mesaId && (
+        <SessaoRealtime mesaId={personagem.mesaId} sessaoId={sessaoId} combateId={combate?.id ?? null} />
+      )}
       <CatalogoTiposProvider tipos={catalogoTipos}>
       <PerfilSidebar
         personagem={personagem}
@@ -313,5 +324,6 @@ export default async function FichaPage({ params, searchParams }: Params) {
         efeitosContexto={efeitosDoContexto(efeitosAgregados)}
       />
     </div>
+    </>
   );
 }

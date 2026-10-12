@@ -5344,6 +5344,408 @@
 }
 
 
+/* ─── INICIATIVA DO COMBATE (faixa do jogador) ──────────────── */
+.iniciativa-faixa {
+  --iniciativa-altura: 60px;
+  position: sticky;
+  top: 0;
+  z-index: 51;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+}
+
+.iniciativa-faixa.sua-vez {
+  border-bottom-color: var(--primary);
+  box-shadow: 0 2px 0 var(--primary), 0 2px 14px color-mix(in oklch, var(--primary) 30%, transparent);
+}
+
+/* A faixa de vitais desce pra não cobrir a iniciativa. */
+body:has(.iniciativa-faixa) .faixa-vitais {
+  top: 60px;
+}
+
+.iniciativa-conteudo {
+  position: relative;
+  max-width: 1400px;
+  height: var(--iniciativa-altura);
+  margin: 0 auto;
+  padding: 0 30px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.iniciativa-rodada {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-sec);
+}
+
+.iniciativa-rodada i {
+  color: var(--primary);
+}
+
+.iniciativa-resumo {
+  display: none;
+}
+
+.iniciativa-lista {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 4px 2px;
+  list-style: none;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.iniciativa-lista li {
+  flex-shrink: 0;
+}
+
+.iniciativa-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 210px;
+  padding: 5px 12px 5px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.iniciativa-item:hover {
+  border-color: var(--primary);
+}
+
+.iniciativa-item.atual {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 14%, var(--bg-card));
+  box-shadow: 0 0 0 1px var(--primary);
+}
+
+.iniciativa-posicao {
+  display: none;
+}
+
+.iniciativa-avatar {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--border);
+}
+
+.iniciativa-avatar.vazio {
+  display: inline-grid;
+  place-items: center;
+  color: var(--text-sec);
+  font-size: 0.85rem;
+}
+
+.iniciativa-avatar.grande {
+  width: 64px;
+  height: 64px;
+  font-size: 1.4rem;
+}
+
+.iniciativa-item.criatura .iniciativa-avatar {
+  border-radius: 10px;
+}
+
+.iniciativa-item-texto {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.iniciativa-nome {
+  overflow: hidden;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.iniciativa-item.voce .iniciativa-nome {
+  color: var(--primary);
+}
+
+.iniciativa-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-sec);
+  white-space: nowrap;
+}
+
+.iniciativa-selo {
+  display: none;
+}
+
+.iniciativa-trilho {
+  display: inline-block;
+  width: 38px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.iniciativa-trilho > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--danger);
+}
+
+.iniciativa-trilho.pp > span {
+  background: var(--color-padrao);
+}
+
+/* Detalhe de um participante: o que dá pra saber dele. */
+.iniciativa-detalhe {
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.iniciativa-detalhe-topo {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.iniciativa-detalhe-topo h2 {
+  margin: 0;
+}
+
+.iniciativa-detalhe-topo p {
+  margin: 2px 0 0;
+  font-size: 0.8rem;
+  color: var(--text-sec);
+}
+
+.iniciativa-detalhe-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.iniciativa-detalhe-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.iniciativa-detalhe-stats i {
+  width: 18px;
+  color: var(--text-sec);
+}
+
+.iniciativa-detalhe-stats .iniciativa-trilho {
+  width: 100%;
+  height: 8px;
+}
+
+.iniciativa-detalhe-vazio {
+  margin: 0;
+  font-size: 0.85rem;
+  font-style: italic;
+  color: var(--text-sec);
+}
+
+.iniciativa-detalhe-acoes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.iniciativa-detalhe-acoes h3 {
+  margin: 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-sec);
+}
+
+.iniciativa-acao {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-surface);
+}
+
+.iniciativa-acao-topo {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.iniciativa-acao-topo span {
+  font-size: 0.7rem;
+  color: var(--text-sec);
+}
+
+.iniciativa-acao-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 4px;
+  font-size: 0.78rem;
+  color: var(--text-sec);
+}
+
+.iniciativa-acao p {
+  margin: 6px 0 0;
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+}
+
+/* Celular: uma barra com a vez atual; a lista abre embaixo, em coluna. */
+@media (max-width: 900px) {
+  .iniciativa-faixa {
+    --iniciativa-altura: 52px;
+  }
+
+  body:has(.iniciativa-faixa) .faixa-vitais {
+    top: 52px;
+  }
+
+  .iniciativa-conteudo {
+    padding: 0 16px;
+    gap: 10px;
+  }
+
+  .iniciativa-rodada > span {
+    display: none;
+  }
+
+  .iniciativa-resumo {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 0;
+    border: 0;
+    background: none;
+    color: var(--text-main);
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .iniciativa-resumo-texto {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+  }
+
+  .iniciativa-resumo-texto strong,
+  .iniciativa-resumo-texto small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .iniciativa-resumo-texto strong {
+    font-size: 0.9rem;
+  }
+
+  .iniciativa-faixa.sua-vez .iniciativa-resumo-texto strong {
+    color: var(--primary);
+  }
+
+  .iniciativa-resumo-texto small {
+    font-size: 0.72rem;
+    color: var(--text-sec);
+  }
+
+  .iniciativa-resumo > i {
+    color: var(--text-sec);
+    font-size: 0.8rem;
+  }
+
+  .iniciativa-lista {
+    display: none;
+  }
+
+  .iniciativa-faixa.aberta .iniciativa-lista {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    max-height: 65vh;
+    padding: 10px 16px 14px;
+    overflow: hidden auto;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.18);
+  }
+
+  .iniciativa-item {
+    width: 100%;
+    max-width: none;
+    border-radius: 12px;
+    padding: 8px 12px 8px 8px;
+  }
+
+  .iniciativa-item-texto {
+    flex: 1;
+  }
+
+  .iniciativa-posicao {
+    display: inline-block;
+    width: 18px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-align: center;
+    color: var(--text-sec);
+  }
+
+  .iniciativa-item.atual .iniciativa-selo {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--primary);
+    color: white;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+}
+
 /* ─── RESPONSIVO ────────────────────────────────────────────── */
 /* No fim do arquivo de propósito: a ordem garante que estas regras vençam. */
 @media (max-width: 900px) {
