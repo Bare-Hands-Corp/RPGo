@@ -9,12 +9,15 @@ import { exigir } from "@/lib/acoes";
 import { empilharRolagem } from "@/lib/empilhar-rolagem";
 import {
   aplicarDanoDeCriatura,
+  reagirComoCriatura,
   seguirSemReacao,
   resolverAtaqueDeCriatura,
   usarAcaoDeCriatura,
 } from "@/app/ficha/[uid]/actions";
 import { useEscolherAlvosCombate } from "@/app/ficha/[uid]/escolher-alvos-combate";
 import type { ComponentePayload } from "@/app/bestiario/types";
+import { ataquesPorTurno, ehAtaqueComum, extrasDeDano, type ExtraDeDano } from "@/app/bestiario/utils";
+import { textoDanoPorTurno } from "@/lib/condicoes";
 import {
   iniciarSessao,
   encerrarSessao,
@@ -22,6 +25,7 @@ import {
   adicionarParticipantes,
   removerParticipante,
   atualizarPvInstancia,
+  atualizarPvTempInstancia,
   atualizarPvPersonagem,
   atualizarPpInstancia,
   aplicarDanoInstancia,
@@ -39,21 +43,24 @@ import {
   encerrarCombate,
 } from "./actions";
 import { SessaoRealtime } from "./sessao-realtime";
+import { HistoricoSessoes } from "./historico-sessoes";
+import { aplicarCuraDeCriatura } from "@/app/ficha/[uid]/actions";
 import { EditavelComDelta } from "@/app/bestiario/inputs";
-import { FichaCriaturaView } from "@/app/bestiario/ficha-view";
+import { FichaCombate } from "./ficha-combate";
 import { DanoCriaturaModal } from "./dano-criatura-modal";
 import { CondicaoModal } from "./condicao-modal";
 import { ChipCondicao } from "@/components/tipos-dano/condicoes";
 import { moverNaLista, useArrastar } from "./use-arrastar";
 import {
   ACAO_COMBATE,
+
   CAMPOS_VISIVEIS,
   TIPOS_ACAO_COMBATE,
   type AcoesGastas,
   type CampoVisivel,
+  type OpcaoReacao,
   type ParticipanteVisto,
   type ResultadoAlvo,
-  type TipoAcaoCombate,
 } from "@/lib/combate";
 import type {
   CriaturaParaCombate,
@@ -130,6 +137,47 @@ function rolarIniciativa(bonus: number): number {
 const comSinal = (n: number) => (n >= 0 ? `+${n}` : `−${Math.abs(n)}`);
 
 // Alça de arrastar uma linha da iniciativa (mouse, dedo ou setas do teclado).
+const escaparHtml = (t: string) =>
+  t.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+
+// O narrador escolhe com qual reação a criatura responde: uma das que cabem
+// na ação (pelo gatilho), mais a redução de dano que ele queira tirar à mão.
+// null = desistiu.
+async function escolherReacao(
+  nome: string,
+  opcoes: OpcaoReacao[],
+): Promise<{ componenteId: string | null; reducao: number } | null> {
+  const resposta = await Swal.fire({
+    title: `${nome} reage`,
+    html: `
+      <label class="sessao-reacao-campo">Reação
+        <select id="reacao-escolha" class="swal2-select">
+          ${opcoes
+            .map(
+              (o) =>
+                `<option value="${escaparHtml(o.id)}">${escaparHtml(o.nome)}${o.efeito ? ` — ${escaparHtml(o.efeito)}` : ""}</option>`,
+            )
+            .join("")}
+          <option value="">Outra (só a redução abaixo)</option>
+        </select>
+      </label>
+      <label class="sessao-reacao-campo">Redução de dano a mais (à mão)
+        <input id="reacao-reducao" class="swal2-input" type="number" min="0" value="0" />
+      </label>
+      <p class="sessao-reacao-dica">Bônus na CR compara o ataque de novo; PV temporário entra antes do dano. Gasta a reação do turno e os custos dela.</p>`,
+    showCancelButton: true,
+    confirmButtonText: "Reagir",
+    cancelButtonText: "Cancelar",
+    background: "var(--bg-card)",
+    color: "var(--text-main)",
+    preConfirm: () => ({
+      componenteId: (document.getElementById("reacao-escolha") as HTMLSelectElement | null)?.value || null,
+      reducao: Math.max(0, Math.trunc(Number((document.getElementById("reacao-reducao") as HTMLInputElement | null)?.value) || 0)),
+    }),
+  });
+  return resposta.isConfirmed ? (resposta.value ?? null) : null;
+}
+
 function Alca({ nome, ...props }: { nome: string } & React.HTMLAttributes<HTMLButtonElement>) {
   return (
     <button
@@ -178,15 +226,6 @@ function AcoesDoParticipante({
     </span>
   );
 }
-
-// Bloco do statblock → ação do turno que a criatura gasta ao usar. Aspecto e
-// ação lendária não gastam.
-const ACAO_DO_BLOCO: Record<string, TipoAcaoCombate> = {
-  acao: "padrao",
-  acaoBonus: "bonus",
-  acaoPoderosa: "power",
-  reacao: "react",
-};
 
 // Foto redonda (jogador) ou quadrada (criatura); sem imagem, um ícone.
 function Retrato({ foto, criatura }: { foto: string | null | undefined; criatura: boolean }) {
@@ -579,7 +618,6 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
   const [pvOverrides, setPvOverrides] = useState<Record<string, number>>({});
   const [mostrarBuilder, setMostrarBuilder] = useState(false);
   const [processando, setProcessando] = useState(false);
-  const [criaturaAberta, setCriaturaAberta] = useState<CriaturaParaCombate | null>(null);
   const [criaturaAbertaInstanciaId, setCriaturaAbertaInstanciaId] = useState<string | null>(null);
   // Criatura recebendo dano com tipo (id da InstanciaCombate).
   const [danoEmInstanciaId, setDanoEmInstanciaId] = useState<string | null>(null);
@@ -807,7 +845,7 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
   // A criatura usa uma ação do statblock num alvo: o servidor gasta usos, PP
   // e a ação do turno e abre a resolução; daqui saem as rolagens. O acerto já
   // sai rolado (com a vantagem escolhida); o dano fica pronto no Rolador.
-  async function usarAcaoDaCriatura(item: ComponentePayload) {
+  async function usarAcaoDaCriatura(item: ComponentePayload, forcar = false) {
     if (!combate || !instanciaAberta) return;
     const combateId = combate.id;
     const instanciaId = instanciaAberta.id;
@@ -817,10 +855,70 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
       (e) => e.tipo === "salvaguarda" || e.tipo === "condicao" || (e.tipo === "dano" && e.formula.trim()),
     );
 
+    // Multiataque: os ataques comuns que ainda cabem na ação padrão deste turno,
+    // cada um com o próprio alvo (linha sem alvo não é ataque feito).
+    const cabem =
+      fichaDe && ehAtaqueComum(item)
+        ? Math.max(1, ataquesPorTurno(fichaDe.componentes) - (instanciaAberta.acoesGastas.padrao ?? 0))
+        : 1;
+    // Dano extra de aspecto (Crueldade Inata...) e da própria ação, por acerto.
+    const extras = fichaDe && temAtaque ? extrasDeDano(fichaDe.componentes, item) : [];
+    const usosAgora = { ...instanciaAberta.usosAcoes, ...usosOverrides[instanciaId] };
+    const restam = new Map(
+      extras.map((x) => [x.componenteId, x.usos === null ? Infinity : (usosAgora[x.componenteId] ?? x.usos)]),
+    );
+
+    // Quais extras entram neste acerto: os fixos sempre; os outros o narrador marca.
+    async function escolherExtras(critico: boolean): Promise<ExtraDeDano[]> {
+      const livres = extras.filter((x) => (restam.get(x.componenteId) ?? 0) > 0);
+      const opcionais = livres.filter((x) => !x.sempre);
+      if (opcionais.length === 0) return livres;
+      const caixa = document.createElement("div");
+      caixa.className = "sessao-extras";
+      const marcas = opcionais.map((x) => {
+        const linha = document.createElement("label");
+        const marca = document.createElement("input");
+        marca.type = "checkbox";
+        const usos = restam.get(x.componenteId) ?? 0;
+        linha.append(
+          marca,
+          ` ${x.nome}: +${x.formula}${x.tipo ? ` ${x.tipo}` : ""}${Number.isFinite(usos) ? ` (resta ${usos})` : ""}`,
+        );
+        caixa.append(linha);
+        return marca;
+      });
+      const resposta = await Swal.fire({
+        title: `${rotulo}: dano extra neste acerto${critico ? " crítico" : ""}?`,
+        html: caixa,
+        showCancelButton: true,
+        confirmButtonText: "Rolar o dano",
+        cancelButtonText: "Sem extra",
+        background: "var(--bg-card)",
+        color: "var(--text-main)",
+      });
+      const marcados = resposta.isConfirmed ? opcionais.filter((_, i) => marcas[i].checked) : [];
+      return [...livres.filter((x) => x.sempre), ...marcados];
+    }
+
+    // Gasta o uso dos extras limitados ("uma vez por turno").
+    function gastarExtras(usados: ExtraDeDano[]) {
+      for (const id of new Set(usados.map((x) => x.componenteId))) {
+        const antes = restam.get(id) ?? 0;
+        if (!Number.isFinite(antes)) continue;
+        const depois = Math.max(0, antes - 1);
+        restam.set(id, depois);
+        setUsosOverrides((atual) => ({ ...atual, [instanciaId]: { ...(atual[instanciaId] ?? {}), [id]: depois } }));
+        void comErro(() => definirUsosAcao(mesaId, combateId, instanciaId, id, depois));
+      }
+    }
+
     let alvos: string[] = [];
     let modos: ModoRolagem[] = [];
     if (temAtaque) {
-      const ataques = await alvosDoCombate.escolherAtaques(`${rotulo}: em quem?`, 1);
+      const ataques = await alvosDoCombate.escolherAtaques(
+        `${rotulo}: em quem?${cabem > 1 ? ` (até ${cabem} ataques)` : ""}`,
+        cabem,
+      );
       if (ataques === null) return;
       alvos = ataques.map((a) => a.alvo);
       modos = ataques.map((a) => a.modo);
@@ -830,19 +928,42 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
       alvos = escolhidos;
     }
 
-    const uso = await comErro(async () => exigir(await usarAcaoDeCriatura(mesaId, combateId, instanciaId, item.id, alvos)));
+    const uso = await comErro(async () => exigir(await usarAcaoDeCriatura(mesaId, combateId, instanciaId, item.id, alvos, forcar)));
     if (!uso) return;
     router.refresh();
     const resolucaoId = uso.resolucaoId;
+
+    // Ação que cura: o narrador diz quem recebe (ela mesma ou aliados), a cura
+    // é rolada uma vez e entra nas estatísticas com quem curou e quem recebeu.
+    const curas = item.efeitos.flatMap((e) => (e.tipo === "cura" && e.formula.trim() ? [e.formula.trim()] : []));
+    if (curas.length > 0) {
+      const alvosCura = await alvosDoCombate.escolher(`${rotulo}: curar quem?`);
+      if (alvosCura && alvosCura.length > 0) {
+        const f = curas.map((x) => parseFormulaDados(x));
+        empilharRolagem({
+          dados: f.flatMap((x) => x.dados),
+          modificador: f.reduce((soma, x) => soma + x.modificador, 0),
+          nomePreset: `${rotulo} (cura)`,
+          aoConcluir: (lances) => {
+            const total = lances[0]?.total ?? 0;
+            void aplicarCuraDeCriatura(mesaId, combateId, instanciaId, alvosCura, total, item.nome || "Cura").then((r) => {
+              if (!r.ok) return avisarErro(r.erro);
+              router.refresh();
+            });
+          },
+        });
+      }
+    }
     if (!resolucaoId) return;
 
     // Dano de cada acerto, um por vez. O 1º dano vai pelo Rolador; os outros
     // tipos são rolados junto. Crítico dobra os dados.
-    const pedirDano = (acertos: ResultadoAlvo[]) => {
+    const pedirDano = async (acertos: ResultadoAlvo[], comExtras = false) => {
       const [atual, ...resto] = acertos;
       const principal = uso.danos[0];
       if (!atual || !principal) return;
       const critico = atual === "critico";
+      const somados = comExtras ? await escolherExtras(critico) : [];
       const formula = (texto: string) => {
         const f = parseFormulaDados(texto);
         return { dados: critico ? [...f.dados, ...f.dados] : f.dados, modificador: f.modificador };
@@ -858,15 +979,18 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
           if (!lance) return;
           const partes = [
             { valor: lance.total, tipo: principal.tipo },
-            ...uso.danos.slice(1).map((d) => {
-              const x = formula(d.formula);
-              return { valor: x.dados.length > 0 ? rolarDados(x.dados, x.modificador).total : x.modificador, tipo: d.tipo };
-            }),
+            ...[...uso.danos.slice(1), ...somados.map((x) => ({ formula: x.formula, tipo: x.tipo || principal.tipo }))].map(
+              (d) => {
+                const x = formula(d.formula);
+                return { valor: x.dados.length > 0 ? rolarDados(x.dados, x.modificador).total : x.modificador, tipo: d.tipo };
+              },
+            ),
           ];
           void aplicarDanoDeCriatura(mesaId, combateId, instanciaId, resolucaoId, partes).then((r) => {
             if (!r.ok) return avisarErro(r.erro);
+            gastarExtras(somados);
             router.refresh();
-            pedirDano(resto);
+            void pedirDano(resto, comExtras);
           });
         },
       });
@@ -885,18 +1009,88 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
           void resolverAtaqueDeCriatura(mesaId, combateId, instanciaId, resolucaoId, lances).then((r) => {
             if (!r.ok) return avisarErro(r.erro);
             router.refresh();
-            pedirDano(r.resultados.filter((x) => x !== "erro"));
+            void pedirDano(
+              r.resultados.filter((x) => x !== "erro"),
+              true,
+            );
           });
         },
       });
     } else {
-      pedirDano(["acerto"]);
+      void pedirDano(["acerto"]);
     }
   }
   const danoEm = combate?.participantes.find((p) => p.id === danoEmInstanciaId && p.criaturaId) ?? null;
   const criaturaDoDano = danoEm ? criaturas.find((c) => c.id === danoEm.criaturaId) : null;
 
   const daVez = combate?.participantes[combate.turnoAtual] ?? null;
+
+  // Condições de um participante, com os botões de tirar, repetir a
+  // salvaguarda e pôr outra. Vale na linha da iniciativa e na ficha.
+  function condicoesDe(p: InstanciaCombateSerializada) {
+    if (!combate) return null;
+    return (
+      <span className="sessao-condicoes">
+        {p.condicoes.map((c) => (
+          <ChipCondicao
+            key={c.id}
+            nome={c.nome}
+            rodadas={c.rodadas}
+            origem={[c.origem, c.porTurno ? textoDanoPorTurno(c.porTurno) : ""].filter(Boolean).join(" · ")}
+          >
+            {c.salvaguarda && p.criaturaId && (
+              <button
+                type="button"
+                className="condicao-chip-botao"
+                title={`Rolar a salvaguarda (CD ${c.salvaguarda.cd}) pra ${p.nomeExibicao} sair`}
+                aria-label={`Rolar a salvaguarda de ${c.nome}`}
+                onClick={async () => {
+                  const nova = await comErro(() => rolarSaidaDeCondicao(mesaId, combate.id, p.id, c.id));
+                  if (nova) setSessao(nova);
+                }}
+              >
+                <i className="fas fa-dice-d20" />
+              </button>
+            )}
+            <button
+              type="button"
+              className="condicao-chip-botao"
+              title="Tirar a condição"
+              aria-label={`Tirar ${c.nome} de ${p.nomeExibicao}`}
+              onClick={async () => {
+                const nova = await comErro(() => removerCondicao(mesaId, combate.id, p.id, c.id));
+                if (nova) setSessao(nova);
+              }}
+            >
+              <i className="fas fa-xmark" />
+            </button>
+          </ChipCondicao>
+        ))}
+        <button
+          type="button"
+          className="sessao-condicao-mais"
+          onClick={() => setCondicaoEmInstanciaId(p.id)}
+          title="Pôr uma condição"
+        >
+          <i className="fas fa-plus" /> condição
+        </button>
+      </span>
+    );
+  }
+
+  // Ficha aberta ao lado: a criatura e a cópia dela no combate.
+  const fichaDe = instanciaAberta?.criaturaId
+    ? (criaturas.find((c) => c.id === instanciaAberta.criaturaId) ?? null)
+    : null;
+  function abrirFicha(instanciaId: string | null) {
+    setCriaturaAbertaInstanciaId(instanciaId);
+  }
+  function trocarFicha(passo: number) {
+    const ids = criaturasEmCombate.map((p) => p.id);
+    if (ids.length === 0) return;
+    const i = ids.indexOf(criaturaAbertaInstanciaId ?? "");
+    abrirFicha(ids[(i + passo + ids.length) % ids.length]);
+  }
 
   return (
     <div className="sessao-painel">
@@ -1009,14 +1203,41 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
                     <span>
                       <strong>{r.nome}</strong> em {r.alvos.map((a) => a.nome).join(", ")} · falta {falta}
                     </span>
+                    {reagindo
+                      // No multiataque o mesmo alvo aparece uma vez por acerto: um botão só.
+                      .filter((x, i, todos) => !x.personagemId && todos.findIndex((y) => y.instanciaId === x.instanciaId) === i)
+                      .map((alvo) => (
+                        <button
+                          type="button"
+                          key={alvo.instanciaId}
+                          className="nv-btn"
+                          title="Escolher uma das reações que cabem; gasta a reação do turno e os custos dela"
+                          onClick={async () => {
+                            const escolha = await escolherReacao(alvo.nome, alvo.reacoes ?? []);
+                            if (!escolha) return;
+                            const feito = await reagirComoCriatura(
+                              mesaId,
+                              combate.id,
+                              r.id,
+                              alvo.instanciaId,
+                              escolha.componenteId,
+                              escolha.reducao,
+                            );
+                            if (!feito.ok) return avisarErro(feito.erro);
+                            router.refresh();
+                          }}
+                        >
+                          {alvo.nome} reage…
+                        </button>
+                      ))}
                     {reagindo.length > 0 && (
                       <button
                         type="button"
                         className="nv-btn"
-                        title="O dano segue sem esperar a reação do jogador"
+                        title="A ação segue sem reação de ninguém"
                         onClick={async () => {
-                          for (const alvo of reagindo) {
-                            const feito = await seguirSemReacao(mesaId, combate.id, r.id, alvo.instanciaId);
+                          for (const instanciaId of new Set(reagindo.map((x) => x.instanciaId))) {
+                            const feito = await seguirSemReacao(mesaId, combate.id, r.id, instanciaId);
                             if (!feito.ok) return avisarErro(feito.erro);
                           }
                           router.refresh();
@@ -1054,6 +1275,7 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
             </div>
           )}
 
+          <div className={"sessao-combate-corpo" + (fichaDe ? " com-ficha" : "")}>
           <div className="sessao-iniciativa-lista">
             <div className="sessao-linha-iniciativa cabecalho" aria-hidden>
               <span />
@@ -1084,7 +1306,8 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
                   className={
                     "sessao-linha-iniciativa" +
                     (ehTurnoAtual ? " ativo" : "") +
-                    (arrastar.pega === p.id ? " arrastando" : "")
+                    (arrastar.pega === p.id ? " arrastando" : "") +
+                    (criaturaAbertaInstanciaId === p.id ? " selecionada" : "")
                   }
                   {...arrastar.linha(p.id)}
                 >
@@ -1096,11 +1319,9 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
                       <button
                         type="button"
                         className="sessao-nome-link"
-                        onClick={() => {
-                          setCriaturaAberta(criatura);
-                          setCriaturaAbertaInstanciaId(p.id);
-                        }}
-                        title="Abrir a ficha (ações roláveis)"
+                        onClick={() => abrirFicha(criaturaAbertaInstanciaId === p.id ? null : p.id)}
+                        aria-expanded={criaturaAbertaInstanciaId === p.id}
+                        title="Abrir a ficha ao lado"
                       >
                         {p.nomeExibicao}
                       </button>
@@ -1115,46 +1336,7 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
                         onMudar={(gastas) => mudarAcoes(p.id, gastas)}
                       />
                     </small>
-                    <span className="sessao-condicoes">
-                      {p.condicoes.map((c) => (
-                        <ChipCondicao key={c.id} nome={c.nome} rodadas={c.rodadas} origem={c.origem}>
-                          {c.salvaguarda && p.criaturaId && (
-                            <button
-                              type="button"
-                              className="condicao-chip-botao"
-                              title={`Rolar a salvaguarda (CD ${c.salvaguarda.cd}) pra ${p.nomeExibicao} sair`}
-                              aria-label={`Rolar a salvaguarda de ${c.nome}`}
-                              onClick={async () => {
-                                const nova = await comErro(() => rolarSaidaDeCondicao(mesaId, combate.id, p.id, c.id));
-                                if (nova) setSessao(nova);
-                              }}
-                            >
-                              <i className="fas fa-dice-d20" />
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            className="condicao-chip-botao"
-                            title="Tirar a condição"
-                            aria-label={`Tirar ${c.nome} de ${p.nomeExibicao}`}
-                            onClick={async () => {
-                              const nova = await comErro(() => removerCondicao(mesaId, combate.id, p.id, c.id));
-                              if (nova) setSessao(nova);
-                            }}
-                          >
-                            <i className="fas fa-xmark" />
-                          </button>
-                        </ChipCondicao>
-                      ))}
-                      <button
-                        type="button"
-                        className="sessao-condicao-mais"
-                        onClick={() => setCondicaoEmInstanciaId(p.id)}
-                        title="Pôr uma condição"
-                      >
-                        <i className="fas fa-plus" /> condição
-                      </button>
-                    </span>
+                    {condicoesDe(p)}
                   </span>
                   {p.criaturaId ? (
                     <Olhos
@@ -1177,6 +1359,33 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
                       }}
                     />
                     <span className="sessao-iniciativa-pvmax">/ {pvMax}</span>
+                    {p.criaturaId && p.pvTemp > 0 && (
+                      <button
+                        type="button"
+                        className="sessao-pv-temp"
+                        title="PV temporário: o dano sai dele primeiro. Clique pra ajustar."
+                        aria-label={`PV temporário de ${p.nomeExibicao}: ${p.pvTemp}`}
+                        onClick={async () => {
+                          const resposta = await Swal.fire({
+                            title: `PV temporário de ${p.nomeExibicao}`,
+                            input: "number",
+                            inputValue: p.pvTemp,
+                            inputAttributes: { min: "0" },
+                            showCancelButton: true,
+                            confirmButtonText: "Salvar",
+                            cancelButtonText: "Cancelar",
+                            background: "var(--bg-card)",
+                            color: "var(--text-main)",
+                          });
+                          if (!resposta.isConfirmed) return;
+                          const novo = Math.max(0, Math.trunc(Number(resposta.value) || 0));
+                          mudarLocal((x) => (x.id === p.id ? { ...x, pvTemp: novo } : x));
+                          void comErro(() => atualizarPvTempInstancia(mesaId, combate.id, p.id, novo));
+                        }}
+                      >
+                        +{p.pvTemp}
+                      </button>
+                    )}
                   </span>
                   {ppMax > 0 ? (
                     <span className="sessao-vital">
@@ -1221,6 +1430,49 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
             })}
           </div>
 
+          {fichaDe && instanciaAberta && (
+            <FichaCombate
+              criatura={fichaDe}
+              instancia={{
+                ...instanciaAberta,
+                usosAcoes: { ...instanciaAberta.usosAcoes, ...usosOverrides[instanciaAberta.id] },
+              }}
+              pv={pvOverrides[instanciaAberta.id] ?? instanciaAberta.pvAtual ?? 0}
+              naVez={daVez?.id === instanciaAberta.id}
+              ocupado={processando}
+              bolinhas={
+                <AcoesDoParticipante
+                  nome={instanciaAberta.nomeExibicao}
+                  gastas={instanciaAberta.acoesGastas}
+                  onMudar={(gastas) => mudarAcoes(instanciaAberta.id, gastas)}
+                />
+              }
+              condicoes={condicoesDe(instanciaAberta)}
+              onPv={(novo) => {
+                setPvOverrides((atual) => ({ ...atual, [instanciaAberta.id]: novo }));
+                void atualizarPvInstancia(mesaId, instanciaAberta.id, novo);
+              }}
+              onPp={(novo) => {
+                mudarLocal((x) => (x.id === instanciaAberta.id ? { ...x, ppGasto: fichaDe.pontosPoder - novo } : x));
+                void comErro(() => atualizarPpInstancia(mesaId, combate.id, instanciaAberta.id, novo));
+              }}
+              onDano={() => setDanoEmInstanciaId(instanciaAberta.id)}
+              onUsar={(item, forcar) => void usarAcaoDaCriatura(item, forcar)}
+              onUsos={(componenteId, restantes) => {
+                setUsosOverrides((atual) => ({
+                  ...atual,
+                  [instanciaAberta.id]: { ...(atual[instanciaAberta.id] ?? {}), [componenteId]: restantes },
+                }));
+                void comErro(() => definirUsosAcao(mesaId, combate.id, instanciaAberta.id, componenteId, restantes));
+              }}
+              onRevelar={(componenteId, revelada) => alternarAcaoRevelada(instanciaAberta.id, componenteId, revelada)}
+              onFechar={() => abrirFicha(null)}
+              onAnterior={() => trocarFicha(-1)}
+              onProxima={() => trocarFicha(1)}
+            />
+          )}
+          </div>
+
           {!mostrarBuilder ? (
             <button type="button" className="nv-btn sessao-reforco" onClick={() => setMostrarBuilder(true)}>
               <i className="fas fa-plus" /> Adicionar participante
@@ -1241,6 +1493,8 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
         </section>
       )}
 
+      {!combate && <HistoricoSessoes mesaId={mesaId} />}
+
       {combate && condicaoEmInstanciaId && (
         <CondicaoModal
           nome={combate.participantes.find((p) => p.id === condicaoEmInstanciaId)?.nomeExibicao ?? ""}
@@ -1257,6 +1511,7 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
           nome={danoEm.nomeExibicao}
           pvAtual={pvOverrides[danoEm.id] ?? danoEm.pvAtual ?? 0}
           pvMax={danoEm.pvMax ?? 0}
+          pvTemp={danoEm.pvTemp}
           resistencias={
             criaturaDoDano?.resistencias ?? {
               danoResistencia: [],
@@ -1266,68 +1521,16 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
             }
           }
           tiposDano={tiposDano}
-          onAplicar={(partes, desligadas, pvDepois) => {
+          onAplicar={(partes, desligadas, pvDepois, pvTempDepois) => {
             const id = danoEm.id;
             setPvOverrides((atual) => ({ ...atual, [id]: pvDepois }));
+            mudarLocal((x) => (x.id === id ? { ...x, pvTemp: pvTempDepois } : x));
             void comErro(() => aplicarDanoInstancia(mesaId, id, partes, desligadas));
           }}
           onFechar={() => setDanoEmInstanciaId(null)}
         />
       )}
 
-      {criaturaAberta && criaturaAbertaInstanciaId && (
-        <div
-          className="modal-overlay"
-          onClick={() => {
-            setCriaturaAberta(null);
-            setCriaturaAbertaInstanciaId(null);
-          }}
-        >
-          <div className="modal-box modal-box-grande sessao-modal-ficha" onClick={(e) => e.stopPropagation()}>
-            <FichaCriaturaView
-              criatura={criaturaAberta}
-              onFechar={() => {
-                setCriaturaAberta(null);
-                setCriaturaAbertaInstanciaId(null);
-              }}
-              permitirRolagem
-              usosContexto={{
-                usosAcoes: { ...instanciaAberta?.usosAcoes, ...usosOverrides[criaturaAbertaInstanciaId] },
-                onUsarAcao: (item) => void usarAcaoDaCriatura(item),
-                onDefinir: (componenteId, novoValor) => {
-                  const instanciaId = criaturaAbertaInstanciaId;
-                  setUsosOverrides((atual) => ({
-                    ...atual,
-                    [instanciaId]: { ...(atual[instanciaId] ?? {}), [componenteId]: novoValor },
-                  }));
-                  if (combate) {
-                    void comErro(() => definirUsosAcao(mesaId, combate.id, instanciaId, componenteId, novoValor));
-                  }
-                },
-                revelacao: instanciaAberta
-                  ? {
-                      reveladas: instanciaAberta.acoesReveladas,
-                      // Ação rolada entra sozinha na prévia dos jogadores.
-                      onUsar: (componenteId) => {
-                        if (instanciaAberta.autoRevelarAcoes && !instanciaAberta.acoesReveladas.includes(componenteId)) {
-                          alternarAcaoRevelada(instanciaAberta.id, componenteId, true);
-                        }
-                        // A 1ª rolagem da ação no turno gasta a ação do tipo dela.
-                        const bloco = criaturaAberta.componentes.find((c) => c.id === componenteId)?.categoria;
-                        const tipo = bloco ? ACAO_DO_BLOCO[bloco] : undefined;
-                        if (tipo && !instanciaAberta.acoesGastas[tipo]) {
-                          mudarAcoes(instanciaAberta.id, { ...instanciaAberta.acoesGastas, [tipo]: 1 });
-                        }
-                      },
-                      onRevelar: (componenteId, revelada) =>
-                        alternarAcaoRevelada(instanciaAberta.id, componenteId, revelada),
-                    }
-                  : undefined,
-              }}
-            />
-          </div>
-        </div>
-      )}
       {alvosDoCombate.modal}
     </div>
   );

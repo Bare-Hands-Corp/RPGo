@@ -5,7 +5,7 @@
 // atual que abre a lista. De criatura só aparece o que o narrador liberou.
 
 import { useEffect, useRef, useState } from "react";
-import type { CombateVisto, ParticipanteVisto } from "@/lib/combate";
+import type { CombateVisto, ModoResolucao, ParticipanteVisto } from "@/lib/combate";
 import {
   BotaoFinalizarTurno,
   EVENTO_ROLAR_CONCENTRACAO,
@@ -48,15 +48,19 @@ const NOME_ATRIBUTO: Record<string, string> = {
   vontade: "Vontade",
 };
 
+// O que disparou a janela de reação, do jeito que o jogador lê.
+const PEGOU: Record<ModoResolucao, string> = {
+  ataque: "acertou você",
+  salvaguarda: "pegou você",
+  direto: "pegou você",
+};
+
 export function IniciativaJogador({
   combate,
   personagemId,
-  reacoes,
 }: {
   combate: CombateVisto;
   personagemId: string;
-  // Ações de reação da ficha, pra janela de reação.
-  reacoes: { id: string; nome: string }[];
 }) {
   // Decisão de reagir em andamento (evita dois cliques).
   const [reagindo, setReagindo] = useState(false);
@@ -176,19 +180,24 @@ export function IniciativaJogador({
       {(combate.voce?.reacoes ?? []).map((r) => (
         <div key={`r-${r.resolucaoId}`} className="iniciativa-pedido reacao">
           <span>
-            <i className="fas fa-shield-halved" /> <strong>{r.de} pegou você</strong> com {r.nome}. Reagir?
+            <i className="fas fa-shield-halved" />{" "}
+            <strong>
+              {r.de} {PEGOU[r.modo]}
+            </strong>{" "}
+            com {r.nome}. Reagir?
           </span>
           <span className="iniciativa-pedido-botoes">
-            {reacoes.map((a) => (
+            {r.opcoes.map((a) => (
               <button
                 type="button"
                 key={a.id}
                 className="turno-finalizar compacto"
                 disabled={reagindo}
-                title="Gasta a reação do turno e os custos da ação"
+                title={`${a.efeito ? `${a.efeito}. ` : ""}Gasta a reação do turno e os custos da ação.`}
                 onClick={() => void reagir(r.resolucaoId, a.id)}
               >
                 {a.nome}
+                {a.efeito && <small className="iniciativa-reacao-efeito"> · {a.efeito}</small>}
               </button>
             ))}
             <button

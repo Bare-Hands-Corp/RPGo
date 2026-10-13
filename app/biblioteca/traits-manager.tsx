@@ -4,10 +4,11 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Swal from "sweetalert2";
 import { criarTemplate, atualizarTemplate, deletarTemplate, semearTiposDano } from "@/app/bestiario/traits-actions";
-import { criarTemplateVazio, textoEfeitoAcao } from "@/app/bestiario/utils";
+import { criarTemplateVazio, textoEfeitoAcao, textoEfeitoExtra } from "@/app/bestiario/utils";
+import { porDono } from "@/app/bestiario/componentes-editor";
 import { corDaCondicao } from "@/app/bestiario/cor-condicao";
 import { destacarCondicoes } from "@/app/bestiario/destacar-condicoes";
-import { EfeitosEditor, UsosLimitadosEditor } from "@/app/bestiario/componente-editor";
+import { EfeitosEditor, EfeitosExtrasEditor, GatilhoCampo, TecnicaCampos, UsosLimitadosEditor } from "@/app/bestiario/componente-editor";
 import { CATEGORIAS_ACAO, CATEGORIAS_COMPONENTE } from "@/app/bestiario/types";
 import type {
   CondicaoEfeito,
@@ -79,6 +80,9 @@ function ChipDoTemplate({ t: cru }: { t: Pick<TemplatePayload, "nome" | "categor
 
 const temChip = (categoria: ComponenteCategoria) => categoria === "tipoDano" || categoria === "condicao";
 
+// Pastas que se dividem pela criatura dona de cada ação ou aspecto.
+const temDono = (p: Pasta) => p.key === "aspecto" || p.key === "acoes";
+
 type Visualizacao = "lista" | "ficha" | "editor";
 
 type Props = { templatesIniciais: TemplateSerializado[] };
@@ -86,6 +90,13 @@ type Props = { templatesIniciais: TemplateSerializado[] };
 export function TraitsManager({ templatesIniciais }: Props) {
   const router = useRouter();
   const [templates, setTemplates] = useState(templatesIniciais);
+  // Tipo de dano criado de dentro de um efeito chega pelo servidor
+  // (router.refresh troca a prop): resincroniza durante o render.
+  const [templatesDaProp, setTemplatesDaProp] = useState(templatesIniciais);
+  if (templatesIniciais !== templatesDaProp) {
+    setTemplatesDaProp(templatesIniciais);
+    setTemplates(templatesIniciais);
+  }
   const [selecionadoId, setSelecionadoId] = useState<string | null>(null);
   const [draft, setDraft] = useState<TemplatePayload>(() => criarTemplateVazio());
   const [salvando, setSalvando] = useState(false);
@@ -223,7 +234,9 @@ export function TraitsManager({ templatesIniciais }: Props) {
   if (visualizacao === "lista") {
     const naPasta = (p: Pasta) => templates.filter((t) => p.categorias.includes(t.categoria));
     const itens = (pastaAtiva ? naPasta(pastaAtiva) : templates)
-      .filter((t) => casaBusca(busca, [t.nome, t.textoTemplate, metaCategoria(t.categoria).label]))
+      .filter((t) =>
+        casaBusca(busca, [t.nome, t.textoTemplate, metaCategoria(t.categoria).label, t.formula.origem?.nome ?? ""]),
+      )
       // Na ordem das pastas; dentro delas, tipo de dano na ordem do catálogo e o resto por nome.
       .map((t, i) => ({ t, i, pasta: PASTAS.findIndex((p) => p.categorias.includes(t.categoria)) }))
       .sort(
@@ -234,6 +247,15 @@ export function TraitsManager({ templatesIniciais }: Props) {
       .map((x) => x.t);
     const semTiposProprios = !templates.some((t) => t.categoria === "tipoDano");
     const naPastaDeTipos = pastaAtiva?.key === "tipoDano";
+    const cartao = (t: TemplateSerializado) => (
+      <button key={t.id} type="button" className="bestiario-card-item biblioteca-card" onClick={() => abrirFicha(t)}>
+        {temChip(t.categoria) ? <ChipDoTemplate t={t} /> : <span className="bestiario-card-nome">{t.nome}</span>}
+        {t.textoTemplate && <span className="biblioteca-card-descricao">{t.textoTemplate}</span>}
+        <span className="bestiario-card-meta">
+          <i className={`fas ${metaCategoria(t.categoria).icone}`} /> {metaCategoria(t.categoria).label}
+        </span>
+      </button>
+    );
 
     return (
       <div className="bestiario-lista-view">
@@ -262,6 +284,10 @@ export function TraitsManager({ templatesIniciais }: Props) {
               </>
             ) : pastaAtiva?.key === "condicao" ? (
               <span className="biblioteca-pasta-dica">Condições que as ações das suas criaturas aplicam.</span>
+            ) : pastaAtiva && temDono(pastaAtiva) ? (
+              <span className="biblioteca-pasta-dica">
+                O que você cria numa criatura fica guardado aqui, na pasta dela, pra usar em outras.
+              </span>
             ) : undefined}
           </BarraFiltros>
           <button type="button" className="bestiario-btn-nova" onClick={abrirNovo}>
@@ -282,26 +308,20 @@ export function TraitsManager({ templatesIniciais }: Props) {
                     <span className="filtro-pasta-total">{daPasta.length}</span>
                   </h3>
                 )}
-                <div className="bestiario-grade-cards">
-                  {daPasta.map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    className="bestiario-card-item biblioteca-card"
-                    onClick={() => abrirFicha(t)}
-                  >
-                    {temChip(t.categoria) ? (
-                      <ChipDoTemplate t={t} />
-                    ) : (
-                      <span className="bestiario-card-nome">{t.nome}</span>
-                    )}
-                    {t.textoTemplate && <span className="biblioteca-card-descricao">{t.textoTemplate}</span>}
-                    <span className="bestiario-card-meta">
-                      <i className={`fas ${metaCategoria(t.categoria).icone}`} /> {metaCategoria(t.categoria).label}
-                    </span>
-                  </button>
-                  ))}
-                </div>
+                {temDono(p) ? (
+                  // Uma pasta por criatura dona; o que nasceu aqui fica em "Avulsos".
+                  porDono(daPasta).map(({ dono, itens: doDono }) => (
+                    <details key={dono} className="biblioteca-dono" open>
+                      <summary>
+                        <i className="fas fa-folder" /> {dono}
+                        <span className="filtro-pasta-total">{doDono.length}</span>
+                      </summary>
+                      <div className="bestiario-grade-cards">{doDono.map(cartao)}</div>
+                    </details>
+                  ))
+                ) : (
+                  <div className="bestiario-grade-cards">{daPasta.map(cartao)}</div>
+                )}
               </section>
             );
           })
@@ -335,7 +355,10 @@ export function TraitsManager({ templatesIniciais }: Props) {
       return null;
     }
     const f = t.formula;
-    const badges = f.efeitos.map(textoEfeitoAcao).filter((x): x is string => x !== null);
+    const badges = [
+      ...f.efeitos.map(textoEfeitoAcao).filter((x): x is string => x !== null),
+      ...f.efeitosExtras.map((e) => textoEfeitoExtra(e)),
+    ];
     const condicoes = f.efeitos.filter((e): e is CondicaoEfeito => e.tipo === "condicao");
     return (
       <div className="bestiario-ficha-view">
@@ -351,6 +374,12 @@ export function TraitsManager({ templatesIniciais }: Props) {
           <h2>{temChip(t.categoria) ? <ChipDoTemplate t={t} /> : t.nome}</h2>
           <p className="bestiario-ficha-subtitulo">
             <i className={`fas ${metaCategoria(t.categoria).icone}`} /> {metaCategoria(t.categoria).label}
+            {f.origem?.nome && (
+              <>
+                {" · "}
+                <i className="fas fa-folder" /> {f.origem.nome}
+              </>
+            )}
           </p>
         </div>
         {(badges.length > 0 || f.alcance || f.custo) && (
@@ -545,6 +574,19 @@ export function TraitsManager({ templatesIniciais }: Props) {
               </label>
             ) : (
               <>
+                {draft.categoria === "reacao" && (
+                  <GatilhoCampo valor={draft.formula.gatilho} onChange={(g) => formulaCampo("gatilho", g)} />
+                )}
+                {draft.categoria !== "aspecto" && (
+                  <TecnicaCampos
+                    tecnica={draft.formula.tecnica}
+                    grau={draft.formula.grau}
+                    onChange={(patch) => {
+                      if (patch.tecnica !== undefined) formulaCampo("tecnica", patch.tecnica);
+                      if (patch.grau !== undefined) formulaCampo("grau", patch.grau);
+                    }}
+                  />
+                )}
                 <UsosLimitadosEditor
                   usos={draft.formula.usos}
                   recarga={draft.formula.recarga}
@@ -558,6 +600,12 @@ export function TraitsManager({ templatesIniciais }: Props) {
                   efeitos={draft.formula.efeitos}
                   condicoesDisponiveis={condicoesDisponiveis}
                   onChange={(efeitos) => formulaCampo("efeitos", efeitos)}
+                />
+
+                <EfeitosExtrasEditor
+                  efeitos={draft.formula.efeitosExtras}
+                  recursos={[]}
+                  onChange={(efeitos) => formulaCampo("efeitosExtras", efeitos)}
                 />
 
                 <label>

@@ -77,13 +77,17 @@ import {
 import { useExaustaoOtimista, usePpOtimista } from "./use-exaustao-otimista";
 import {
   ACAO_COMBATE,
+  GATILHOS_REACAO,
   MAX_DANOS_EXTRAS,
   ehAcaoDeCombate,
   lerDanosExtras,
+  lerGatilho,
   maximoDeAcoes,
+  textoGatilho,
   type AcoesGastas,
   type CombateVisto,
   type DanoExtra,
+  type GatilhoReacao,
   type ResultadoAlvo,
 } from "@/lib/combate";
 import { AcoesDoTurno, EVENTO_CD_TECNICAS } from "./acoes-do-turno";
@@ -128,6 +132,8 @@ type Acao = {
   nome: string;
   descricao: string;
   tipo: string;
+  // Reação: o que a dispara no combate (null = qualquer ação que o pegue).
+  gatilho?: string | null;
   tag: string | null;
   custoPp: number;
   custoPa: number;
@@ -312,6 +318,7 @@ type FormState = {
   nome: string;
   descricao: string;
   tipo: string;
+  gatilho: GatilhoReacao;
   tag: string;
   custoPp: string;
   custoRecursoId: string;
@@ -346,6 +353,7 @@ const FORM_VAZIO: FormState = {
   nome: "",
   descricao: "",
   tipo: "padrao",
+  gatilho: "qualquer",
   tag: "",
   custoPp: "",
   custoRecursoId: "",
@@ -688,6 +696,7 @@ export function AcoesTab({
       nome: acao.nome,
       descricao: acao.descricao,
       tipo: acao.tipo,
+      gatilho: lerGatilho(acao.gatilho),
       tag: acao.tag || "",
       custoPp: acao.custoPpFormula ?? (acao.custoPp ? String(acao.custoPp) : ""),
       custoRecursoId: acao.custoRecursoId || "",
@@ -749,6 +758,7 @@ export function AcoesTab({
       nome: nomeLimpo,
       descricao: form.descricao,
       tipo: form.tipo,
+      gatilho: form.tipo === "react" && form.gatilho !== "qualquer" ? form.gatilho : null,
       tag: form.tag,
       custoPp: pp.numero,
       custoPpFormula: pp.formula,
@@ -1496,6 +1506,11 @@ export function AcoesTab({
                                 <i className="fas fa-hourglass-half" /> {duracaoTexto}
                               </span>
                             )}
+                            {acao.tipo === "react" && acao.gatilho && (
+                              <span className="acao-stat" title="Gatilho da reação">
+                                <i className="fas fa-bell" /> {textoGatilho(lerGatilho(acao.gatilho))}
+                              </span>
+                            )}
                             <StatsPorTurno
                               efeitos={efeitosAcao}
                               grau={acao.tecnica && acao.grau > 0 ? acao.grau : undefined}
@@ -1810,6 +1825,24 @@ export function AcoesTab({
                 placeholder="Ex: Soco Meteoro"
                 autoFocus
               />
+
+              {form.tipo === "react" && (
+                <>
+                  <label>Gatilho da reação</label>
+                  <select value={form.gatilho} onChange={(e) => setF("gatilho", e.target.value as GatilhoReacao)}>
+                    {GATILHOS_REACAO.map((g) => (
+                      <option key={g.slug} value={g.slug}>
+                        {g.texto}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="campo-dica">
+                    Em combate, quando o gatilho bate, a reação é oferecida antes de a ação valer. Efeitos que entram
+                    sozinhos: bônus na CR (o ataque é comparado de novo), PV temporário (o dano sai dele primeiro) e
+                    Redução de Dano.
+                  </p>
+                </>
+              )}
 
               {form.origemForma && acoesPorId.has(form.origemForma) && (
                 <>

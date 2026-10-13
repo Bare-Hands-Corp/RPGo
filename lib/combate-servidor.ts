@@ -2,7 +2,18 @@
 // narrador liberou (PV, PP, CR, ações reveladas). Só servidor.
 
 import { prisma } from "@/lib/prisma";
-import { serializarCriatura, textoEfeitoAcao } from "@/app/bestiario/utils";
+import {
+  CHAVE_LENDARIAS,
+  comoResistencias,
+  serializarCriatura,
+  textoEfeitoAcao,
+  textoEfeitoExtra,
+  textoTecnica,
+} from "@/app/bestiario/utils";
+import { parseFormulaDados, rolarDados } from "@/lib/dice";
+import { defesasDaCriatura, resolverDano, type ParteDano } from "@/lib/dano";
+import { tipoDominante } from "@/lib/estatisticas-combate";
+import { marcarVez, registrarDano } from "@/lib/estatisticas-servidor";
 import { CATEGORIAS_COMPONENTE } from "@/app/bestiario/types";
 import type { Prisma } from "@prisma/client";
 import {
@@ -100,7 +111,9 @@ export async function carregarCombateDoJogador(
               categoria: CATEGORIAS_COMPONENTE.find((cat) => cat.key === comp.categoria)?.label ?? "",
               descricao: comp.descricao,
               stats: [
+                ...(comp.tecnica ? [textoTecnica(comp)] : []),
                 ...comp.efeitos.map(textoEfeitoAcao).filter((t): t is string => t !== null),
+                ...comp.efeitosExtras.map((e) => textoEfeitoExtra(e, c.recursos)),
                 ...(comp.alcance.trim() ? [`Alcance: ${comp.alcance.trim()}`] : []),
                 ...(comp.custo.trim() ? [`Custo: ${comp.custo.trim()}`] : []),
               ],
@@ -154,11 +167,12 @@ export async function carregarCombateDoJogador(
                   ]
                 : [],
             ),
-            reacoes: resolucoes.flatMap((r) =>
-              r.alvos.some((a) => a.instanciaId === minha.id && a.reacao === "pendente")
-                ? [{ resolucaoId: r.id, de: r.atacanteNome, nome: r.nome }]
-                : [],
-            ),
+            reacoes: resolucoes.flatMap((r) => {
+              const alvo = r.alvos.find((a) => a.instanciaId === minha.id && a.reacao === "pendente");
+              return alvo
+                ? [{ resolucaoId: r.id, de: r.atacanteNome, nome: r.nome, modo: r.modo, opcoes: alvo.reacoes ?? [] }]
+                : [];
+            }),
             concentracoes: resolucoes.flatMap((r) =>
               r.alvos.flatMap((a) =>
                 a.instanciaId === minha.id && a.concentracao
@@ -202,18 +216,49 @@ export async function participacaoEmCombate(personagemId: string) {
   };
 }
 
+// Dano de condição ("a cada turno") que caiu num jogador ao passar a vez:
+// quem chamou desconta, porque o dano de personagem passa pela ficha dele.
+// `fonteId` é quem aplicou a condição (leva o crédito do dano nas estatísticas).
+export type DanoPeriodico = {
+  personagemId: string;
+  nome: string;
+  condicao: string;
+  fonteId: string | null;
+  partes: ParteDano[];
+};
+
 // Passa a vez pro próximo (vira a rodada no fim da lista). Quem recebe a vez
-// começa o turno com todas as ações de volta.
-export async function avancarTurnoDoCombate(combateId: string) {
+// começa o turno com todas as ações de volta. O dano por turno das condições
+// roda aqui: no fim do turno de quem passa a vez e no início do de quem recebe.
+// O das criaturas já sai descontado; o dos jogadores volta em `periodicos`.
+export async function avancarTurnoDoCombate(combateId: string): Promise<{ periodicos: DanoPeriodico[] }> {
   const combate = await prisma.combate.findUniqueOrThrow({
     where: { id: combateId },
     select: {
       rodadaAtual: true,
       turnoAtual: true,
-      participantes: { select: { id: true, iniciativa: true, ordem: true, condicoesAtivas: true } },
+      rolagensPrivadas: true,
+      sessao: { select: { mesaId: true } },
+      participantes: {
+        select: {
+          id: true,
+          iniciativa: true,
+          ordem: true,
+          condicoesAtivas: true,
+          criaturaId: true,
+          personagemId: true,
+          pvAtual: true,
+          pvMax: true,
+          pvTemp: true,
+          pvTempDuracao: true,
+          nomeExibicao: true,
+          estadoRecargas: true,
+        },
+      },
     },
   });
   const naOrdem = ordenarParticipantes(combate.participantes);
+  const anterior = naOrdem[combate.turnoAtual];
   let turno = combate.turnoAtual + 1;
   let rodada = combate.rodadaAtual;
   if (naOrdem.length === 0 || turno >= naOrdem.length) {
@@ -221,6 +266,80 @@ export async function avancarTurnoDoCombate(combateId: string) {
     rodada += 1;
   }
   const proximo = naOrdem[turno];
+
+  // PV temporário que dura "até o início do próximo turno" de quem recebe a
+  // vez acaba aqui, antes do dano de início de turno.
+  if (proximo?.personagemId) {
+    await prisma.personagem.updateMany({
+      where: { id: proximo.personagemId, hpTempDuracao: "turno" },
+      data: { hpTemp: 0, hpTempDuracao: null },
+    });
+  } else if (proximo && proximo.pvTempDuracao === "turno") {
+    proximo.pvTemp = 0;
+    await prisma.instanciaCombate.update({ where: { id: proximo.id }, data: { pvTemp: 0, pvTempDuracao: null } });
+  }
+
+  // Dano por turno das condições, antes de a rodada delas passar.
+  const periodicos: DanoPeriodico[] = [];
+  const vezes = [
+    { p: anterior, quando: "fim" },
+    { p: proximo, quando: "inicio" },
+  ] as const;
+  for (const { p, quando } of vezes) {
+    if (!p) continue;
+    for (const c of lerCondicoesAtivas(p.condicoesAtivas)) {
+      if (!c.porTurno || c.porTurno.quando !== quando) continue;
+      const f = parseFormulaDados(c.porTurno.formula);
+      const valor = f.dados.length > 0 ? rolarDados(f.dados, f.modificador).total : f.modificador;
+      if (!(valor > 0)) continue;
+      const partes = [{ valor, tipo: c.porTurno.tipo }];
+      if (p.personagemId) {
+        periodicos.push({
+          personagemId: p.personagemId,
+          nome: p.nomeExibicao,
+          condicao: c.nome,
+          fonteId: c.fonteId && naOrdem.some((x) => x.id === c.fonteId) ? c.fonteId : null,
+          partes,
+        });
+        continue;
+      }
+      if (!p.criaturaId) continue;
+      const criatura = await prisma.criatura.findUnique({ where: { id: p.criaturaId }, select: { resistencias: true } });
+      const r = resolverDano(partes, defesasDaCriatura(comoResistencias(criatura?.resistencias)), {
+        hpAtual: p.pvAtual ?? 0,
+        hpTemp: p.pvTemp,
+        hpMax: p.pvMax ?? 0,
+      });
+      p.pvAtual = r.hpAtual.depois;
+      p.pvTemp = r.hpTemp.depois;
+      await prisma.instanciaCombate.update({
+        where: { id: p.id },
+        data: {
+          pvAtual: r.hpAtual.depois,
+          pvTemp: r.hpTemp.depois,
+          ...(r.hpTemp.depois === 0 ? { pvTempDuracao: null } : {}),
+        },
+      });
+      await registrarDano(combateId, {
+        de: c.fonteId && naOrdem.some((x) => x.id === c.fonteId) ? c.fonteId : null,
+        para: p.id,
+        valor: r.final,
+        bruto: r.bruto,
+        tipo: tipoDominante(r.partes),
+        acao: c.nome,
+        caiu: r.hpAtual.antes > 0 && r.hpAtual.depois <= 0,
+      });
+      await prisma.mensagem.create({
+        data: {
+          sessionId: combate.sessao.mesaId,
+          uid: "combate",
+          nome: p.nomeExibicao,
+          mensagem: `recebeu ${r.final} de dano (${c.nome}).`,
+          tipo: "texto",
+        },
+      });
+    }
+  }
 
   // A vez de quem aplicou uma condição voltou: uma rodada a menos nela.
   const presentes = new Set(naOrdem.map((p) => p.id));
@@ -234,9 +353,31 @@ export async function avancarTurnoDoCombate(combateId: string) {
       })
     : [];
 
+  // Criatura que recebe a vez: cada ação esgotada com recarga por dado rola o
+  // d6 dela. Com as rolagens do narrador privadas, o chat não fica sabendo.
+  const recarga = proximo?.criaturaId ? await rolarRecargas(proximo.criaturaId, proximo.estadoRecargas) : null;
+  if (recarga && recarga.linhas.length > 0 && !combate.rolagensPrivadas) {
+    await prisma.mensagem.create({
+      data: {
+        sessionId: combate.sessao.mesaId,
+        uid: "combate",
+        nome: proximo!.nomeExibicao,
+        mensagem: `recarga: ${recarga.linhas.join("; ")}.`,
+        tipo: "texto",
+      },
+    });
+  }
+
   await prisma.$transaction([
     prisma.combate.update({ where: { id: combateId }, data: { turnoAtual: turno, rodadaAtual: rodada } }),
-    ...(proximo ? [prisma.instanciaCombate.update({ where: { id: proximo.id }, data: { acoesGastas: {} } })] : []),
+    ...(proximo
+      ? [
+          prisma.instanciaCombate.update({
+            where: { id: proximo.id },
+            data: { acoesGastas: {}, ...(recarga?.mudou ? { estadoRecargas: recarga.usos } : {}) },
+          }),
+        ]
+      : []),
     ...condicoesNovas.map((c) =>
       prisma.instanciaCombate.update({
         where: { id: c.id },
@@ -244,6 +385,51 @@ export async function avancarTurnoDoCombate(combateId: string) {
       }),
     ),
   ]);
+  await marcarVez(combateId, proximo?.id ?? null);
+  return { periodicos };
+}
+
+// Começo do turno de uma criatura: volta o que é "por turno" (usos que
+// recarregam a cada turno e as ações lendárias) e rola a recarga (d6 contra o
+// mínimo) das ações que estão sem usos. Devolve os usos novos e o que
+// aconteceu, pra contar no chat.
+async function rolarRecargas(criaturaId: string, estadoRecargas: unknown) {
+  const componentes = await prisma.traitInstance.findMany({
+    where: { criaturaId },
+    select: { id: true, nome: true, parametrosResolvidos: true },
+  });
+  const usos: Record<string, number> = {};
+  if (estadoRecargas && typeof estadoRecargas === "object") {
+    for (const [id, v] of Object.entries(estadoRecargas as Record<string, unknown>)) {
+      if (typeof v === "number" && Number.isFinite(v)) usos[id] = Math.max(0, Math.trunc(v));
+    }
+  }
+  const linhas: string[] = [];
+  let mudou = false;
+  for (const c of componentes) {
+    const p = (c.parametrosResolvidos ?? {}) as { usos?: unknown; recarga?: { tipo?: unknown; minimo?: unknown } | null };
+    const maximo = Number(p.usos);
+    if (p.recarga?.tipo === "turno") {
+      if (c.id in usos) {
+        delete usos[c.id];
+        mudou = true;
+      }
+      continue;
+    }
+    if (!(maximo > 0) || p.recarga?.tipo !== "dado" || (usos[c.id] ?? maximo) > 0) continue;
+    const minimo = Math.min(6, Math.max(1, Math.trunc(Number(p.recarga.minimo) || 6)));
+    const dado = 1 + Math.floor(Math.random() * 6);
+    if (dado >= minimo) {
+      usos[c.id] = maximo;
+      mudou = true;
+    }
+    linhas.push(`${c.nome || "Ação"} ${dado >= minimo ? "recarregou" : "não recarregou"} (${dado} no d6)`);
+  }
+  if (CHAVE_LENDARIAS in usos) {
+    delete usos[CHAVE_LENDARIAS];
+    mudou = true;
+  }
+  return { usos, linhas, mudou };
 }
 
 // ─── Condições ─────────────────────────────────────────────────────────────
@@ -287,6 +473,7 @@ export async function aplicarCondicoes(entrada: {
         fonteId: entrada.fonteId,
         origem: entrada.origem,
         salvaguarda: c.salvaguarda,
+        porTurno: c.porTurno ?? null,
       }));
       const mantidas = lerCondicoesAtivas(i.condicoesAtivas).filter(
         (c) => !novas.some((n) => mesmaCondicao(n.nome, c.nome)),

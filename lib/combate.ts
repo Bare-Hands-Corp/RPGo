@@ -68,6 +68,15 @@ export const ACAO_COMBATE: Record<TipoAcaoCombate, { nome: string; cor: string }
   react: { nome: "Reação", cor: "var(--color-react)" },
 };
 
+// Bloco do statblock de criatura → ação do turno que ela gasta ao usar.
+// Aspecto e ação lendária não gastam.
+export const ACAO_DO_BLOCO: Record<string, TipoAcaoCombate> = {
+  acao: "padrao",
+  acaoBonus: "bonus",
+  acaoPoderosa: "power",
+  reacao: "react",
+};
+
 export type AcoesGastas = Partial<Record<TipoAcaoCombate, number>>;
 
 export function ehAcaoDeCombate(tipo: string): tipo is TipoAcaoCombate {
@@ -125,13 +134,56 @@ export type AlvoResolucao = {
   concentracao?: { nome: string; cd: number } | null;
   // As condições da ação já foram postas nele.
   condicaoAplicada?: boolean;
-  // Janela de reação do jogador atingido. "pendente": ele ainda não decidiu e
-  // o dano espera; "nenhuma": não reagiu (ou não tinha como); objeto: reagiu,
-  // e `reducao` sai do dano. Ausente = a janela não foi aberta.
-  reacao?: "pendente" | "nenhuma" | { nome: string; reducao: number } | null;
+  // Janela de reação de quem a ação pegou. "pendente": ainda não decidiu e a
+  // ação espera (dano e condições); "nenhuma": não reagiu (ou não tinha como);
+  // objeto: reagiu. Ausente = a janela não foi aberta.
+  reacao?: "pendente" | "nenhuma" | ReacaoUsada | null;
+  // Com a janela aberta, as reações que cabem (pelo gatilho de cada uma).
+  reacoes?: OpcaoReacao[];
+  // No ataque, a rolagem deste acerto: uma reação que sobe a CR compara de novo.
+  lance?: LanceGuardado | null;
   // No ataque, o dano rolado pra este acerto (cada acerto tem a própria rolagem).
   danoRolado?: { valor: number; tipo: string }[] | null;
 };
+
+export type LanceGuardado = { total: number; natural: number | null; critico: boolean };
+
+// O que a reação fez: `reducao` sai do dano, `cr` foi o quanto a CR subiu,
+// `pvTemp` o PV temporário que entrou antes do dano, e `anulou` diz que o
+// ataque, comparado de novo, errou.
+export type ReacaoUsada = { nome: string; reducao: number; cr?: number; pvTemp?: number; anulou?: boolean };
+
+// Reação que o alvo pode escolher na janela; `efeito` é o resumo pro botão.
+export type OpcaoReacao = { id: string; nome: string; efeito: string };
+
+// ─── Gatilho de reação ─────────────────────────────────────────────────────
+// Em que situação a reação é oferecida a quem foi pego por uma ação.
+export const GATILHOS_REACAO = [
+  { slug: "qualquer", nome: "Qualquer ação", texto: "Alvo de qualquer ação" },
+  { slug: "ataque", nome: "Ataque", texto: "Alvo de uma jogada de ataque" },
+  { slug: "salvaguarda", nome: "Salvaguarda", texto: "Alvo de uma salvaguarda para evitar dano" },
+  { slug: "dano", nome: "Dano", texto: "Vai receber dano" },
+  { slug: "outro", nome: "Outra situação", texto: "Outra situação (usada à mão, fora da janela)" },
+] as const;
+export type GatilhoReacao = (typeof GATILHOS_REACAO)[number]["slug"];
+
+// Reação de antes do gatilho existir (ou sem ele) vale pra qualquer ação.
+export function lerGatilho(raw: unknown): GatilhoReacao {
+  return GATILHOS_REACAO.find((g) => g.slug === raw)?.slug ?? "qualquer";
+}
+
+export function textoGatilho(g: GatilhoReacao): string {
+  return GATILHOS_REACAO.find((x) => x.slug === g)!.texto;
+}
+
+// A reação cabe na ação que pegou o alvo?
+export function gatilhoCabe(gatilho: GatilhoReacao, acao: { modo: ModoResolucao; temDano: boolean }): boolean {
+  if (gatilho === "qualquer") return true;
+  if (gatilho === "ataque") return acao.modo === "ataque";
+  if (gatilho === "salvaguarda") return acao.modo === "salvaguarda" && acao.temDano;
+  if (gatilho === "dano") return acao.temDano;
+  return false;
+}
 
 export type Resolucao = {
   id: string;
@@ -152,6 +204,17 @@ export type Resolucao = {
   alvos: AlvoResolucao[];
   criadaEm: number;
 };
+
+function lerReacaoUsada(o: Record<string, unknown>): ReacaoUsada {
+  const inteiro = (v: unknown) => Math.max(0, Math.trunc(Number(v) || 0));
+  return {
+    nome: String(o.nome ?? ""),
+    reducao: inteiro(o.reducao),
+    ...(inteiro(o.cr) > 0 ? { cr: inteiro(o.cr) } : {}),
+    ...(inteiro(o.pvTemp) > 0 ? { pvTemp: inteiro(o.pvTemp) } : {}),
+    ...(o.anulou === true ? { anulou: true } : {}),
+  };
+}
 
 const RESULTADOS: readonly string[] = ["acerto", "critico", "erro", "sucesso", "falha"];
 
@@ -198,11 +261,24 @@ export function lerResolucoes(raw: unknown): Resolucao[] {
             a?.reacao === "pendente" || a?.reacao === "nenhuma"
               ? a.reacao
               : a?.reacao && typeof a.reacao === "object"
-                ? {
-                    nome: String((a.reacao as Record<string, unknown>).nome ?? ""),
-                    reducao: Math.max(0, Math.trunc(Number((a.reacao as Record<string, unknown>).reducao) || 0)),
-                  }
+                ? lerReacaoUsada(a.reacao as Record<string, unknown>)
                 : null,
+          reacoes: Array.isArray(a?.reacoes)
+            ? (a.reacoes as Record<string, unknown>[]).flatMap((o) =>
+                typeof o?.id === "string" ? [{ id: o.id, nome: String(o.nome ?? ""), efeito: String(o.efeito ?? "") }] : [],
+              )
+            : [],
+          lance:
+            a?.lance && typeof a.lance === "object"
+              ? {
+                  total: Math.trunc(Number((a.lance as Record<string, unknown>).total) || 0),
+                  natural:
+                    (a.lance as Record<string, unknown>).natural == null
+                      ? null
+                      : Math.trunc(Number((a.lance as Record<string, unknown>).natural) || 0),
+                  critico: (a.lance as Record<string, unknown>).critico === true,
+                }
+              : null,
           danoRolado: Array.isArray(a?.danoRolado)
             ? (a.danoRolado as Record<string, unknown>[]).map((p) => ({
                 valor: Math.max(0, Math.trunc(Number(p?.valor) || 0)),
@@ -291,8 +367,9 @@ export type SalvaguardaPedida = {
   cd: number;
 };
 
-// Janela de reação: o personagem foi atingido e decide se reage antes do dano.
-export type ReacaoPedida = { resolucaoId: string; de: string; nome: string };
+// Janela de reação: a ação pegou o personagem e ele decide se reage antes de
+// ela valer. `opcoes` são as reações da ficha que cabem nessa ação.
+export type ReacaoPedida = { resolucaoId: string; de: string; nome: string; modo: ModoResolucao; opcoes: OpcaoReacao[] };
 
 // Teste de concentração que um dano do combate pediu.
 export type ConcentracaoPedida = { resolucaoId: string; nome: string; cd: number };

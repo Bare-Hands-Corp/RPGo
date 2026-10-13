@@ -1,86 +1,84 @@
 "use client";
 
-import Swal from "sweetalert2";
+import { useMemo } from "react";
+import { ChipEfeito, NomesRecursoContext } from "@/app/ficha/[uid]/efeitos-editor";
 import { modificador, formatarMod } from "@/lib/op-rpg";
-import { parseFormulaDados, rolarDados, type Dado } from "@/lib/dice";
-import { empilharRolagem } from "@/lib/empilhar-rolagem";
+import { nomeDoTamanho } from "./campos-criatura";
 import { ChipCondicao, separarCondicoes } from "./destacar-condicoes";
+import { RecursoBarra } from "./recursos-editor";
+import { ChipTipoDano } from "./tipos-dano-chips";
+import { IconeTipoDano } from "@/components/tipos-dano/tipos-dano";
 import { CATEGORIAS_COMPONENTE } from "./types";
+import { ataquesPorTurno, margemDeCritico, ppDoCusto, textoEfeitoAcao, textoTecnica } from "./utils";
 import type { AtributoSalvaguarda, CondicaoEfeito, ComponentePayload, CriaturaSerializada, EfeitoAcao } from "./types";
-
-const D6: Dado = { faces: 6, sinal: 1 };
-
-// Contador de usos de UMA cópia específica da criatura em combate
-// (InstanciaCombate) — ausente = ficha só-leitura sem contador funcional
-// (Bestiário puro, revisão do wizard). `usosAcoes` mapeia id do componente
-// pros usos restantes; ausente nesse mapa = ainda não gastou nenhum (cheio).
-export type UsosContexto = {
-  usosAcoes: Record<string, number>;
-  onDefinir: (componenteId: string, novoValor: number) => void;
-  // Usar a ação no combate: escolhe alvo, gasta usos, PP e a ação do turno e
-  // segue pras rolagens de acerto e dano. Ausente = só os chips de rolagem livre.
-  onUsarAcao?: (item: ComponentePayload) => void;
-  // Revelação pros jogadores: as ações que eles já veem na prévia da ficha,
-  // o aviso de que uma ação foi usada (rolada) e o botão de revelar/esconder.
-  revelacao?: {
-    reveladas: string[];
-    onUsar: (componenteId: string) => void;
-    onRevelar: (componenteId: string, revelada: boolean) => void;
-  };
-};
-
-const D20: Dado = { faces: 20, sinal: 1 };
-
-function temDado(formula: string) {
-  return parseFormulaDados(formula).dados.length > 0;
-}
-
-// Empilha uma rolagem simples de d20 + bônus fixo no Rolador (perícia,
-// salvaguarda, teste de atributo…) — mesmo canal usado pelas habilidades
-// de jogador, só que aqui o bônus já vem pronto (não passa por efeitos).
-function rolarBonus(nomeCriatura: string, nome: string, bonus: number) {
-  empilharRolagem({ dados: [D20], modificador: bonus, nomePreset: `${nomeCriatura}: ${nome}` });
-}
-
-function rolarAtaque(nomeCriatura: string, item: ComponentePayload, bonus: string) {
-  const p = parseFormulaDados(bonus || "0");
-  empilharRolagem({
-    dados: [D20, ...p.dados],
-    modificador: p.modificador,
-    nomePreset: `${nomeCriatura}: ${item.nome || "Ataque"}`,
-  });
-}
-
-function rolarDano(nomeCriatura: string, item: ComponentePayload, formula: string, tipos: string[]) {
-  const p = parseFormulaDados(formula);
-  if (p.dados.length === 0 && p.modificador === 0) return;
-  const tipo = tipos.filter(Boolean).join(" ou ");
-  empilharRolagem({
-    dados: p.dados,
-    modificador: p.modificador,
-    nomePreset: `${nomeCriatura}: ${item.nome || "Dano"}${tipo ? ` (${tipo})` : ""}`,
-  });
-}
-
-function rolarCura(nomeCriatura: string, item: ComponentePayload, formula: string) {
-  const p = parseFormulaDados(formula);
-  if (p.dados.length === 0) return;
-  empilharRolagem({ dados: p.dados, modificador: p.modificador, nomePreset: `${nomeCriatura}: ${item.nome || "Cura"}` });
-}
-
-function rolarVida(c: CriaturaSerializada) {
-  const p = parseFormulaDados(c.pvFormula);
-  if (p.dados.length === 0) return;
-  empilharRolagem({ dados: p.dados, modificador: p.modificador, nomePreset: `${c.nome}: Vida` });
-}
 
 function Atributo({ label, valor }: { label: string; valor: number }) {
   return (
     <div className="bestiario-ficha-atributo">
       <span className="bestiario-ficha-atributo-label">{label}</span>
-      <span className="bestiario-ficha-atributo-valor">
-        {valor} <em>({formatarMod(modificador(valor))})</em>
+      <strong className="bestiario-ficha-atributo-mod">{formatarMod(modificador(valor))}</strong>
+      <span className="bestiario-ficha-atributo-valor">{valor}</span>
+    </div>
+  );
+}
+
+// Número de destaque do topo da ficha (PV, CR, CD...).
+function Vital({
+  icone,
+  rotulo,
+  valor,
+  detalhe,
+  tom,
+}: {
+  icone: string;
+  rotulo: string;
+  valor: React.ReactNode;
+  detalhe?: string;
+  tom?: string;
+}) {
+  return (
+    <div className="bestiario-ficha-vital" style={tom ? ({ "--vital-cor": tom } as React.CSSProperties) : undefined}>
+      <span className="bestiario-ficha-vital-rotulo">
+        <i className={`fas ${icone}`} /> {rotulo}
       </span>
+      <strong>{valor}</strong>
+      {detalhe && <small>{detalhe}</small>}
+    </div>
+  );
+}
+
+// Linha de defesa: o que a criatura resiste, ignora ou sofre em dobro.
+function Defesa({
+  icone,
+  rotulo,
+  itens,
+  tom,
+  deDano = false,
+}: {
+  icone: string;
+  rotulo: string;
+  itens: string[];
+  tom: string;
+  // Tipo de dano ganha a cor e o ícone do catálogo do narrador.
+  deDano?: boolean;
+}) {
+  if (itens.length === 0) return null;
+  return (
+    <div className="bestiario-ficha-linha-testes" style={{ "--defesa-cor": tom } as React.CSSProperties}>
+      <strong>
+        <i className={`fas ${icone}`} /> {rotulo}
+      </strong>
+      <div className="bestiario-ficha-testes-lista">
+        {itens.map((t) =>
+          deDano ? (
+            <ChipTipoDano key={t} tipo={t} className="bestiario-ficha-defesa" />
+          ) : (
+            <span key={t} className="bestiario-ficha-defesa">
+              {t}
+            </span>
+          ),
+        )}
+      </div>
     </div>
   );
 }
@@ -92,11 +90,10 @@ function textoDano(formula: string, tipos: string[]) {
   return t ? `${f} ${t}` : f;
 }
 
-// Custo é texto livre, mas na prática quase sempre é só o número de Pontos
-// de Poder — nesse caso completa com "PP". Se já tiver unidade (ex: "2 PP",
-// "1 uso"), mostra como veio.
+// Custo em PP, como o combate cobra; texto antigo sem PP aparece como veio.
 function textoCusto(custo: string) {
-  return /^\d+$/.test(custo) ? `${custo} PP` : custo;
+  const pp = ppDoCusto(custo);
+  return pp > 0 ? `${pp} PP` : custo;
 }
 
 const FORMA_LABEL: Record<string, string> = {
@@ -117,63 +114,22 @@ const SIGLA_SALV: Record<AtributoSalvaguarda, string> = {
 };
 
 // Stat de uma linha do card — mesmo desenho dos `acao-stat` da ficha do
-// jogador (ícone + texto, sem caixa). Vira botão quando dá pra empilhar a
-// rolagem na Bandeja.
-function Stat({
-  icone,
-  titulo,
-  onRolar,
-  children,
-}: {
-  icone: string;
-  titulo?: string;
-  onRolar?: () => void;
-  children: React.ReactNode;
-}) {
-  const miolo = (
-    <>
+// jogador (ícone + texto, sem caixa). Esta ficha é de consulta: as rolagens
+// e o uso das ações ficam na ficha de combate (narrador/sessao/ficha-combate).
+function Stat({ icone, children }: { icone: string; children: React.ReactNode }) {
+  return (
+    <span className="bestiario-acao-stat">
       <i className={`fas ${icone}`} /> {children}
-    </>
-  );
-  return onRolar ? (
-    <button type="button" className="bestiario-acao-stat bestiario-acao-rolar" onClick={onRolar} title={titulo}>
-      {miolo}
-    </button>
-  ) : (
-    <span className="bestiario-acao-stat" title={titulo}>
-      {miolo}
     </span>
   );
 }
 
-function StatEfeito({
-  efeito,
-  item,
-  nomeCriatura,
-  permitirRolagem,
-  onUsar,
-}: {
-  efeito: EfeitoAcao;
-  item: ComponentePayload;
-  nomeCriatura: string;
-  permitirRolagem: boolean;
-  // Chamado quando a ação é rolada.
-  onUsar?: () => void;
-}) {
-  // Rolar a ação conta como usá-la.
-  const rolando = (rolar: () => void) => () => {
-    rolar();
-    onUsar?.();
-  };
+function StatEfeito({ efeito }: { efeito: EfeitoAcao }) {
   switch (efeito.tipo) {
     case "ataque":
       if (!efeito.bonus.trim()) return null;
       return (
-        <Stat
-          icone="fa-crosshairs"
-          titulo={permitirRolagem ? "Empilhar ataque no Rolador" : undefined}
-          onRolar={permitirRolagem ? rolando(() => rolarAtaque(nomeCriatura, item, efeito.bonus)) : undefined}
-        >
+        <Stat icone="fa-crosshairs">
           Acerto <strong>{efeito.bonus.trim()}</strong>
         </Stat>
       );
@@ -181,20 +137,21 @@ function StatEfeito({
       return (
         <Stat icone="fa-shield-halved">
           Salv {SIGLA_SALV[efeito.atributo] ?? efeito.atributo} CD <strong>{efeito.cd}</strong>
+          {efeito.metade ? " (metade se passar)" : ""}
         </Stat>
       );
     case "dano": {
       if (!textoDano(efeito.formula, efeito.tipos)) return null;
-      const tipo = efeito.tipos.filter(Boolean).join(" ou ");
-      const rolavel = permitirRolagem && !!efeito.formula.trim();
+      const tipos = efeito.tipos.filter(Boolean);
       return (
-        <Stat
-          icone="fa-burst"
-          titulo={rolavel ? "Empilhar dano no Rolador" : undefined}
-          onRolar={rolavel ? rolando(() => rolarDano(nomeCriatura, item, efeito.formula, efeito.tipos)) : undefined}
-        >
+        <Stat icone="fa-burst">
           {efeito.formula.trim() && <strong>{efeito.formula.trim()}</strong>}
-          {tipo && ` ${tipo}`}
+          {tipos.map((t, i) => (
+            <span key={t} className="bestiario-acao-tipo-dano">
+              {i > 0 && "ou "}
+              <IconeTipoDano tipo={t} /> {t}
+            </span>
+          ))}
         </Stat>
       );
     }
@@ -223,90 +180,38 @@ function StatEfeito({
       );
     case "cura": {
       if (!efeito.formula.trim()) return null;
-      const rolavel = permitirRolagem && temDado(efeito.formula);
       return (
-        <Stat
-          icone="fa-heart"
-          titulo={rolavel ? "Empilhar cura no Rolador" : undefined}
-          onRolar={rolavel ? rolando(() => rolarCura(nomeCriatura, item, efeito.formula)) : undefined}
-        >
+        <Stat icone="fa-heart">
           Recupera <strong>{efeito.formula.trim()}</strong> PV
         </Stat>
       );
     }
-    case "condicao":
-      // Condições aparecem destacadas no texto da descrição, não como stat.
-      return null;
+    case "condicao": {
+      // A condição aparece destacada na descrição; aqui só o dano que ela traz.
+      const texto = textoEfeitoAcao(efeito);
+      return texto ? <Stat icone="fa-droplet">{texto}</Stat> : null;
+    }
     case "livre":
       if (!efeito.texto.trim()) return null;
       return <Stat icone="fa-feather">{efeito.texto.trim()}</Stat>;
   }
 }
 
-function rolarRecarga(item: ComponentePayload, usosContexto: UsosContexto) {
-  if (item.usos === null || item.recarga?.tipo !== "dado") return;
-  const resultado = rolarDados([D6], 0).total;
-  const recarregou = resultado >= item.recarga.minimo;
-  void Swal.fire({
-    icon: recarregou ? "success" : "info",
-    title: `Rolou ${resultado} no d6`,
-    text: recarregou ? `${item.nome || "Ação"} recarregou!` : `Precisa de ${item.recarga.minimo}+ — não recarregou.`,
-    background: "var(--bg-card)",
-    color: "var(--text-main)",
-    timer: 2200,
-  });
-  if (recarregou) usosContexto.onDefinir(item.id, item.usos);
-}
-
-// Contador de usos — só interativo (botões de usar/recarregar) quando a
-// ficha abre de dentro de um combate (usosContexto presente); fora disso
-// mostra só o máximo cadastrado, sem contar nada (não faz sentido gastar
-// uso de uma ficha "modelo" que não está numa mesa específica).
-function ControleUsos({ item, usosContexto }: { item: ComponentePayload; usosContexto?: UsosContexto }) {
+// Usos limitados da ação. O contador de cada cópia em combate fica na ficha de combate.
+function Usos({ item }: { item: ComponentePayload }) {
   if (item.usos === null) return null;
-  if (!usosContexto) {
-    return (
-      <span className="bestiario-ficha-usos">
-        <i className="fas fa-bolt-lightning" /> {item.usos} uso{item.usos === 1 ? "" : "s"}
-      </span>
-    );
-  }
-
-  const maximo = item.usos;
-  const restantes = usosContexto.usosAcoes[item.id] ?? maximo;
-  const esgotado = restantes <= 0;
-
+  const recarga =
+    item.recarga?.tipo === "dado"
+      ? `recarga ${item.recarga.minimo >= 6 ? "6" : `${item.recarga.minimo}-6`}`
+      : item.recarga?.tipo === "combate"
+        ? "por combate"
+        : item.recarga?.tipo === "turno"
+          ? "por turno"
+          : null;
   return (
     <span className="bestiario-ficha-usos">
-      <button
-        type="button"
-        className={"bestiario-ficha-usos-btn" + (esgotado ? " esgotado" : "")}
-        onClick={() => usosContexto.onDefinir(item.id, Math.max(0, restantes - 1))}
-        disabled={esgotado}
-        title="Usar"
-      >
-        <i className="fas fa-bolt-lightning" /> {restantes}/{maximo}
-      </button>
-      {item.recarga?.tipo === "dado" && (
-        <button
-          type="button"
-          className="bestiario-ficha-dado-inline"
-          onClick={() => rolarRecarga(item, usosContexto)}
-          title={`Rolar recarga (${item.recarga.minimo}-6 no d6)`}
-        >
-          <i className="fas fa-dice" />
-        </button>
-      )}
-      {item.recarga?.tipo === "manual" && restantes < maximo && (
-        <button
-          type="button"
-          className="bestiario-ficha-dado-inline"
-          onClick={() => usosContexto.onDefinir(item.id, maximo)}
-          title="Restaurar usos (manual)"
-        >
-          <i className="fas fa-rotate" />
-        </button>
-      )}
+      <i className="fas fa-bolt-lightning" /> {item.usos} uso{item.usos === 1 ? "" : "s"}
+      {recarga ? ` · ${recarga}` : ""}
     </span>
   );
 }
@@ -316,17 +221,11 @@ type Props = {
   // Ausente = ficha só-leitura sem opção de editar (ex: aberta de dentro de
   // um combate em andamento, onde editar o cadastro não faz sentido).
   onEditar?: () => void;
-  onFechar: () => void;
-  // true só faz sentido em contexto de mesa (a Bandeja precisa estar montada
-  // pra "pegar" a rolagem empilhada) — no Bestiário puro fica desligado.
-  permitirRolagem?: boolean;
-  // Presente só quando a ficha abre de dentro de um combate — é isso que
-  // torna o contador de "usos limitados" funcional pra ESSA cópia específica
-  // da criatura, em vez de só mostrar o máximo cadastrado.
-  usosContexto?: UsosContexto;
+  // Ausente = prévia (a revisão do wizard), sem barra de botões.
+  onFechar?: () => void;
 };
 
-export function FichaCriaturaView({ criatura: c, onEditar, onFechar, permitirRolagem = false, usosContexto }: Props) {
+export function FichaCriaturaView({ criatura: c, onEditar, onFechar }: Props) {
   const temSentidos = c.caracteristicas.percepcaoPassiva !== null || c.caracteristicas.sentidosExtras.trim() !== "";
   const temPericias = c.caracteristicas.pericias.length > 0;
   const temSalvaguardas = c.caracteristicas.salvaguardas.length > 0;
@@ -335,261 +234,233 @@ export function FichaCriaturaView({ criatura: c, onEditar, onFechar, permitirRol
     c.resistencias.danoImunidade.length > 0 ||
     c.resistencias.danoVulneravel.length > 0 ||
     c.resistencias.condicaoImunidade.length > 0;
-  const vidaRolavel = permitirRolagem && temDado(c.pvFormula);
-  const revelacao = usosContexto?.revelacao;
+  const nomesRecurso = useMemo(() => new Map(c.recursos.map((r) => [r.id, r.nome])), [c.recursos]);
+  const deslocamentos = [
+    c.deslocamentoNado != null ? `nado ${c.deslocamentoNado}m` : null,
+    c.deslocamentoVoo != null ? `voo ${c.deslocamentoVoo}m` : null,
+  ].filter(Boolean);
 
   return (
     <div className="bestiario-ficha-view">
-      <div className="bestiario-ficha-toolbar">
-        {onEditar && (
-          <button type="button" className="bestiario-btn-salvar" onClick={onEditar}>
-            <i className="fas fa-pen" /> Editar
-          </button>
-        )}
-        <button type="button" className="bestiario-ficha-fechar" onClick={onFechar} title="Fechar">
-          <i className="fas fa-xmark" />
-        </button>
-      </div>
+      {(onEditar || onFechar) && (
+        <div className="bestiario-ficha-toolbar">
+          {onEditar && (
+            <button type="button" className="bestiario-btn-salvar" onClick={onEditar}>
+              <i className="fas fa-pen" /> Editar
+            </button>
+          )}
+          {onFechar && (
+            <button type="button" className="bestiario-ficha-fechar" onClick={onFechar} title="Fechar" aria-label="Fechar a ficha">
+              <i className="fas fa-xmark" />
+            </button>
+          )}
+        </div>
+      )}
 
-      <div className="bestiario-ficha-cabecalho">
-        <h2>{c.nome}</h2>
-        <p className="bestiario-ficha-subtitulo">
-          {[c.tamanho, c.categoria].filter(Boolean).join(" · ") || "Sem categoria"}
-        </p>
-        {c.tags.length > 0 && (
-          <div className="bestiario-ficha-tags">
-            {c.tags.map((t) => (
-              <span key={t} className="bestiario-ficha-tag">
-                {t}
-              </span>
-            ))}
-          </div>
-        )}
-        {c.personalidade && <p className="bestiario-ficha-personalidade">{c.personalidade}</p>}
-      </div>
-
-      <div className="bestiario-ficha-stats">
-        <div className="bestiario-ficha-stat">
+      <div className="bestiario-ficha-cabecalho com-retrato">
+        <span className="bestiario-ficha-retrato" aria-hidden>
+          {c.imagemUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={c.imagemUrl} alt="" />
+          ) : (
+            <i className="fas fa-skull" />
+          )}
+        </span>
+        <div className="bestiario-ficha-identidade">
+          <h2>{c.nome || "(sem nome)"}</h2>
+          <p className="bestiario-ficha-subtitulo">
+            {[nomeDoTamanho(c.tamanho), c.categoria, c.linhagem].filter(Boolean).join(" · ") || "Sem categoria"}
+          </p>
+          {c.personalidade && <p className="bestiario-ficha-personalidade">{c.personalidade}</p>}
+          {c.tags.length > 0 && (
+            <div className="bestiario-ficha-tags">
+              {c.tags.map((t) => (
+                <span key={t} className="bestiario-ficha-tag">
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="bestiario-ficha-nd">
           <span>ND</span>
-          <strong>
-            {c.nd} ({c.xp} XP)
-          </strong>
+          <strong>{c.nd}</strong>
+          <small>{c.xp} XP</small>
         </div>
-        <div className="bestiario-ficha-stat">
-          <span>Pontos de Poder</span>
-          <strong>{c.pontosPoder}</strong>
-        </div>
-        <div className="bestiario-ficha-stat">
-          <span>Classe de Resistência</span>
-          <strong>{c.classeResistencia}</strong>
-        </div>
-        <div className="bestiario-ficha-stat">
-          <span>Classe de Dificuldade</span>
-          <strong>{c.classeDificuldade}</strong>
-        </div>
-        <div className="bestiario-ficha-stat">
-          <span>Pontos de Vida</span>
-          <strong>
-            {c.pvMedio}
-            {c.pvFormula ? ` (${c.pvFormula})` : ""}
-            {vidaRolavel && (
-              <button
-                type="button"
-                className="bestiario-ficha-dado-inline"
-                onClick={() => rolarVida(c)}
-                title={`Rolar vida (${c.pvFormula})`}
-              >
-                <i className="fas fa-dice" />
-              </button>
-            )}
-          </strong>
-        </div>
-        <div className="bestiario-ficha-stat">
-          <span>Bônus de Proficiência</span>
-          <strong>{formatarMod(c.bonusProficiencia)}</strong>
-        </div>
-        <div className="bestiario-ficha-stat">
-          <span>Deslocamento</span>
-          <strong>
-            {c.deslocamento}m
-            {c.deslocamentoNado != null ? `, nado ${c.deslocamentoNado}m` : ""}
-            {c.deslocamentoVoo != null ? `, voo ${c.deslocamentoVoo}m` : ""}
-          </strong>
-        </div>
+      </div>
+
+      <div className="bestiario-ficha-vitais">
+        <Vital
+          icone="fa-heart"
+          rotulo="Pontos de Vida"
+          valor={c.pvMedio}
+          detalhe={c.pvFormula || undefined}
+          tom="var(--bar-hp)"
+        />
+        {c.pontosPoder > 0 && (
+          <Vital icone="fa-bolt" rotulo="Pontos de Poder" valor={c.pontosPoder} tom="var(--color-padrao)" />
+        )}
+        <Vital icone="fa-shield-halved" rotulo="Resistência (CR)" valor={c.classeResistencia} />
+        <Vital icone="fa-bullseye" rotulo="Dificuldade (CD)" valor={c.classeDificuldade} />
+        <Vital icone="fa-medal" rotulo="Proficiência" valor={formatarMod(c.bonusProficiencia)} />
+        <Vital
+          icone="fa-person-running"
+          rotulo="Deslocamento"
+          valor={`${c.deslocamento}m`}
+          detalhe={deslocamentos.join(" · ") || undefined}
+        />
       </div>
 
       <div className="bestiario-ficha-atributos">
-        <Atributo label="Força" valor={c.forca} />
-        <Atributo label="Destreza" valor={c.destreza} />
-        <Atributo label="Constituição" valor={c.constituicao} />
-        <Atributo label="Sabedoria" valor={c.sabedoria} />
-        <Atributo label="Presença" valor={c.presenca} />
-        <Atributo label="Vontade" valor={c.vontade} />
+        <Atributo label="FOR" valor={c.forca} />
+        <Atributo label="DES" valor={c.destreza} />
+        <Atributo label="CON" valor={c.constituicao} />
+        <Atributo label="SAB" valor={c.sabedoria} />
+        <Atributo label="PRE" valor={c.presenca} />
+        <Atributo label="VON" valor={c.vontade} />
       </div>
+
+      {c.recursos.length > 0 && (
+        <div className="bestiario-ficha-secao">
+          <h3>
+            <i className="fas fa-droplet" /> Recursos
+          </h3>
+          <div className="bestiario-ficha-recursos">
+            {c.recursos.map((r) => (
+              <RecursoBarra key={r.id} recurso={r} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {(temPericias || temSalvaguardas || temSentidos) && (
         <div className="bestiario-ficha-secao">
-          {temPericias && (
+          <h3>
+            <i className="fas fa-check-double" /> Testes e sentidos
+          </h3>
+          {temSalvaguardas && (
             <div className="bestiario-ficha-linha-testes">
-              <strong>Perícias.</strong>
+              <strong>Salvaguardas</strong>
               <div className="bestiario-ficha-testes-lista">
-                {c.caracteristicas.pericias.map((p) => (
-                  <span key={p.id} className="bestiario-ficha-teste">
-                    {p.nome} {formatarMod(p.bonus)}
-                    {permitirRolagem && (
-                      <button
-                        type="button"
-                        className="bestiario-ficha-dado-inline"
-                        onClick={() => rolarBonus(c.nome, p.nome, p.bonus)}
-                        title="Rolar"
-                      >
-                        <i className="fas fa-dice" />
-                      </button>
-                    )}
+                {c.caracteristicas.salvaguardas.map((s) => (
+                  <span key={s.id} className="bestiario-ficha-teste">
+                    {s.nome} <b>{formatarMod(s.bonus)}</b>
                   </span>
                 ))}
               </div>
             </div>
           )}
-          {temSalvaguardas && (
+          {temPericias && (
             <div className="bestiario-ficha-linha-testes">
-              <strong>Salvaguardas.</strong>
+              <strong>Perícias</strong>
               <div className="bestiario-ficha-testes-lista">
-                {c.caracteristicas.salvaguardas.map((s) => (
-                  <span key={s.id} className="bestiario-ficha-teste">
-                    {s.nome} {formatarMod(s.bonus)}
-                    {permitirRolagem && (
-                      <button
-                        type="button"
-                        className="bestiario-ficha-dado-inline"
-                        onClick={() => rolarBonus(c.nome, s.nome, s.bonus)}
-                        title="Rolar"
-                      >
-                        <i className="fas fa-dice" />
-                      </button>
-                    )}
+                {c.caracteristicas.pericias.map((p) => (
+                  <span key={p.id} className="bestiario-ficha-teste">
+                    {p.nome} <b>{formatarMod(p.bonus)}</b>
                   </span>
                 ))}
               </div>
             </div>
           )}
           {temSentidos && (
-            <p>
-              <strong>Sentidos.</strong>{" "}
-              {[
-                c.caracteristicas.percepcaoPassiva !== null ? `Percepção Passiva ${c.caracteristicas.percepcaoPassiva}` : null,
-                c.caracteristicas.sentidosExtras || null,
-              ]
-                .filter(Boolean)
-                .join(", ")}
-            </p>
+            <div className="bestiario-ficha-linha-testes">
+              <strong>Sentidos</strong>
+              <div className="bestiario-ficha-testes-lista">
+                {c.caracteristicas.percepcaoPassiva !== null && (
+                  <span className="bestiario-ficha-teste">
+                    Percepção Passiva <b>{c.caracteristicas.percepcaoPassiva}</b>
+                  </span>
+                )}
+                {c.caracteristicas.sentidosExtras.trim() && (
+                  <span className="bestiario-ficha-teste">{c.caracteristicas.sentidosExtras.trim()}</span>
+                )}
+              </div>
+            </div>
           )}
         </div>
       )}
 
       {temResistencias && (
         <div className="bestiario-ficha-secao">
-          {c.resistencias.danoResistencia.length > 0 && (
-            <p>
-              <strong>Resistência a dano.</strong> {c.resistencias.danoResistencia.join(", ")}
-            </p>
-          )}
-          {c.resistencias.danoImunidade.length > 0 && (
-            <p>
-              <strong>Imunidade a dano.</strong> {c.resistencias.danoImunidade.join(", ")}
-            </p>
-          )}
-          {c.resistencias.danoVulneravel.length > 0 && (
-            <p>
-              <strong>Vulnerabilidade a dano.</strong> {c.resistencias.danoVulneravel.join(", ")}
-            </p>
-          )}
-          {c.resistencias.condicaoImunidade.length > 0 && (
-            <p>
-              <strong>Imunidade a condição.</strong> {c.resistencias.condicaoImunidade.join(", ")}
-            </p>
-          )}
+          <h3>
+            <i className="fas fa-shield" /> Defesas
+          </h3>
+          <Defesa icone="fa-shield-halved" rotulo="Resiste" itens={c.resistencias.danoResistencia} tom="var(--info)" deDano />
+          <Defesa icone="fa-ban" rotulo="Imune" itens={c.resistencias.danoImunidade} tom="var(--success)" deDano />
+          <Defesa icone="fa-heart-crack" rotulo="Vulnerável" itens={c.resistencias.danoVulneravel} tom="var(--danger)" deDano />
+          <Defesa
+            icone="fa-triangle-exclamation"
+            rotulo="Imune a condição"
+            itens={c.resistencias.condicaoImunidade}
+            tom="var(--warning)"
+          />
         </div>
       )}
 
-      {CATEGORIAS_COMPONENTE.map(({ key, label, icone, cor }) => {
-        const itens = c.componentes.filter((item) => item.categoria === key);
-        if (itens.length === 0) return null;
-        return (
-          <div
-            key={key}
-            className="bestiario-ficha-secao"
-            style={{ "--acao-cor": cor } as React.CSSProperties}
-          >
-            <h3>
-              <i className={`fas ${icone}`} /> {label}
-            </h3>
-            <div className="bestiario-acao-grid">
-              {itens.map((item) => {
-                const condicoes = item.efeitos.filter((e): e is CondicaoEfeito => e.tipo === "condicao");
-                const stats = item.efeitos.map((efeito) => (
-                  <StatEfeito
-                    key={efeito.id}
-                    efeito={efeito}
-                    item={item}
-                    nomeCriatura={c.nome}
-                    permitirRolagem={permitirRolagem}
-                    onUsar={revelacao ? () => revelacao.onUsar(item.id) : undefined}
-                  />
-                ));
-                const revelada = revelacao?.reveladas.includes(item.id) ?? false;
-                const alcance = item.alcance.trim();
-                const custo = item.custo.trim();
-                // Condições citadas no texto ficam destacadas nele; as que não
-                // aparecem viram chip no rodapé, junto do custo.
-                const { conteudo: descricao, faltantes } = separarCondicoes(item.descricao, condicoes);
-                return (
-                  <div key={item.id} className="bestiario-acao-card">
-                    <div className="bestiario-acao-topo">
-                      <div className="bestiario-acao-titulo">{item.nome || "(sem nome)"}</div>
-                      {item.usos !== null && <ControleUsos item={item} usosContexto={usosContexto} />}
-                      {usosContexto?.onUsarAcao && key !== "aspecto" && key !== "condicao" && (
-                        <button
-                          type="button"
-                          className="bestiario-acao-usar"
-                          title="Escolher o alvo e rolar"
-                          onClick={() => usosContexto.onUsarAcao?.(item)}
-                        >
-                          <i className="fas fa-play" /> Usar
-                        </button>
-                      )}
-                      {revelacao && (
-                        <button
-                          type="button"
-                          className={`bestiario-acao-revelar${revelada ? " ativo" : ""}`}
-                          aria-pressed={revelada}
-                          title={revelada ? "Os jogadores veem esta ação. Clique pra esconder." : "Mostrar esta ação aos jogadores"}
-                          onClick={() => revelacao.onRevelar(item.id, !revelada)}
-                        >
-                          <i className={`fas ${revelada ? "fa-eye" : "fa-eye-slash"}`} />
-                        </button>
-                      )}
-                    </div>
-                    <div className="bestiario-acao-stats">
-                      {stats}
-                      {alcance && <Stat icone="fa-ruler-horizontal">{alcance}</Stat>}
-                    </div>
-                    {item.descricao && <div className="bestiario-acao-desc">{descricao}</div>}
-                    {(custo || faltantes.length > 0) && (
-                      <div className="bestiario-acao-tags">
-                        {faltantes.map((cond) => (
-                          <ChipCondicao key={cond.id} cond={cond} />
-                        ))}
+      <NomesRecursoContext.Provider value={nomesRecurso}>
+        {CATEGORIAS_COMPONENTE.map(({ key, label, icone, cor }) => {
+          const itens = c.componentes.filter((item) => item.categoria === key);
+          if (itens.length === 0) return null;
+          return (
+            <div key={key} className="bestiario-ficha-secao" style={{ "--acao-cor": cor } as React.CSSProperties}>
+              <h3>
+                <i className={`fas ${icone}`} /> {label}
+                <span className="bestiario-componente-total">{itens.length}</span>
+                {key === "acao" && ataquesPorTurno(c.componentes) > 1 && (
+                  <span className="bestiario-ficha-nota">{ataquesPorTurno(c.componentes)} ataques por turno</span>
+                )}
+                {key === "acaoLendaria" && c.acoesLendarias > 0 && (
+                  <span className="bestiario-ficha-nota">{c.acoesLendarias} por rodada</span>
+                )}
+              </h3>
+              <div className="bestiario-acao-grid">
+                {itens.map((item) => {
+                  const condicoes = item.efeitos.filter((e): e is CondicaoEfeito => e.tipo === "condicao");
+                  const stats = item.efeitos.map((efeito) => <StatEfeito key={efeito.id} efeito={efeito} />);
+                  const alcance = item.alcance.trim();
+                  const custo = item.custo.trim();
+                  // Condições citadas no texto ficam destacadas nele; as que não
+                  // aparecem viram chip no rodapé, junto dos efeitos de ficha.
+                  const { conteudo: descricao, faltantes } = separarCondicoes(item.descricao, condicoes);
+                  return (
+                    <div key={item.id} className="bestiario-acao-card">
+                      <div className="bestiario-acao-topo">
+                        <div className="bestiario-acao-titulo">{item.nome || "(sem nome)"}</div>
+                        <Usos item={item} />
+                        {key === "acaoLendaria" && item.custoLendario > 1 && (
+                          <span className="bestiario-ficha-usos">custa {item.custoLendario}</span>
+                        )}
                         {custo && <span className="bestiario-acao-tag-custo">{textoCusto(custo)}</span>}
                       </div>
-                    )}
-                  </div>
-                );
-              })}
+                      <div className="bestiario-acao-stats">
+                        {item.tecnica && <Stat icone="fa-wand-magic-sparkles">{textoTecnica(item)}</Stat>}
+                        {item.efeitos.some((e) => e.tipo === "ataque") && margemDeCritico(c.componentes, item) < 20 && (
+                          <Stat icone="fa-burst">
+                            Crítico <strong>{margemDeCritico(c.componentes, item)}-20</strong>
+                          </Stat>
+                        )}
+                        {stats}
+                        {alcance && <Stat icone="fa-ruler-horizontal">{alcance}</Stat>}
+                      </div>
+                      {item.descricao && <div className="bestiario-acao-desc">{descricao}</div>}
+                      {(item.efeitosExtras.length > 0 || faltantes.length > 0) && (
+                        <div className="bestiario-acao-tags">
+                          {faltantes.map((cond) => (
+                            <ChipCondicao key={cond.id} cond={cond} />
+                          ))}
+                          {item.efeitosExtras.map((e, i) => (
+                            <ChipEfeito key={i} efeito={e} />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </NomesRecursoContext.Provider>
 
       {c.loot && (
         <div className="bestiario-ficha-secao">
@@ -601,7 +472,7 @@ export function FichaCriaturaView({ criatura: c, onEditar, onFechar, permitirRol
       )}
 
       {c.anotacoesPrivadas && (
-        <div className="bestiario-ficha-secao">
+        <div className="bestiario-ficha-secao bestiario-ficha-privado">
           <h3>
             <i className="fas fa-feather" /> Anotações do narrador
           </h3>

@@ -22,7 +22,26 @@ import {
 } from "@/lib/combate-servidor";
 import { lerCondicoesAtivas, lerRodadas, textoRodadas } from "@/lib/condicoes";
 import { resultadoDaSalvaguarda, textoDaSalvaguarda } from "@/lib/combate";
-import { passarTurno } from "@/app/ficha/[uid]/actions";
+import { descontarPeriodicosDoNarrador, passarTurno } from "@/app/ficha/[uid]/actions";
+import {
+  calcularEstatisticas,
+  lerLegado,
+  lerResumo,
+  resumirSessao,
+  tipoDominante,
+  type CombateHistorico,
+  type SessaoHistorico,
+} from "@/lib/estatisticas-combate";
+import {
+  finalizarRegistro,
+  instanciaAtivaDoPersonagem,
+  iniciarRegistro,
+  marcarVez,
+  registrarCura,
+  registrarDano,
+  registrarReforco,
+  registrarSaida,
+} from "@/lib/estatisticas-servidor";
 import type { NovoParticipante } from "./types";
 import { lerUsosAcoes, serializarSessao } from "./utils";
 
@@ -192,6 +211,7 @@ async function mudarParticipantes(combateId: string, mudar: () => Promise<unknow
   }
   if (vezPassou && daVez) {
     await prisma.instanciaCombate.updateMany({ where: { id: daVez, combateId }, data: { acoesGastas: {} } });
+    await marcarVez(combateId, daVez);
   }
 }
 
@@ -210,6 +230,8 @@ export async function encerrarSessao(mesaId: string, sessaoId: string) {
 
   // Fecha qualquer combate residual sem log detalhado — o mestre deveria
   // encerrar o combate explicitamente antes, isso é só uma rede de segurança.
+  const residuais = await prisma.combate.findMany({ where: { sessaoId, encerradoEm: null }, select: { id: true } });
+  for (const c of residuais) await finalizarRegistro(c.id);
   await prisma.combate.updateMany({ where: { sessaoId, encerradoEm: null }, data: { encerradoEm: new Date() } });
   await prisma.sessao.update({ where: { id: sessaoId }, data: { encerradaEm: new Date() } });
 
@@ -225,6 +247,7 @@ export async function iniciarCombate(mesaId: string, sessaoId: string, participa
   await prisma.instanciaCombate.createMany({
     data: linhas.map((l) => ({ ...l, combateId: combate.id })),
   });
+  await iniciarRegistro(combate.id, sessaoId);
 
   revalidar(mesaId);
   return serializarSessao(await buscarSessaoCompleta(sessaoId));
@@ -258,6 +281,7 @@ export async function adicionarParticipantes(mesaId: string, combateId: string, 
       }),
     ]),
   );
+  await registrarReforco(combateId);
 
   revalidar(mesaId);
   return serializarSessao(await buscarSessaoCompleta(combate.sessaoId));
@@ -300,6 +324,7 @@ export async function removerParticipante(mesaId: string, instanciaId: string) {
     select: { combateId: true, combate: { select: { sessaoId: true } } },
   });
   if (!instancia) throw new Error("Participante não encontrado nesta mesa.");
+  await registrarSaida(instancia.combateId, instanciaId);
   await mudarParticipantes(
     instancia.combateId,
     () => prisma.instanciaCombate.delete({ where: { id: instanciaId } }),
@@ -320,11 +345,34 @@ export async function removerParticipante(mesaId: string, instanciaId: string) {
 
 export async function atualizarPvInstancia(mesaId: string, instanciaId: string, novoPv: number) {
   await autorizarNarrador(mesaId);
+  const antes = await prisma.instanciaCombate.findFirst({
+    where: { id: instanciaId, combate: { sessao: { mesaId } } },
+    select: { combateId: true, pvAtual: true },
+  });
+  const pv = Math.max(0, Math.trunc(Number(novoPv) || 0));
   await prisma.instanciaCombate.updateMany({
     where: { id: instanciaId, combate: { sessao: { mesaId } } },
-    data: { pvAtual: Math.max(0, Math.trunc(Number(novoPv) || 0)) },
+    data: { pvAtual: pv },
   });
+  if (antes) await registrarAjusteDePv(antes.combateId, instanciaId, antes.pvAtual ?? 0, pv);
   revalidar(mesaId);
+}
+
+// PV mexido à mão pelo narrador: sem origem; entra nas estatísticas como dano
+// (se baixou) ou cura (se subiu). Dano e cura com origem passam pelas ações.
+async function registrarAjusteDePv(combateId: string, instanciaId: string, antes: number, depois: number) {
+  if (depois < antes) {
+    await registrarDano(combateId, {
+      de: null,
+      para: instanciaId,
+      valor: antes - depois,
+      bruto: antes - depois,
+      acao: "Ajuste de PV",
+      caiu: antes > 0 && depois <= 0,
+    });
+  } else if (depois > antes) {
+    await registrarCura(combateId, { de: null, para: instanciaId, valor: depois - antes, acao: "Ajuste de PV" });
+  }
 }
 
 // Criaturas do combate, conferindo que ele é desta mesa. `instanciaId` nulo = todas.
@@ -407,9 +455,11 @@ export async function aplicarDanoInstancia(
   const instancia = await prisma.instanciaCombate.findUniqueOrThrow({
     where: { id: instanciaId },
     select: {
+      combateId: true,
       criaturaId: true,
       pvAtual: true,
       pvMax: true,
+      pvTemp: true,
       combate: { select: { sessao: { select: { mesaId: true } } } },
     },
   });
@@ -429,13 +479,26 @@ export async function aplicarDanoInstancia(
   const resultado = resolverDano(
     limpas,
     defesasDaCriatura(comoResistencias(criatura?.resistencias)),
-    { hpAtual: instancia.pvAtual ?? 0, hpTemp: 0, hpMax: instancia.pvMax ?? 0 },
+    { hpAtual: instancia.pvAtual ?? 0, hpTemp: instancia.pvTemp, hpMax: instancia.pvMax ?? 0 },
     { desligadas: Array.isArray(desligadas) ? desligadas.map(String) : [] },
   );
 
   await prisma.instanciaCombate.update({
     where: { id: instanciaId },
-    data: { pvAtual: resultado.hpAtual.depois },
+    data: {
+      pvAtual: resultado.hpAtual.depois,
+      pvTemp: resultado.hpTemp.depois,
+      ...(resultado.hpTemp.depois === 0 ? { pvTempDuracao: null } : {}),
+    },
+  });
+  await registrarDano(instancia.combateId, {
+    de: null,
+    para: instanciaId,
+    valor: resultado.final,
+    bruto: resultado.bruto,
+    tipo: tipoDominante(resultado.partes),
+    acao: "Dano do narrador",
+    caiu: resultado.hpAtual.antes > 0 && resultado.hpAtual.depois <= 0,
   });
   revalidar(mesaId);
 }
@@ -458,13 +521,26 @@ export async function atualizarPpInstancia(mesaId: string, combateId: string, in
   revalidar(mesaId);
 }
 
+// PV temporário de uma criatura, mexido à mão pelo narrador (dura até acabar).
+export async function atualizarPvTempInstancia(mesaId: string, combateId: string, instanciaId: string, pvTemp: number) {
+  await autorizarNarrador(mesaId);
+  await prisma.instanciaCombate.updateMany({
+    where: await criaturasDoCombate(mesaId, combateId, instanciaId),
+    data: { pvTemp: Math.min(99999, Math.max(0, Math.trunc(Number(pvTemp) || 0))), pvTempDuracao: null },
+  });
+  revalidar(mesaId);
+}
+
 export async function atualizarPvPersonagem(mesaId: string, personagemId: string, novoHp: number) {
   await autorizarNarrador(mesaId);
 
   const personagem = await prisma.personagem.findUniqueOrThrow({ where: { id: personagemId }, select: { mesaId: true } });
   if (personagem.mesaId !== mesaId) throw new Error("Personagem não pertence a esta mesa.");
 
+  const antes = await prisma.personagem.findUnique({ where: { id: personagemId }, select: { hpAtual: true } });
   await prisma.personagem.update({ where: { id: personagemId }, data: { hpAtual: novoHp } });
+  const instancia = await instanciaAtivaDoPersonagem(personagemId);
+  if (instancia && antes) await registrarAjusteDePv(instancia.combateId, instancia.id, antes.hpAtual, novoHp);
   revalidar(mesaId);
 }
 
@@ -488,7 +564,12 @@ export async function avancarTurno(mesaId: string, combateId: string) {
   if (daVez?.personagemId) {
     await passarTurno(daVez.personagemId).catch((err) => console.error("[sessao] passar turno", err));
   }
-  await avancarTurnoDoCombate(combateId);
+  const { periodicos } = await avancarTurnoDoCombate(combateId);
+  if (periodicos.length > 0) {
+    await descontarPeriodicosDoNarrador(mesaId, combateId, periodicos).catch((err) =>
+      console.error("[sessao] dano por turno", err),
+    );
+  }
 
   revalidar(mesaId);
   return serializarSessao(await buscarSessaoCompleta(combate.sessaoId));
@@ -665,19 +746,103 @@ export async function encerrarCombate(mesaId: string, combateId: string) {
     include: { participantes: true },
   });
 
-  const resumo = {
-    rodadas: combate.rodadaAtual,
-    participantes: combate.participantes.map((p) => ({
-      nome: p.nomeExibicao,
-      tipo: p.criaturaId ? "criatura" : "personagem",
-      pvFinal: p.pvAtual,
-    })),
-  };
-
-  await prisma.logCombate.create({ data: { sessaoId: combate.sessaoId, resumo } });
+  // Fecha o registro de estatísticas (PV final, resultado, vez em andamento)
+  // antes de as linhas do combate sumirem.
+  await finalizarRegistro(combateId);
+  // PV temporário que só valia neste combate (ou até a próxima vez) acaba com ele.
+  const personagemIds = combate.participantes.flatMap((p) => (p.personagemId ? [p.personagemId] : []));
+  if (personagemIds.length > 0) {
+    await prisma.personagem.updateMany({
+      where: { id: { in: personagemIds }, hpTempDuracao: { in: ["combate", "turno"] } },
+      data: { hpTemp: 0, hpTempDuracao: null },
+    });
+    for (const id of personagemIds) revalidatePath(`/ficha/${id}`);
+  }
   await prisma.combate.update({ where: { id: combateId }, data: { encerradoEm: new Date(), resolucoes: [] } });
   await prisma.instanciaCombate.deleteMany({ where: { combateId } });
 
   revalidar(mesaId);
   return serializarSessao(await buscarSessaoCompleta(combate.sessaoId));
+}
+
+// Sessões da mesa com as estatísticas de cada combate encerrado, da mais nova
+// pra mais antiga. Registro de antes das estatísticas vem só com o resumo antigo.
+async function montarHistorico(mesaId: string): Promise<SessaoHistorico[]> {
+  const sessoes = await prisma.sessao.findMany({
+    where: { mesaId },
+    orderBy: { iniciadaEm: "desc" },
+    take: 20,
+    include: { logs: { orderBy: { encerradoEm: "asc" } } },
+  });
+
+  return sessoes.map((s): SessaoHistorico => {
+    const combates: CombateHistorico[] = s.logs.flatMap((l): CombateHistorico[] => {
+      const resumo = lerResumo(l.resumo);
+      // Combate ainda em andamento: some do histórico até acabar.
+      if (resumo && resumo.encerradoEm === null) return [];
+      return [
+        {
+          id: l.id,
+          encerradoEm: l.encerradoEm.toISOString(),
+          estatisticas: resumo ? calcularEstatisticas(resumo) : null,
+          legado: resumo ? null : lerLegado(l.resumo),
+        },
+      ];
+    });
+    const comEstatisticas = combates.flatMap((c) => (c.estatisticas ? [c.estatisticas] : []));
+    return {
+      id: s.id,
+      iniciadaEm: s.iniciadaEm.toISOString(),
+      encerradaEm: s.encerradaEm?.toISOString() ?? null,
+      combates,
+      resumo: comEstatisticas.length > 0 ? resumirSessao(comEstatisticas) : null,
+    };
+  });
+}
+
+export async function carregarHistorico(mesaId: string): Promise<SessaoHistorico[]> {
+  await autorizarNarrador(mesaId);
+  return montarHistorico(mesaId);
+}
+
+// Combates da mesa ainda rolando: o registro deles (mesmo id) não pode sumir.
+async function combatesEmAndamento(mesaId: string) {
+  const ativos = await prisma.combate.findMany({
+    where: { encerradoEm: null, sessao: { mesaId } },
+    select: { id: true },
+  });
+  return ativos.map((c) => c.id);
+}
+
+// Apaga do histórico os combates escolhidos (o registro e a linha do combate
+// encerrado). Devolve o histórico já sem eles, com os resumos refeitos.
+export async function apagarCombatesDoHistorico(mesaId: string, ids: string[]): Promise<SessaoHistorico[]> {
+  await autorizarNarrador(mesaId);
+
+  const emAndamento = new Set(await combatesEmAndamento(mesaId));
+  const alvos = [...new Set(ids)].filter((id) => typeof id === "string" && !emAndamento.has(id)).slice(0, 500);
+  if (alvos.length > 0) {
+    await prisma.$transaction([
+      prisma.logCombate.deleteMany({ where: { id: { in: alvos }, sessao: { mesaId } } }),
+      prisma.combate.deleteMany({ where: { id: { in: alvos }, encerradoEm: { not: null }, sessao: { mesaId } } }),
+    ]);
+  }
+
+  return montarHistorico(mesaId);
+}
+
+// Zera o histórico da mesa: todo combate encerrado e toda sessão encerrada.
+// A sessão ativa e o combate em andamento ficam.
+export async function limparHistorico(mesaId: string): Promise<SessaoHistorico[]> {
+  await autorizarNarrador(mesaId);
+
+  const emAndamento = await combatesEmAndamento(mesaId);
+  await prisma.$transaction([
+    prisma.logCombate.deleteMany({ where: { sessao: { mesaId }, id: { notIn: emAndamento } } }),
+    prisma.combate.deleteMany({ where: { sessao: { mesaId }, encerradoEm: { not: null } } }),
+    // Leva junto o que ainda pendurar nelas (cascade).
+    prisma.sessao.deleteMany({ where: { mesaId, encerradaEm: { not: null } } }),
+  ]);
+
+  return montarHistorico(mesaId);
 }

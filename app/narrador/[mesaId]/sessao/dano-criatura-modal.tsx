@@ -28,6 +28,7 @@ export function DanoCriaturaModal({
   nome,
   pvAtual,
   pvMax,
+  pvTemp = 0,
   resistencias,
   tiposDano,
   onAplicar,
@@ -36,10 +37,12 @@ export function DanoCriaturaModal({
   nome: string;
   pvAtual: number;
   pvMax: number;
+  // PV temporário dela: o dano sai dele primeiro.
+  pvTemp?: number;
   resistencias: ResistenciasPayload;
   // Catálogo de tipos de dano do narrador.
   tiposDano: string[];
-  onAplicar: (partes: ParteDano[], desligadas: string[], pvDepois: number) => void;
+  onAplicar: (partes: ParteDano[], desligadas: string[], pvDepois: number, pvTempDepois: number) => void;
   onFechar: () => void;
 }) {
   const [partes, setPartes] = useState<Parte[]>([{ valor: "", tipo: "" }]);
@@ -51,7 +54,7 @@ export function DanoCriaturaModal({
     .filter((p) => p.valor > 0);
   // Só aparecem as defesas que cobrem alguma parte do golpe.
   const valem = defesas.filter((d) => partesNum.some((p) => defesaCobre(d, p.tipo)));
-  const r = resolverDano(partesNum, defesas, { hpAtual: pvAtual, hpTemp: 0, hpMax: pvMax }, { desligadas });
+  const r = resolverDano(partesNum, defesas, { hpAtual: pvAtual, hpTemp: pvTemp, hpMax: pvMax }, { desligadas });
   const pronto = partesNum.length > 0;
 
   function mudarParte(i: number, patch: Partial<Parte>) {
@@ -69,7 +72,7 @@ export function DanoCriaturaModal({
 
   function aplicar() {
     if (!pronto) return;
-    onAplicar(partesNum, [...desligadas], r.hpAtual.depois);
+    onAplicar(partesNum, [...desligadas], r.hpAtual.depois, r.hpTemp.depois);
     onFechar();
   }
 
@@ -155,6 +158,11 @@ export function DanoCriaturaModal({
               <span key={i}>{resumirParte(p)}</span>
             ))}
             <span>
+              {r.absorvido > 0 && (
+                <>
+                  PV temporário {r.hpTemp.antes} → <strong>{r.hpTemp.depois}</strong> ·{" "}
+                </>
+              )}
               PV {r.hpAtual.antes} → <strong>{r.hpAtual.depois}</strong>
               {pvMax > 0 ? ` / ${pvMax}` : ""}
             </span>

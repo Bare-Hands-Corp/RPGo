@@ -5,7 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { usuarioDaRequest } from "@/lib/supabase/server";
 import type { TemplatePayload } from "./types";
 import { serializarTemplate } from "./utils";
-import { CATALOGO_PADRAO } from "@/lib/tipos-dano";
+import { mesmoTipo } from "@/lib/dano";
+import { CATALOGO_PADRAO, MAX_TIPOS_CATALOGO } from "@/lib/tipos-dano";
 import { CATEGORIA_TIPO_DANO, renomearTipoDano } from "@/lib/tipos-dano-servidor";
 
 async function autorizarNarrador() {
@@ -74,6 +75,53 @@ export async function semearTiposDano() {
     orderBy: { criadoEm: "asc" },
   });
   return criados.map(serializarTemplate);
+}
+
+// Tipo de dano criado de dentro da ficha da criatura: entra na pasta Tipos
+// de dano como qualquer outro, pra ganhar cor e ícone por lá. Sem tipos
+// próprios ainda, os do livro são cadastrados antes; senão o catálogo
+// passaria a ter só o novo. Devolve o nome que ficou valendo.
+export async function criarTipoDano(nomeCru: string) {
+  const user = await autorizarNarrador();
+  const nome = String(nomeCru ?? "").trim().slice(0, 40);
+  if (!nome) throw new Error("Dê um nome ao tipo de dano.");
+
+  const where = { userId: user.id, categoria: CATEGORIA_TIPO_DANO };
+  const existentes = await prisma.traitTemplate.findMany({ where, select: { nome: true } });
+  const doLivro = existentes.length === 0 ? CATALOGO_PADRAO : [];
+  const igual = [...existentes, ...doLivro].find((t) => mesmoTipo(t.nome, nome));
+  if (existentes.length + doLivro.length >= MAX_TIPOS_CATALOGO && !igual) {
+    throw new Error(`O catálogo já tem ${MAX_TIPOS_CATALOGO} tipos de dano.`);
+  }
+
+  const agora = Date.now();
+  if (doLivro.length > 0) {
+    await prisma.traitTemplate.createMany({
+      data: doLivro.map((t, i) => ({
+        userId: user.id,
+        nome: t.nome,
+        categoria: CATEGORIA_TIPO_DANO,
+        textoTemplate: "",
+        formulaParametros: { cor: t.cor ?? "", cor2: "", efeito: t.efeito, icone: t.icone ?? "" },
+        criadoEm: new Date(agora + i),
+      })),
+    });
+  }
+  if (!igual) {
+    await prisma.traitTemplate.create({
+      data: {
+        userId: user.id,
+        nome,
+        categoria: CATEGORIA_TIPO_DANO,
+        textoTemplate: "",
+        formulaParametros: { cor: "", cor2: "", efeito: "solido", icone: "" },
+        criadoEm: new Date(agora + doLivro.length),
+      },
+    });
+  }
+
+  revalidar();
+  return igual?.nome ?? nome;
 }
 
 export async function atualizarTemplate(templateId: string, payload: TemplatePayload) {

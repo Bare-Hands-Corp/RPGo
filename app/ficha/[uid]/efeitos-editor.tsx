@@ -25,6 +25,7 @@ import {
   formulaResolvidaTexto,
   lerEfeitos,
   nomeDoEfeito,
+  alvoDaCura,
   progressivoNaFicha,
   resolverFormula,
   resumoEfeito,
@@ -44,6 +45,7 @@ import {
 import { casaBusca, normalizarBusca } from "./barra-filtros";
 import { CampoFormula, FormulaContext } from "./campo-formula";
 import { DURACOES_CONDICAO, RODADAS_PADRAO } from "@/lib/condicoes";
+import { DURACOES_PV_TEMP, type DuracaoPvTemp } from "@/lib/duracao";
 import { SeletorBusca } from "./seletor-busca";
 
 export { FormulaContext };
@@ -606,6 +608,27 @@ function FiltroDanoCampos({
   );
 }
 
+// Até quando dura o PV temporário que o efeito dá.
+function CampoDuracaoPv({
+  valor,
+  onPatch,
+}: {
+  valor: DuracaoPvTemp | undefined;
+  onPatch: (p: Partial<EfeitoHabilidade>) => void;
+}) {
+  return (
+    <div style={{ gridColumn: "1 / -1" }}>
+      <label>Dura</label>
+      <Segmentos
+        rotulo="Duração do PV temporário"
+        valor={valor ?? "acabar"}
+        opcoes={DURACOES_PV_TEMP.map((d) => ({ valor: d.slug, rotulo: d.nome, titulo: `Dura ${d.texto}` }))}
+        onChange={(v) => onPatch({ duracaoPv: v === "acabar" ? undefined : v } as Partial<EfeitoHabilidade>)}
+      />
+    </div>
+  );
+}
+
 function renderCorpo(
   e: EfeitoHabilidade,
   recursos: RecursoMinimo[],
@@ -651,6 +674,7 @@ function renderCorpo(
               />
             </>
           )}
+          {(e.alvo === "hp-temp" || e.alvo === "hptemp") && <CampoDuracaoPv valor={e.duracaoPv} onPatch={onPatch} />}
           {(e.quando || (!labelFixo && alvoDeRolagem(e.alvo, slugsCustom))) && (
             <CampoQuando valor={e.quando} onPatch={onPatch} />
           )}
@@ -761,8 +785,14 @@ function renderCorpo(
               { slug: "hp-temp", nome: "PV temporário" },
               { slug: "pp", nome: "PP" },
             ]}
-            onChange={(v) => onPatch({ alvoCura: v === "hp" ? undefined : v } as Partial<EfeitoHabilidade>)}
+            onChange={(v) =>
+              onPatch({
+                alvoCura: v === "hp" ? undefined : v,
+                ...(v === "hp-temp" ? {} : { duracaoPv: undefined }),
+              } as Partial<EfeitoHabilidade>)
+            }
           />
+          {alvoDaCura(e) === "hp-temp" && <CampoDuracaoPv valor={e.duracaoPv} onPatch={onPatch} />}
         </>
       );
     case "condicao_imune":

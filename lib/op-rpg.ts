@@ -5,6 +5,7 @@
 import { faixaDaRolagem, parseFormulaDados, type Dado } from "./dice";
 import { avaliarFormula, formulaUsaGrau, formulaVariavel } from "./formula";
 import { cobre, lerCobertura } from "./dano";
+import { duracaoPvTempNoBanco, lerDuracaoPvTemp, type DuracaoPvTemp } from "./duracao";
 
 export function modificador(valor: number): number {
   return Math.floor((valor - 10) / 2);
@@ -956,12 +957,13 @@ export type GatilhoProgressivo = "turno" | "rolagem";
 
 export type EfeitoHabilidade =
   // `formula` (ex: "PROF/2+1", "3*NIVEL") vale no lugar de `valor` quando existe.
-  | { tipo: "modificador"; alvo: string; valor: number; formula?: string; quando?: string }
+  // `duracaoPv`: em PV temporário, até quando ele dura (ausente = até acabar).
+  | { tipo: "modificador"; alvo: string; valor: number; formula?: string; quando?: string; duracaoPv?: DuracaoPvTemp }
   | { tipo: "vantagem"; alvo: string; quando?: string }
   | { tipo: "desvantagem"; alvo: string; quando?: string }
   | { tipo: "proficiencia"; alvo: string; dobrada?: boolean }
   | { tipo: "recurso_delta"; recurso: string; valor: number }
-  | { tipo: "cura"; valor: string; alvoCura?: string }
+  | { tipo: "cura"; valor: string; alvoCura?: string; duracaoPv?: DuracaoPvTemp }
   | { tipo: "condicao_imune"; condicao: string }
   | { tipo: "condicao_remover"; condicao: string }
   // `rodadas`: quanto dura no combate (1, 3 ou 10 = um minuto; ausente = 1).
@@ -1682,6 +1684,14 @@ function lerFiltroDano(obj: Record<string, unknown>): FiltroDano {
   return { ...(graus.length ? { graus } : {}), ...(tipos ? { tipos } : {}) };
 }
 
+// Duração do PV temporário, só em efeito que dá PV temporário e só fora do padrão.
+function duracaoPvDe(alvo: string, raw: unknown): { duracaoPv?: DuracaoPvTemp } {
+  const a = alvo.trim().toLowerCase();
+  if (a !== "hp-temp" && a !== "hptemp") return {};
+  const d = lerDuracaoPvTemp(raw);
+  return d === "acabar" ? {} : { duracaoPv: d };
+}
+
 // Normaliza um único efeito vindo do form/banco. Retorna null se for inválido.
 // Não joga erro — efeitos malformados são silenciosamente descartados pra que
 // um efeito ruim não derrube a habilidade inteira.
@@ -1704,6 +1714,7 @@ export function normalizarEfeito(
         valor: Math.trunc(numerica ? Number(formula) : num(obj.valor)),
         ...(formula && !numerica ? { formula } : {}),
         ...(str(obj.quando) ? { quando: str(obj.quando) } : {}),
+        ...duracaoPvDe(str(obj.alvo), obj.duracaoPv),
       };
     }
     case "vantagem":
@@ -1740,6 +1751,7 @@ export function normalizarEfeito(
         tipo,
         valor: str(obj.valor),
         ...(str(obj.alvoCura) ? { alvoCura: str(obj.alvoCura) } : {}),
+        ...duracaoPvDe(alvoDaCura({ alvoCura: str(obj.alvoCura) }), obj.duracaoPv),
       };
     case "condicao_imune":
     case "condicao_remover":
@@ -2849,6 +2861,8 @@ function aplicarDefesa(
 export type DeltasInstantaneos = {
   hpAtual: number;
   hpTemp: number;
+  // Até quando dura o `hpTemp` concedido, como vai pro banco (null = até acabar).
+  hpTempDuracao?: string | null;
   ppAtual: number;
   hpMax: number;
   ppMax: number;
@@ -2946,6 +2960,12 @@ export function computarDeltasInstantaneos(
     exaustao: 0,
     recursos: {},
   };
+  // Vale a maior concessão, com a duração dela.
+  const darTemp = (v: number, duracao?: DuracaoPvTemp) => {
+    if (v <= d.hpTemp) return;
+    d.hpTemp = v;
+    d.hpTempDuracao = duracaoPvTempNoBanco(duracao ?? "acabar");
+  };
   // Slugs canônicos de pool: hp (PV atual), hp-temp, hp-max, pp (PP atual),
   // pp-max. Aliases antigos (pv, ppv, pv-temp, hpMax, hptemp…) são tolerados
   // aqui pra não quebrar habilidades já salvas no banco.
@@ -2957,12 +2977,12 @@ export function computarDeltasInstantaneos(
       const v = Math.trunc(n);
       const onde = alvoDaCura(e);
       if (onde === "pp") d.ppAtual += v;
-      else if (onde === "hp-temp") d.hpTemp = Math.max(d.hpTemp, v);
+      else if (onde === "hp-temp") darTemp(v, e.duracaoPv);
       else d.hpAtual += v;
     } else if (e.tipo === "modificador") {
       const alvo = e.alvo.trim().toLowerCase();
       const v = Math.trunc(valorDe(e));
-      if (alvo === "hp-temp" || alvo === "hptemp") d.hpTemp = Math.max(d.hpTemp, v);
+      if (alvo === "hp-temp" || alvo === "hptemp") darTemp(v, e.duracaoPv);
       else if (incluirMax && (alvo === "hp-max" || alvo === "hpmax")) d.hpMax += v;
       else if (incluirMax && (alvo === "pp-max" || alvo === "ppmax")) d.ppMax += v;
     } else if (e.tipo === "recurso_delta") {

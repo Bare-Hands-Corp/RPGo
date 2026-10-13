@@ -5523,6 +5523,12 @@
   color: var(--color-react);
 }
 
+/* O que a reação faz, ao lado do nome dela no botão. */
+.iniciativa-reacao-efeito {
+  font-weight: 400;
+  opacity: 0.85;
+}
+
 .turno-finalizar.secundario {
   border-color: var(--border);
   background: transparent;

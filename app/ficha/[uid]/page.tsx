@@ -211,7 +211,6 @@ export default async function FichaPage({ params, searchParams }: Params) {
       <IniciativaJogador
         combate={combate}
         personagemId={personagem.id}
-        reacoes={personagem.acoes.filter((a) => a.tipo === "react").map((a) => ({ id: a.id, nome: a.nome }))}
       />
     )}
     <div className={"ficha-layout" + (calendario ? " com-relogio" : "")}>

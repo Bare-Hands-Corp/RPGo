@@ -52,6 +52,7 @@ import {
   type ParteDano,
 } from "@/lib/dano";
 import {
+  duracaoPvTempNoBanco,
   lerConcentracao,
   lerDuracao,
   pedeConcentracao,
@@ -120,18 +121,33 @@ import {
   ACAO_COMBATE,
   TEXTO_RESULTADO,
   ehAcaoDeCombate,
+  gatilhoCabe,
   lerAcoesGastas,
   lerDanosExtras,
+  lerGatilho,
   maximoDeAcoes,
   resultadoDaSalvaguarda,
   resultadoDoAtaque,
   sofreDano,
   textoDaSalvaguarda,
   type AlvoResolucao,
+  type OpcaoReacao,
+  type ReacaoUsada,
   type Resolucao,
   type TipoAcaoCombate,
 } from "@/lib/combate";
-import { ordenarParticipantes } from "@/lib/combate";
+import { crComReacao, efeitosDaReacao, resumoDaReacao, type EfeitoDeReacao } from "@/lib/reacoes";
+import { lerResolucoes, ordenarParticipantes } from "@/lib/combate";
+import { tipoDominante } from "@/lib/estatisticas-combate";
+import {
+  registrarAtaques,
+  registrarCura,
+  registrarCuraEmPersonagem,
+  registrarDano,
+  registrarDanoEmPersonagem,
+  registrarPp,
+  registrarPpDePersonagem,
+} from "@/lib/estatisticas-servidor";
 import {
   aplicarCondicoes,
   avancarTurnoDoCombate,
@@ -140,10 +156,18 @@ import {
   crDoPersonagem,
   mudarResolucoes,
   participacaoEmCombate,
+  type DanoPeriodico,
 } from "@/lib/combate-servidor";
 import { defesasDaCriatura } from "@/lib/dano";
 import { lerRodadas, textoRodadas, type CondicaoAplicada } from "@/lib/condicoes";
-import { comoResistencias, serializarCriatura } from "@/app/bestiario/utils";
+import {
+  CHAVE_LENDARIAS,
+  comoResistencias,
+  efeitosDeReacaoDaCriatura,
+  gastosDaAcao,
+  margemDeCritico,
+  serializarCriatura,
+} from "@/app/bestiario/utils";
 import { lerUsosAcoes } from "@/app/narrador/[mesaId]/sessao/utils";
 import { rolarDados } from "@/lib/dice";
 
@@ -283,6 +307,7 @@ const ALLOWED_ACAO = [
   "nome",
   "descricao",
   "tipo",
+  "gatilho",
   "tag",
   "custoPp",
   "custoPa",
@@ -330,6 +355,11 @@ function normalizarAcaoInput(input: AcaoInput) {
     const tipo = String(input.tipo);
     if (!TIPOS_ACAO_VALIDOS.has(tipo)) throw new ErroDeUso("Tipo de ação inválido.");
     data.tipo = tipo;
+  }
+  // Gatilho da reação; "qualquer" (o padrão) fica nulo.
+  if (input.gatilho !== undefined) {
+    const gatilho = lerGatilho(input.gatilho);
+    data.gatilho = gatilho === "qualquer" ? null : gatilho;
   }
   if (input.tag !== undefined) data.tag = String(input.tag);
   if (input.custoPp !== undefined) data.custoPp = Math.max(0, Number(input.custoPp) || 0);
@@ -415,6 +445,7 @@ function dadosDaAcao(personagemId: string, data: Record<string, unknown>) {
     nome: data.nome as string,
     descricao: (data.descricao as string) ?? "",
     tipo: (data.tipo as string) ?? "padrao",
+    gatilho: (data.gatilho as string | null) ?? null,
     tag: (data.tag as string) ?? "",
     custoPp: (data.custoPp as number) ?? 0,
     custoPa: (data.custoPa as number) ?? 0,
@@ -593,6 +624,16 @@ export async function usarAcao(
       );
     }
     if (ops.length > 0) await prisma.$transaction(ops);
+    await estatisticasDoUso({
+      personagemId,
+      nome: acao.nome,
+      custoPp,
+      curou: efeitos.some((e) => e.tipo === "cura"),
+      antes: [
+        { id: personagemId, hp: personagem.hpAtual },
+        ...(aliado ? [{ id: aliado.personagem.id, hp: aliado.personagem.hpAtual }] : []),
+      ],
+    });
     // Com alvo, abre a resolução: daqui saem as rolagens de ataque, salvaguarda e dano.
     const resolucaoId =
       combate && modoResolucao
@@ -620,10 +661,57 @@ export async function finalizarTurno(personagemId: string) {
     if (!combate) throw new ErroDeUso("O personagem não está em combate.");
     if (!combate.naVez) throw new ErroDeUso("Não é a sua vez.");
 
-    await avancarTurnoDoCombate(combate.combateId);
+    const { periodicos } = await avancarTurnoDoCombate(combate.combateId);
+    await descontarPeriodicos(combate.mesaId, periodicos);
     revalidatePath(`/ficha/${personagemId}`);
     revalidatePath(`/narrador/${combate.mesaId}`);
   });
+}
+
+// Dano por turno de condição (sangramento, veneno) nos jogadores: passa pelas
+// defesas da ficha de cada um, como qualquer dano do combate.
+async function descontarPeriodicos(mesaId: string, periodicos: DanoPeriodico[]) {
+  for (const item of periodicos) {
+    const [personagem, { agg }] = await Promise.all([
+      prisma.personagem.findUnique({ where: { id: item.personagemId }, include: { mesa: true } }),
+      carregarAgregado(item.personagemId),
+    ]);
+    if (!personagem) continue;
+    await avisarCombate(mesaId, item.nome, `sofre com ${item.condicao}.`);
+    await danoNoPersonagem({
+      personagem,
+      agg,
+      uid: UID_COMBATE,
+      partes: item.partes,
+      fonte: { de: item.fonteId, acao: item.condicao },
+    });
+  }
+}
+
+// O mesmo, quando quem passou a vez foi o narrador. Só vale pra personagens
+// que estão num combate aberto da mesa dele.
+export async function descontarPeriodicosDoNarrador(mesaId: string, combateId: string, periodicos: DanoPeriodico[]) {
+  const [user, combate] = await Promise.all([
+    usuarioDaRequest(),
+    prisma.combate.findUnique({
+      where: { id: combateId },
+      select: {
+        encerradoEm: true,
+        sessao: { select: { mesaId: true, mesa: { select: { userId: true } } } },
+        participantes: { select: { personagemId: true } },
+      },
+    }),
+  ]);
+  if (!user || !combate || combate.encerradoEm || combate.sessao.mesaId !== mesaId) return;
+  if (combate.sessao.mesa.userId !== user.id) return;
+  const noCombate = new Set(combate.participantes.map((p) => p.personagemId));
+  await descontarPeriodicos(
+    mesaId,
+    (Array.isArray(periodicos) ? periodicos : [])
+      .filter((p) => noCombate.has(p?.personagemId))
+      .slice(0, 24)
+      .map((p) => ({ ...p, partes: normalizarPartesDano(p.partes) })),
+  );
 }
 
 // ─── Concentração ──────────────────────────────────────────
@@ -1599,13 +1687,26 @@ async function opsDoUso(opts: {
     opts.custoPp,
     opts.exaustaoExtra ?? 0,
   );
+  // PV temporário novo que passa o que havia leva junto até quando ele dura.
+  const duracaoTemp = (p: PoolsDoUso, d: Omit<DeltasInstantaneos, "recursos">) =>
+    d.hpTemp > p.hpTemp ? { hpTempDuracao: d.hpTempDuracao ?? null } : {};
   if (Object.keys(proprio).length > 0) {
-    ops.push(prisma.personagem.update({ where: { id: personagemId }, data: proprio }));
+    ops.push(
+      prisma.personagem.update({
+        where: { id: personagemId },
+        data: { ...proprio, ...duracaoTemp(personagem, aliado ? SEM_DELTAS : deltas) },
+      }),
+    );
   }
   if (aliado) {
     const doAliado = patchDePools(aliado.personagem, aliado.agg, deltas, 0, 0);
     if (Object.keys(doAliado).length > 0) {
-      ops.push(prisma.personagem.update({ where: { id: aliado.personagem.id }, data: doAliado }));
+      ops.push(
+        prisma.personagem.update({
+          where: { id: aliado.personagem.id },
+          data: { ...doAliado, ...duracaoTemp(aliado.personagem, deltas) },
+        }),
+      );
     }
   }
   const { recurso, custoRecurso } = opts;
@@ -1706,8 +1807,40 @@ async function aplicarUsoHabilidade(
   }
 
   if (ops.length > 0) await prisma.$transaction(ops);
+  await estatisticasDoUso({
+    personagemId,
+    nome: hab.nome,
+    custoPp,
+    curou: lerEfeitos(hab.efeitos).some((e) => e.tipo === "cura"),
+    antes: [
+      { id: personagemId, hp: personagem.hpAtual },
+      ...(aliado ? [{ id: aliado.personagem.id, hp: aliado.personagem.hpAtual }] : []),
+    ],
+  });
   revalidatePath(`/ficha/${personagemId}`);
   if (aliado) revalidatePath(`/ficha/${aliado.personagem.id}`);
+}
+
+// PP gasto e PV curados num uso de ação ou habilidade, pras estatísticas do
+// combate (só valem se o personagem está num). A cura sai da diferença de PV,
+// porque quem rola e soma é opsDoUso.
+async function estatisticasDoUso(e: {
+  personagemId: string;
+  nome: string;
+  custoPp: number;
+  curou: boolean;
+  antes: { id: string; hp: number }[];
+}) {
+  await registrarPpDePersonagem(e.personagemId, e.custoPp, e.nome);
+  if (!e.curou) return;
+  const depois = await prisma.personagem.findMany({
+    where: { id: { in: e.antes.map((a) => a.id) } },
+    select: { id: true, hpAtual: true },
+  });
+  for (const a of e.antes) {
+    const d = depois.find((x) => x.id === a.id);
+    if (d && d.hpAtual > a.hp) await registrarCuraEmPersonagem(a.id, d.hpAtual - a.hp, e.nome, e.personagemId);
+  }
 }
 
 // Botão "Usar" de habilidade não-sustentada (ou ativa só-instantânea): consome
@@ -2764,6 +2897,8 @@ async function danoNoPersonagem(entrada: {
   partes: ParteDano[];
   desligadas?: string[];
   semTemp?: boolean;
+  // Quem causou (instância do combate) e com o quê, pras estatísticas.
+  fonte?: { de: string | null; acao: string };
 }) {
   const { personagem, agg, partes } = entrada;
   const personagemId = personagem.id;
@@ -2832,6 +2967,7 @@ async function danoNoPersonagem(entrada: {
       data: {
         hpAtual: r.hpAtual.depois,
         hpTemp: r.hpTemp.depois,
+        ...(semTempAgora ? { hpTempDuracao: null } : {}),
         pvNegativos: r.pvNegativos.depois,
         ...(novos.length > 0
           ? { tiposDano: juntarTipos(novos, salvos).slice(0, MAX_TIPOS_SALVOS) }
@@ -2844,6 +2980,7 @@ async function danoNoPersonagem(entrada: {
     ...(perdeu ? opsConcentracao(personagemId, concentracao, null) : []),
   ]);
   revalidatePath(`/ficha/${personagemId}`);
+  await registrarDanoEmPersonagem(personagemId, r, entrada.fonte);
   return {
     resultado: r,
     mensagem: serializarMensagem(criada as Awaited<typeof mensagem>),
@@ -2922,6 +3059,7 @@ export async function curarPv(personagemId: string, valor: unknown) {
       }),
     ]);
     revalidatePath(`/ficha/${personagemId}`);
+    await registrarCuraEmPersonagem(personagemId, depois - personagem.hpAtual, "Cura na ficha", "self");
     return { hpAtual: depois, mensagem: serializarMensagem(criada) };
   });
 }
@@ -3697,9 +3835,10 @@ async function criarResolucao(
       (linhas.length > 0 ? ` ${linhas.join("; ")}.` : "") +
       (esperando.length > 0 ? ` Salvaguarda de ${esperando.map((a) => a.nome).join(", ")} pendente.` : ""),
   );
-  // Quem já falhou (criatura) ou é pego sem teste já recebe as condições.
-  await condicoesDaResolucao(lado, resolucao.id);
+  // Quem já falhou (criatura) ou é pego sem teste decide se reage; sem reação
+  // a escolher, já recebe as condições.
   await janelasDeReacao(lado.combateId, resolucao.id);
+  await condicoesDaResolucao(lado, resolucao.id);
   return resolucao.id;
 }
 
@@ -3753,13 +3892,18 @@ async function abrirResolucao(entrada: {
 }
 
 // Põe as condições da ação em quem ela pegou em cheio (acerto, falha na
-// salvaguarda, dano sem teste) e ainda não as tinha recebido.
+// salvaguarda, dano sem teste) e ainda não as tinha recebido. Quem está com a
+// janela de reação aberta espera: a reação pode fazer o ataque errar.
 async function condicoesDaResolucao(combate: Pick<Lado, "combateId" | "mesaId">, resolucaoId: string) {
   const feito = await mudarResolucoes(combate.combateId, (lista) => {
     const r = lista.find((x) => x.id === resolucaoId);
     if (!r || r.condicoes.length === 0) return null;
     const pegos = r.alvos.filter(
-      (a) => !a.condicaoAplicada && (r.modo === "direto" || a.resultado !== null) && sofreDano(r, a) === 1,
+      (a) =>
+        !a.condicaoAplicada &&
+        a.reacao !== "pendente" &&
+        (r.modo === "direto" || a.resultado !== null) &&
+        sofreDano(r, a) === 1,
     );
     for (const a of pegos) a.condicaoAplicada = true;
     return pegos.length > 0 ? { resolucao: structuredClone(r), ids: pegos.map((a) => a.instanciaId) } : null;
@@ -3810,7 +3954,13 @@ async function descontarDano(mesaId: string, combateId: string, resolucao: Resol
         carregarAgregado(alvo.personagemId),
       ]);
       if (!personagem) continue;
-      const { teste } = await danoNoPersonagem({ personagem, agg, uid: UID_COMBATE, partes });
+      const { teste } = await danoNoPersonagem({
+        personagem,
+        agg,
+        uid: UID_COMBATE,
+        partes,
+        fonte: { de: resolucao.atacanteId, acao: resolucao.nome },
+      });
       if (teste) {
         // O jogador recebe o pedido na faixa da iniciativa e rola quando puder.
         await mudarResolucoes(combateId, (lista) => {
@@ -3825,23 +3975,40 @@ async function descontarDano(mesaId: string, combateId: string, resolucao: Resol
 
     const instancia = await prisma.instanciaCombate.findUnique({
       where: { id: alvo.instanciaId },
-      select: { criaturaId: true, pvAtual: true, pvMax: true },
+      select: { criaturaId: true, pvAtual: true, pvMax: true, pvTemp: true },
     });
     if (!instancia?.criaturaId) continue;
     const criatura = await prisma.criatura.findUnique({
       where: { id: instancia.criaturaId },
       select: { resistencias: true },
     });
+    // O dano sai primeiro do PV temporário; o que sobrar, do PV.
     const r = resolverDano(
       partes,
       defesasDaCriatura(comoResistencias(criatura?.resistencias)),
-      { hpAtual: instancia.pvAtual ?? 0, hpTemp: 0, hpMax: instancia.pvMax ?? 0 },
+      { hpAtual: instancia.pvAtual ?? 0, hpTemp: instancia.pvTemp, hpMax: instancia.pvMax ?? 0 },
     );
-    await prisma.instanciaCombate.update({ where: { id: alvo.instanciaId }, data: { pvAtual: r.hpAtual.depois } });
+    await prisma.instanciaCombate.update({
+      where: { id: alvo.instanciaId },
+      data: {
+        pvAtual: r.hpAtual.depois,
+        pvTemp: r.hpTemp.depois,
+        ...(r.hpTemp.depois === 0 ? { pvTempDuracao: null } : {}),
+      },
+    });
+    await registrarDano(combateId, {
+      de: resolucao.atacanteId,
+      para: alvo.instanciaId,
+      valor: r.final,
+      bruto: r.bruto,
+      tipo: tipoDominante(r.partes),
+      acao: resolucao.nome,
+      caiu: r.hpAtual.antes > 0 && r.hpAtual.depois <= 0,
+    });
     await avisarCombate(
       mesaId,
       alvo.nome,
-      `recebeu ${r.final} de dano.`,
+      `recebeu ${r.final} de dano` + (r.absorvido > 0 ? ` (${r.absorvido} no PV temporário).` : "."),
     );
   }
 }
@@ -3870,52 +4037,97 @@ function acertosSemDano(r: Resolucao): AlvoResolucao[] {
   return r.alvos.filter((a) => !a.danoAplicado && !a.danoRolado && sofreDano(r, a) > 0);
 }
 
-// O jogador alvo tem como reagir agora: não é a vez dele, tem alguma ação de
-// reação na ficha e ainda tem a reação do turno.
-async function podeReagir(combateId: string, alvo: { instanciaId: string; personagemId: string | null }) {
-  if (!alvo.personagemId) return false;
-  const [instancia, combate, reacoes] = await Promise.all([
-    prisma.instanciaCombate.findUnique({ where: { id: alvo.instanciaId }, select: { acoesGastas: true } }),
+// Reações que o alvo pode usar agora contra a ação que o pegou: não é a vez
+// dele, ainda tem a reação do turno, e o gatilho de cada uma cabe na ação
+// (ataque, salvaguarda que causa dano…). Do jogador, as da ficha; da criatura,
+// as do statblock. Lista vazia = não tem como reagir.
+async function reacoesCabiveis(
+  combateId: string,
+  alvo: { instanciaId: string; personagemId: string | null },
+  acao: { modo: Resolucao["modo"]; temDano: boolean },
+): Promise<OpcaoReacao[]> {
+  const [instancia, combate] = await Promise.all([
+    prisma.instanciaCombate.findUnique({
+      where: { id: alvo.instanciaId },
+      select: { acoesGastas: true, criaturaId: true, estadoRecargas: true },
+    }),
     prisma.combate.findUnique({
       where: { id: combateId },
       select: { turnoAtual: true, participantes: { select: { id: true, iniciativa: true, ordem: true } } },
     }),
-    prisma.acao.count({ where: { personagemId: alvo.personagemId, tipo: "react" } }),
   ]);
-  if (!instancia || !combate || reacoes === 0) return false;
-  if (ordenarParticipantes(combate.participantes)[combate.turnoAtual]?.id === alvo.instanciaId) return false;
+  if (!instancia || !combate) return [];
+  if (ordenarParticipantes(combate.participantes)[combate.turnoAtual]?.id === alvo.instanciaId) return [];
+  const gasta = lerAcoesGastas(instancia.acoesGastas).react ?? 0;
+
+  if (!alvo.personagemId) {
+    if (!instancia.criaturaId || gasta >= 1) return [];
+    const bruta = await prisma.criatura.findUnique({
+      where: { id: instancia.criaturaId },
+      include: { componentes: true },
+    });
+    if (!bruta) return [];
+    const usos = lerUsosAcoes(instancia.estadoRecargas);
+    return serializarCriatura(bruta)
+      .componentes.filter(
+        (c) =>
+          c.categoria === "reacao" &&
+          gatilhoCabe(c.gatilho, acao) &&
+          (c.usos === null || (usos[c.id] ?? c.usos) > 0),
+      )
+      .map((c) => ({ id: c.id, nome: c.nome || "Reação", efeito: resumoDaReacao(efeitosDeReacaoDaCriatura(c)) }));
+  }
+
+  const reacoes = (
+    await prisma.acao.findMany({
+      where: { personagemId: alvo.personagemId, tipo: "react" },
+      select: { id: true, nome: true, gatilho: true, efeitos: true, usosAtual: true },
+      orderBy: { nome: "asc" },
+    })
+  ).filter((a) => gatilhoCabe(lerGatilho(a.gatilho), acao) && a.usosAtual !== 0);
+  if (reacoes.length === 0) return [];
   const { agg } = await carregarAgregado(alvo.personagemId);
-  return (lerAcoesGastas(instancia.acoesGastas).react ?? 0) < maximoDeAcoes(agg.acoesExtras).react;
+  if (gasta >= maximoDeAcoes(agg.acoesExtras).react) return [];
+  return reacoes.map((a) => ({ id: a.id, nome: a.nome, efeito: resumoDaReacao(lerEfeitos(a.efeitos)) }));
 }
 
-// Abre a janela de reação de quem acabou de ser pego por uma ação com dano:
-// jogador que pode reagir fica "pendente" (o dano dele espera a decisão); os
-// outros seguem direto. Roda quando os resultados aparecem.
+// A ação pegou o alvo de um jeito que dá pra reagir: acerto de ataque, ou
+// dano que vai entrar (falha na salvaguarda, metade no sucesso, dano direto).
+function pegoPelaAcao(r: Resolucao, a: AlvoResolucao): boolean {
+  if (r.modo !== "direto" && a.resultado === null) return false;
+  return sofreDano(r, a) > 0 && (r.temDano || r.modo === "ataque");
+}
+
+// Abre a janela de reação de quem acabou de ser pego por uma ação: quem tem
+// reação que cabe fica "pendente", com a lista delas (a ação espera a decisão:
+// do jogador, ou do narrador se é criatura); os outros seguem direto. Roda
+// quando os resultados aparecem.
 async function janelasDeReacao(combateId: string, resolucaoId: string) {
-  const pegos = await mudarResolucoes(combateId, (lista) => {
+  const aberta = await mudarResolucoes(combateId, (lista) => {
     const r = lista.find((x) => x.id === resolucaoId);
-    if (!r || !r.temDano) return [];
-    return r.alvos
-      .filter(
-        (a) =>
-          a.reacao == null &&
-          !a.danoAplicado &&
-          !!a.personagemId &&
-          (r.modo === "direto" || a.resultado !== null) &&
-          sofreDano(r, a) > 0,
-      )
-      .map((a) => ({ instanciaId: a.instanciaId, personagemId: a.personagemId }));
+    if (!r) return null;
+    return {
+      acao: { modo: r.modo, temDano: r.temDano },
+      pegos: r.alvos
+        .filter((a) => a.reacao == null && !a.danoAplicado && pegoPelaAcao(r, a))
+        .map((a) => ({ instanciaId: a.instanciaId, personagemId: a.personagemId })),
+    };
   });
-  if (pegos.length === 0) return;
-  const reagem = new Set<string>();
-  for (const alvo of pegos) {
-    if (await podeReagir(combateId, alvo)) reagem.add(alvo.instanciaId);
+  if (!aberta || aberta.pegos.length === 0) return;
+  const cabem = new Map<string, OpcaoReacao[]>();
+  for (const alvo of aberta.pegos) {
+    if (!cabem.has(alvo.instanciaId)) cabem.set(alvo.instanciaId, await reacoesCabiveis(combateId, alvo, aberta.acao));
   }
   await mudarResolucoes(combateId, (lista) => {
     const r = lista.find((x) => x.id === resolucaoId);
     for (const a of r?.alvos ?? []) {
-      if (a.reacao == null && pegos.some((p) => p.instanciaId === a.instanciaId)) {
-        a.reacao = reagem.has(a.instanciaId) && !a.danoAplicado ? "pendente" : "nenhuma";
+      if (a.reacao != null || !cabem.has(a.instanciaId)) continue;
+      const opcoes = cabem.get(a.instanciaId) ?? [];
+      if (opcoes.length > 0 && !a.danoAplicado) {
+        a.reacao = "pendente";
+        a.reacoes = opcoes;
+      } else {
+        a.reacao = "nenhuma";
       }
     }
   });
@@ -3976,13 +4188,28 @@ async function resolverAtaque(lado: Lado, resolucaoId: string, lances: LanceDeAt
   const gravou = await mudarResolucoes(lado.combateId, (lista) => {
     const r = lista.find((x) => x.id === resolucaoId && x.etapa === "ataque");
     if (!r) return false;
-    r.alvos = alvos.map((a, i) => ({ ...a, resultado: resultados[i], danoAplicado: false }));
+    // O lance fica guardado: reação que sobe a CR compara o ataque de novo.
+    r.alvos = alvos.map((a, i) => ({
+      ...a,
+      resultado: resultados[i],
+      danoAplicado: false,
+      lance: { total: rolados[i].total, natural: rolados[i].natural, critico: rolados[i].critico },
+    }));
     r.etapa = r.temDano && resultados.some((x) => x !== "erro") ? "dano" : "feito";
     return true;
   });
   if (!gravou) throw new ErroDeUso("Esse ataque já foi resolvido.");
-  await condicoesDaResolucao(lado, resolucaoId);
-  await janelasDeReacao(lado.combateId, resolucaoId);
+
+  await registrarAtaques(
+    lado.combateId,
+    lado.instanciaId,
+    aberta.nome,
+    alvos.map((a, i) => ({
+      para: a.instanciaId,
+      total: rolados[i].total,
+      res: resultados[i] === "critico" ? "critico" : resultados[i] === "acerto" ? "acerto" : "erro",
+    })),
+  );
 
   await avisarCombate(
     lado.mesaId,
@@ -3991,6 +4218,9 @@ async function resolverAtaque(lado: Lado, resolucaoId: string, lances: LanceDeAt
       alvos.map((a, i) => `${a.nome} · ${TEXTO_RESULTADO[resultados[i]]}`).join("; ") +
       (resultados.includes("critico") ? "!" : "."),
   );
+  // Quem foi acertado decide se reage; sem reação a escolher, as condições já entram.
+  await janelasDeReacao(lado.combateId, resolucaoId);
+  await condicoesDaResolucao(lado, resolucaoId);
   return { resultados };
 }
 
@@ -4001,8 +4231,13 @@ async function aplicarDano(lado: Lado, resolucaoId: string, dano: { valor: numbe
   const partes = normalizarPartesDano(dano);
 
   const feito = await mudarResolucoes(lado.combateId, (lista) => {
-    const r = lista.find((x) => x.id === resolucaoId && x.atacanteId === lado.instanciaId && x.etapa === "dano");
+    const r = lista.find((x) => x.id === resolucaoId && x.atacanteId === lado.instanciaId);
     if (!r) return null;
+    if (r.etapa !== "dano") {
+      // Uma reação fez o ataque errar depois de o dano ter sido pedido: não há o que descontar.
+      const anulado = r.alvos.some((a) => a.reacao && typeof a.reacao === "object" && a.reacao.anulou);
+      return anulado ? { resolucao: structuredClone(r), leva: [], restam: 0 } : null;
+    }
     r.dano = partes;
     if (r.modo === "ataque") {
       const proximo = acertosSemDano(r)[0];
@@ -4052,7 +4287,15 @@ export async function responderSalvaguarda(
     const combate = await minhaResolucao(personagemId);
     const total = Math.trunc(Number(rolagem?.total) || 0);
     const natural = rolagem?.natural == null ? null : Math.trunc(Number(rolagem.natural) || 0);
-    const reage = await podeReagir(combate.combateId, { instanciaId: combate.instanciaId, personagemId });
+    const temDano = await mudarResolucoes(
+      combate.combateId,
+      (lista) => lista.find((x) => x.id === resolucaoId && x.salvaguarda)?.temDano === true,
+    );
+    const reacoes = await reacoesCabiveis(
+      combate.combateId,
+      { instanciaId: combate.instanciaId, personagemId },
+      { modo: "salvaguarda", temDano },
+    );
 
     const feito = await mudarResolucoes(combate.combateId, (lista) => {
       const r = lista.find((x) => x.id === resolucaoId && x.salvaguarda);
@@ -4060,8 +4303,15 @@ export async function responderSalvaguarda(
       if (!r || !alvo) return null;
       const salv = resultadoDaSalvaguarda({ total, natural }, r.salvaguarda!.cd);
       alvo.resultado = salv.resultado;
-      // Vai levar dano e pode reagir: o dano espera a decisão dele.
-      if (r.temDano && alvo.reacao == null) alvo.reacao = reage && sofreDano(r, alvo) > 0 ? "pendente" : "nenhuma";
+      // Vai levar dano e tem reação que cabe: o dano espera a decisão dele.
+      if (r.temDano && alvo.reacao == null) {
+        if (reacoes.length > 0 && pegoPelaAcao(r, alvo)) {
+          alvo.reacao = "pendente";
+          alvo.reacoes = reacoes;
+        } else {
+          alvo.reacao = "nenhuma";
+        }
+      }
       return { resolucao: structuredClone(r), alvo: { ...alvo }, salv, leva: quemLevaAgora(r) };
     });
     if (!feito) throw new ErroDeUso("Essa salvaguarda já foi respondida.");
@@ -4110,37 +4360,115 @@ export async function tentarSairDaCondicao(
   });
 }
 
-// Fecha a janela de reação de um alvo e desconta o dano que estava esperando.
+// A reação que o alvo escolheu, com os efeitos já rolados. `de` é quem reage.
+type ReacaoFeita = { de: string; nome: string; efeito: EfeitoDeReacao };
+
+// "CR +2 e o ataque errou, 10 PV temporário, −5 de dano".
+function textoDaReacao(u: ReacaoUsada): string {
+  return [
+    u.cr ? `CR +${u.cr}${u.anulou ? " e o ataque errou" : ""}` : null,
+    u.pvTemp ? `${u.pvTemp} PV temporário` : null,
+    u.reducao > 0 ? `−${u.reducao} de dano` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+// As reações que cabem na janela aberta do alvo; null = a janela já fechou.
+function opcoesDaJanela(combateId: string, resolucaoId: string, instanciaId: string) {
+  return mudarResolucoes(combateId, (lista) => {
+    const alvo = lista
+      .find((r) => r.id === resolucaoId)
+      ?.alvos.find((a) => a.instanciaId === instanciaId && a.reacao === "pendente");
+    return alvo ? (alvo.reacoes ?? []) : null;
+  });
+}
+
+// Fecha a janela de reação de um alvo e segue com a ação que estava esperando.
+// Com reação, os efeitos dela entram antes: a CR maior compara o ataque de novo
+// (se não passa mais, ele erra), a redução sai do dano, e o PV temporário (que
+// quem chamou já deu) é consumido antes do PV. `null` = não reagiu.
 async function fecharJanela(
   lado: Pick<Lado, "combateId" | "mesaId">,
   resolucaoId: string,
   instanciaId: string,
-  reacao: { nome: string; reducao: number } | "nenhuma",
+  reacao: ReacaoFeita | null,
 ) {
+  // CR do alvo com a reação valendo; null = a reação não mexe na CR (ou não é ataque).
+  let cr: { antes: number; depois: number } | null = null;
+  if (reacao && (reacao.efeito.cr > 0 || reacao.efeito.crFixa > 0)) {
+    const alvo = await mudarResolucoes(lado.combateId, (lista) =>
+      lista
+        .find((r) => r.id === resolucaoId && r.modo === "ataque")
+        ?.alvos.find((a) => a.instanciaId === instanciaId && a.reacao === "pendente"),
+    );
+    if (alvo) {
+      const antes = await crDoAlvo(alvo);
+      const depois = crComReacao(antes, reacao.efeito);
+      if (depois > antes) cr = { antes, depois };
+    }
+  }
+
   const feito = await mudarResolucoes(lado.combateId, (lista) => {
     const r = lista.find((x) => x.id === resolucaoId);
     const alvos = r?.alvos.filter((a) => a.instanciaId === instanciaId && a.reacao === "pendente") ?? [];
     if (!r || alvos.length === 0) return null;
-    // Uma reação vale pra um golpe: no multiataque no mesmo alvo, o 1º acerto.
-    alvos.forEach((a, i) => {
-      a.reacao = i === 0 ? reacao : "nenhuma";
-    });
-    return { resolucao: structuredClone(r), leva: quemLevaAgora(r) };
+
+    // 20 natural e crítico continuam acertando; o resto precisa passar a CR nova.
+    let anulou = false;
+    if (cr) {
+      for (const a of alvos) {
+        if (a.lance && resultadoDoAtaque(a.lance, cr.depois) === "erro") {
+          a.resultado = "erro";
+          anulou = true;
+        }
+      }
+    }
+    const usada: ReacaoUsada | null = reacao
+      ? {
+          nome: reacao.nome,
+          reducao: reacao.efeito.reducao,
+          ...(cr ? { cr: cr.depois - cr.antes } : {}),
+          ...(reacao.efeito.pvTemp > 0 ? { pvTemp: reacao.efeito.pvTemp } : {}),
+          ...(anulou ? { anulou: true } : {}),
+        }
+      : null;
+    // A CR vale pra todos os ataques da ação nele; a redução, pra um golpe só
+    // (no multiataque no mesmo alvo, o 1º acerto que sobrou).
+    let reduziu = false;
+    for (const a of alvos) {
+      const leva = sofreDano(r, a) > 0;
+      a.reacao = usada ? { ...usada, reducao: leva && !reduziu ? usada.reducao : 0 } : "nenhuma";
+      a.reacoes = [];
+      if (leva) reduziu = true;
+    }
+    // Nenhum acerto sobrou esperando dano: não há mais o que rolar.
+    if (r.modo === "ataque" && r.etapa === "dano" && acertosSemDano(r).length === 0) r.etapa = "feito";
+    return { resolucao: structuredClone(r), leva: quemLevaAgora(r), usada };
   });
   if (!feito) throw new ErroDeUso("Essa reação já foi decidida.");
+
+  if (reacao && feito.usada) {
+    const texto = textoDaReacao(feito.usada);
+    await avisarCombate(lado.mesaId, reacao.de, `reagiu com ${reacao.nome}` + (texto ? `: ${texto}.` : "."));
+  }
   await descontarDano(lado.mesaId, lado.combateId, feito.resolucao, feito.leva);
+  await condicoesDaResolucao(lado, resolucaoId);
+  return feito.usada;
 }
 
-// O jogador atingido decide: reage com uma das reações da ficha (que gasta a
-// reação do turno e os custos dela) ou deixa o dano vir. Reação com o efeito
-// "Redução de Dano" tem a redução rolada aqui e abatida do golpe.
+// O jogador que a ação pegou decide: reage com uma das reações da ficha que
+// cabem (gasta a reação do turno e os custos dela) ou deixa a ação seguir. Os
+// efeitos da reação são rolados aqui e valem antes do resto: CR maior (o
+// ataque é comparado de novo), PV temporário (o dano sai dele primeiro) e
+// redução de dano.
 export async function reagirEmCombate(personagemId: string, resolucaoId: string, acaoId: string | null) {
   return executar("ficha", async () => {
     const combate = await minhaResolucao(personagemId);
     if (!acaoId) {
-      await fecharJanela(combate, resolucaoId, combate.instanciaId, "nenhuma");
+      await fecharJanela(combate, resolucaoId, combate.instanciaId, null);
       revalidarCombate(combate, personagemId);
-      return { reducao: 0 };
+      return { reacao: null };
     }
 
     const [acao, { agg }, personagem] = await Promise.all([
@@ -4149,33 +4477,39 @@ export async function reagirEmCombate(personagemId: string, resolucaoId: string,
       prisma.personagem.findUniqueOrThrow({ where: { id: personagemId } }),
     ]);
     if (!acao) throw new ErroDeUso("Reação não encontrada.");
-    const aberta = await mudarResolucoes(combate.combateId, (lista) =>
-      lista
-        .find((r) => r.id === resolucaoId)
-        ?.alvos.some((a) => a.instanciaId === combate.instanciaId && a.reacao === "pendente"),
-    );
-    if (!aberta) throw new ErroDeUso("Essa reação já foi decidida.");
+    const opcoes = await opcoesDaJanela(combate.combateId, resolucaoId, combate.instanciaId);
+    if (!opcoes) throw new ErroDeUso("Essa reação já foi decidida.");
+    if (!opcoes.some((o) => o.id === acaoId)) throw new ErroDeUso("Essa reação não cabe nesta ação.");
     // Usar a reação gasta a ação do turno e os custos, com as mesmas travas de sempre.
     const uso = await usarAcao(personagemId, acaoId);
     if (!uso.ok) throw new ErroDeUso(uso.erro);
 
     const ctx = agg.ctxFormula ?? { nivel: personagem.nivel, atributos: atributosDoPersonagem(personagem) };
-    let reducao = 0;
-    for (const e of lerEfeitos(acao.efeitos)) {
-      if (e.tipo !== "reducao_dano") continue;
-      const f = resolverFormula(e.formula ?? String(e.valor ?? 0), ctx.atributos, ctx.nivel, { grau: acao.grau });
-      reducao += f.dados.length > 0 ? rolarDados(f.dados, f.modificador).total : f.modificador;
-    }
-    reducao = Math.max(0, Math.trunc(reducao));
-
-    await fecharJanela(combate, resolucaoId, combate.instanciaId, { nome: acao.nome, reducao });
-    await avisarCombate(
-      combate.mesaId,
-      personagem.nome,
-      `reagiu com ${acao.nome}` + (reducao > 0 ? `: −${reducao} de dano.` : "."),
+    const efeito = efeitosDaReacao(lerEfeitos(acao.efeitos), (f) =>
+      resolverFormula(f, ctx.atributos, ctx.nivel, { grau: acao.grau }),
     );
+    // PV temporário entra antes do dano. O de valor fixo o uso já deu; o de
+    // fórmula com dado foi rolado aqui e fica se for maior que o que ele tem.
+    if (efeito.pvTemp > 0) {
+      const { hpTemp } = await prisma.personagem.findUniqueOrThrow({
+        where: { id: personagemId },
+        select: { hpTemp: true },
+      });
+      if (efeito.pvTemp > hpTemp) {
+        await prisma.personagem.update({
+          where: { id: personagemId },
+          data: { hpTemp: efeito.pvTemp, hpTempDuracao: duracaoPvTempNoBanco(efeito.duracaoPv) },
+        });
+      }
+    }
+
+    const reacao = await fecharJanela(combate, resolucaoId, combate.instanciaId, {
+      de: personagem.nome,
+      nome: acao.nome,
+      efeito,
+    });
     revalidarCombate(combate, personagemId);
-    return { reducao };
+    return { reacao };
   });
 }
 
@@ -4193,7 +4527,7 @@ export async function seguirSemReacao(mesaId: string, combateId: string, resoluc
     if (!combate || combate.sessao.mesaId !== mesaId) throw new ErroDeUso("Combate não encontrado.");
     if (combate.sessao.mesa.userId !== user.id) throw new ErroDeUso("Só o narrador destrava a reação.");
 
-    await fecharJanela({ combateId, mesaId }, resolucaoId, instanciaId, "nenhuma");
+    await fecharJanela({ combateId, mesaId }, resolucaoId, instanciaId, null);
     revalidatePath(`/narrador/${mesaId}`);
   });
 }
@@ -4268,10 +4602,77 @@ async function ladoDaCriatura(mesaId: string, combateId: string, instanciaId: st
       acoesGastas: true,
       acoesReveladas: true,
       autoRevelarAcoes: true,
+      pvTemp: true,
     },
   });
   if (!instancia?.criaturaId) throw new ErroDeUso("Criatura não encontrada neste combate.");
   return { lado: { instanciaId, combateId, mesaId } satisfies Lado, instancia, criaturaId: instancia.criaturaId };
+}
+
+type CriaturaEmCombate = Awaited<ReturnType<typeof ladoDaCriatura>>;
+
+// O que a criatura gasta pra usar uma ação do statblock (usos, PP, recursos
+// próprios, ação lendária), conferido antes de gastar. `forcar`: o narrador
+// decidiu usar mesmo sem ter; nada fica negativo.
+async function custoDaAcaoDeCriatura(
+  { instancia, criaturaId }: CriaturaEmCombate,
+  componenteId: string,
+  forcar: boolean,
+) {
+  const bruta = await prisma.criatura.findUnique({
+    where: { id: criaturaId },
+    include: { componentes: true, linhagem: true },
+  });
+  if (!bruta) throw new ErroDeUso("Criatura não encontrada no bestiário.");
+  const criatura = serializarCriatura(bruta);
+  const acao = criatura.componentes.find((c) => c.id === componenteId);
+  if (!acao) throw new ErroDeUso("Ação não encontrada.");
+
+  const usos = lerUsosAcoes(instancia.estadoRecargas);
+  if (acao.usos !== null) {
+    const restam = usos[acao.id] ?? acao.usos;
+    if (restam <= 0 && !forcar) throw new ErroDeUso("Sem usos restantes desta ação.");
+    usos[acao.id] = Math.max(0, restam - 1);
+  }
+  const gastos = gastosDaAcao(acao, criatura.recursos);
+  const ppRestante = Math.max(0, criatura.pontosPoder - instancia.ppGasto);
+  if (gastos.pp > ppRestante && !forcar) throw new ErroDeUso("PP insuficiente.");
+  const pp = Math.min(gastos.pp, ppRestante);
+  // Recursos próprios: o que resta de cada um fica junto dos usos, pelo id.
+  for (const { recurso, delta } of gastos.recursos) {
+    const resta = Math.min(recurso.valorMax, usos[recurso.id] ?? recurso.valorMax);
+    if (resta + delta < 0 && !forcar) throw new ErroDeUso(`${recurso.nome} insuficiente.`);
+    usos[recurso.id] = Math.min(recurso.valorMax, Math.max(0, resta + delta));
+  }
+  // Ação lendária: sai do que resta na rodada (volta no começo do turno dela).
+  if (acao.categoria === "acaoLendaria" && criatura.acoesLendarias > 0) {
+    const restam = Math.min(criatura.acoesLendarias, usos[CHAVE_LENDARIAS] ?? criatura.acoesLendarias);
+    if (restam < acao.custoLendario && !forcar) throw new ErroDeUso("Sem ações lendárias nesta rodada.");
+    usos[CHAVE_LENDARIAS] = Math.max(0, restam - acao.custoLendario);
+  }
+  return { acao, usos, pp, tipoAcao: ACAO_DO_BLOCO[acao.categoria] as TipoAcaoCombate | undefined };
+}
+
+// Grava o gasto: usos, PP, as `vezes` da ação do turno e a ação revelada aos jogadores.
+async function gastarAcaoDeCriatura(
+  { lado, instancia }: CriaturaEmCombate,
+  custo: Awaited<ReturnType<typeof custoDaAcaoDeCriatura>>,
+  vezes = 1,
+) {
+  const { acao, tipoAcao } = custo;
+  const gastas = lerAcoesGastas(instancia.acoesGastas);
+  await prisma.instanciaCombate.update({
+    where: { id: lado.instanciaId },
+    data: {
+      ppGasto: instancia.ppGasto + custo.pp,
+      estadoRecargas: custo.usos,
+      ...(tipoAcao ? { acoesGastas: { ...gastas, [tipoAcao]: (gastas[tipoAcao] ?? 0) + vezes } } : {}),
+      ...(instancia.autoRevelarAcoes && !instancia.acoesReveladas.includes(acao.id)
+        ? { acoesReveladas: [...instancia.acoesReveladas, acao.id] }
+        : {}),
+    },
+  });
+  await registrarPp(lado.combateId, { de: lado.instanciaId, valor: custo.pp, acao: acao.nome });
 }
 
 // A criatura usa uma ação do statblock: gasta usos, PP e a ação do turno,
@@ -4283,17 +4684,15 @@ export async function usarAcaoDeCriatura(
   instanciaId: string,
   componenteId: string,
   alvosPedidos: string[],
+  // O narrador decidiu usar mesmo sem usos ou PP: nada fica negativo.
+  forcar = false,
 ) {
   return executar("sessao", async () => {
-    const { lado, instancia, criaturaId } = await ladoDaCriatura(mesaId, combateId, instanciaId);
-    const bruta = await prisma.criatura.findUnique({
-      where: { id: criaturaId },
-      include: { componentes: true, linhagem: true },
-    });
-    if (!bruta) throw new ErroDeUso("Criatura não encontrada no bestiário.");
-    const criatura = serializarCriatura(bruta);
-    const acao = criatura.componentes.find((c) => c.id === componenteId);
-    if (!acao) throw new ErroDeUso("Ação não encontrada.");
+    const emCombate = await ladoDaCriatura(mesaId, combateId, instanciaId);
+    const { lado, instancia } = emCombate;
+    // Usos e PP conferidos antes de gastar.
+    const custo = await custoDaAcaoDeCriatura(emCombate, componenteId, forcar);
+    const { acao, tipoAcao } = custo;
 
     const ataque = acao.efeitos.flatMap((e) => (e.tipo === "ataque" && e.bonus.trim() ? [e] : []))[0];
     const salv = acao.efeitos.flatMap((e) => (e.tipo === "salvaguarda" ? [e] : []))[0];
@@ -4308,6 +4707,7 @@ export async function usarAcaoDeCriatura(
               rodadas: lerRodadas(e.duracaoTurnos),
               // Com salvaguarda na ação, o afetado pode repeti-la pra sair antes.
               salvaguarda: salv ? { atributo: salv.atributo, cd: salv.cd } : null,
+              porTurno: e.danoPorTurno ?? null,
             },
           ]
         : [],
@@ -4320,33 +4720,13 @@ export async function usarAcaoDeCriatura(
           ? "direto"
           : null;
 
-    // Usos e PP conferidos antes de gastar.
-    const usos = lerUsosAcoes(instancia.estadoRecargas);
-    if (acao.usos !== null) {
-      const restam = usos[acao.id] ?? acao.usos;
-      if (restam <= 0) throw new ErroDeUso("Sem usos restantes desta ação.");
-      usos[acao.id] = restam - 1;
-    }
-    const pp = Number(/(\d+)\s*PP/i.exec(acao.custo)?.[1]) || 0;
-    if (pp > criatura.pontosPoder - instancia.ppGasto) throw new ErroDeUso("PP insuficiente.");
-    const tipoAcao = ACAO_DO_BLOCO[acao.categoria];
-    const gastas = lerAcoesGastas(instancia.acoesGastas);
-
-    await prisma.instanciaCombate.update({
-      where: { id: instanciaId },
-      data: {
-        ppGasto: instancia.ppGasto + pp,
-        estadoRecargas: usos,
-        ...(tipoAcao ? { acoesGastas: { ...gastas, [tipoAcao]: (gastas[tipoAcao] ?? 0) + 1 } } : {}),
-        ...(instancia.autoRevelarAcoes && !instancia.acoesReveladas.includes(acao.id)
-          ? { acoesReveladas: [...instancia.acoesReveladas, acao.id] }
-          : {}),
-      },
-    });
-
     const alvos = (Array.isArray(alvosPedidos) ? alvosPedidos : [])
       .filter((id): id is string => typeof id === "string" && !!id)
       .slice(0, 12);
+    // Multiataque: cada ataque feito conta um da ação padrão do turno.
+    const vezes = modo === "ataque" && tipoAcao === "padrao" ? Math.max(1, alvos.length) : 1;
+    await gastarAcaoDeCriatura(emCombate, custo, vezes);
+
     const resolucaoId =
       modo && alvos.length > 0
         ? await criarResolucao(lado, {
@@ -4359,8 +4739,8 @@ export async function usarAcaoDeCriatura(
               ? {
                   atributo: salv.atributo,
                   cd: salv.cd,
-                  // O statblock não tem campo pra isso: vale o que o texto da ação diz.
-                  emSucesso: /metade/i.test(acao.descricao) ? "metade" : "nada",
+                  // Ação de antes do campo existir: vale o que o texto dela diz.
+                  emSucesso: salv.metade || /metade/i.test(acao.descricao) ? "metade" : "nada",
                 }
               : null,
             condicoes,
@@ -4381,8 +4761,22 @@ export async function resolverAtaqueDeCriatura(
   lances: LanceDeAtaque[],
 ) {
   return executar("sessao", async () => {
-    const { lado } = await ladoDaCriatura(mesaId, combateId, instanciaId);
-    const saida = await resolverAtaque(lado, resolucaoId, lances);
+    const { lado, criaturaId } = await ladoDaCriatura(mesaId, combateId, instanciaId);
+    // Margem de crítico da ação (e dos aspectos da criatura): o d20 natural a
+    // partir dela já é crítico.
+    const [combate, bruta] = await Promise.all([
+      prisma.combate.findUnique({ where: { id: combateId }, select: { resolucoes: true } }),
+      prisma.criatura.findUnique({ where: { id: criaturaId }, include: { componentes: true, linhagem: true } }),
+    ]);
+    const acaoId = lerResolucoes(combate?.resolucoes).find((r) => r.id === resolucaoId)?.acaoId;
+    const componentes = bruta ? serializarCriatura(bruta).componentes : [];
+    const acao = componentes.find((c) => c.id === acaoId);
+    const margem = acao ? margemDeCritico(componentes, acao) : 20;
+    const comMargem = (Array.isArray(lances) ? lances : []).map((l) => ({
+      ...l,
+      critico: l?.critico === true || (l?.natural != null && Number(l.natural) >= margem),
+    }));
+    const saida = await resolverAtaque(lado, resolucaoId, comMargem);
     revalidatePath(`/narrador/${mesaId}`);
     return saida;
   });
@@ -4400,5 +4794,108 @@ export async function aplicarDanoDeCriatura(
     const saida = await aplicarDano(lado, resolucaoId, dano);
     revalidatePath(`/narrador/${mesaId}`);
     return saida;
+  });
+}
+
+// A criatura cura PV de quem o narrador escolheu (ela mesma ou aliados): o
+// valor já veio rolado. Jogador alvo respeita o PV máximo da ficha; criatura,
+// o do combate. Cada cura entra nas estatísticas com quem curou e quem recebeu.
+export async function aplicarCuraDeCriatura(
+  mesaId: string,
+  combateId: string,
+  instanciaId: string,
+  alvoIds: string[],
+  valor: number,
+  acao: string,
+) {
+  return executar("sessao", async () => {
+    const { lado, instancia } = await ladoDaCriatura(mesaId, combateId, instanciaId);
+    const cura = Math.min(99999, Math.max(0, Math.trunc(Number(valor) || 0)));
+    if (cura <= 0) throw new ErroDeUso("Sem cura pra aplicar.");
+    const ids = [...new Set((Array.isArray(alvoIds) ? alvoIds : []).filter((x): x is string => typeof x === "string"))].slice(0, 12);
+    const alvos = await prisma.instanciaCombate.findMany({
+      where: { combateId: lado.combateId, id: { in: ids } },
+      select: { id: true, nomeExibicao: true, personagemId: true, pvAtual: true, pvMax: true },
+    });
+    if (alvos.length === 0) throw new ErroDeUso("Escolha quem recebe a cura.");
+    const nome = String(acao ?? "").slice(0, 80) || "Cura";
+
+    for (const alvo of alvos) {
+      let recuperou = 0;
+      if (alvo.personagemId) {
+        const [personagem, { agg }] = await Promise.all([
+          prisma.personagem.findUnique({ where: { id: alvo.personagemId } }),
+          carregarAgregado(alvo.personagemId),
+        ]);
+        if (!personagem) continue;
+        const depois = somarAteOMaximo(personagem.hpAtual, cura, poolsEfetivos(personagem, agg).hpMax);
+        recuperou = depois - personagem.hpAtual;
+        if (recuperou > 0) {
+          await prisma.personagem.update({ where: { id: personagem.id }, data: { hpAtual: depois } });
+          revalidatePath(`/ficha/${personagem.id}`);
+        }
+      } else {
+        const antes = alvo.pvAtual ?? 0;
+        const teto = alvo.pvMax ?? 0;
+        const depois = teto > 0 ? Math.min(teto, antes + cura) : antes + cura;
+        recuperou = Math.max(0, depois - antes);
+        if (recuperou > 0) await prisma.instanciaCombate.update({ where: { id: alvo.id }, data: { pvAtual: depois } });
+      }
+      if (recuperou <= 0) continue;
+      await avisarCombate(mesaId, alvo.nomeExibicao, `recuperou ${recuperou} PV (${nome} de ${instancia.nomeExibicao}).`);
+      await registrarCura(lado.combateId, { de: instanciaId, para: alvo.id, valor: recuperou, acao: nome });
+    }
+    revalidatePath(`/narrador/${mesaId}`);
+  });
+}
+
+// Criatura que a ação pegou reage (decisão do narrador) com uma das reações do
+// statblock que cabem: gasta a reação do turno e os custos dela, e os efeitos
+// valem antes do resto — CR maior (o ataque é comparado de novo), PV
+// temporário (o dano sai dele primeiro) e redução de dano. `reducaoExtra` é o
+// que o narrador tira do dano à mão, pra reação cujo texto não virou efeito;
+// sem `componenteId`, a reação é só isso.
+export async function reagirComoCriatura(
+  mesaId: string,
+  combateId: string,
+  resolucaoId: string,
+  instanciaId: string,
+  componenteId: string | null,
+  reducaoExtra = 0,
+) {
+  return executar("sessao", async () => {
+    const emCombate = await ladoDaCriatura(mesaId, combateId, instanciaId);
+    const { lado, instancia } = emCombate;
+    const opcoes = await opcoesDaJanela(combateId, resolucaoId, instanciaId);
+    if (!opcoes) throw new ErroDeUso("Essa reação já foi decidida.");
+
+    let nome = "uma reação";
+    let efeitos: EfeitoHabilidade[] = [];
+    if (componenteId) {
+      if (!opcoes.some((o) => o.id === componenteId)) throw new ErroDeUso("Essa reação não cabe nesta ação.");
+      const custo = await custoDaAcaoDeCriatura(emCombate, componenteId, false);
+      await gastarAcaoDeCriatura(emCombate, custo);
+      nome = custo.acao.nome || "Reação";
+      efeitos = efeitosDeReacaoDaCriatura(custo.acao);
+    } else {
+      const gastas = lerAcoesGastas(instancia.acoesGastas);
+      await prisma.instanciaCombate.update({
+        where: { id: instanciaId },
+        data: { acoesGastas: { ...gastas, react: (gastas.react ?? 0) + 1 } },
+      });
+    }
+
+    const efeito = efeitosDaReacao(efeitos);
+    efeito.reducao += Math.max(0, Math.trunc(Number(reducaoExtra) || 0));
+    // PV temporário entra antes do dano; fica o maior, com a duração dele.
+    if (efeito.pvTemp > instancia.pvTemp) {
+      await prisma.instanciaCombate.update({
+        where: { id: instanciaId },
+        data: { pvTemp: efeito.pvTemp, pvTempDuracao: duracaoPvTempNoBanco(efeito.duracaoPv) },
+      });
+    }
+    const reacao = await fecharJanela(lado, resolucaoId, instanciaId, { de: instancia.nomeExibicao, nome, efeito });
+    revalidatePath(`/narrador/${mesaId}`);
+    return { reacao };
   });
 }

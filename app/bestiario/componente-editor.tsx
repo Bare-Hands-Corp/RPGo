@@ -1,9 +1,26 @@
 "use client";
 
-import { useState } from "react";
-import { FORMAS_AREA, META_EFEITO_ACAO, RECARGAS_ACAO, criarEfeitoAcao } from "./types";
+import { createContext, useContext, useMemo, useState } from "react";
+import {
+  EfeitosEditor as EfeitosDaFicha,
+  NomesRecursoContext,
+  type RecursoMinimo,
+} from "@/app/ficha/[uid]/efeitos-editor";
+import { ATRIBUTOS as ATRIBUTOS_DO_JOGO, type EfeitoHabilidade } from "@/lib/op-rpg";
+import { GATILHOS_REACAO, type GatilhoReacao } from "@/lib/combate";
+import { Segmentos, type OpcaoSegmento } from "@/app/ficha/[uid]/campos-modal";
+import { CATEGORIAS_COMPONENTE, FORMAS_AREA, META_EFEITO_ACAO, RECARGAS_ACAO, criarEfeitoAcao } from "./types";
 import type { AtributoSalvaguarda, ComponentePayload, EfeitoAcao, EfeitoAcaoTipo, FormaArea, RecargaAcao, TemplateSerializado } from "./types";
-import { ListaTextoInput, NumeroInput } from "./inputs";
+import { NumeroInput } from "./inputs";
+import { TiposDanoChips } from "./tipos-dano-chips";
+import { ppDoCusto, textoEfeitoAcao, textoEfeitoExtra, textoTecnica } from "./utils";
+
+// Números da criatura dona da ação, oferecidos como atalho nos efeitos (o
+// bônus de ataque dela, a CD dela). Na biblioteca não tem criatura: fica vazio.
+export type SugestoesAcao = { ataques: { rotulo: string; valor: string }[]; cd: number | null };
+export const SugestoesAcaoContext = createContext<SugestoesAcao>({ ataques: [], cd: null });
+
+const ALCANCES = ["Pessoal", "1,5 metro", "3 metros", "9 metros", "18 metros", "36 metros"];
 
 const TIPOS_EFEITO: EfeitoAcaoTipo[] = [
   "ataque",
@@ -24,6 +41,11 @@ type Props = {
   // digitar condição livre, ela precisa existir na biblioteca pra ganhar
   // cor/descrição na ficha).
   condicoesDisponiveis: TemplateSerializado[];
+  // Recursos da criatura, pros efeitos que gastam ou devolvem recurso.
+  recursos: RecursoMinimo[];
+  // Fechado mostra só o nome e o resumo; a lista de ações cabe na tela.
+  aberto: boolean;
+  onAlternar: () => void;
   onAtualizar: (patch: Partial<ComponentePayload>) => void;
   onRemover: () => void;
 };
@@ -36,56 +58,217 @@ type Props = {
 // criação de habilidades do jogador já usa. Usado tanto no editor de
 // criatura quanto no wizard, pra não ter dois formulários fazendo a mesma
 // coisa de jeitos diferentes.
-export function ComponenteEditor({ item, condicoesDisponiveis, onAtualizar, onRemover }: Props) {
+export function ComponenteEditor({ item, condicoesDisponiveis, recursos, aberto, onAlternar, onAtualizar, onRemover }: Props) {
+  const cor = CATEGORIAS_COMPONENTE.find((c) => c.key === item.categoria)?.cor;
+  const resumo = [
+    ...(item.tecnica ? [textoTecnica(item)] : []),
+    ...item.efeitos.map(textoEfeitoAcao).filter((t): t is string => t !== null),
+    ...item.efeitosExtras.map((e) => textoEfeitoExtra(e, recursos)),
+  ];
+  const pp = ppDoCusto(item.custo);
+  // Custo escrito antes do campo ser só PP ("3 por dia"): o combate não cobra.
+  const custoAntigo = item.custo.trim() && pp === 0 ? item.custo.trim() : null;
   return (
-    <div className="bestiario-componente-card">
-      <div className="bestiario-grid">
-        <label>
-          Nome
-          <input value={item.nome} onChange={(e) => onAtualizar({ nome: e.target.value })} />
-        </label>
-        <label>
-          Alcance
-          <input
-            value={item.alcance}
-            placeholder="1,5 metro / 9-15 metros"
-            onChange={(e) => onAtualizar({ alcance: e.target.value })}
-          />
-        </label>
-        <label>
-          Custo
-          <input
-            value={item.custo}
-            placeholder="1 PP / 5-6 / 3 por dia"
-            onChange={(e) => onAtualizar({ custo: e.target.value })}
-          />
-        </label>
+    <div
+      className={`bestiario-componente-card${aberto ? " aberto" : ""}`}
+      style={{ "--acao-cor": cor } as React.CSSProperties}
+    >
+      <div className="bestiario-componente-topo">
+        <button type="button" className="bestiario-componente-abrir" aria-expanded={aberto} onClick={onAlternar}>
+          <i className="fas fa-chevron-right bestiario-componente-seta" />
+          <strong>{item.nome.trim() || "(sem nome)"}</strong>
+          {!aberto && resumo.length > 0 && <span className="bestiario-componente-resumo">{resumo.join(" · ")}</span>}
+        </button>
+        <button
+          type="button"
+          className="bestiario-efeito-remover"
+          onClick={onRemover}
+          title="Remover"
+          aria-label={`Remover ${item.nome || "ação"}`}
+        >
+          <i className="fas fa-trash" />
+        </button>
       </div>
 
-      <UsosLimitadosEditor
-        usos={item.usos}
-        recarga={item.recarga}
-        onChange={(patch) => onAtualizar(patch)}
-      />
+      {aberto && (
+        <>
+          <div className="bestiario-grid">
+            <label>
+              Nome
+              <input value={item.nome} autoFocus={!item.nome} onChange={(e) => onAtualizar({ nome: e.target.value })} />
+            </label>
+            <label>
+              Alcance
+              <input
+                value={item.alcance}
+                list="acao-alcances"
+                placeholder="1,5 metro"
+                onChange={(e) => onAtualizar({ alcance: e.target.value })}
+              />
+              <datalist id="acao-alcances">
+                {ALCANCES.map((a) => (
+                  <option key={a} value={a} />
+                ))}
+              </datalist>
+            </label>
+            <label>
+              Custo em PP (vazio = de graça)
+              <NumeroInput
+                allowNull
+                value={pp > 0 ? pp : null}
+                onChange={(v) => onAtualizar({ custo: v && v > 0 ? String(Math.trunc(v)) : "" })}
+              />
+            </label>
+          </div>
+          {custoAntigo && (
+            <span className="bestiario-sublabel">
+              Custo antigo: “{custoAntigo}”. O combate só cobra PP; pra limite de vezes use “Usos limitados” abaixo.{" "}
+              <button type="button" className="sugestao" onClick={() => onAtualizar({ custo: "" })}>
+                Limpar
+              </button>
+            </span>
+          )}
 
-      <EfeitosEditor
-        efeitos={item.efeitos}
-        condicoesDisponiveis={condicoesDisponiveis}
-        onChange={(efeitos) => onAtualizar({ efeitos })}
-      />
+          {item.categoria === "acaoLendaria" && (
+            <label className="bestiario-campo-curto">
+              Custa quantas ações lendárias
+              <NumeroInput value={item.custoLendario} onChange={(v) => onAtualizar({ custoLendario: Math.max(1, v ?? 1) })} />
+            </label>
+          )}
 
-      <label>
-        Descrição
-        <textarea
-          className="bestiario-textarea-descricao"
-          value={item.descricao}
-          onChange={(e) => onAtualizar({ descricao: e.target.value })}
-        />
-      </label>
-      <button type="button" className="bestiario-btn-remover-item" onClick={onRemover}>
-        <i className="fas fa-trash" /> Remover
-      </button>
+          {item.categoria === "reacao" && (
+            <GatilhoCampo valor={item.gatilho} onChange={(gatilho) => onAtualizar({ gatilho })} />
+          )}
+
+          {item.categoria !== "aspecto" && item.categoria !== "condicao" && (
+            <TecnicaCampos tecnica={item.tecnica} grau={item.grau} onChange={(patch) => onAtualizar(patch)} />
+          )}
+
+          <UsosLimitadosEditor usos={item.usos} recarga={item.recarga} onChange={(patch) => onAtualizar(patch)} />
+
+          <EfeitosEditor
+            efeitos={item.efeitos}
+            condicoesDisponiveis={condicoesDisponiveis}
+            onChange={(efeitos) => onAtualizar({ efeitos })}
+          />
+
+          <EfeitosExtrasEditor
+            efeitos={item.efeitosExtras}
+            recursos={recursos}
+            onChange={(efeitosExtras) => onAtualizar({ efeitosExtras })}
+          />
+
+          <label>
+            Descrição
+            <textarea
+              className="bestiario-textarea-descricao"
+              value={item.descricao}
+              onChange={(e) => onAtualizar({ descricao: e.target.value })}
+            />
+          </label>
+        </>
+      )}
     </div>
+  );
+}
+
+// Gatilho da reação: em que situação o combate a oferece quando a criatura é
+// pega por uma ação. Reaproveitado pelo formulário de trait da biblioteca.
+export function GatilhoCampo({ valor, onChange }: { valor: GatilhoReacao; onChange: (g: GatilhoReacao) => void }) {
+  return (
+    <label>
+      Gatilho da reação
+      <select value={valor} onChange={(e) => onChange(e.target.value as GatilhoReacao)}>
+        {GATILHOS_REACAO.map((g) => (
+          <option key={g.slug} value={g.slug}>
+            {g.texto}
+          </option>
+        ))}
+      </select>
+      <span className="bestiario-sublabel">
+        Quando ela é alvo e o gatilho bate, o combate oferece esta reação antes de a ação valer. Efeitos que ele aplica
+        sozinho: bônus na CR (o ataque é comparado de novo), PV temporário (o dano sai dele primeiro) e redução de
+        dano, em “Efeitos de ficha”.
+      </span>
+    </label>
+  );
+}
+
+const OPCOES_GRAU: OpcaoSegmento<number>[] = [
+  { valor: 0, rotulo: "—", titulo: "Sem grau (Técnica Auxiliar)" },
+  ...Array.from({ length: 7 }, (_, i) => ({ valor: i + 1, rotulo: `${i + 1}º` })),
+];
+
+// Técnica e grau, com os mesmos controles das ações do jogador.
+export function TecnicaCampos({
+  tecnica,
+  grau,
+  onChange,
+}: {
+  tecnica: boolean;
+  grau: number;
+  onChange: (patch: { tecnica?: boolean; grau?: number }) => void;
+}) {
+  return (
+    <div className="bestiario-tecnica">
+      <span className="bestiario-tipos-dano-rotulo">Técnica</span>
+      <div className="origem-pills">
+        {(
+          [
+            [false, "Não", "fa-hand-fist"],
+            [true, "Sim", "fa-wand-magic-sparkles"],
+          ] as const
+        ).map(([valor, rotulo, icone]) => (
+          <button
+            type="button"
+            key={rotulo}
+            className={`origem-pill ${tecnica === valor ? "ativo" : ""}`}
+            aria-pressed={tecnica === valor}
+            onClick={() => onChange(valor ? { tecnica: true } : { tecnica: false, grau: 0 })}
+          >
+            <i className={`fas ${icone}`} /> {rotulo}
+          </button>
+        ))}
+      </div>
+      {tecnica && (
+        <>
+          <span className="bestiario-tipos-dano-rotulo">Grau (— = sem grau, como a Técnica Auxiliar)</span>
+          <Segmentos rotulo="Grau" valor={grau} onChange={(g) => onChange({ grau: g })} opcoes={OPCOES_GRAU} />
+        </>
+      )}
+    </div>
+  );
+}
+
+// Os efeitos de habilidade da ficha do jogador, com o mesmo editor de lá.
+// Reaproveitado pelo formulário de trait da biblioteca.
+export function EfeitosExtrasEditor({
+  efeitos,
+  recursos,
+  onChange,
+}: {
+  efeitos: EfeitoHabilidade[];
+  recursos: RecursoMinimo[];
+  onChange: (efeitos: EfeitoHabilidade[]) => void;
+}) {
+  const nomes = useMemo(() => new Map(recursos.map((r) => [r.id, r.nome])), [recursos]);
+  return (
+    <details className="bestiario-usos-detalhe bestiario-efeitos-extras" open={efeitos.length > 0 || undefined}>
+      <summary>
+        <i className="fas fa-wand-magic-sparkles" /> Efeitos de ficha {efeitos.length > 0 ? `(${efeitos.length})` : "(opcional)"}
+      </summary>
+      {/* O gap fica num <div>: o <details> não distribui os filhos como flex. */}
+      <div className="bestiario-efeitos-extras-corpo">
+        <span className="bestiario-sublabel">
+          Os mesmos efeitos das habilidades e técnicas dos jogadores. O combate aplica sozinho: Multiataque, Crítico
+          Expandido, Margem de Crítico, Dano Extra (num aspecto vale pra todo ataque dela) e gasto de Recurso. Os outros
+          aparecem na ficha pra você aplicar.
+        </span>
+        <NomesRecursoContext.Provider value={nomes}>
+          <EfeitosDaFicha efeitos={efeitos} onChange={onChange} recursos={recursos} pergunta="O que mais essa ação faz?" />
+        </NomesRecursoContext.Provider>
+      </div>
+    </details>
   );
 }
 
@@ -219,8 +402,6 @@ export function EfeitosEditor({ efeitos, condicoesDisponiveis, onChange }: Efeit
   );
 }
 
-const ATRIBUTOS = ["forca", "destreza", "constituicao", "sabedoria", "presenca", "vontade"] as const;
-
 function CardEfeito({
   efeito,
   condicoesDisponiveis,
@@ -233,6 +414,7 @@ function CardEfeito({
   onRemover: () => void;
 }) {
   const meta = META_EFEITO_ACAO[efeito.tipo];
+  const sugestoes = useContext(SugestoesAcaoContext);
   return (
     <div className="bestiario-efeito-card" style={{ borderLeftColor: meta.cor }}>
       <div className="bestiario-efeito-topo" style={{ color: meta.cor }}>
@@ -242,7 +424,7 @@ function CardEfeito({
           <i className="fas fa-xmark" />
         </button>
       </div>
-      <div className="bestiario-efeito-corpo">{renderCampos(efeito, condicoesDisponiveis, onAtualizar)}</div>
+      <div className="bestiario-efeito-corpo">{renderCampos(efeito, condicoesDisponiveis, onAtualizar, sugestoes)}</div>
     </div>
   );
 }
@@ -251,14 +433,32 @@ function renderCampos(
   efeito: EfeitoAcao,
   condicoesDisponiveis: TemplateSerializado[],
   onAtualizar: (patch: Partial<EfeitoAcao>) => void,
+  sugestoes: SugestoesAcao,
 ): React.ReactNode {
   switch (efeito.tipo) {
     case "ataque":
       return (
-        <label>
-          Bônus para atingir
-          <input value={efeito.bonus} placeholder="+5" onChange={(e) => onAtualizar({ bonus: e.target.value })} />
-        </label>
+        <>
+          <label>
+            Bônus para atingir
+            <input value={efeito.bonus} placeholder="+5" onChange={(e) => onAtualizar({ bonus: e.target.value })} />
+          </label>
+          {sugestoes.ataques.length > 0 && (
+            <div className="bestiario-atalhos">
+              <span>Com proficiência:</span>
+              {sugestoes.ataques.map((a) => (
+                <button
+                  type="button"
+                  key={a.rotulo}
+                  className={`sugestao chip-opcao${efeito.bonus.trim() === a.valor ? " ativo" : ""}`}
+                  onClick={() => onAtualizar({ bonus: a.valor })}
+                >
+                  {a.rotulo} {a.valor}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
       );
     case "salvaguarda":
       return (
@@ -266,9 +466,9 @@ function renderCampos(
           <label>
             Atributo da salvaguarda (do alvo)
             <select value={efeito.atributo} onChange={(e) => onAtualizar({ atributo: e.target.value as AtributoSalvaguarda })}>
-              {ATRIBUTOS.map((a) => (
-                <option key={a} value={a}>
-                  {a}
+              {ATRIBUTOS_DO_JOGO.map((a) => (
+                <option key={a.slug} value={a.slug}>
+                  {a.nome}
                 </option>
               ))}
             </select>
@@ -276,6 +476,21 @@ function renderCampos(
           <label>
             CD
             <NumeroInput value={efeito.cd} onChange={(v) => onAtualizar({ cd: v ?? 10 })} />
+          </label>
+          {sugestoes.cd !== null && efeito.cd !== sugestoes.cd && (
+            <div className="bestiario-atalhos">
+              <button type="button" className="sugestao chip-opcao" onClick={() => onAtualizar({ cd: sugestoes.cd ?? 10 })}>
+                Usar a CD da criatura ({sugestoes.cd})
+              </button>
+            </div>
+          )}
+          <label className="bestiario-check">
+            <input
+              type="checkbox"
+              checked={!!efeito.metade}
+              onChange={(e) => onAtualizar({ metade: e.target.checked || undefined })}
+            />
+            Quem passa leva metade do dano
           </label>
         </>
       );
@@ -286,10 +501,12 @@ function renderCampos(
             Fórmula
             <input value={efeito.formula} placeholder="2d10, ou só 2 pra bônus fixo" onChange={(e) => onAtualizar({ formula: e.target.value })} />
           </label>
-          <label>
-            Tipo(s) — vírgula = escolha entre eles
-            <ListaTextoInput list="tipos-dano-sugeridos" placeholder="Cortante" value={efeito.tipos} onChange={(v) => onAtualizar({ tipos: v })} />
-          </label>
+          <TiposDanoChips
+            className="bestiario-efeito-largo"
+            rotulo="Tipo de dano (mais de um = escolha entre eles)"
+            value={efeito.tipos}
+            onChange={(v) => onAtualizar({ tipos: v })}
+          />
         </>
       );
     case "area":
@@ -399,6 +616,54 @@ function renderCampos(
               Duração (turnos, vazio = indefinida)
               <NumeroInput allowNull value={efeito.duracaoTurnos} onChange={(v) => onAtualizar({ duracaoTurnos: v })} />
             </label>
+          )}
+          {condicao && (
+            <>
+              <label>
+                Dano a cada turno (opcional)
+                <input
+                  value={efeito.danoPorTurno?.formula ?? ""}
+                  placeholder="2d8"
+                  onChange={(e) =>
+                    onAtualizar({
+                      danoPorTurno: e.target.value.trim()
+                        ? {
+                            formula: e.target.value,
+                            tipo: efeito.danoPorTurno?.tipo ?? "",
+                            quando: efeito.danoPorTurno?.quando ?? "fim",
+                          }
+                        : null,
+                    })
+                  }
+                />
+              </label>
+              {efeito.danoPorTurno && (
+                <>
+                  <label>
+                    Quando
+                    <select
+                      value={efeito.danoPorTurno.quando}
+                      onChange={(e) =>
+                        onAtualizar({
+                          danoPorTurno: { ...efeito.danoPorTurno!, quando: e.target.value === "inicio" ? "inicio" : "fim" },
+                        })
+                      }
+                    >
+                      <option value="fim">No fim do turno do afetado</option>
+                      <option value="inicio">No início do turno do afetado</option>
+                    </select>
+                  </label>
+                  <TiposDanoChips
+                    className="bestiario-efeito-largo"
+                    rotulo="Tipo desse dano (o primeiro marcado)"
+                    value={efeito.danoPorTurno.tipo ? [efeito.danoPorTurno.tipo] : []}
+                    onChange={(v) =>
+                      onAtualizar({ danoPorTurno: { ...efeito.danoPorTurno!, tipo: v[v.length - 1] ?? "" } })
+                    }
+                  />
+                </>
+              )}
+            </>
           )}
         </>
       );

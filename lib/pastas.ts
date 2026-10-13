@@ -41,6 +41,7 @@ const CAMPOS: Record<TipoModelo, readonly string[]> = {
     "nome",
     "descricao",
     "tipo",
+    "gatilho",
     "tag",
     "custoPp",
     "custoPpFormula",

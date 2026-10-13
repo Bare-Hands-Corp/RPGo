@@ -126,10 +126,28 @@ export type CondicaoAtiva = {
   origem: string;
   // Salvaguarda que o afetado pode repetir pra sair antes; null = não pode.
   salvaguarda: { atributo: string; cd: number } | null;
+  // Dano que o afetado leva a cada turno dele enquanto durar (sangramento,
+  // veneno): rolado e descontado sozinho quando a vez dele começa ou acaba.
+  porTurno?: DanoPorTurno | null;
 };
 
+export type DanoPorTurno = { formula: string; tipo: string; quando: "inicio" | "fim" };
+
+export function lerDanoPorTurno(raw: unknown): DanoPorTurno | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const formula = String(o.formula ?? "").trim().slice(0, 40);
+  if (!formula) return null;
+  return { formula, tipo: String(o.tipo ?? "").trim().slice(0, 40), quando: o.quando === "inicio" ? "inicio" : "fim" };
+}
+
+// "2d8 Verdadeiro no fim de cada turno".
+export function textoDanoPorTurno(d: DanoPorTurno): string {
+  return `${d.formula}${d.tipo ? ` ${d.tipo}` : ""} no ${d.quando === "inicio" ? "início" : "fim"} de cada turno`;
+}
+
 // O que uma ação aplica em quem ela pega.
-export type CondicaoAplicada = Pick<CondicaoAtiva, "nome" | "rodadas" | "salvaguarda">;
+export type CondicaoAplicada = Pick<CondicaoAtiva, "nome" | "rodadas" | "salvaguarda" | "porTurno">;
 
 export const MAX_CONDICOES = 12;
 
@@ -155,6 +173,7 @@ export function lerCondicoesAtivas(raw: unknown): CondicaoAtiva[] {
             salv && typeof salv === "object" && Number(salv.cd) > 0
               ? { atributo: String(salv.atributo ?? ""), cd: Math.trunc(Number(salv.cd)) }
               : null,
+          porTurno: lerDanoPorTurno(o.porTurno),
         },
       ];
     })
@@ -162,7 +181,12 @@ export function lerCondicoesAtivas(raw: unknown): CondicaoAtiva[] {
 }
 
 export function lerCondicoesAplicadas(raw: unknown): CondicaoAplicada[] {
-  return lerCondicoesAtivas(raw).map(({ nome, rodadas, salvaguarda }) => ({ nome, rodadas, salvaguarda }));
+  return lerCondicoesAtivas(raw).map(({ nome, rodadas, salvaguarda, porTurno }) => ({
+    nome,
+    rodadas,
+    salvaguarda,
+    porTurno,
+  }));
 }
 
 // Passa uma rodada pra quem a vez de `daVezId` marca: tira uma de cada

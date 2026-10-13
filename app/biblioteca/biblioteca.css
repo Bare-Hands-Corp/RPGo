@@ -359,3 +359,38 @@
   color: var(--text-sec);
   margin: 6px 0 0;
 }
+
+/* Pasta da criatura dona, dentro de Ações e Aspectos. */
+.biblioteca-dono {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.biblioteca-dono + .biblioteca-dono {
+  margin-top: 6px;
+}
+
+.biblioteca-dono > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-main);
+  cursor: pointer;
+  list-style: none;
+}
+
+.biblioteca-dono > summary::-webkit-details-marker {
+  display: none;
+}
+
+.biblioteca-dono > summary i {
+  color: var(--primary);
+}
+
+.biblioteca-dono[open] > summary {
+  margin-bottom: 8px;
+}

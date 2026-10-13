@@ -24,6 +24,7 @@ export function serializarInstancia(i: InstanciaCombate): InstanciaCombateSerial
     ordem: i.ordem,
     pvAtual: i.pvAtual,
     pvMax: i.pvMax,
+    pvTemp: i.pvTemp,
     condicoes: lerCondicoesAtivas(i.condicoesAtivas),
     acoesGastas: lerAcoesGastas(i.acoesGastas),
     usosAcoes: lerUsosAcoes(i.estadoRecargas),

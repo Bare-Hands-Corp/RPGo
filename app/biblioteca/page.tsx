@@ -3,8 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { usuarioDaRequest } from "@/lib/supabase/server";
 import { ThemeButton } from "@/components/temas/theme-button";
 import { BotaoVoltar } from "@/components/botao-voltar";
+import { CatalogoTiposProvider } from "@/components/tipos-dano/tipos-dano";
+import { catalogoTiposDoNarrador } from "@/lib/tipos-dano-servidor";
 import { serializarTemplate } from "@/app/bestiario/utils";
 import { TraitsManager } from "./traits-manager";
+// O editor de efeitos de ficha (os mesmos do jogador) usa os estilos de lá.
+import "@/app/ficha/[uid]/ficha.css";
 import "@/app/bestiario/bestiario.css";
 import "./biblioteca.css";
 
@@ -18,6 +22,9 @@ export default async function BibliotecaPage() {
     where: { userId: user.id },
     orderBy: [{ criadoEm: "asc" }, { nome: "asc" }],
   });
+
+  // Tipos de dano do narrador (Biblioteca), com cor e ícone, pros campos de tipo.
+  const catalogoTipos = await catalogoTiposDoNarrador(user.id);
 
   return (
     <div className="bestiario-page-wrapper">
@@ -36,7 +43,9 @@ export default async function BibliotecaPage() {
         <ThemeButton />
       </div>
 
-      <TraitsManager templatesIniciais={templates.map(serializarTemplate)} />
+      <CatalogoTiposProvider tipos={catalogoTipos}>
+        <TraitsManager templatesIniciais={templates.map(serializarTemplate)} />
+      </CatalogoTiposProvider>
     </div>
   );
 }

@@ -12,6 +12,8 @@ export type InstanciaCombateSerializada = {
   // null quando é PJ (PV mora em Personagem.hpAtual/hpMax, não aqui).
   pvAtual: number | null;
   pvMax: number | null;
+  // PV temporário da criatura (o do PJ está na ficha dele): o dano sai dele primeiro.
+  pvTemp: number;
   // Condições valendo nele (lib/condicoes.ts).
   condicoes: CondicaoAtiva[];
   // Ações que o participante já usou neste turno (lib/combate.ts).
