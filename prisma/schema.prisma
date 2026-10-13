@@ -400,6 +400,12 @@ model Acao {
   // { unidade, quantidade?, concentracao? } (lib/duracao.ts); null = não informada.
   duracao Json?
 
+  // Usada e ainda valendo: os efeitos que duram seguem até ela acabar (lib/turno.ts).
+  // Técnica de concentração não usa: vale enquanto o personagem concentra nela.
+  emCurso         Boolean @default(false) @map("em_curso")
+  // Turnos que faltam enquanto em curso (duração em turnos/minutos); null = não conta.
+  turnosRestantes Int?    @map("turnos_restantes")
+
   @@map("acoes")
 }
 

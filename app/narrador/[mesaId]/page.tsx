@@ -8,7 +8,7 @@ import {
 } from "@/lib/calendario/carregar";
 import { serializarCriatura } from "@/app/bestiario/utils";
 import { resumirPersonagem } from "@/lib/resumo-personagem";
-import { recebidasDaMesa } from "@/lib/efeitos-servidor";
+import { SELECT_ACAO_QUE_DURA, recebidasDaMesa } from "@/lib/efeitos-servidor";
 import { NarradorShell } from "./painel-narrador";
 import { catalogoTiposDoNarrador } from "@/lib/tipos-dano-servidor";
 import { catalogoCondicoesDoNarrador } from "@/lib/combate-servidor";
@@ -39,6 +39,7 @@ export default async function NarradorPage({ params }: Params) {
             habilidades: true,
             periciasCustom: { select: { slug: true } },
             arvores: { select: { id: true, nos: true } },
+            acoes: { select: SELECT_ACAO_QUE_DURA },
           },
         },
       },

@@ -17,6 +17,7 @@ import {
   aplicarCondicoes,
   avancarTurnoDoCombate,
   bonusDeSalvaguardaDaCriatura,
+  encerrarTecnicasDoEncontro,
   mudarResolucoes,
   tirarCondicao,
 } from "@/lib/combate-servidor";
@@ -230,8 +231,16 @@ export async function encerrarSessao(mesaId: string, sessaoId: string) {
 
   // Fecha qualquer combate residual sem log detalhado — o mestre deveria
   // encerrar o combate explicitamente antes, isso é só uma rede de segurança.
-  const residuais = await prisma.combate.findMany({ where: { sessaoId, encerradoEm: null }, select: { id: true } });
+  const residuais = await prisma.combate.findMany({
+    where: { sessaoId, encerradoEm: null },
+    select: { id: true, participantes: { select: { personagemId: true } } },
+  });
   for (const c of residuais) await finalizarRegistro(c.id);
+  const noCombate = residuais.flatMap((c) =>
+    c.participantes.flatMap((p) => (p.personagemId ? [p.personagemId] : [])),
+  );
+  await encerrarTecnicasDoEncontro(noCombate);
+  for (const id of noCombate) revalidatePath(`/ficha/${id}`);
   await prisma.combate.updateMany({ where: { sessaoId, encerradoEm: null }, data: { encerradoEm: new Date() } });
   await prisma.sessao.update({ where: { id: sessaoId }, data: { encerradaEm: new Date() } });
 
@@ -756,6 +765,8 @@ export async function encerrarCombate(mesaId: string, combateId: string) {
       where: { id: { in: personagemIds }, hpTempDuracao: { in: ["combate", "turno"] } },
       data: { hpTemp: 0, hpTempDuracao: null },
     });
+    // Técnica que dura "até o fim do encontro" acaba junto.
+    await encerrarTecnicasDoEncontro(personagemIds);
     for (const id of personagemIds) revalidatePath(`/ficha/${id}`);
   }
   await prisma.combate.update({ where: { id: combateId }, data: { encerradoEm: new Date(), resolucoes: [] } });

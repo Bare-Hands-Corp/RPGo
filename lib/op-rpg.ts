@@ -5,7 +5,7 @@
 import { faixaDaRolagem, parseFormulaDados, type Dado } from "./dice";
 import { avaliarFormula, formulaUsaGrau, formulaVariavel } from "./formula";
 import { cobre, lerCobertura } from "./dano";
-import { duracaoPvTempNoBanco, lerDuracaoPvTemp, type DuracaoPvTemp } from "./duracao";
+import { duraAlemDoUso, duracaoPvTempNoBanco, lerDuracaoPvTemp, type DuracaoPvTemp } from "./duracao";
 
 export function modificador(valor: number): number {
   return Math.floor((valor - 10) / 2);
@@ -955,7 +955,15 @@ export type GatilhoExplosao = "maximo" | "valor" | "total" | "critico";
 // O que faz o bônus progressivo subir sozinho; sem isso, só na mão.
 export type GatilhoProgressivo = "turno" | "rolagem";
 
-export type EfeitoHabilidade =
+// Em ação com duração, o que o efeito faz depois do uso. Efeito na hora (cura,
+// PV temporário, recurso): "turno" acontece no uso e repete a cada turno. Os
+// outros: "mantem" fica valendo na ficha até a ação acabar. Ausente = como
+// sempre (na hora, ou só nas rolagens da ação).
+export type DuraEfeito = "turno" | "mantem";
+
+export type EfeitoHabilidade = EfeitoBase & { dura?: DuraEfeito };
+
+type EfeitoBase =
   // `formula` (ex: "PROF/2+1", "3*NIVEL") vale no lugar de `valor` quando existe.
   // `duracaoPv`: em PV temporário, até quando ele dura (ausente = até acabar).
   | { tipo: "modificador"; alvo: string; valor: number; formula?: string; quando?: string; duracaoPv?: DuracaoPvTemp }
@@ -1664,9 +1672,27 @@ export function lerEfeitos(raw: unknown): EfeitoHabilidade[] {
     const t = obj.tipo;
     if (typeof t !== "string") continue;
     const e = normalizarEfeito(t as TipoEfeito, obj);
-    if (e) out.push(e);
+    if (e) out.push(comDura(e, obj.dura));
   }
   return out;
+}
+
+// Como o efeito pode durar numa ação: repetir a cada turno, ficar valendo ou nada.
+export function comoDura(e: EfeitoHabilidade): "repete" | "mantem" | null {
+  if (efeitoInstantaneo(e)) return "repete";
+  return e.tipo !== "por_turno" && efeitoEhSustentado(e) ? "mantem" : null;
+}
+
+// O `dura` dos efeitos só vale em ação que dura mais que o uso e age em quem usa.
+export function efeitosDuram(acao: { duracao?: unknown; aliado?: boolean }): boolean {
+  return !acao.aliado && duraAlemDoUso(acao.duracao);
+}
+
+// Põe o `dura` lido do form/banco, só o que cabe no efeito.
+export function comDura(e: EfeitoHabilidade, raw: unknown): EfeitoHabilidade {
+  const como = comoDura(e);
+  const cabe = como === "repete" ? raw === "turno" : como === "mantem" && raw === "mantem";
+  return cabe ? { ...e, dura: raw as DuraEfeito } : e;
 }
 
 // Graus de técnica (1º–7º), sem repetir e em ordem.
@@ -2559,8 +2585,13 @@ export type PorTurno = {
   tipoDano?: string;
   fonte: string;
   habilidadeId?: string;
-  // Técnica em concentração que traz o efeito.
+  // Ação que traz o efeito: técnica em concentração ou, com `emCurso`, ação em curso.
   acaoId?: string;
+  emCurso?: boolean;
+  // Efeito na hora que repete: já aconteceu no uso, que conta como um turno.
+  noUso?: boolean;
+  // Grau da técnica, pro GRAU da fórmula.
+  grau?: number;
 };
 
 // Efeito de dano só em certos graus de técnica ou tipos de dano.
@@ -3922,9 +3953,13 @@ export function agregarEfeitos(
 // efeitos próprios dela, resolvendo GRAU pelo grau da técnica.
 export function efeitosDaTecnica(
   base: EfeitosAgregados,
-  acao: { nome: string; efeitos: unknown; grau: number },
+  acao: { nome: string; efeitos: unknown; grau: number; duracao?: unknown; aliado?: boolean },
 ): EfeitosAgregados {
-  const proprios = lerEfeitos(acao.efeitos).filter((e) => !efeitoInstantaneo(e));
+  // O que fica valendo na ficha entra por lá (ação em curso), não na rolagem dela.
+  const dura = efeitosDuram(acao);
+  const proprios = lerEfeitos(acao.efeitos).filter(
+    (e) => !efeitoInstantaneo(e) && !(dura && e.dura === "mantem"),
+  );
   if (proprios.length === 0) return base;
   return agregarEfeitos([{ nome: acao.nome, tipo: "passiva", efeitos: proprios }], new Set(), base, {
     grau: acao.grau,

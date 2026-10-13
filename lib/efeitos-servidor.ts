@@ -10,6 +10,8 @@ import {
   type EfeitosAgregados,
   type HabilidadeFonte,
 } from "@/lib/op-rpg";
+import { lerConcentracao } from "@/lib/duracao";
+import { acoesEmCurso, comAcoesEmCurso, type AcaoEmCurso } from "@/lib/turno";
 
 type HabilidadeServidor = HabilidadeFonte & { id: string; itemId: string | null };
 
@@ -33,6 +35,8 @@ export function agregadoDaFicha(dados: {
   base: BaseFormula;
   // Habilidades de aliados ligadas neste personagem.
   recebidas?: HabilidadeFonte[];
+  // Ações em curso: os efeitos que elas mantêm entram por cima.
+  emCurso?: AcaoEmCurso[];
 }): EfeitosAgregados {
   const travadas = habilidadesTravadas(dados.nos);
   const equipados = new Set(dados.itens.filter((i) => i.equipado).map((i) => i.id));
@@ -40,11 +44,16 @@ export function agregadoDaFicha(dados: {
     (h) => !travadas.has(h.id) && (!h.itemId || equipados.has(h.itemId)),
   );
   const { nivel, ...atributos } = dados.base;
-  return agregarEfeitos(
-    [...ativas, ...fontesDeEfeitoDeItens(dados.itens), ...(dados.recebidas ?? [])],
-    new Set(dados.slugsPericiaCustom),
-    undefined,
-    { nivel, atributos: atributosDe(atributos) },
+  const slugs = new Set(dados.slugsPericiaCustom);
+  return comAcoesEmCurso(
+    agregarEfeitos(
+      [...ativas, ...fontesDeEfeitoDeItens(dados.itens), ...(dados.recebidas ?? [])],
+      slugs,
+      undefined,
+      { nivel, atributos: atributosDe(atributos) },
+    ),
+    dados.emCurso ?? [],
+    slugs,
   );
 }
 
@@ -192,7 +201,7 @@ export async function carregarAgregado(
   agg: EfeitosAgregados;
   itens: (ItemFonte & { penalidadeDes: number })[];
 }> {
-  const [habilidades, itens, nos, pericias, base, recebidas] = await Promise.all([
+  const [habilidades, itens, nos, pericias, base, recebidas, emCurso] = await Promise.all([
     prisma.habilidade.findMany({ where: { personagemId }, select: SELECT_HABILIDADE_FONTE }),
     prisma.item.findMany({ where: { personagemId }, select: SELECT_ITEM_FONTE }),
     prisma.arvoreNo.findMany({
@@ -202,6 +211,7 @@ export async function carregarAgregado(
     prisma.periciaCustom.findMany({ where: { personagemId }, select: { slug: true } }),
     prisma.personagem.findUnique({ where: { id: personagemId }, select: SELECT_BASE_FORMULA }),
     carregarRecebidas(personagemId),
+    carregarAcoesEmCurso(personagemId),
   ]);
   const habs = ligada
     ? habilidades.map((h) => (h.id === ligada.id ? { ...h, ligada: ligada.ligada } : h))
@@ -222,9 +232,38 @@ export async function carregarAgregado(
         presenca: 10,
       },
       recebidas: recebidas.map(fonteRecebida),
+      emCurso,
     }),
     itens,
   };
+}
+
+export const SELECT_ACAO_QUE_DURA = {
+  id: true,
+  nome: true,
+  efeitos: true,
+  grau: true,
+  duracao: true,
+  aliado: true,
+  emCurso: true,
+  turnosRestantes: true,
+} as const;
+
+// Ações em curso do personagem: as marcadas e a técnica em que ele concentra.
+export async function carregarAcoesEmCurso(personagemId: string): Promise<AcaoEmCurso[]> {
+  const personagem = await prisma.personagem.findUnique({
+    where: { id: personagemId },
+    select: { concentracao: true },
+  });
+  const c = lerConcentracao(personagem?.concentracao);
+  const acoes = await prisma.acao.findMany({
+    where: {
+      personagemId,
+      OR: [{ emCurso: true }, ...(c?.tipo === "acao" ? [{ id: c.id }] : [])],
+    },
+    select: SELECT_ACAO_QUE_DURA,
+  });
+  return acoesEmCurso(acoes, personagem?.concentracao);
 }
 
 // Penalidade de DES das armaduras equipadas (0 ou negativa).

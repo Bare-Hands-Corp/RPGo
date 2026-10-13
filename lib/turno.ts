@@ -8,8 +8,17 @@ import {
   resolverDano,
   type DefesaDano,
 } from "./dano";
-import { lerEfeitos, nomeDoPool, type PorTurno } from "./op-rpg";
-import { lerConcentracao, lerDuracao, turnosDaDuracao } from "./duracao";
+import {
+  agregarEfeitos,
+  alvoDaCura,
+  efeitosDuram,
+  lerEfeitos,
+  nomeDoPool,
+  type EfeitoHabilidade,
+  type EfeitosAgregados,
+  type PorTurno,
+} from "./op-rpg";
+import { duraAlemDoUso, lerConcentracao, lerDuracao, pedeConcentracao, turnosDaDuracao } from "./duracao";
 
 export type EstadoTurno = {
   hpAtual: number;
@@ -43,9 +52,9 @@ export type LinhaTurno = {
 export type ResultadoTurno = {
   estado: EstadoTurno;
   linhas: LinhaTurno[];
-  // Habilidades que desligam (duração acabou ou o gasto zerou o recurso).
+  // Habilidades e ações em curso que acabam (duração acabou ou o gasto zerou o recurso).
   desligar: { id: string; nome: string }[];
-  // Habilidades que seguem ligadas, com os turnos que faltam.
+  // As que seguem valendo, com os turnos que faltam.
   turnos: Record<string, number>;
   // Técnica em concentração: turnos que faltam; 0 = acabou; null = não conta.
   concentracaoTurnos: number | null;
@@ -57,7 +66,8 @@ export type ResultadoTurno = {
   morreu: boolean;
 };
 
-type Resolver = (formula: string) => { dados: Dado[]; modificador: number };
+// `grau`: o da técnica que traz o efeito, pro GRAU da fórmula.
+type Resolver = (formula: string, grau?: number) => { dados: Dado[]; modificador: number };
 
 // Ligadas com duração em turnos; sem a contagem salva, começa pela duração.
 export function duracoesEmCurso(
@@ -77,30 +87,148 @@ export function concentracaoEmCurso(raw: unknown): ConcentracaoEmCurso | null {
   return c?.tipo === "acao" && c.turnos ? { id: c.id, nome: c.nome, turnos: c.turnos } : null;
 }
 
-// "A cada turno" da técnica em que o personagem concentra.
-export function porTurnoDaConcentracao(
-  concentracao: unknown,
-  acoes: { id: string; nome: string; efeitos: unknown }[],
-): PorTurno[] {
+// ─── Ação em curso ─────────────────────────────────────────
+// Ação com duração, depois de usada: o "a cada turno" e os efeitos marcados
+// pra durar seguem até ela acabar. Técnica de concentração está em curso
+// enquanto o personagem concentra nela; as outras, pelo `emCurso` da ação.
+
+export type AcaoQueDura = {
+  id: string;
+  nome: string;
+  efeitos: unknown;
+  grau?: number;
+  duracao?: unknown;
+  aliado?: boolean;
+  emCurso?: boolean;
+  turnosRestantes?: number | null;
+};
+
+// `turnos`: o que falta (a de concentração conta na concentração).
+export type AcaoEmCurso = {
+  id: string;
+  nome: string;
+  grau: number;
+  efeitos: EfeitoHabilidade[];
+  concentra: boolean;
+  turnos: number | null;
+};
+
+// Efeitos que seguem depois do uso: o "a cada turno" e os marcados pra durar.
+export function efeitosQueSeguem(acao: Pick<AcaoQueDura, "efeitos" | "duracao" | "aliado">): EfeitoHabilidade[] {
+  if (!duraAlemDoUso(acao.duracao)) return [];
+  const dura = efeitosDuram(acao);
+  return lerEfeitos(acao.efeitos).filter((e) => e.tipo === "por_turno" || (dura && !!e.dura));
+}
+
+// Sem concentração, a ação fica em curso ao usar quando tem efeito que segue.
+export function ficaEmCurso(acao: Pick<AcaoQueDura, "efeitos" | "duracao" | "aliado">): boolean {
+  return !pedeConcentracao(acao.duracao) && efeitosQueSeguem(acao).length > 0;
+}
+
+export function acoesEmCurso(acoes: AcaoQueDura[], concentracao: unknown): AcaoEmCurso[] {
   const c = lerConcentracao(concentracao);
-  if (c?.tipo !== "acao") return [];
-  const acao = acoes.find((a) => a.id === c.id);
-  if (!acao) return [];
-  return lerEfeitos(acao.efeitos).flatMap((e) =>
-    e.tipo === "por_turno"
-      ? [
-          {
-            o: e.o,
-            valor: e.valor,
-            ...(e.recurso ? { recurso: e.recurso } : {}),
-            ...(e.gasta ? { gasta: true } : {}),
-            ...(e.tipoDano ? { tipoDano: e.tipoDano } : {}),
-            fonte: acao.nome,
-            acaoId: acao.id,
-          },
-        ]
-      : [],
+  return acoes.flatMap((a) => {
+    const concentra = pedeConcentracao(a.duracao);
+    if (concentra ? c?.tipo !== "acao" || c.id !== a.id : !a.emCurso) return [];
+    const efeitos = efeitosQueSeguem(a);
+    if (efeitos.length === 0) return [];
+    return [
+      {
+        id: a.id,
+        nome: a.nome,
+        grau: a.grau ?? 0,
+        efeitos,
+        concentra,
+        turnos: concentra ? null : (a.turnosRestantes ?? turnosDaDuracao(lerDuracao(a.duracao))),
+      },
+    ];
+  });
+}
+
+// Efeito na hora que repete, no formato do "a cada turno".
+function comoPorTurno(e: EfeitoHabilidade): Pick<PorTurno, "o" | "valor" | "recurso" | "gasta"> | null {
+  if (e.tipo === "cura") {
+    const alvo = alvoDaCura(e);
+    if (alvo === "pp") return { o: "recurso", recurso: "pp", valor: e.valor };
+    return { o: alvo === "hp-temp" ? "pv_temp" : "cura", valor: e.valor };
+  }
+  if (e.tipo === "modificador") return { o: "pv_temp", valor: e.formula ?? String(e.valor) };
+  if (e.tipo === "recurso_delta") {
+    return {
+      o: "recurso",
+      recurso: e.recurso,
+      valor: String(Math.abs(e.valor)),
+      ...(e.valor < 0 ? { gasta: true } : {}),
+    };
+  }
+  return null;
+}
+
+// "A cada turno" das ações em curso: o da duração e os efeitos na hora que repetem.
+export function porTurnoDasAcoes(emCurso: AcaoEmCurso[]): PorTurno[] {
+  return emCurso.flatMap((a) =>
+    a.efeitos.flatMap((e) => {
+      const base =
+        e.tipo === "por_turno"
+          ? {
+              o: e.o,
+              valor: e.valor,
+              ...(e.recurso ? { recurso: e.recurso } : {}),
+              ...(e.gasta ? { gasta: true } : {}),
+              ...(e.tipoDano ? { tipoDano: e.tipoDano } : {}),
+            }
+          : e.dura === "turno"
+            ? comoPorTurno(e)
+            : null;
+      if (!base) return [];
+      return [
+        {
+          ...base,
+          ...(e.dura === "turno" ? { noUso: true } : {}),
+          fonte: a.nome,
+          acaoId: a.id,
+          ...(a.concentra ? {} : { emCurso: true }),
+          ...(a.grau ? { grau: a.grau } : {}),
+        },
+      ];
+    }),
   );
+}
+
+// Ações em curso que contam turnos (a de concentração conta na concentração).
+export function duracoesDasAcoes(emCurso: AcaoEmCurso[]): DuracaoEmCurso[] {
+  return emCurso.flatMap((a) =>
+    !a.concentra && a.turnos != null && a.turnos > 0 ? [{ id: a.id, nome: a.nome, turnos: a.turnos }] : [],
+  );
+}
+
+// Agregado da ficha com os efeitos que as ações em curso mantêm.
+export function comAcoesEmCurso(
+  base: EfeitosAgregados,
+  emCurso: AcaoEmCurso[],
+  slugsPericiaCustom: Set<string> = new Set(),
+): EfeitosAgregados {
+  let agg = base;
+  for (const a of emCurso) {
+    const mantidos = a.efeitos.filter((e) => e.dura === "mantem");
+    if (mantidos.length === 0) continue;
+    agg = agregarEfeitos(
+      [{ nome: a.nome, tipo: "ativa", ligada: true, efeitos: mantidos }],
+      slugsPericiaCustom,
+      agg,
+      { grau: a.grau },
+    );
+  }
+  return agg;
+}
+
+// Evento da ficha: a ação entrou em curso, contou turno ou acabou.
+export const EVENTO_ACAO_EM_CURSO = "rpgo:acao-em-curso";
+export type AcaoEmCursoDetail = { id: string; emCurso: boolean; turnos?: number | null };
+
+export function anunciarAcaoEmCurso(detail: AcaoEmCursoDetail) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent<AcaoEmCursoDetail>(EVENTO_ACAO_EM_CURSO, { detail }));
 }
 
 function rolar(f: { dados: Dado[]; modificador: number }): RolagemTurno {
@@ -110,7 +238,7 @@ function rolar(f: { dados: Dado[]; modificador: number }): RolagemTurno {
 
 // Rola cada efeito (cliente); número fixo vale como está.
 export function rolarTurno(porTurno: PorTurno[], resolver: Resolver): RolagemTurno[] {
-  return porTurno.map((p) => rolar(resolver(p.valor)));
+  return porTurno.map((p) => rolar(resolver(p.valor, p.grau)));
 }
 
 // O que vai pro servidor: as faces de cada efeito.
@@ -127,7 +255,7 @@ export function validarRolagensTurno(
 ): RolagemTurno[] {
   const lista = Array.isArray(rolagens) ? rolagens : [];
   return porTurno.map((p, i) => {
-    const f = resolver(p.valor);
+    const f = resolver(p.valor, p.grau);
     const bruto: unknown = lista[i];
     if (Array.isArray(bruto) && bruto.length === f.dados.length) {
       const faces = bruto.map((x) => Math.trunc(Number(x)));
@@ -176,7 +304,16 @@ export function aplicarTurno(entrada: {
   entrada.porTurno.forEach((p, i) => {
     // O que vem de uma habilidade que já desligou neste turno para.
     if (p.habilidadeId && desligar.has(p.habilidadeId)) return;
-    if (p.acaoId && concentracaoSemRecurso) return;
+    if (p.acaoId && (p.emCurso ? desligar.has(p.acaoId) : concentracaoSemRecurso)) return;
+    // Já aconteceu no uso, que conta como um turno: no turno em que a ação acaba, não repete.
+    if (p.noUso && p.acaoId) {
+      const restam = p.emCurso
+        ? entrada.duracoes.find((d) => d.id === p.acaoId)?.turnos
+        : entrada.concentracao?.id === p.acaoId
+          ? entrada.concentracao.turnos
+          : undefined;
+      if (restam === 1) return;
+    }
     const rolagem = entrada.rolagens[i];
     const v = Math.max(0, Math.trunc(rolagem?.total ?? 0));
     const linha = (texto: string, detalhe?: string) =>
@@ -242,9 +379,10 @@ export function aplicarTurno(entrada: {
       } else {
         return;
       }
-      // Gasto que zera o recurso desliga a habilidade (ou a técnica) que o cobra.
+      // Gasto que zera o recurso desliga a habilidade (ou a ação) que o cobra.
       if (zerou && (p.habilidadeId || p.acaoId)) {
         if (p.habilidadeId) desligar.set(p.habilidadeId, p.fonte);
+        else if (p.emCurso) desligar.set(p.acaoId!, p.fonte);
         else concentracaoSemRecurso = true;
         linhas.push({ fonte: p.fonte, texto: `acabou (sem ${nome})`, o: "fim" });
       }

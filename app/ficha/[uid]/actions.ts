@@ -12,6 +12,7 @@ import {
   PERICIAS,
   atributosEfetivos,
   comCustosResolvidos,
+  comDura,
   computarDeltasInstantaneos,
   crescerPorTurno,
   curasComFormula,
@@ -38,7 +39,7 @@ import {
   type TipoEfeito,
 } from "@/lib/op-rpg";
 import { faixaDaRolagem } from "@/lib/dice";
-import { carregarAgregado } from "@/lib/efeitos-servidor";
+import { SELECT_ACAO_QUE_DURA, carregarAgregado } from "@/lib/efeitos-servidor";
 import {
   MAX_TIPOS_SALVOS,
   cdConcentracao,
@@ -60,10 +61,13 @@ import {
   type Concentracao,
 } from "@/lib/duracao";
 import {
+  acoesEmCurso,
   aplicarTurno,
   concentracaoEmCurso,
+  duracoesDasAcoes,
   duracoesEmCurso,
-  porTurnoDaConcentracao,
+  ficaEmCurso,
+  porTurnoDasAcoes,
   validarRolagensTurno,
 } from "@/lib/turno";
 import { serializarMensagem } from "@/lib/mensagens";
@@ -499,6 +503,15 @@ export async function atualizarAcao(
     await autorizar(personagemId);
     const data = normalizarAcaoInput(patch);
     await conferirForma(personagemId, data, acaoId);
+    // Editada sem nada que siga depois do uso: deixa de estar em curso.
+    if (data.efeitos !== undefined && data.duracao !== undefined && data.aliado !== undefined) {
+      const segue = ficaEmCurso({
+        efeitos: data.efeitos,
+        duracao: data.duracao === Prisma.DbNull ? null : data.duracao,
+        aliado: data.aliado as boolean,
+      });
+      if (!segue) Object.assign(data, { emCurso: false, turnosRestantes: null });
+    }
     await prisma.acao.update({
       where: { id: acaoId, personagemId },
       data,
@@ -614,6 +627,14 @@ export async function usarAcao(
           ...(turnos ? { turnos } : {}),
         }),
       );
+    } else if (ficaEmCurso(acao)) {
+      // Fica em curso: o que repete e o que se mantém seguem até ela acabar.
+      ops.push(
+        prisma.acao.update({
+          where: { id: acao.id, personagemId },
+          data: { emCurso: true, turnosRestantes: turnosDaDuracao(lerDuracao(acao.duracao)) },
+        }),
+      );
     }
     if (combate && tipoAcao) {
       ops.push(
@@ -650,6 +671,18 @@ export async function usarAcao(
     if (aliado) revalidatePath(`/ficha/${aliado.personagem.id}`);
     if (combate && tipoAcao) revalidatePath(`/narrador/${combate.mesaId}`);
     return { resolucaoId };
+  });
+}
+
+// Encerra a ação em curso antes da duração acabar.
+export async function encerrarAcao(personagemId: string, acaoId: string) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    await prisma.acao.updateMany({
+      where: { id: acaoId, personagemId },
+      data: { emCurso: false, turnosRestantes: null },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
   });
 }
 
@@ -1399,7 +1432,7 @@ function normalizarEfeitosInput(raw: unknown): EfeitoHabilidade[] {
     const t = obj.tipo;
     if (typeof t !== "string" || !TIPOS_EFEITO_VALIDOS.has(t as TipoEfeito)) continue;
     const e = normalizarEfeito(t as TipoEfeito, obj);
-    if (e) out.push(e);
+    if (e) out.push(comDura(e, obj.dura));
   }
   return out;
 }
@@ -2910,13 +2943,23 @@ async function danoNoPersonagem(entrada: {
 
   // Habilidade que dura "enquanto tiver PV temporário" desliga quando ele acaba.
   const semTempAgora = r.hpTemp.antes > 0 && r.hpTemp.depois === 0;
+  const duraComPvTemp = (x: { duracao: unknown }) => lerDuracao(x.duracao)?.unidade === "pv_temp";
   const acabaram = semTempAgora
     ? (
         await prisma.habilidade.findMany({
           where: { personagemId, ligada: true },
           select: { id: true, nome: true, duracao: true },
         })
-      ).filter((h) => lerDuracao(h.duracao)?.unidade === "pv_temp")
+      ).filter(duraComPvTemp)
+    : [];
+  // O mesmo pras ações em curso.
+  const acoesAcabaram = semTempAgora
+    ? (
+        await prisma.acao.findMany({
+          where: { personagemId, emCurso: true },
+          select: { id: true, nome: true, duracao: true },
+        })
+      ).filter(duraComPvTemp)
     : [];
   // A 0 PV (incapacitado), ou sem a habilidade que a segurava, a concentração acaba.
   const concentracao = lerConcentracao(personagem.concentracao);
@@ -2944,7 +2987,7 @@ async function danoNoPersonagem(entrada: {
     morreu: r.morreu,
     concentracao: teste,
     perdeuConcentracao: perdeu ? concentracao!.nome : null,
-    acabaram: acabaram.map((h) => h.nome),
+    acabaram: [...acabaram, ...acoesAcabaram].map((h) => h.nome),
   };
   const mensagem = prisma.mensagem.create({
     data: {
@@ -2976,6 +3019,12 @@ async function danoNoPersonagem(entrada: {
     }),
     ...acabaram.map((h) =>
       prisma.habilidade.update({ where: { id: h.id, personagemId }, data: { ligada: false } }),
+    ),
+    ...acoesAcabaram.map((a) =>
+      prisma.acao.update({
+        where: { id: a.id, personagemId },
+        data: { emCurso: false, turnosRestantes: null },
+      }),
     ),
     ...(perdeu ? opsConcentracao(personagemId, concentracao, null) : []),
   ]);
@@ -3089,20 +3138,22 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
           select: { id: true, nome: true, efeitos: true },
         }),
       ]);
-    const duracoes = duracoesEmCurso(ligadas);
     const concentracao = lerConcentracao(personagem.concentracao);
     const tecnica = concentracaoEmCurso(personagem.concentracao);
+    // Ações que seguem valendo: as em curso e a técnica da concentração.
+    const acoesValendo = await prisma.acao.findMany({
+      where: {
+        personagemId,
+        OR: [{ emCurso: true }, ...(concentracao?.tipo === "acao" ? [{ id: concentracao.id }] : [])],
+      },
+      select: SELECT_ACAO_QUE_DURA,
+    });
     const acaoConcentrada =
-      concentracao?.tipo === "acao"
-        ? await prisma.acao.findFirst({
-            where: { id: concentracao.id, personagemId },
-            select: { id: true, nome: true, efeitos: true },
-          })
-        : null;
-    const porTurno = [
-      ...agg.porTurno,
-      ...porTurnoDaConcentracao(personagem.concentracao, acaoConcentrada ? [acaoConcentrada] : []),
-    ];
+      concentracao?.tipo === "acao" ? (acoesValendo.find((a) => a.id === concentracao.id) ?? null) : null;
+    const emCurso = acoesEmCurso(acoesValendo, personagem.concentracao);
+    const idsDeAcao = new Set(emCurso.map((a) => a.id));
+    const duracoes = [...duracoesEmCurso(ligadas), ...duracoesDasAcoes(emCurso)];
+    const porTurno = [...agg.porTurno, ...porTurnoDasAcoes(emCurso)];
     // Bônus progressivo "por turno": um passo a mais em cada fonte que está valendo.
     const crescem = [
       ...habsValendo.map((h) => ({ tabela: "habilidade" as const, ...h })),
@@ -3117,7 +3168,7 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
     }
 
     const ctx = agg.ctxFormula ?? { nivel: personagem.nivel, atributos: atributosDoPersonagem(personagem) };
-    const resolver = (f: string) => resolverFormula(f, ctx.atributos, ctx.nivel);
+    const resolver = (f: string, grau?: number) => resolverFormula(f, ctx.atributos, ctx.nivel, { grau });
     const pools = poolsEfetivos(personagem, agg);
     const r = aplicarTurno({
       porTurno,
@@ -3185,15 +3236,16 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
       }
     }
     for (const h of r.desligar) {
+      const where = { id: h.id, personagemId };
       ops.push(
-        prisma.habilidade.update({
-          where: { id: h.id, personagemId },
-          data: { ligada: false, turnosRestantes: null },
-        }),
+        idsDeAcao.has(h.id)
+          ? prisma.acao.update({ where, data: { emCurso: false, turnosRestantes: null } })
+          : prisma.habilidade.update({ where, data: { ligada: false, turnosRestantes: null } }),
       );
     }
     for (const [id, turnos] of Object.entries(r.turnos)) {
-      ops.push(prisma.habilidade.update({ where: { id, personagemId }, data: { turnosRestantes: turnos } }));
+      const args = { where: { id, personagemId }, data: { turnosRestantes: turnos } };
+      ops.push(idsDeAcao.has(id) ? prisma.acao.update(args) : prisma.habilidade.update(args));
     }
     const mensagem = prisma.mensagem.create({
       data: {

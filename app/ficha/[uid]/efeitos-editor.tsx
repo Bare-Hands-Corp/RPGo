@@ -19,6 +19,7 @@ import {
   MOVIMENTOS,
   PRESETS_EFEITO,
   alvoDeRolagem,
+  comoDura,
   comPassosProgressivos,
   extraNoDano,
   formatarMod,
@@ -31,6 +32,7 @@ import {
   resumoEfeito,
   rotuloAlvo,
   type Atributo,
+  type DuraEfeito,
   type EfeitoHabilidade,
   type PassosDoRolador,
 } from "@/lib/op-rpg";
@@ -62,6 +64,14 @@ export const NomesRecursoContext = createContext<Map<string, string>>(new Map())
 
 // Efeito de uma ação: vale só nas rolagens dela.
 export const EfeitoDeAcaoContext = createContext(false);
+
+// A ação dura mais que o uso: cada efeito escolhe se repete ou se mantém.
+export const EfeitosDuramContext = createContext(false);
+
+const TEXTO_DURA: Record<DuraEfeito, string> = {
+  turno: "a cada turno",
+  mantem: "enquanto durar",
+};
 
 // Numa ação, o passo de dano sobe o dado dela (sem escolher arma ou técnica).
 function resumoNaAcao(e: EfeitoHabilidade): string | null {
@@ -178,8 +188,17 @@ export function DatalistAlvos() {
 
 // ─── Chip de resumo (card) ─────────────────────────────────────────────
 // Mostra as fórmulas resolvidas pro personagem; a fórmula fica no tooltip.
-// `grau` resolve GRAU (técnica).
-export function ChipEfeito({ efeito, grau }: { efeito: EfeitoHabilidade; grau?: number }) {
+// `grau` resolve GRAU (técnica). `dura`: numa ação com duração, o que o efeito
+// faz depois do uso.
+export function ChipEfeito({
+  efeito,
+  grau,
+  dura,
+}: {
+  efeito: EfeitoHabilidade;
+  grau?: number;
+  dura?: DuraEfeito;
+}) {
   const meta = META_EFEITOS[efeito.tipo];
   const nomesRecurso = useContext(NomesRecursoContext);
   const formula = useContext(FormulaContext);
@@ -200,6 +219,12 @@ export function ChipEfeito({ efeito, grau }: { efeito: EfeitoHabilidade; grau?: 
       <i className={`fas ${meta.icone}`} />
       <span className="efeito-chip-label">{nomeDoEfeito(efeito)}</span>
       <span className="efeito-chip-resumo">{resumo}</span>
+      {dura && (
+        <span className="efeito-chip-dura">
+          <i className={`fas ${dura === "mantem" ? "fa-hourglass-half" : "fa-clock-rotate-left"}`} />{" "}
+          {TEXTO_DURA[dura]}
+        </span>
+      )}
     </span>
   );
 }
@@ -463,11 +488,15 @@ function EditorEfeito({
   const daAcao = useContext(EfeitoDeAcaoContext);
   // Efeito sem parâmetro não tem corpo.
   const corpo = renderCorpo(efeito, recursos, onPatch, periciasCustom, daAcao);
+  // Em ação com duração: repete a cada turno ou fica valendo.
+  const como = useContext(EfeitosDuramContext) ? comoDura(efeito) : null;
+  const dura = como ? duraQueCabe(como, efeito.dura) : undefined;
   // Incompleto some ao salvar: avisa em vez de mostrar um resumo pela metade.
   const completo = lerEfeitos([efeito]).length > 0;
   const resumo = completo
     ? ((daAcao ? resumoNaAcao(efeito) : null) ??
-      resumoEfeito(efeito, (id) => nomesRecurso.get(id), formula ?? undefined))
+        resumoEfeito(efeito, (id) => nomesRecurso.get(id), formula ?? undefined)) +
+      (dura ? ` · ${TEXTO_DURA[dura]}` : "")
     : "falta preencher";
   const nome = nomeDoEfeito(efeito);
   return (
@@ -507,7 +536,55 @@ function EditorEfeito({
           </button>
         </span>
       </div>
-      {aberto && corpo && <div className="efeito-editor-corpo">{corpo}</div>}
+      {aberto && (corpo || como) && (
+        <div className="efeito-editor-corpo">
+          {corpo}
+          {como && <CampoDura como={como} valor={dura} onPatch={onPatch} />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// O `dura` gravado, se ainda cabe no efeito (o alvo pode ter mudado).
+function duraQueCabe(como: "repete" | "mantem", dura: DuraEfeito | undefined): DuraEfeito | undefined {
+  if (como === "mantem") return dura === "mantem" ? dura : undefined;
+  return dura === "turno" ? dura : undefined;
+}
+
+// Em ação com duração: o que o efeito faz depois do uso.
+function CampoDura({
+  como,
+  valor,
+  onPatch,
+}: {
+  como: "repete" | "mantem";
+  valor: DuraEfeito | undefined;
+  onPatch: (p: Partial<EfeitoHabilidade>) => void;
+}) {
+  const opcoes: { valor: DuraEfeito | "uso"; rotulo: string; titulo: string }[] =
+    como === "repete"
+      ? [
+          { valor: "uso", rotulo: "Ao usar", titulo: "Acontece uma vez, na hora do uso" },
+          {
+            valor: "turno",
+            rotulo: "A cada turno",
+            titulo: "Acontece ao usar (conta como o 1º turno) e repete no Passar turno enquanto a ação durar",
+          },
+        ]
+      : [
+          { valor: "uso", rotulo: "Só nesta ação", titulo: "Vale nas rolagens da própria ação" },
+          { valor: "mantem", rotulo: "Enquanto durar", titulo: "Fica valendo na ficha até a ação acabar" },
+        ];
+  return (
+    <div style={{ gridColumn: "1 / -1" }}>
+      <label>{como === "repete" ? "Acontece" : "Vale"}</label>
+      <Segmentos
+        rotulo={como === "repete" ? "Quando acontece" : "Onde vale"}
+        valor={valor ?? "uso"}
+        opcoes={opcoes}
+        onChange={(v) => onPatch({ dura: v === "uso" ? undefined : v } as Partial<EfeitoHabilidade>)}
+      />
     </div>
   );
 }

@@ -5,6 +5,7 @@
 
 import type { Arvore, ArvoreNo, Habilidade, Item, Personagem, PericiaCustom } from "@prisma/client";
 import { agregadoDaFicha, penalidadeDesDasArmaduras } from "./efeitos-servidor";
+import { acoesEmCurso, type AcaoQueDura } from "./turno";
 import {
   ATRIBUTOS,
   type HabilidadeFonte,
@@ -30,6 +31,8 @@ export type PersonagemComFontes = Personagem & {
   habilidades: Habilidade[];
   periciasCustom: Pick<PericiaCustom, "slug">[];
   arvores: (Pick<Arvore, "id"> & { nos: ArvoreNo[] })[];
+  // Ações em curso entram com os efeitos que mantêm.
+  acoes?: AcaoQueDura[];
 };
 
 export type ResumoPersonagem = {
@@ -61,6 +64,7 @@ export function resumirPersonagem(
     slugsPericiaCustom: p.periciasCustom.map((c) => c.slug),
     base: p,
     recebidas,
+    emCurso: acoesEmCurso(p.acoes ?? [], p.concentracao),
   });
 
   // DES de testes/CR já com a penalidade das armaduras equipadas.

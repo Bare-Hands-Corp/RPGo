@@ -15,7 +15,8 @@ import { defesasDaCriatura, resolverDano, type ParteDano } from "@/lib/dano";
 import { tipoDominante } from "@/lib/estatisticas-combate";
 import { marcarVez, registrarDano } from "@/lib/estatisticas-servidor";
 import { CATEGORIAS_COMPONENTE } from "@/app/bestiario/types";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import { lerConcentracao } from "@/lib/duracao";
 import {
   lerAcoesGastas,
   lerResolucoes,
@@ -28,7 +29,7 @@ import {
 } from "@/lib/combate";
 import { modificador, type Atributo } from "@/lib/op-rpg";
 import { resumirPersonagem } from "@/lib/resumo-personagem";
-import { carregarRecebidas, fonteRecebida } from "@/lib/efeitos-servidor";
+import { SELECT_ACAO_QUE_DURA, carregarRecebidas, fonteRecebida } from "@/lib/efeitos-servidor";
 import {
   MAX_CONDICOES,
   condicaoDoCatalogo,
@@ -529,6 +530,40 @@ export async function mudarResolucoes<T>(combateId: string, mudar: (lista: Resol
   });
 }
 
+// Fim do combate: técnica que dura "até o fim do encontro" acaba sozinha, a em
+// curso e a que segurava a concentração.
+export async function encerrarTecnicasDoEncontro(personagemIds: string[]) {
+  if (personagemIds.length === 0) return;
+  const [acoes, personagens] = await Promise.all([
+    prisma.acao.findMany({
+      where: { personagemId: { in: personagemIds }, duracao: { path: ["unidade"], equals: "encontro" } },
+      select: { id: true, emCurso: true },
+    }),
+    prisma.personagem.findMany({
+      where: { id: { in: personagemIds } },
+      select: { id: true, concentracao: true },
+    }),
+  ]);
+  const doEncontro = new Set(acoes.map((a) => a.id));
+  const emCurso = acoes.filter((a) => a.emCurso).map((a) => a.id);
+  const concentrando = personagens.filter((p) => {
+    const c = lerConcentracao(p.concentracao);
+    return c?.tipo === "acao" && doEncontro.has(c.id);
+  });
+  if (emCurso.length > 0) {
+    await prisma.acao.updateMany({
+      where: { id: { in: emCurso } },
+      data: { emCurso: false, turnosRestantes: null },
+    });
+  }
+  if (concentrando.length > 0) {
+    await prisma.personagem.updateMany({
+      where: { id: { in: concentrando.map((p) => p.id) } },
+      data: { concentracao: Prisma.DbNull },
+    });
+  }
+}
+
 // CR do personagem como a ficha mostra (armadura, efeitos, exaustão).
 export async function crDoPersonagem(personagemId: string): Promise<number> {
   const [p, recebidas] = await Promise.all([
@@ -539,6 +574,7 @@ export async function crDoPersonagem(personagemId: string): Promise<number> {
         habilidades: true,
         periciasCustom: { select: { slug: true } },
         arvores: { select: { id: true, nos: true } },
+        acoes: { select: SELECT_ACAO_QUE_DURA },
       },
     }),
     carregarRecebidas(personagemId),

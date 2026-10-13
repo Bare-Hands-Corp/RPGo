@@ -16,6 +16,7 @@ import {
 import { juntarTipos, tiposDoDano, tiposDosEfeitos } from "@/lib/dano";
 import { carregarRecebidas, fonteRecebida } from "@/lib/efeitos-servidor";
 import { habilidadesTravadas } from "@/lib/arvore";
+import { acoesEmCurso, comAcoesEmCurso } from "@/lib/turno";
 import { PerfilSidebar } from "./perfil-sidebar";
 import { FichaTabs } from "./ficha-tabs";
 import { RelogioMesa } from "../../calendario/[mesaId]/relogio";
@@ -116,26 +117,31 @@ export default async function FichaPage({ params, searchParams }: Params) {
 
   const habilidadesAtivas = personagem.habilidades.filter(estaAtiva);
 
-  // Agrega efeitos das habilidades ativas, dos itens equipados e dos aliados.
-  const efeitosAgregados = agregarEfeitos(
-    [
-      ...habilidadesAtivas,
-      ...fontesDeEfeitoDeItens(personagem.itens),
-      ...recebidas.map(fonteRecebida),
-    ],
+  // Agrega efeitos das habilidades ativas, dos itens equipados, dos aliados e
+  // os que as ações em curso mantêm.
+  const efeitosAgregados = comAcoesEmCurso(
+    agregarEfeitos(
+      [
+        ...habilidadesAtivas,
+        ...fontesDeEfeitoDeItens(personagem.itens),
+        ...recebidas.map(fonteRecebida),
+      ],
+      slugsPericiaCustom,
+      undefined,
+      {
+        nivel: personagem.nivel,
+        atributos: atributosBase,
+        recursos: personagem.recursos.map((r) => ({
+          id: r.id,
+          nome: r.nome,
+          valorAtual: r.valorAtual,
+          valorMax: r.valorMax,
+        })),
+        ppAtual: personagem.ppAtual,
+      },
+    ),
+    acoesEmCurso(personagem.acoes, personagem.concentracao),
     slugsPericiaCustom,
-    undefined,
-    {
-      nivel: personagem.nivel,
-      atributos: atributosBase,
-      recursos: personagem.recursos.map((r) => ({
-        id: r.id,
-        nome: r.nome,
-        valorAtual: r.valorAtual,
-        valorMax: r.valorMax,
-      })),
-      ppAtual: personagem.ppAtual,
-    },
   );
 
   // Penalidade de DES das armaduras equipadas (geralmente negativa). Reduz o
@@ -232,7 +238,16 @@ export default async function FichaPage({ params, searchParams }: Params) {
         penalidadeDesArmadura={penalidadeDesArmadura}
         camadasQueAbrem={camadasQueAbrem}
         tiposDosAtaques={tiposDosAtaques}
-        acoes={personagem.acoes.map((a) => ({ id: a.id, nome: a.nome, efeitos: a.efeitos }))}
+        acoes={personagem.acoes.map((a) => ({
+          id: a.id,
+          nome: a.nome,
+          efeitos: a.efeitos,
+          grau: a.grau,
+          duracao: a.duracao,
+          aliado: a.aliado,
+          emCurso: a.emCurso,
+          turnosRestantes: a.turnosRestantes,
+        }))}
       />
       <FichaTabs
         personagemId={personagem.id}

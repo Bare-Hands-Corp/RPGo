@@ -24,6 +24,7 @@ import { faixaPeDoNivel, pctPeDoNivel } from "@/lib/nivel";
 import { MarcaExausto } from "./marca-exausto";
 import {
   dispensarRecebida,
+  encerrarAcao,
   encerrarConcentracao,
   passarTurno,
   patchPersonagem,
@@ -40,13 +41,20 @@ import {
 } from "@/lib/duracao";
 import { defesasDoAgregado, estaMorto, lerTiposSalvos, negativosAtuais } from "@/lib/dano";
 import {
+  EVENTO_ACAO_EM_CURSO,
+  acoesEmCurso,
+  anunciarAcaoEmCurso,
   aplicarTurno,
   anunciarTurnos,
+  comAcoesEmCurso,
   concentracaoEmCurso,
+  duracoesDasAcoes,
   duracoesEmCurso,
   facesDoTurno,
-  porTurnoDaConcentracao,
+  porTurnoDasAcoes,
   rolarTurno,
+  type AcaoEmCursoDetail,
+  type AcaoQueDura,
 } from "@/lib/turno";
 import {
   agregarEfeitos,
@@ -270,8 +278,8 @@ export function PerfilSidebar({
   camadasQueAbrem: CamadaQueAbre[];
   // Tipos de dano lidos dos ataques e efeitos (sugestões do dano recebido).
   tiposDosAtaques: string[];
-  // Ações da ficha: a técnica em concentração traz o "a cada turno" dela.
-  acoes: { id: string; nome: string; efeitos: unknown }[];
+  // Ações da ficha: as em curso trazem o "a cada turno" e os efeitos que mantêm.
+  acoes: AcaoQueDura[];
 }) {
   // useOptimistic do personagem inteiro: o EditFichaModal e qualquer outro
   // editor podem aplicar patches via `aplicarOtimista` pra refletir mudanças
@@ -338,6 +346,21 @@ export function PerfilSidebar({
     }
     window.addEventListener("rpgo:efeitos-habilidade", ouvir);
     return () => window.removeEventListener("rpgo:efeitos-habilidade", ouvir);
+  }, []);
+  // Ação que entrou em curso, contou turno ou acabou antes do servidor responder.
+  const [emCursoOverlay, setEmCursoOverlay] = useState<Record<string, AcaoEmCursoDetail>>({});
+  const [acoesAnterior, setAcoesAnterior] = useState(acoes);
+  if (acoesAnterior !== acoes) {
+    setAcoesAnterior(acoes);
+    setEmCursoOverlay({});
+  }
+  useEffect(() => {
+    function ouvir(e: Event) {
+      const det = (e as CustomEvent<AcaoEmCursoDetail>).detail;
+      if (det) setEmCursoOverlay((o) => ({ ...o, [det.id]: det }));
+    }
+    window.addEventListener(EVENTO_ACAO_EM_CURSO, ouvir);
+    return () => window.removeEventListener(EVENTO_ACAO_EM_CURSO, ouvir);
   }, []);
   // Concentração atual, lida pelos ouvintes de evento.
   const concentracaoRef = useRef<Concentracao | null>(null);
@@ -446,6 +469,36 @@ export function PerfilSidebar({
     });
   }
 
+  const emCurso = useMemo(
+    () =>
+      acoesEmCurso(
+        acoes.map((a) => {
+          const o = emCursoOverlay[a.id];
+          return o ? { ...a, emCurso: o.emCurso, turnosRestantes: o.turnos ?? null } : a;
+        }),
+        p.concentracao,
+      ),
+    [acoes, emCursoOverlay, p.concentracao],
+  );
+
+  function encerrarAcaoAgora(id: string) {
+    anunciarAcaoEmCurso({ id, emCurso: false });
+    startTransition(async () => {
+      try {
+        exigir(await encerrarAcao(inicial.id, id));
+      } catch (err) {
+        atualizar();
+        Swal.fire({
+          icon: "error",
+          title: "Erro",
+          text: err instanceof Error ? err.message : "Operação falhou.",
+          background: "var(--bg-card)",
+          color: "var(--text-main)",
+        });
+      }
+    });
+  }
+
   // Agregado recalculado no cliente com os overlays de `ligada`/`equipado`.
   const efeitosAgregados = useMemo(() => {
     const habs = habilidades
@@ -456,17 +509,23 @@ export function PerfilSidebar({
         (h) =>
           !h.itemId || itensComOverlay.some((i) => i.id === h.itemId && i.equipado),
       );
-    return agregarEfeitos(
-      [
-        ...habs,
-        ...fontesDeEfeitoDeItens(itensComOverlay),
-        ...recebidasVisiveis.map(fonteDeAliado),
-      ],
-      new Set(slugsPericiaCustom),
-      undefined,
-      { nivel, atributos: { forca, destreza, constituicao, sabedoria, vontade, presenca } },
+    const slugs = new Set(slugsPericiaCustom);
+    return comAcoesEmCurso(
+      agregarEfeitos(
+        [
+          ...habs,
+          ...fontesDeEfeitoDeItens(itensComOverlay),
+          ...recebidasVisiveis.map(fonteDeAliado),
+        ],
+        slugs,
+        undefined,
+        { nivel, atributos: { forca, destreza, constituicao, sabedoria, vontade, presenca } },
+      ),
+      emCurso,
+      slugs,
     );
   }, [
+    emCurso,
     habilidades,
     ligadaOverlay,
     efeitosOverlay,
@@ -701,19 +760,20 @@ export function PerfilSidebar({
   ].filter((m) => m.valor > 0 || m.tipo === "deslocamento" || m.tipo === "nadar" || MODOS_FIXOS.includes(m.tipo));
 
   // A cada turno: efeitos que repetem e durações em turnos das ligadas.
-  const porTurno = [
-    ...efeitosAgregados.porTurno,
-    ...porTurnoDaConcentracao(p.concentracao, acoes),
+  const porTurno = [...efeitosAgregados.porTurno, ...porTurnoDasAcoes(emCurso)];
+  const idsDeAcao = new Set(emCurso.map((a) => a.id));
+  const duracoesTurno = [
+    ...duracoesEmCurso(
+      habilidades
+        .filter((h) => ligadaOverlay[h.id] ?? h.ligada)
+        .map((h) => ({
+          ...h,
+          // Ligada agora no cliente: a contagem começa pela duração.
+          turnosRestantes: turnosOverlay[h.id] ?? (h.ligada ? h.turnosRestantes : null),
+        })),
+    ),
+    ...duracoesDasAcoes(emCurso),
   ];
-  const duracoesTurno = duracoesEmCurso(
-    habilidades
-      .filter((h) => ligadaOverlay[h.id] ?? h.ligada)
-      .map((h) => ({
-        ...h,
-        // Ligada agora no cliente: a contagem começa pela duração.
-        turnosRestantes: turnosOverlay[h.id] ?? (h.ligada ? h.turnosRestantes : null),
-      })),
-  );
   const tecnicaTurnos = concentracaoEmCurso(p.concentracao);
   // Bônus progressivo "por turno" das fontes que estão valendo.
   const acaoConcentrada =
@@ -743,7 +803,7 @@ export function PerfilSidebar({
   const resumoTurno = [
     ...porTurno.map((x) => ({
       fonte: x.fonte,
-      texto: resumoEfeito({ tipo: "por_turno", ...x }, nomeRecurso, ctxTurno),
+      texto: resumoEfeito({ tipo: "por_turno", ...x }, nomeRecurso, { ...ctxTurno, grau: x.grau }),
     })),
     ...[...duracoesTurno, ...(tecnicaTurnos ? [tecnicaTurnos] : [])].map((d) => ({
       fonte: d.nome,
@@ -754,7 +814,8 @@ export function PerfilSidebar({
 
   // Rola aqui, mostra na hora e manda os totais pro servidor conferir.
   function passarTurnoAgora() {
-    const resolver = (f: string) => resolverFormula(f, ctxTurno.atributos, ctxTurno.nivel);
+    const resolver = (f: string, grau?: number) =>
+      resolverFormula(f, ctxTurno.atributos, ctxTurno.nivel, { grau });
     const rolagens = rolarTurno(porTurno, resolver);
     const r = aplicarTurno({
       porTurno,
@@ -794,7 +855,11 @@ export function PerfilSidebar({
       window.dispatchEvent(new CustomEvent("rpgo:patch-recurso", { detail: deltaRecursos }));
     }
     for (const h of r.desligar) {
-      window.dispatchEvent(new CustomEvent("rpgo:toggle-habilidade", { detail: { id: h.id, ligada: false } }));
+      if (idsDeAcao.has(h.id)) anunciarAcaoEmCurso({ id: h.id, emCurso: false });
+      else window.dispatchEvent(new CustomEvent("rpgo:toggle-habilidade", { detail: { id: h.id, ligada: false } }));
+    }
+    for (const [id, turnos] of Object.entries(r.turnos)) {
+      if (idsDeAcao.has(id)) anunciarAcaoEmCurso({ id, emCurso: true, turnos });
     }
     setTurnosOverlay((o) => ({ ...o, ...r.turnos }));
     anunciarTurnos(r.turnos);
@@ -1103,6 +1168,23 @@ export function PerfilSidebar({
           </button>
         </div>
       )}
+
+      {emCurso
+        .filter((a) => !a.concentra)
+        .map((a) => (
+          <div key={a.id} className="recurso-linha concentracao-linha">
+            <span className="recurso-icone">
+              <i className="fas fa-hourglass-half" />
+            </span>
+            <span className="recurso-nome">
+              Em curso: <strong>{a.nome}</strong>
+              {a.turnos != null && a.turnos > 0 ? ` · ${textoTurnosRestantes(a.turnos).toLowerCase()}` : ""}
+            </span>
+            <button type="button" className="concentracao-encerrar" onClick={() => encerrarAcaoAgora(a.id)}>
+              Encerrar
+            </button>
+          </div>
+        ))}
 
       {temTurno && (
         <div className="recurso-linha concentracao-linha turno-linha">

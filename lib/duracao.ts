@@ -56,6 +56,12 @@ export function textoDuracao(d: Duracao | null): string | null {
   return d.concentracao ? `${base} · Concentração` : base;
 }
 
+// Dura mais que o uso: dá pra efeito repetir ou ficar valendo.
+export function duraAlemDoUso(raw: unknown): boolean {
+  const d = lerDuracao(raw);
+  return !!d && d.unidade !== "instantanea";
+}
+
 export function pedeConcentracao(raw: unknown): boolean {
   return lerDuracao(raw)?.concentracao === true;
 }

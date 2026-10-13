@@ -8,6 +8,7 @@ import {
   atualizarAcao,
   criarAcao,
   deletarAcao,
+  encerrarAcao,
   guardarNaPasta,
   usarAcao,
   resolverAtaqueEmCombate,
@@ -34,6 +35,7 @@ import {
   efeitosComArma,
   efeitosDaTecnica,
   efeitosDoContexto,
+  efeitosDuram,
   exaustaoQueConta,
   extrasDeCura,
   formatarMod,
@@ -67,6 +69,7 @@ import {
   ChipEfeito,
   DatalistAlvos,
   EfeitoDeAcaoContext,
+  EfeitosDuramContext,
   EfeitosEditor,
   FormulaContext,
   NomesRecursoContext,
@@ -110,9 +113,16 @@ import {
   lerDuracao,
   pedeConcentracao,
   textoDuracao,
+  textoTurnosRestantes,
   turnosDaDuracao,
   type Duracao,
 } from "@/lib/duracao";
+import {
+  EVENTO_ACAO_EM_CURSO,
+  anunciarAcaoEmCurso,
+  ficaEmCurso,
+  type AcaoEmCursoDetail,
+} from "@/lib/turno";
 
 // O modelo de Ação só guarda alcance como texto livre, então inferimos CC vs
 // distância por palavra-chave / metragem pra montar o contexto da rolagem.
@@ -155,6 +165,9 @@ type Acao = {
   efeitos: unknown;
   aliado: boolean;
   duracao?: unknown;
+  // Usada e ainda valendo, com os turnos que faltam.
+  emCurso?: boolean;
+  turnosRestantes?: number | null;
   pasta?: string | null;
   // Ação de que esta é forma alternativa.
   formaDe?: string | null;
@@ -651,6 +664,35 @@ export function AcoesTab({
   const [, startTransition] = useTransition();
   const atualizar = useRefreshAgrupado(0);
 
+  // Ação que entrou em curso, contou turno ou acabou antes do servidor responder.
+  const [emCursoLocal, setEmCursoLocal] = useState<Record<string, AcaoEmCursoDetail>>({});
+  const [acoesAnterior, setAcoesAnterior] = useState(acoes);
+  if (acoesAnterior !== acoes) {
+    setAcoesAnterior(acoes);
+    setEmCursoLocal({});
+  }
+  useEffect(() => {
+    function ouvir(e: Event) {
+      const det = (e as CustomEvent<AcaoEmCursoDetail>).detail;
+      if (det) setEmCursoLocal((o) => ({ ...o, [det.id]: det }));
+    }
+    window.addEventListener(EVENTO_ACAO_EM_CURSO, ouvir);
+    return () => window.removeEventListener(EVENTO_ACAO_EM_CURSO, ouvir);
+  }, []);
+
+  // Encerra a ação em curso antes da duração acabar.
+  function encerrar(acao: Acao) {
+    anunciarAcaoEmCurso({ id: acao.id, emCurso: false });
+    startTransition(async () => {
+      try {
+        exigir(await encerrarAcao(personagemId, acao.id));
+      } catch (err) {
+        atualizar();
+        mostrarErro(err);
+      }
+    });
+  }
+
   // Formas alternativas ficam dentro do card da ação de origem.
   const acoesPorId = new Map(acoesOtimistas.map((a) => [a.id, a]));
   function origemDe(acao: Acao): Acao | undefined {
@@ -887,11 +929,14 @@ export function AcoesTab({
         : [],
     );
     const concentra = pedeConcentracao(acao.duracao);
+    // Sem concentração, o que repete e o que se mantém seguem até ela acabar.
+    const segue = ficaEmCurso(acao);
     const linhas = [
       sobrecarga ? `Sem PP: recebe <b>${acao.grau}</b> de exaustão.` : null,
       partes.length > 0 ? `Vai consumir: ${partes.join(", ")}.` : null,
       curas.length > 0 ? `Cura: <b>${curas.join(" + ")}</b>.` : null,
       concentra ? "Passa a concentrar nela." : null,
+      segue ? "Fica em curso até a duração acabar." : null,
     ].filter((l): l is string => !!l);
 
     // Em aliado: escolher quem já confirma.
@@ -926,7 +971,11 @@ export function AcoesTab({
                 ? [{ valor: 1, nome: `ação ${ACAO_COMBATE[tipoAcao].nome.toLowerCase()}`, proprio: true }]
                 : []),
             ],
-            faz: [...curas.map((c) => `Cura ${c}`), ...(concentra ? ["Concentração"] : [])],
+            faz: [
+              ...curas.map((c) => `Cura ${c}`),
+              ...(concentra ? ["Concentração"] : []),
+              ...(segue ? ["Fica em curso"] : []),
+            ],
           },
         ],
       });
@@ -965,6 +1014,8 @@ export function AcoesTab({
     if (concentra) {
       const turnos = turnosDaDuracao(lerDuracao(acao.duracao));
       anunciarConcentracao({ tipo: "acao", id: acao.id, nome: acao.nome, ...(turnos ? { turnos } : {}) });
+    } else if (segue) {
+      anunciarAcaoEmCurso({ id: acao.id, emCurso: true, turnos: turnosDaDuracao(lerDuracao(acao.duracao)) });
     }
     startTransition(async () => {
       if (usosMax != null) {
@@ -993,6 +1044,7 @@ export function AcoesTab({
       } catch (err) {
         // Recarrega a página pra desfazer o otimismo.
         setGastasLocal({});
+        setEmCursoLocal({});
         atualizar();
         mostrarErro(err);
       }
@@ -1335,7 +1387,15 @@ export function AcoesTab({
                     !!recursoGasto ||
                     usosMax != null ||
                     efeitosAcao.some(efeitoInstantaneo) ||
-                    pedeConcentracao(acao.duracao);
+                    pedeConcentracao(acao.duracao) ||
+                    ficaEmCurso(acao);
+                  // Em curso: usada e ainda valendo (a de concentração aparece na ficha lateral).
+                  const curso = emCursoLocal[acao.id] ?? {
+                    emCurso: !!acao.emCurso,
+                    turnos: acao.turnosRestantes ?? null,
+                  };
+                  const emCursoAgora = curso.emCurso && ficaEmCurso(acao);
+                  const duram = efeitosDuram(acao);
                   const duracaoTexto = textoDuracao(lerDuracao(acao.duracao));
                   const temPorTurno = efeitosAcao.some((e) => e.tipo === "por_turno");
                   const chipsAcao = efeitosAcao.filter((e) => e.tipo !== "por_turno");
@@ -1511,6 +1571,14 @@ export function AcoesTab({
                                 <i className="fas fa-bell" /> {textoGatilho(lerGatilho(acao.gatilho))}
                               </span>
                             )}
+                            {emCursoAgora && (
+                              <span className="acao-stat acao-em-curso">
+                                <i className="fas fa-circle-play" /> Em curso
+                                {curso.turnos != null && curso.turnos > 0
+                                  ? ` · ${textoTurnosRestantes(curso.turnos).toLowerCase()}`
+                                  : ""}
+                              </span>
+                            )}
                             <StatsPorTurno
                               efeitos={efeitosAcao}
                               grau={acao.tecnica && acao.grau > 0 ? acao.grau : undefined}
@@ -1684,6 +1752,7 @@ export function AcoesTab({
                                 key={i}
                                 efeito={e}
                                 grau={acao.tecnica && acao.grau > 0 ? acao.grau : undefined}
+                                dura={duram ? e.dura : undefined}
                               />
                             ))}
                           </div>
@@ -1716,6 +1785,16 @@ export function AcoesTab({
                               onClick={() => usar(acao, ppFinal, recursoGasto, resolve)}
                             >
                               <i className="fas fa-play" /> Usar
+                            </button>
+                          )}
+                          {emCursoAgora && (
+                            <button
+                              type="button"
+                              className="hab-usar"
+                              title="Encerrar antes da duração acabar"
+                              onClick={() => encerrar(acao)}
+                            >
+                              <i className="fas fa-stop" /> Encerrar
                             </button>
                           )}
                           {acao.tag && (
@@ -1914,7 +1993,7 @@ export function AcoesTab({
                 porTurno={porTurnoDe(form.efeitos)}
                 onPorTurno={(lista) => setF("efeitos", comPorTurno(form.efeitos, lista))}
                 recursos={recursos}
-                aCadaTurno="concentrando"
+                aCadaTurno="durando"
               />
 
               <h3 className="modal-secao">
@@ -2162,13 +2241,15 @@ export function AcoesTab({
                       </button>
                     ))}
                   </div>
-                  <EfeitosEditor
-                    efeitos={form.efeitos}
-                    onChange={(efeitos) => setF("efeitos", efeitos)}
-                    recursos={recursos}
-                    pergunta="O que essa ação faz?"
-                    presets={PRESETS_ACAO}
-                  />
+                  <EfeitosDuramContext.Provider value={efeitosDuram(form)}>
+                    <EfeitosEditor
+                      efeitos={form.efeitos}
+                      onChange={(efeitos) => setF("efeitos", efeitos)}
+                      recursos={recursos}
+                      pergunta="O que essa ação faz?"
+                      presets={PRESETS_ACAO}
+                    />
+                  </EfeitosDuramContext.Provider>
                 </div>
               </details>
 

@@ -6304,6 +6304,24 @@ form > .turno-campo,
   color: var(--color-bonus);
 }
 
+/* Ação usada que ainda está valendo. */
+.acao-stat.acao-em-curso {
+  color: var(--color-power);
+  font-weight: 700;
+}
+
+/* No chip: o efeito repete a cada turno ou fica valendo enquanto a ação dura. */
+.efeito-chip-dura {
+  opacity: 0.8;
+  font-weight: 400;
+}
+
+.efeito-chip-dura::before {
+  content: "·";
+  margin-right: 4px;
+  opacity: 0.5;
+}
+
 /* ─── Card: pasta, vem de / usa, travada ──────────────────── */
 .action-card .card-title {
   padding-right: 78px;
