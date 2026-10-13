@@ -11,6 +11,7 @@ import { resumirPersonagem } from "@/lib/resumo-personagem";
 import { recebidasDaMesa } from "@/lib/efeitos-servidor";
 import { NarradorShell } from "./painel-narrador";
 import { catalogoTiposDoNarrador } from "@/lib/tipos-dano-servidor";
+import { catalogoCondicoesDoNarrador } from "@/lib/combate-servidor";
 import { serializarSessao } from "./sessao/utils";
 import "@/app/dashboard/dashboard.css";
 import "@/app/calendario/[mesaId]/calendario.css";
@@ -26,7 +27,7 @@ export default async function NarradorPage({ params }: Params) {
   if (!user) redirect("/login");
 
   // Mesa + mensagens + calendário + objetivos + sessão/bestiário pré-carregados em paralelo.
-  const [mesa, mensagensIniciais, calendario, objetivosComPrazo, sessaoAtiva, criaturas, encontros, recebidas, tiposDano] = await Promise.all([
+  const [mesa, mensagensIniciais, calendario, objetivosComPrazo, sessaoAtiva, criaturas, encontros, recebidas, tiposDano, condicoes] = await Promise.all([
     prisma.mesa.findUnique({
       where: { id: mesaId },
       include: {
@@ -65,6 +66,8 @@ export default async function NarradorPage({ params }: Params) {
       .then((ps) => recebidasDaMesa(mesaId, ps.map((p) => p.id))),
     // Tipos de dano da Biblioteca do narrador.
     catalogoTiposDoNarrador(user.id),
+    // Condições da Biblioteca do narrador.
+    catalogoCondicoesDoNarrador(user.id),
   ]);
   if (!mesa) notFound();
   if (!calendario) notFound();
@@ -84,6 +87,7 @@ export default async function NarradorPage({ params }: Params) {
         personagens: mesa.personagens.map((p) => resumirPersonagem(p, recebidas.get(p.id))),
       }}
       userId={user.id}
+      condicoes={condicoes}
       mensagensIniciais={mensagensIniciais}
       calendario={calendario}
       objetivosComPrazo={objetivosComPrazo}

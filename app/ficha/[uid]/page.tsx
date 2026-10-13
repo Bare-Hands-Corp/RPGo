@@ -23,7 +23,8 @@ import { FichaRealtime } from "./realtime-refresher";
 import { Bandeja } from "@/components/bandeja/bandeja";
 import { CatalogoTiposProvider } from "@/components/tipos-dano/tipos-dano";
 import { catalogoTiposDoNarrador } from "@/lib/tipos-dano-servidor";
-import { carregarCombateDoJogador } from "@/lib/combate-servidor";
+import { carregarCombateDoJogador, catalogoCondicoesDoNarrador } from "@/lib/combate-servidor";
+import { CatalogoCondicoesProvider } from "@/components/tipos-dano/condicoes";
 import { SessaoRealtime } from "@/app/narrador/[mesaId]/sessao/sessao-realtime";
 import { IniciativaJogador } from "./iniciativa-jogador";
 import { ThemeButton } from "@/components/temas/theme-button";
@@ -166,10 +167,12 @@ export default async function FichaPage({ params, searchParams }: Params) {
 
   // Pré-carrega mensagens do chat + calendário + tripulação/navio (se houver
   // mesa) em paralelo. Tripulação = personagens que compartilham o mesaId.
-  const [catalogoTipos, { sessaoId, combate }, mensagensIniciais, calendario, tripulantes, navio, arvoresCopiaveis] =
+  const [catalogoTipos, catalogoCondicoes, { sessaoId, combate }, mensagensIniciais, calendario, tripulantes, navio, arvoresCopiaveis] =
     await Promise.all([
     // Tipos de dano do narrador da mesa (Biblioteca do bestiário).
     catalogoTiposDoNarrador(personagem.mesa?.userId),
+    // Condições do narrador da mesa (Biblioteca).
+    catalogoCondicoesDoNarrador(personagem.mesa?.userId),
     // Combate ativo da mesa, só com o que o narrador liberou das criaturas.
     carregarCombateDoJogador(personagem.mesaId, personagem.id),
     listarMensagensSessao(sessionId),
@@ -202,9 +205,15 @@ export default async function FichaPage({ params, searchParams }: Params) {
   ]);
 
   return (
-    <>
+    <CatalogoCondicoesProvider condicoes={catalogoCondicoes}>
     {/* Fora do grid da ficha pra faixa grudar no topo ao rolar a página. */}
-    {combate && <IniciativaJogador combate={combate} />}
+    {combate && (
+      <IniciativaJogador
+        combate={combate}
+        personagemId={personagem.id}
+        reacoes={personagem.acoes.filter((a) => a.tipo === "react").map((a) => ({ id: a.id, nome: a.nome }))}
+      />
+    )}
     <div className={"ficha-layout" + (calendario ? " com-relogio" : "")}>
       <FichaRealtime personagemId={personagem.id} mesaId={personagem.mesaId} />
       {personagem.mesaId && (
@@ -287,6 +296,9 @@ export default async function FichaPage({ params, searchParams }: Params) {
         }))}
         isNarradorDaMesa={isNarrador}
         tripulantes={tripulantes}
+        turno={combate?.voce ?? null}
+        alvosCombate={combate?.participantes ?? []}
+        atributoCdTecnicas={personagem.atributoCdTecnicas}
         navio={
           navio
             ? {
@@ -324,6 +336,6 @@ export default async function FichaPage({ params, searchParams }: Params) {
         efeitosContexto={efeitosDoContexto(efeitosAgregados)}
       />
     </div>
-    </>
+    </CatalogoCondicoesProvider>
   );
 }

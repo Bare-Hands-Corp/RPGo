@@ -964,7 +964,10 @@ export type EfeitoHabilidade =
   | { tipo: "cura"; valor: string; alvoCura?: string }
   | { tipo: "condicao_imune"; condicao: string }
   | { tipo: "condicao_remover"; condicao: string }
-  | { tipo: "condicao_aplicar"; condicao: string; cd?: number; duracao?: string }
+  // `rodadas`: quanto dura no combate (1, 3 ou 10 = um minuto; ausente = 1).
+  // `repete`: o afetado pode repetir a salvaguarda pra sair antes. `duracao`
+  // é o texto livre de antes das rodadas, só descritivo.
+  | { tipo: "condicao_aplicar"; condicao: string; cd?: number; duracao?: string; rodadas?: number; repete?: boolean }
   | { tipo: "resistencia"; tipoDano: string }
   | { tipo: "imunidade"; tipoDano: string }
   // Recebe o dobro do tipo de dano (depois da resistência).
@@ -1747,6 +1750,9 @@ export function normalizarEfeito(
       const e: EfeitoHabilidade = { tipo, condicao: str(obj.condicao) };
       if (typeof obj.cd === "number" && Number.isFinite(obj.cd)) e.cd = Math.trunc(obj.cd);
       if (str(obj.duracao)) e.duracao = str(obj.duracao);
+      const rodadas = Math.trunc(num(obj.rodadas));
+      if (rodadas > 0) e.rodadas = Math.min(100, rodadas);
+      if (obj.repete === true) e.repete = true;
       return e;
     }
     case "resistencia":
@@ -2653,6 +2659,8 @@ export type EfeitosAgregados = {
   extrasDano: ExtraDano[];
   // O que acontece a cada turno; `habilidadeId` = ligada que desliga se o gasto zerar.
   porTurno: PorTurno[];
+  // Ações a mais por turno ("Ação Extra" sem condição), por tipo de ação.
+  acoesExtras: Partial<Record<"padrao" | "bonus" | "react", FonteValor>>;
   // Valor igual a outro (ou à metade dele): CR, deslocamentos e atributos.
   valoresIguais: ValorIgual[];
   // Multiataque por alvo de ataque: vale o maior total, mais os ataques a mais.
@@ -2766,6 +2774,7 @@ function vazio(): EfeitosAgregados {
     },
     extrasDano: [],
     porTurno: [],
+    acoesExtras: {},
     valoresIguais: [],
     multiAtaques: [],
     explosoes: [],
@@ -3754,6 +3763,17 @@ export function agregarEfeitos(
           d.dv += e.dv;
           if (!d.fontes.includes(h.nome)) d.fontes.push(h.nome);
         }
+      } else if (e.tipo === "acao_extra") {
+        // Com condição ("1× por descanso") fica descritivo: não vira ação de todo turno.
+        const tipoAcao = ({ acao: "padrao", "acao bônus": "bonus", reacao: "react" } as const)[
+          e.acao as "acao" | "acao bônus" | "reacao"
+        ];
+        if (tipoAcao && !e.gatilho) {
+          const atual = out.acoesExtras[tipoAcao] ?? { valor: 0, fontes: [] };
+          atual.valor += e.quantidade;
+          if (!atual.fontes.includes(h.nome)) atual.fontes.push(h.nome);
+          out.acoesExtras[tipoAcao] = atual;
+        }
       } else if (e.tipo === "por_turno") {
         out.porTurno.push({
           o: e.o,
@@ -4624,7 +4644,10 @@ export function resumoEfeito(
     case "condicao_remover":
       return e.condicao;
     case "condicao_aplicar":
-      return e.cd ? `${e.condicao} (CD ${e.cd})` : e.condicao;
+      return (
+        (e.cd ? `${e.condicao} (CD ${e.cd})` : e.condicao) +
+        ` · ${e.rodadas === 10 ? "1 minuto" : `${e.rodadas ?? 1} rodada${(e.rodadas ?? 1) === 1 ? "" : "s"}`}`
+      );
     case "resistencia":
     case "imunidade":
     case "vulnerabilidade":

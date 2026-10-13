@@ -169,6 +169,10 @@ model Personagem {
   vontade      Int @default(0)
   presenca     Int @default(0)
 
+  // Atributo da CD das técnicas do personagem; vale nas ações com salvaguarda
+  // que não escolhem uma CD própria.
+  atributoCdTecnicas String? @map("atributo_cd_tecnicas")
+
   // Em que está concentrando: { tipo: "habilidade" | "acao", id, nome } (lib/duracao.ts).
   concentracao Json?
 
@@ -354,10 +358,15 @@ model Acao {
   // Mecânica de ataque/salvaguarda.
   atributoAtaque String? @map("atributo_ataque") // "forca" | "destreza" | "sabedoria" | …
   atributoSalv   String? @map("atributo_salv") // atributo que o alvo testa pra resistir
-  atributoCd     String? @map("atributo_cd") // atributo primário do usuário pra CD (8+prof+mod)
+  atributoCd     String? @map("atributo_cd") // legado: a CD vem de Personagem.atributoCdTecnicas; só vale sem ele
+  // Dano de quem passa na salvaguarda: "nada" | "metade".
+  salvSucesso    String  @default("nada") @map("salv_sucesso")
   dano           String? // "1d8 cortante", "2d6 fogo"
   // Tipo do dano escolhido no modal (lib/dano.ts TIPOS_DANO ou texto).
   tipoDano       String? @map("tipo_dano")
+  // Danos a mais, de outros tipos: [{ formula, tipo }]. Cada um é rolado à
+  // parte e passa pelas defesas do alvo pelo próprio tipo.
+  danosExtras    Json    @default("[]") @map("danos_extras")
   alcance        String? // "cc 1,5 m", "9 m", "linha 18 m"
   // Armas que desferem esta ação (Item.id[], sem FK).
   armaIds        Json    @default("[]") @map("arma_ids")
@@ -925,6 +934,14 @@ model Combate {
   // avançar turno é só somar 1 e voltar a 0 (+ rodada) ao passar do fim.
   turnoAtual  Int @default(0) @map("turno_atual")
 
+  // Rolagens do narrador (das criaturas) vão pro chat sem os dados nem o total.
+  rolagensPrivadas Boolean @default(false) @map("rolagens_privadas")
+
+  // Ações com alvo em andamento: do "Usar" até o dano descontado
+  // (Resolucao[] em lib/combate.ts). Mora aqui, e não numa tabela, pra chegar
+  // aos jogadores pelo realtime de `combates`.
+  resolucoes Json @default("[]")
+
   participantes InstanciaCombate[]
 
   @@index([sessaoId, encerradoEm])
@@ -958,7 +975,11 @@ model InstanciaCombate {
   // [{ nome: string, duracaoRodadas: number }]
   condicoesAtivas Json @default("[]") @map("condicoes_ativas")
   ppGasto         Int  @default(0) @map("pp_gasto")
-  // { [traitInstanceId]: "gasto" | "disponivel" }
+  // Ações já usadas no turno: { padrao, bonus, power, react } (lib/combate.ts).
+  // Zera quando a vez do participante começa.
+  acoesGastas     Json @default("{}") @map("acoes_gastas")
+  // Usos que restam de cada ação com usos limitados: { [traitInstanceId]: número }.
+  // Ação fora do mapa está com os usos cheios.
   estadoRecargas  Json @default("{}") @map("estado_recargas")
 
   // Revelação progressiva pro jogador (seção "Modo Sessão" combinada antes) —

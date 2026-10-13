@@ -1664,6 +1664,134 @@ input.sessao-iniciativa-pv {
   color: var(--primary);
 }
 
+/* Condições de um participante, embaixo do nome. */
+.sessao-condicoes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-top: 4px;
+}
+
+.sessao-condicao-mais {
+  padding: 1px 8px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-sec);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sessao-condicao-mais:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.condicao-modal {
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.condicao-modal-lista {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.condicao-opcao {
+  padding: 4px 10px;
+  border-width: 1px;
+  border-style: solid;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  opacity: 0.75;
+  cursor: pointer;
+}
+
+.condicao-opcao:hover,
+.condicao-opcao.ativo {
+  opacity: 1;
+}
+
+.condicao-opcao.ativo {
+  outline: 2px solid var(--fx-cor);
+  outline-offset: 1px;
+}
+
+.condicao-modal-duracoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.condicao-modal-duracoes .nv-btn {
+  align-self: auto;
+  padding: 0 14px;
+}
+
+.nv-btn.ativo {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 14%, var(--bg-surface));
+  color: var(--primary);
+}
+
+/* Ações com alvo que ainda esperam rolagem. */
+.sessao-pendencias {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sessao-pendencia {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 6px 6px 12px;
+  border: 1px solid color-mix(in oklch, var(--primary) 35%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in oklch, var(--primary) 7%, transparent);
+  font-size: 0.85rem;
+}
+
+/* Ações do turno de um jogador (mesmas cores da ficha). */
+.sessao-acoes {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.sessao-acoes button {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 2px solid var(--acao-cor);
+  border-radius: 50%;
+  background: var(--acao-cor);
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+
+.sessao-acoes button:hover {
+  transform: scale(1.2);
+}
+
+.sessao-acoes button.gasta {
+  border-color: var(--border);
+  background: var(--border);
+}
+
 .sessao-revelar-todas {
   display: flex;
   flex-wrap: wrap;

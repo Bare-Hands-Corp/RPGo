@@ -1,6 +1,9 @@
 "use client";
 
-import { useOptimistic, useState, useTransition } from "react";
+import type { SalvaguardaPedida } from "@/lib/combate";
+import { responderSalvaguarda } from "./actions";
+import { EVENTO_SALVAGUARDA_AVULSA, type SalvaguardaAvulsa } from "./acoes-do-turno";
+import { useEffect, useOptimistic, useRef, useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { ehTemporario, exigir, idTemporario } from "@/lib/acoes";
 import {
@@ -53,6 +56,8 @@ type Props = {
   proficienciasRaw: unknown;
   periciasCustom: PericiaCustomRow[];
   efeitosAgregados: EfeitosAgregados;
+  // Salvaguardas que o combate pediu: o chip do atributo responde a elas.
+  salvaguardasPedidas?: SalvaguardaPedida[];
 };
 
 type Patch =
@@ -130,7 +135,18 @@ export function PericiasTab({
   proficienciasRaw,
   periciasCustom,
   efeitosAgregados,
+  salvaguardasPedidas = [],
 }: Props) {
+  // Salvaguarda que outro canto da ficha pediu pra rolar com o bônus daqui
+  // (repetir o teste de uma condição): o próximo clique no chip do atributo a atende.
+  const avulsa = useRef<SalvaguardaAvulsa | null>(null);
+  useEffect(() => {
+    const ouvir = (e: Event) => {
+      avulsa.current = (e as CustomEvent<SalvaguardaAvulsa>).detail ?? null;
+    };
+    window.addEventListener(EVENTO_SALVAGUARDA_AVULSA, ouvir);
+    return () => window.removeEventListener(EVENTO_SALVAGUARDA_AVULSA, ouvir);
+  }, []);
   // Penalidade de exaustão (−2 × nível) some em todo teste de d20 — perícia e
   // salvaguarda. Reflete já no número exibido (amarelo) e no que vai pro Rolador.
   // Otimista: atualiza na hora quando o ExaustaoControle muda o nível.
@@ -369,14 +385,37 @@ export function PericiasTab({
                 <button
                   type="button"
                   className={`prof-bonus prof-rolar ${exausto ? "valor-exausto" : ""}`}
+                  data-salvaguarda={a.slug}
                   title={`Empilhar Salv. ${a.nome} no Rolador`}
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    empilharD20(bonus, `Salv. ${a.nome}`, {
-                      tipo: "salvaguarda",
-                      atributo: a.slug,
-                    });
+                    const pedidoAvulso = avulsa.current?.atributo === a.slug ? avulsa.current : null;
+                    avulsa.current = null;
+                    if (pedidoAvulso) {
+                      empilharD20(bonus, pedidoAvulso.rotulo, { tipo: "salvaguarda", atributo: a.slug }, undefined, {
+                        aoConcluir: (lances) => lances[0] && pedidoAvulso.aoConcluir(lances[0]),
+                      });
+                      return;
+                    }
+                    const pedida = salvaguardasPedidas.find((x) => x.atributo === a.slug);
+                    empilharD20(
+                      bonus,
+                      pedida ? `Salv. ${a.nome} (CD ${pedida.cd}) · ${pedida.nome}` : `Salv. ${a.nome}`,
+                      { tipo: "salvaguarda", atributo: a.slug },
+                      undefined,
+                      pedida
+                        ? {
+                            aoConcluir: (lances) => {
+                              const lance = lances[0];
+                              if (!lance) return;
+                              void responderSalvaguarda(personagemId, pedida.resolucaoId, lance).then((r) => {
+                                if (!r.ok) mostrarErro(new Error(r.erro));
+                              });
+                            },
+                          }
+                        : undefined,
+                    );
                   }}
                 >
                   {formatarMod(bonus)}

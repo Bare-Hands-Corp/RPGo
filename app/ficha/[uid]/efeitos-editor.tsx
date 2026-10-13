@@ -43,6 +43,7 @@ import {
 } from "./campos-modal";
 import { casaBusca, normalizarBusca } from "./barra-filtros";
 import { CampoFormula, FormulaContext } from "./campo-formula";
+import { DURACOES_CONDICAO, RODADAS_PADRAO } from "@/lib/condicoes";
 import { SeletorBusca } from "./seletor-busca";
 
 export { FormulaContext };
@@ -783,23 +784,28 @@ function renderCorpo(
               onChange={(v) => onPatch({ condicao: v } as Partial<EfeitoHabilidade>)}
             />
           </div>
-          <CampoNum
-            label="CD"
-            valor={e.cd ?? 0}
-            onChange={(v) =>
-              onPatch({ cd: v || undefined } as Partial<EfeitoHabilidade>)
-            }
-          />
-          <Detalhes aberto={!!e.duracao}>
-            <Campo
-              label="Duração"
-              valor={e.duracao ?? ""}
-              onChange={(v) =>
-                onPatch({ duracao: v || undefined } as Partial<EfeitoHabilidade>)
-              }
-              placeholder="1 minuto, 1 turno…"
+          <div style={{ gridColumn: "1 / -1" }}>
+            <label>Dura</label>
+            <Segmentos
+              rotulo="Duração da condição"
+              valor={e.rodadas ?? RODADAS_PADRAO}
+              opcoes={DURACOES_CONDICAO.map((d) => ({ valor: d.rodadas, rotulo: d.nome }))}
+              onChange={(v) => onPatch({ rodadas: v } as Partial<EfeitoHabilidade>)}
             />
-          </Detalhes>
+          </div>
+          <label className="efeito-check" style={{ gridColumn: "1 / -1" }}>
+            <input
+              type="checkbox"
+              checked={!!e.repete}
+              onChange={(ev) => onPatch({ repete: ev.target.checked || undefined } as Partial<EfeitoHabilidade>)}
+            />
+            O afetado pode repetir a salvaguarda pra sair antes
+          </label>
+          {e.repete && (
+            <p className="campo-dica" style={{ gridColumn: "1 / -1" }}>
+              Ele rola a salvaguarda da ação contra a CD das suas técnicas (ficha lateral).
+            </p>
+          )}
         </>
       );
     case "resistencia":

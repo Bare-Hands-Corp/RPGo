@@ -6,6 +6,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { CombateVisto, ParticipanteVisto } from "@/lib/combate";
+import {
+  BotaoFinalizarTurno,
+  EVENTO_ROLAR_CONCENTRACAO,
+  rolarSalvaguardaAvulsa,
+  type RolarConcentracaoDetail,
+} from "./acoes-do-turno";
+import { reagirEmCombate, responderConcentracao, tentarSairDaCondicao } from "./actions";
+import Swal from "sweetalert2";
+import { ChipCondicao } from "@/components/tipos-dano/condicoes";
 
 function Avatar({ p, grande = false }: { p: ParticipanteVisto; grande?: boolean }) {
   const classe = `iniciativa-avatar${grande ? " grande" : ""}`;
@@ -30,7 +39,45 @@ function Barra({ tipo, atual, max }: { tipo: "pv" | "pp"; atual: number; max: nu
 
 const nomeDe = (p: ParticipanteVisto) => (p.voce ? "Você" : p.nome);
 
-export function IniciativaJogador({ combate }: { combate: CombateVisto }) {
+const NOME_ATRIBUTO: Record<string, string> = {
+  forca: "Força",
+  destreza: "Destreza",
+  constituicao: "Constituição",
+  sabedoria: "Sabedoria",
+  presenca: "Presença",
+  vontade: "Vontade",
+};
+
+export function IniciativaJogador({
+  combate,
+  personagemId,
+  reacoes,
+}: {
+  combate: CombateVisto;
+  personagemId: string;
+  // Ações de reação da ficha, pra janela de reação.
+  reacoes: { id: string; nome: string }[];
+}) {
+  // Decisão de reagir em andamento (evita dois cliques).
+  const [reagindo, setReagindo] = useState(false);
+  async function reagir(resolucaoId: string, acaoId: string | null) {
+    if (reagindo) return;
+    setReagindo(true);
+    try {
+      const r = await reagirEmCombate(personagemId, resolucaoId, acaoId);
+      if (!r.ok) {
+        void Swal.fire({
+          icon: "error",
+          title: "Erro",
+          text: r.erro,
+          background: "var(--bg-card)",
+          color: "var(--text-main)",
+        });
+      }
+    } finally {
+      setReagindo(false);
+    }
+  }
   const [aberta, setAberta] = useState(false);
   const [detalheId, setDetalheId] = useState<string | null>(null);
   const lista = useRef<HTMLOListElement>(null);
@@ -40,6 +87,8 @@ export function IniciativaJogador({ combate }: { combate: CombateVisto }) {
   const daVez = participantes[turno] ?? null;
   const proximo = participantes.length > 1 ? participantes[(turno + 1) % participantes.length] : null;
   const detalhe = participantes.find((p) => p.id === detalheId) ?? null;
+  // O personagem desta ficha na lista (as condições dele ganham destaque).
+  const voce = participantes.find((p) => p.voce) ?? null;
 
   // Quem está na vez fica no meio da faixa (só rola a própria faixa, nunca a página).
   useEffect(() => {
@@ -91,6 +140,12 @@ export function IniciativaJogador({ combate }: { combate: CombateVisto }) {
                 <Avatar p={p} />
                 <span className="iniciativa-item-texto">
                   <span className="iniciativa-nome">{nomeDe(p)}</span>
+                  {p.condicoes.length > 0 && (
+                    <span className="iniciativa-meta iniciativa-condicoes" title={p.condicoes.map((c) => c.nome).join(", ")}>
+                      <i className="fas fa-triangle-exclamation" />
+                      {p.condicoes.length === 1 ? p.condicoes[0].nome : `${p.condicoes.length} condições`}
+                    </span>
+                  )}
                   {(p.pv || p.cr != null) && (
                     <span className="iniciativa-meta">
                       {p.pv && (
@@ -108,7 +163,124 @@ export function IniciativaJogador({ combate }: { combate: CombateVisto }) {
             </li>
           ))}
         </ol>
+
+        {combate.voce?.naVez && (
+          <BotaoFinalizarTurno
+            personagemId={personagemId}
+            compacto
+            rolagensPendentes={combate.voce.resolucoes.length}
+          />
+        )}
       </div>
+
+      {(combate.voce?.reacoes ?? []).map((r) => (
+        <div key={`r-${r.resolucaoId}`} className="iniciativa-pedido reacao">
+          <span>
+            <i className="fas fa-shield-halved" /> <strong>{r.de} pegou você</strong> com {r.nome}. Reagir?
+          </span>
+          <span className="iniciativa-pedido-botoes">
+            {reacoes.map((a) => (
+              <button
+                type="button"
+                key={a.id}
+                className="turno-finalizar compacto"
+                disabled={reagindo}
+                title="Gasta a reação do turno e os custos da ação"
+                onClick={() => void reagir(r.resolucaoId, a.id)}
+              >
+                {a.nome}
+              </button>
+            ))}
+            <button
+              type="button"
+              className="turno-finalizar compacto secundario"
+              disabled={reagindo}
+              onClick={() => void reagir(r.resolucaoId, null)}
+            >
+              Não reagir
+            </button>
+          </span>
+        </div>
+      ))}
+
+      {(voce?.condicoes.length ?? 0) > 0 && (
+        <div className="iniciativa-pedido">
+          <span className="iniciativa-minhas-condicoes">
+            <strong>Você está com</strong>
+            {voce!.condicoes.map((c) => (
+              <ChipCondicao key={c.id} nome={c.nome} rodadas={c.rodadas}>
+                {c.sair && (
+                  <button
+                    type="button"
+                    className="condicao-chip-botao"
+                    title={`Repetir a salvaguarda de ${NOME_ATRIBUTO[c.sair.atributo] ?? c.sair.atributo} (CD ${c.sair.cd}) pra sair`}
+                    aria-label={`Repetir a salvaguarda pra sair de ${c.nome}`}
+                    onClick={() =>
+                      rolarSalvaguardaAvulsa({
+                        atributo: c.sair!.atributo,
+                        rotulo: `Sair de ${c.nome} (CD ${c.sair!.cd})`,
+                        aoConcluir: (lance) => void tentarSairDaCondicao(personagemId, c.id, lance),
+                      })
+                    }
+                  >
+                    <i className="fas fa-dice-d20" />
+                  </button>
+                )}
+              </ChipCondicao>
+            ))}
+          </span>
+        </div>
+      )}
+
+      {(combate.voce?.concentracoes ?? []).map((c) => (
+        <div key={`c-${c.resolucaoId}`} className="iniciativa-pedido">
+          <span>
+            <i className="fas fa-brain" /> <strong>Concentração em {c.nome}</strong>: salvaguarda de Constituição (CD{" "}
+            {c.cd})
+          </span>
+          <span className="iniciativa-pedido-botoes">
+            <button
+              type="button"
+              className="turno-finalizar compacto secundario"
+              onClick={() => void responderConcentracao(personagemId, c.resolucaoId, null)}
+            >
+              Perdi
+            </button>
+            <button
+              type="button"
+              className="turno-finalizar compacto"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent<RolarConcentracaoDetail>(EVENTO_ROLAR_CONCENTRACAO, {
+                    detail: { cd: c.cd, resolucaoId: c.resolucaoId },
+                  }),
+                )
+              }
+            >
+              <i className="fas fa-dice-d20" /> Rolar
+            </button>
+          </span>
+        </div>
+      ))}
+
+      {(combate.voce?.salvaguardas ?? []).map((s) => (
+        <div key={s.resolucaoId} className="iniciativa-pedido">
+          <span>
+            <i className="fas fa-shield-halved" /> <strong>Salvaguarda de {NOME_ATRIBUTO[s.atributo] ?? s.atributo}</strong>{" "}
+            (CD {s.cd}) contra {s.nome} de {s.de}
+          </span>
+          <button
+            type="button"
+            className="turno-finalizar compacto"
+            onClick={() =>
+              // O chip da aba Perícias sabe o bônus e responde ao combate.
+              document.querySelector<HTMLButtonElement>(`[data-salvaguarda="${s.atributo}"]`)?.click()
+            }
+          >
+            <i className="fas fa-dice-d20" /> Rolar
+          </button>
+        </div>
+      ))}
 
       {detalhe && (
         <div className="modal-overlay" onClick={() => setDetalheId(null)}>
@@ -155,7 +327,15 @@ export function IniciativaJogador({ combate }: { combate: CombateVisto }) {
               </div>
             )}
 
-            {detalhe.tipo === "criatura" && !detalhe.pv && !detalhe.pp && detalhe.cr == null && !detalhe.acoes && (
+            {detalhe.condicoes.length > 0 && (
+              <div className="iniciativa-detalhe-condicoes">
+                {detalhe.condicoes.map((c) => (
+                  <ChipCondicao key={c.id} nome={c.nome} rodadas={c.rodadas} />
+                ))}
+              </div>
+            )}
+
+            {detalhe.tipo === "criatura" && !detalhe.pv && !detalhe.pp && detalhe.cr == null && !detalhe.acoes && detalhe.condicoes.length === 0 && (
               <p className="iniciativa-detalhe-vazio">O narrador ainda não revelou nada desta criatura.</p>
             )}
 

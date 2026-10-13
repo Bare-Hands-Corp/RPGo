@@ -994,10 +994,29 @@ button.bestiario-ficha-badge-rolavel:hover {
   border-color: color-mix(in srgb, var(--primary) 35%, transparent);
 }
 
+/* Usar a ação no combate (alvo, acerto e dano). */
+.bestiario-acao-usar {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid color-mix(in srgb, var(--acao-cor, var(--primary)) 60%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--acao-cor, var(--primary)) 12%, transparent);
+  color: var(--acao-cor, var(--primary));
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.bestiario-acao-usar:hover {
+  background: color-mix(in srgb, var(--acao-cor, var(--primary)) 22%, transparent);
+}
+
 /* Olho no card da ação: está ou não na prévia que os jogadores veem. */
 .bestiario-acao-revelar {
   flex-shrink: 0;
-  margin-left: auto;
   padding: 2px 6px;
   border: 1px solid transparent;
   border-radius: 6px;

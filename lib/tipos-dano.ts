@@ -81,3 +81,45 @@ export function lerCatalogoTipos(tipos: TipoDanoCatalogo[]): TipoDanoCatalogo[] 
 export function tipoNoCatalogo(catalogo: TipoDanoCatalogo[], nome: string): TipoDanoCatalogo | undefined {
   return catalogo.find((t) => mesmoTipo(t.nome, nome));
 }
+
+// ─── Renomear um tipo ──────────────────────────────────────────────────────
+
+// Troca o nome de um tipo onde ele aparece escrito como palavra inteira
+// ("1d8 fogo", "Fogo, Frio", "Todos, exceto Fogo"), sem mexer em palavra que
+// só o contém. Escrito em minúsculas continua em minúsculas.
+export function trocarTipoNoTexto(texto: string, de: string, para: string): string {
+  const antigo = de.trim();
+  if (!antigo || !texto) return texto;
+  const escapado = antigo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const palavra = new RegExp(`(?<![\\p{L}\\p{N}])${escapado}(?![\\p{L}\\p{N}])`, "giu");
+  return texto.replace(palavra, (achado) => (achado === achado.toLowerCase() ? para.toLowerCase() : para));
+}
+
+// Campos de um efeito (de ficha ou de criatura) que guardam tipo de dano.
+const CAMPOS_COM_TIPO = ["tipoDano", "tipos", "formula"];
+
+// Mesma troca dentro de uma lista de efeitos (Json). Devolve a lista nova e se
+// algo mudou, pra só regravar o que precisa.
+export function trocarTipoNosEfeitos(efeitos: unknown, de: string, para: string): { efeitos: unknown; mudou: boolean } {
+  if (!Array.isArray(efeitos)) return { efeitos, mudou: false };
+  let mudou = false;
+  const novos = efeitos.map((e) => {
+    if (!e || typeof e !== "object") return e;
+    const obj = { ...(e as Record<string, unknown>) };
+    for (const campo of CAMPOS_COM_TIPO) {
+      const v = obj[campo];
+      const novo =
+        typeof v === "string"
+          ? trocarTipoNoTexto(v, de, para)
+          : Array.isArray(v)
+            ? v.map((x) => (typeof x === "string" ? trocarTipoNoTexto(x, de, para) : x))
+            : v;
+      if (JSON.stringify(novo) !== JSON.stringify(v)) {
+        obj[campo] = novo;
+        mudou = true;
+      }
+    }
+    return obj;
+  });
+  return { efeitos: novos, mudou };
+}

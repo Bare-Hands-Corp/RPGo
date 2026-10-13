@@ -54,6 +54,8 @@ const CAMPOS: Record<TipoModelo, readonly string[]> = {
     "atributoCd",
     "dano",
     "tipoDano",
+    "danosExtras",
+    "salvSucesso",
     "alcance",
     "tecnica",
     "grau",

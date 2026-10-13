@@ -1,4 +1,6 @@
 import type { CriaturaSerializada } from "@/app/bestiario/types";
+import type { AcoesGastas, Resolucao } from "@/lib/combate";
+import type { CondicaoAtiva } from "@/lib/condicoes";
 
 export type InstanciaCombateSerializada = {
   id: string;
@@ -10,6 +12,12 @@ export type InstanciaCombateSerializada = {
   // null quando é PJ (PV mora em Personagem.hpAtual/hpMax, não aqui).
   pvAtual: number | null;
   pvMax: number | null;
+  // Condições valendo nele (lib/condicoes.ts).
+  condicoes: CondicaoAtiva[];
+  // Ações que o participante já usou neste turno (lib/combate.ts).
+  acoesGastas: AcoesGastas;
+  // Usos que restam das ações com usos limitados (id do componente → número).
+  usosAcoes: Record<string, number>;
   // PP que a criatura já gastou neste combate (o máximo é Criatura.pontosPoder).
   ppGasto: number;
   // O que os jogadores veem desta criatura (lib/combate.ts).
@@ -29,6 +37,10 @@ export type CombateSerializado = {
   // Índice em `participantes`, que vem na ordem do combate (InstanciaCombate.ordem).
   turnoAtual: number;
   participantes: InstanciaCombateSerializada[];
+  // Ações com alvo que ainda têm rolagem ou dano pendente.
+  resolucoes: Resolucao[];
+  // As rolagens do narrador vão pro chat sem os números.
+  rolagensPrivadas: boolean;
 };
 
 export type SessaoSerializada = {

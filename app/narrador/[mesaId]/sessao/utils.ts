@@ -1,6 +1,18 @@
 import type { Combate, InstanciaCombate, Sessao } from "@prisma/client";
-import { ordenarParticipantes } from "@/lib/combate";
+import { lerAcoesGastas, lerResolucoes, ordenarParticipantes, resolucaoAberta } from "@/lib/combate";
+import { lerCondicoesAtivas } from "@/lib/condicoes";
 import type { CombateSerializado, InstanciaCombateSerializada, SessaoSerializada } from "./types";
+
+// Usos restantes por ação (InstanciaCombate.estadoRecargas); valor que não
+// é número é do formato antigo e não conta.
+export function lerUsosAcoes(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === "number" && Number.isFinite(v)) out[id] = Math.max(0, Math.trunc(v));
+  }
+  return out;
+}
 
 export function serializarInstancia(i: InstanciaCombate): InstanciaCombateSerializada {
   return {
@@ -12,6 +24,9 @@ export function serializarInstancia(i: InstanciaCombate): InstanciaCombateSerial
     ordem: i.ordem,
     pvAtual: i.pvAtual,
     pvMax: i.pvMax,
+    condicoes: lerCondicoesAtivas(i.condicoesAtivas),
+    acoesGastas: lerAcoesGastas(i.acoesGastas),
+    usosAcoes: lerUsosAcoes(i.estadoRecargas),
     ppGasto: i.ppGasto,
     pvVisivel: i.pvVisivel,
     ppVisivel: i.ppVisivel,
@@ -29,6 +44,8 @@ export function serializarCombate(c: Combate & { participantes: InstanciaCombate
     rodadaAtual: c.rodadaAtual,
     turnoAtual: c.turnoAtual,
     participantes: ordenarParticipantes(c.participantes).map(serializarInstancia),
+    resolucoes: lerResolucoes(c.resolucoes).filter(resolucaoAberta),
+    rolagensPrivadas: c.rolagensPrivadas,
   };
 }
 

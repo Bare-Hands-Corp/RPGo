@@ -725,6 +725,161 @@ a {
   margin: 4px 0 0;
 }
 
+/* Seletor de alvo do combate (ficha e painel do narrador). */
+.ataques-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.ataque-linha {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-surface);
+}
+
+.ataque-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-sec);
+}
+
+.ataque-modos {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.ataque-modo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--text-sec);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ataque-modo.vantagem.ativo {
+  border-color: var(--success);
+  background: color-mix(in oklch, var(--success) 14%, var(--bg-card));
+  color: var(--success);
+}
+
+.ataque-modo.desvantagem.ativo {
+  border-color: var(--danger);
+  background: color-mix(in oklch, var(--danger) 14%, var(--bg-card));
+  color: var(--danger);
+}
+
+.ataque-alvos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ataque-alvo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 12px 0 3px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ataque-alvo:hover {
+  border-color: var(--primary);
+}
+
+.ataque-alvo.marcado {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 14%, var(--bg-card));
+  box-shadow: 0 0 0 1px var(--primary);
+}
+
+.alvo-retrato {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--border);
+  color: var(--text-sec);
+  font-size: 0.7rem;
+}
+
+.alvo-retrato.criatura {
+  border-radius: 8px;
+}
+
+.ataque-alvo .alvo-marca {
+  color: var(--primary);
+  font-size: 0.7rem;
+}
+
+/* Condição valendo em alguém (ficha e painel do narrador). */
+.condicao-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-width: 1px;
+  border-style: solid;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+/* Rodadas que faltam. */
+.condicao-chip-rodadas {
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: color-mix(in oklch, currentColor 18%, transparent);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.condicao-chip-botao {
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 0.7rem;
+  opacity: 0.7;
+  cursor: pointer;
+}
+
+.condicao-chip-botao:hover {
+  opacity: 1;
+}
+
 /* Checkbox desenhada: a nativa não aceita estilo consistente. */
 input[type="checkbox"] {
   appearance: none;

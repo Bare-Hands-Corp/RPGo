@@ -6,9 +6,25 @@ import { createClient } from "@/lib/supabase/server";
 import { parseFormulaDados, rolarDados } from "@/lib/dice";
 import { defesasDaCriatura, resolverDano, type ParteDano } from "@/lib/dano";
 import { comoResistencias } from "@/app/bestiario/utils";
-import { CAMPOS_VISIVEIS, ordenarParticipantes, type CampoVisivel } from "@/lib/combate";
+import {
+  CAMPOS_VISIVEIS,
+  lerAcoesGastas,
+  ordenarParticipantes,
+  type AcoesGastas,
+  type CampoVisivel,
+} from "@/lib/combate";
+import {
+  aplicarCondicoes,
+  avancarTurnoDoCombate,
+  bonusDeSalvaguardaDaCriatura,
+  mudarResolucoes,
+  tirarCondicao,
+} from "@/lib/combate-servidor";
+import { lerCondicoesAtivas, lerRodadas, textoRodadas } from "@/lib/condicoes";
+import { resultadoDaSalvaguarda, textoDaSalvaguarda } from "@/lib/combate";
+import { passarTurno } from "@/app/ficha/[uid]/actions";
 import type { NovoParticipante } from "./types";
-import { serializarSessao } from "./utils";
+import { lerUsosAcoes, serializarSessao } from "./utils";
 
 // PV de uma cópia nova entrando em combate: rola a fórmula de dados da
 // criatura (ex: "7d12+7") em vez de usar sempre a média fixa — cada cópia
@@ -49,7 +65,12 @@ async function buscarSessaoCompleta(sessaoId: string) {
 // expande quantidade em N linhas (uma por cópia), preenchendo PV/nome a
 // partir do cadastro atual da criatura/personagem no momento de entrar em
 // combate (cache: editar a criatura depois não afeta o combate em curso).
-async function montarLinhas(participantes: NovoParticipante[], ordemInicial: number) {
+async function montarLinhas(
+  participantes: NovoParticipante[],
+  ordemInicial: number,
+  // Combate que já tem gente (reforço): a numeração das cópias continua dele.
+  combateId?: string,
+) {
   const criaturaIds = participantes.filter((p) => p.criaturaId).map((p) => p.criaturaId!);
   const personagemIds = participantes.filter((p) => p.personagemId).map((p) => p.personagemId!);
 
@@ -82,6 +103,18 @@ async function montarLinhas(participantes: NovoParticipante[], ordemInicial: num
     if (p.criaturaId) totalDe.set(p.criaturaId, (totalDe.get(p.criaturaId) ?? 0) + Math.max(1, p.quantidade));
   }
   const numeroDe = new Map<string, number>();
+  if (combateId && criaturaIds.length > 0) {
+    const jaNoCombate = await prisma.instanciaCombate.groupBy({
+      by: ["criaturaId"],
+      where: { combateId, criaturaId: { in: criaturaIds } },
+      _count: { _all: true },
+    });
+    for (const g of jaNoCombate) {
+      if (!g.criaturaId) continue;
+      numeroDe.set(g.criaturaId, g._count._all);
+      totalDe.set(g.criaturaId, (totalDe.get(g.criaturaId) ?? 0) + g._count._all);
+    }
+  }
 
   let ordem = ordemInicial;
   for (const p of participantes) {
@@ -128,7 +161,11 @@ async function mudarParticipantes(combateId: string, mudar: () => Promise<unknow
   const ler = () =>
     prisma.combate.findUniqueOrThrow({
       where: { id: combateId },
-      select: { turnoAtual: true, participantes: { select: { id: true, iniciativa: true, ordem: true } } },
+      select: {
+        turnoAtual: true,
+        rodadaAtual: true,
+        participantes: { select: { id: true, iniciativa: true, ordem: true } },
+      },
     });
   const antes = await ler();
   const ordemAntes = ordenarParticipantes(antes.participantes);
@@ -138,13 +175,23 @@ async function mudarParticipantes(combateId: string, mudar: () => Promise<unknow
       .slice(antes.turnoAtual)
       .concat(ordemAntes.slice(0, antes.turnoAtual))
       .find((p) => p.id !== saindoId)?.id ?? null;
+  // A vez passou de verdade (quem estava jogando saiu): o seguinte começa o
+  // turno com as ações de volta e, se a lista deu a volta, a rodada vira.
+  const vezPassou = !!saindoId && ordemAntes[antes.turnoAtual]?.id === saindoId && daVez !== null;
+  const deuAVolta = vezPassou && ordemAntes.findIndex((p) => p.id === daVez) < antes.turnoAtual;
 
   await mudar();
 
   const ordemDepois = ordenarParticipantes((await ler()).participantes);
   const turno = Math.max(0, ordemDepois.findIndex((p) => p.id === daVez));
-  if (turno !== antes.turnoAtual) {
-    await prisma.combate.update({ where: { id: combateId }, data: { turnoAtual: turno } });
+  if (turno !== antes.turnoAtual || deuAVolta) {
+    await prisma.combate.update({
+      where: { id: combateId },
+      data: { turnoAtual: turno, ...(deuAVolta ? { rodadaAtual: antes.rodadaAtual + 1 } : {}) },
+    });
+  }
+  if (vezPassou && daVez) {
+    await prisma.instanciaCombate.updateMany({ where: { id: daVez, combateId }, data: { acoesGastas: {} } });
   }
 }
 
@@ -190,7 +237,7 @@ export async function adicionarParticipantes(mesaId: string, combateId: string, 
     where: { id: combateId },
     select: { sessaoId: true, participantes: { select: { id: true, iniciativa: true, ordem: true } } },
   });
-  const linhas = await montarLinhas(participantes, 0);
+  const linhas = await montarLinhas(participantes, 0, combateId);
 
   // Reforço entra na ordem pela iniciativa: antes do primeiro que tem menos.
   const fila: { id?: string; iniciativa: number; linha?: (typeof linhas)[number] }[] = ordenarParticipantes(
@@ -248,15 +295,24 @@ export async function reordenarIniciativa(mesaId: string, combateId: string, ids
 export async function removerParticipante(mesaId: string, instanciaId: string) {
   await autorizarNarrador(mesaId);
 
-  const instancia = await prisma.instanciaCombate.findUniqueOrThrow({
-    where: { id: instanciaId },
+  const instancia = await prisma.instanciaCombate.findFirst({
+    where: { id: instanciaId, combate: { sessao: { mesaId } } },
     select: { combateId: true, combate: { select: { sessaoId: true } } },
   });
+  if (!instancia) throw new Error("Participante não encontrado nesta mesa.");
   await mudarParticipantes(
     instancia.combateId,
     () => prisma.instanciaCombate.delete({ where: { id: instanciaId } }),
     instanciaId,
   );
+  // Ação com alvo dele (ou nele) não tem mais como resolver.
+  await mudarResolucoes(instancia.combateId, (lista) => {
+    for (let i = lista.length - 1; i >= 0; i -= 1) {
+      const r = lista[i];
+      r.alvos = r.alvos.filter((a) => a.instanciaId !== instanciaId);
+      if (r.atacanteId === instanciaId || r.alvos.length === 0) lista.splice(i, 1);
+    }
+  });
 
   revalidar(mesaId);
   return serializarSessao(await buscarSessaoCompleta(instancia.combate.sessaoId));
@@ -264,7 +320,10 @@ export async function removerParticipante(mesaId: string, instanciaId: string) {
 
 export async function atualizarPvInstancia(mesaId: string, instanciaId: string, novoPv: number) {
   await autorizarNarrador(mesaId);
-  await prisma.instanciaCombate.update({ where: { id: instanciaId }, data: { pvAtual: novoPv } });
+  await prisma.instanciaCombate.updateMany({
+    where: { id: instanciaId, combate: { sessao: { mesaId } } },
+    data: { pvAtual: Math.max(0, Math.trunc(Number(novoPv) || 0)) },
+  });
   revalidar(mesaId);
 }
 
@@ -414,21 +473,188 @@ export async function avancarTurno(mesaId: string, combateId: string) {
 
   const combate = await prisma.combate.findUniqueOrThrow({
     where: { id: combateId },
-    select: { sessaoId: true, rodadaAtual: true, turnoAtual: true, _count: { select: { participantes: true } } },
+    select: {
+      sessaoId: true,
+      turnoAtual: true,
+      sessao: { select: { mesaId: true } },
+      participantes: { select: { id: true, iniciativa: true, ordem: true, personagemId: true } },
+    },
   });
-
-  const total = combate._count.participantes;
-  let turno = combate.turnoAtual + 1;
-  let rodada = combate.rodadaAtual;
-  if (total === 0 || turno >= total) {
-    turno = 0;
-    rodada += 1;
+  if (combate.sessao.mesaId !== mesaId) throw new Error("Combate não pertence a esta mesa.");
+  // Jogador que tem a vez passada pelo narrador: o "a cada turno" da ficha
+  // (efeitos e durações) roda aqui, com o servidor rolando. Sem nada pra
+  // rodar, a action devolve erro de uso, que não interessa.
+  const daVez = ordenarParticipantes(combate.participantes)[combate.turnoAtual];
+  if (daVez?.personagemId) {
+    await passarTurno(daVez.personagemId).catch((err) => console.error("[sessao] passar turno", err));
   }
-
-  await prisma.combate.update({ where: { id: combateId }, data: { turnoAtual: turno, rodadaAtual: rodada } });
+  await avancarTurnoDoCombate(combateId);
 
   revalidar(mesaId);
   return serializarSessao(await buscarSessaoCompleta(combate.sessaoId));
+}
+
+// Descarta uma ação com alvo que ficou parada (rolagem que ninguém fez). O que
+// já foi gasto e descontado continua como está.
+export async function cancelarResolucao(mesaId: string, combateId: string, resolucaoId: string) {
+  await autorizarNarrador(mesaId);
+
+  const combate = await prisma.combate.findUniqueOrThrow({
+    where: { id: combateId },
+    select: { sessaoId: true, sessao: { select: { mesaId: true } } },
+  });
+  if (combate.sessao.mesaId !== mesaId) throw new Error("Combate não pertence a esta mesa.");
+
+  await mudarResolucoes(combateId, (lista) => {
+    const i = lista.findIndex((r) => r.id === resolucaoId);
+    if (i >= 0) lista.splice(i, 1);
+  });
+  revalidar(mesaId);
+  return serializarSessao(await buscarSessaoCompleta(combate.sessaoId));
+}
+
+// ─── Condições ─────────────────────────────────────────────────────────────
+
+// Mensagem do combate no chat (mesmo remetente das resoluções, que chega a todos).
+function avisar(mesaId: string, nome: string, mensagem: string) {
+  return prisma.mensagem.create({ data: { sessionId: mesaId, uid: "combate", nome, mensagem, tipo: "texto" } });
+}
+
+async function combateDaMesa(mesaId: string, combateId: string) {
+  const combate = await prisma.combate.findUniqueOrThrow({
+    where: { id: combateId },
+    select: {
+      sessaoId: true,
+      turnoAtual: true,
+      sessao: { select: { mesaId: true } },
+      participantes: { select: { id: true, iniciativa: true, ordem: true } },
+    },
+  });
+  if (combate.sessao.mesaId !== mesaId) throw new Error("Combate não pertence a esta mesa.");
+  return combate;
+}
+
+// Narrador põe uma condição num participante. As rodadas contam pela vez de
+// quem está jogando agora ("até o início do próximo turno" dele).
+export async function aplicarCondicao(
+  mesaId: string,
+  combateId: string,
+  instanciaId: string,
+  condicao: { nome: string; rodadas: number },
+) {
+  await autorizarNarrador(mesaId);
+  const combate = await combateDaMesa(mesaId, combateId);
+
+  const nome = String(condicao?.nome ?? "").trim().slice(0, 40);
+  if (!nome) throw new Error("Escolha a condição.");
+  const rodadas = lerRodadas(condicao?.rodadas);
+  const daVez = ordenarParticipantes(combate.participantes)[combate.turnoAtual];
+  const nomes = await aplicarCondicoes({
+    combateId,
+    instanciaIds: [instanciaId],
+    condicoes: [{ nome, rodadas, salvaguarda: null }],
+    fonteId: daVez?.id ?? null,
+    origem: "",
+  });
+  if (nomes.length > 0) await avisar(mesaId, nomes[0], `ficou: ${nome} (${textoRodadas(rodadas)}).`);
+
+  revalidar(mesaId);
+  return serializarSessao(await buscarSessaoCompleta(combate.sessaoId));
+}
+
+export async function removerCondicao(mesaId: string, combateId: string, instanciaId: string, condicaoId: string) {
+  await autorizarNarrador(mesaId);
+  const combate = await combateDaMesa(mesaId, combateId);
+
+  const saiu = await tirarCondicao(combateId, instanciaId, condicaoId);
+  if (saiu) await avisar(mesaId, saiu.nome, `não está mais com ${saiu.condicao.nome}.`);
+
+  revalidar(mesaId);
+  return serializarSessao(await buscarSessaoCompleta(combate.sessaoId));
+}
+
+// Criatura repete a salvaguarda de uma condição pra sair antes: o servidor
+// rola com o bônus do bestiário.
+export async function rolarSaidaDeCondicao(mesaId: string, combateId: string, instanciaId: string, condicaoId: string) {
+  await autorizarNarrador(mesaId);
+  const combate = await combateDaMesa(mesaId, combateId);
+
+  const instancia = await prisma.instanciaCombate.findFirst({
+    where: { id: instanciaId, combateId },
+    select: { nomeExibicao: true, criaturaId: true, condicoesAtivas: true },
+  });
+  const condicao = lerCondicoesAtivas(instancia?.condicoesAtivas).find((c) => c.id === condicaoId);
+  if (!instancia?.criaturaId || !condicao?.salvaguarda) throw new Error("Essa condição não tem salvaguarda pra repetir.");
+  const criatura = await prisma.criatura.findUnique({ where: { id: instancia.criaturaId } });
+  if (!criatura) throw new Error("Criatura não encontrada.");
+
+  const bonus = bonusDeSalvaguardaDaCriatura(criatura, condicao.salvaguarda.atributo);
+  const total = rolarDados([{ faces: 20, sinal: 1 }], bonus).total;
+  const salv = resultadoDaSalvaguarda({ total, natural: total - bonus }, condicao.salvaguarda.cd);
+  if (salv.resultado === "sucesso") await tirarCondicao(combateId, instanciaId, condicaoId);
+  await avisar(
+    mesaId,
+    instancia.nomeExibicao,
+    salv.resultado === "sucesso"
+      ? `${textoDaSalvaguarda(salv)} e não está mais com ${condicao.nome}.`
+      : `${textoDaSalvaguarda(salv)} e continua com ${condicao.nome}.`,
+  );
+
+  revalidar(mesaId);
+  return serializarSessao(await buscarSessaoCompleta(combate.sessaoId));
+}
+
+// Liga ou desliga a privacidade das rolagens do narrador neste combate.
+export async function definirRolagensPrivadas(mesaId: string, combateId: string, privadas: boolean) {
+  await autorizarNarrador(mesaId);
+  await combateDaMesa(mesaId, combateId);
+  await prisma.combate.update({ where: { id: combateId }, data: { rolagensPrivadas: !!privadas } });
+  revalidar(mesaId);
+}
+
+// Usos que restam de uma ação de criatura com usos limitados.
+export async function definirUsosAcao(
+  mesaId: string,
+  combateId: string,
+  instanciaId: string,
+  componenteId: string,
+  restantes: number,
+) {
+  await autorizarNarrador(mesaId);
+  await combateDaMesa(mesaId, combateId);
+
+  const instancia = await prisma.instanciaCombate.findFirst({
+    where: { id: instanciaId, combateId },
+    select: { estadoRecargas: true },
+  });
+  if (!instancia) throw new Error("Criatura não encontrada neste combate.");
+  await prisma.instanciaCombate.update({
+    where: { id: instanciaId },
+    data: {
+      estadoRecargas: {
+        ...lerUsosAcoes(instancia.estadoRecargas),
+        [String(componenteId).slice(0, 60)]: Math.max(0, Math.trunc(Number(restantes) || 0)),
+      },
+    },
+  });
+  revalidar(mesaId);
+}
+
+// Devolve (ou tira) ações do turno de um participante.
+export async function definirAcoesGastas(mesaId: string, combateId: string, instanciaId: string, gastas: AcoesGastas) {
+  await autorizarNarrador(mesaId);
+
+  const combate = await prisma.combate.findUniqueOrThrow({
+    where: { id: combateId },
+    select: { sessao: { select: { mesaId: true } } },
+  });
+  if (combate.sessao.mesaId !== mesaId) throw new Error("Combate não pertence a esta mesa.");
+
+  await prisma.instanciaCombate.updateMany({
+    where: { id: instanciaId, combateId },
+    data: { acoesGastas: lerAcoesGastas(gastas) },
+  });
+  revalidar(mesaId);
 }
 
 export async function encerrarCombate(mesaId: string, combateId: string) {
@@ -449,7 +675,7 @@ export async function encerrarCombate(mesaId: string, combateId: string) {
   };
 
   await prisma.logCombate.create({ data: { sessaoId: combate.sessaoId, resumo } });
-  await prisma.combate.update({ where: { id: combateId }, data: { encerradoEm: new Date() } });
+  await prisma.combate.update({ where: { id: combateId }, data: { encerradoEm: new Date(), resolucoes: [] } });
   await prisma.instanciaCombate.deleteMany({ where: { combateId } });
 
   revalidar(mesaId);

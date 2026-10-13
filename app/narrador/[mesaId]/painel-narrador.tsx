@@ -21,6 +21,8 @@ import { SessaoPainel } from "./sessao/sessao-painel";
 import type { CriaturaParaCombate, EncontroParaCombate, SessaoSerializada } from "./sessao/types";
 import { VisaoGeral } from "./visao-geral";
 import { EditarMesaModal } from "./editar-mesa-modal";
+import { CatalogoCondicoesProvider } from "@/components/tipos-dano/condicoes";
+import type { CondicaoCatalogo } from "@/lib/condicoes";
 
 type Mesa = {
   id: string;
@@ -35,6 +37,8 @@ type Mesa = {
 type Props = {
   mesa: Mesa;
   userId: string;
+  // Condições da Biblioteca do narrador.
+  condicoes: CondicaoCatalogo[];
   mensagensIniciais: MensagemSerializada[];
   calendario: CalendarioCarregado;
   objetivosComPrazo: ObjetivoPrazo[];
@@ -48,6 +52,7 @@ type Aba = "visao" | "sessao" | "calendario";
 export function NarradorShell({
   mesa,
   userId,
+  condicoes,
   mensagensIniciais,
   calendario,
   objetivosComPrazo,
@@ -174,6 +179,7 @@ export function NarradorShell({
             />
           ) : aba === "sessao" ? (
             <section className="narrador-sessao-embed">
+              <CatalogoCondicoesProvider condicoes={condicoes}>
               <SessaoPainel
                 mesaId={mesa.id}
                 tiposDano={mesa.tiposDano}
@@ -190,6 +196,7 @@ export function NarradorShell({
                 }))}
                 encontros={encontros}
               />
+              </CatalogoCondicoesProvider>
             </section>
           ) : (
             <section className="narrador-calendario-embed">
@@ -214,6 +221,7 @@ export function NarradorShell({
         sessionId={mesa.id}
         mensagensIniciais={mensagensIniciais}
         mensagemExternaCriada={mensagemCriada}
+        rolagensPrivadas={combate?.rolagensPrivadas ?? false}
       />
 
       {editandoMesa && (

@@ -12,11 +12,23 @@ import { CrEditavel } from "./cr-editavel";
 import { ExaustaoControle } from "./exaustao-controle";
 import { DescansoControle } from "./descanso-controle";
 import { NivelModal, type CamadaQueAbre } from "./nivel-modal";
+import {
+  EVENTO_CD_TECNICAS,
+  EVENTO_FINALIZAR_TURNO,
+  EVENTO_ROLAR_CONCENTRACAO,
+  type RolarConcentracaoDetail,
+} from "./acoes-do-turno";
 import { VidaModal, type ModoVida } from "./vida-modal";
 import { FaixaVitais } from "./faixa-vitais";
 import { faixaPeDoNivel, pctPeDoNivel } from "@/lib/nivel";
 import { MarcaExausto } from "./marca-exausto";
-import { dispensarRecebida, encerrarConcentracao, passarTurno } from "./actions";
+import {
+  dispensarRecebida,
+  encerrarConcentracao,
+  passarTurno,
+  patchPersonagem,
+  responderConcentracao,
+} from "./actions";
 import { exigir } from "@/lib/acoes";
 import { useRefreshAgrupado } from "@/lib/use-refresh-agrupado";
 import {
@@ -44,6 +56,7 @@ import {
   bonusProficiencia,
   bonusTesteAmplo,
   ATRIBUTOS,
+  cdTecnica,
   comValoresIguais,
   crBase,
   crescerPorTurno,
@@ -98,6 +111,8 @@ type Personagem = {
   crOutros: number;
   concentracao?: unknown;
   tiposDano?: unknown;
+  // Atributo da CD das técnicas (padrão das ações com salvaguarda).
+  atributoCdTecnicas?: string | null;
   recursos: Recurso[];
   itens: Array<{
     id: string;
@@ -496,6 +511,32 @@ export function PerfilSidebar({
     ...atributosEfetivos,
     destreza: atributosEfetivos.destreza + 2 * penalidadeDesArmadura,
   };
+
+  // CD das técnicas: o jogador escolhe o atributo uma vez; as ações com
+  // salvaguarda sem CD própria usam esta.
+  const [atributoCd, setAtributoCd] = useState(p.atributoCdTecnicas ?? "");
+  const [atributoCdDoServidor, setAtributoCdDoServidor] = useState(p.atributoCdTecnicas);
+  if (p.atributoCdTecnicas !== atributoCdDoServidor) {
+    setAtributoCdDoServidor(p.atributoCdTecnicas);
+    setAtributoCd(p.atributoCdTecnicas ?? "");
+  }
+  function mudarAtributoCd(atributo: string) {
+    setAtributoCd(atributo);
+    window.dispatchEvent(new CustomEvent<string>(EVENTO_CD_TECNICAS, { detail: atributo }));
+    startTransition(async () => {
+      try {
+        exigir(await patchPersonagem(p.id, { atributoCdTecnicas: atributo || null }));
+      } catch (err) {
+        void Swal.fire({
+          icon: "error",
+          title: "Erro",
+          text: err instanceof Error ? err.message : "Não deu pra salvar a CD.",
+          background: "var(--bg-card)",
+          color: "var(--text-main)",
+        });
+      }
+    });
+  }
   const subs = efeitosAgregados.substituicoesAtributo;
   const desReduz = penalidadeDesArmadura < 0;
 
@@ -543,7 +584,7 @@ export function PerfilSidebar({
   const penD20 = penalidadeD20Exaustao(exaustaoConta);
 
   // Salvaguarda de CON da concentração, com o que vale só nela.
-  function rolarConcentracao(cd: number) {
+  function rolarConcentracao(cd: number, aoConcluir?: (total: number) => void) {
     const t = resolverTeste({
       tipo: "salvaguarda",
       slug: "constituicao",
@@ -559,6 +600,8 @@ export function PerfilSidebar({
       t.bonus + efeitosAgregados.bonusConcentracao.valor - penD20,
       `Concentração (CD ${cd})`,
       { tipo: "salvaguarda", atributo: "constituicao", concentracao: true },
+      undefined,
+      aoConcluir ? { aoConcluir: (lances) => lances[0] && aoConcluir(lances[0].total) } : undefined,
     );
   }
 
@@ -813,6 +856,31 @@ export function PerfilSidebar({
       }
     });
   }
+
+  // Teste de concentração pedido por um dano do combate: rola aqui (com o bônus
+  // da ficha) e o resultado decide se a concentração continua.
+  useEffect(() => {
+    const ouvir = (e: Event) => {
+      const pedido = (e as CustomEvent<RolarConcentracaoDetail>).detail;
+      if (!pedido) return;
+      rolarConcentracao(pedido.cd, (total) => {
+        void responderConcentracao(p.id, pedido.resolucaoId, total).then((r) => {
+          if (r.ok && !r.manteve) anunciarConcentracao(null);
+        });
+      });
+    };
+    window.addEventListener(EVENTO_ROLAR_CONCENTRACAO, ouvir);
+    return () => window.removeEventListener(EVENTO_ROLAR_CONCENTRACAO, ouvir);
+  });
+
+  // Finalizar turno (combate) também roda o "a cada turno", quando há o que rodar.
+  useEffect(() => {
+    const ouvir = () => {
+      if (temTurno) passarTurnoAgora();
+    };
+    window.addEventListener(EVENTO_FINALIZAR_TURNO, ouvir);
+    return () => window.removeEventListener(EVENTO_FINALIZAR_TURNO, ouvir);
+  });
 
   return (
     <aside className="sidebar">
@@ -1207,6 +1275,32 @@ export function PerfilSidebar({
         >
           <div className="derivado-label">Perc. Pass.</div>
           <div className="derivado-value">{percepcaoPassiva}</div>
+        </div>
+      </div>
+
+      <div className="cd-tecnicas" title="Vale nas ações com salvaguarda que não escolhem uma CD própria">
+        <div className="cd-tecnicas-topo">
+          <span className="derivado-label">CD das técnicas</span>
+          <span className="derivado-value">
+            {atributoCd
+              ? cdTecnica({ nivel: p.nivel, valorAtributoPrim: atributosParaTeste[atributoCd as Atributo] }) +
+                efeitosAgregados.bonusCdTecnicas.valor
+              : "—"}
+          </span>
+        </div>
+        <div className="cd-tecnicas-atributos" role="group" aria-label="Atributo da CD das técnicas">
+          {ATRIBUTOS.map((a) => (
+            <button
+              type="button"
+              key={a.slug}
+              className={`cd-tecnicas-atributo${atributoCd === a.slug ? " ativo" : ""}`}
+              aria-pressed={atributoCd === a.slug}
+              title={a.nome}
+              onClick={() => mudarAtributoCd(atributoCd === a.slug ? "" : a.slug)}
+            >
+              {a.sigla}
+            </button>
+          ))}
         </div>
       </div>
 

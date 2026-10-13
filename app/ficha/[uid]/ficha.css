@@ -5344,6 +5344,299 @@
 }
 
 
+/* ─── CD DAS TÉCNICAS E DANOS A MAIS ────────────────────────── */
+.cd-tecnicas {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+}
+
+.cd-tecnicas-topo {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cd-tecnicas-atributos {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.cd-tecnicas-atributo {
+  min-height: 30px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--sidebar-text-sec, var(--text-sec));
+  font-family: inherit;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.cd-tecnicas-atributo:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.cd-tecnicas-atributo.ativo {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 16%, var(--bg-card));
+  color: var(--primary);
+}
+
+.danos-extras {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.dano-extra {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-surface);
+}
+
+.dano-extra-topo {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.dano-extra-topo > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.dano-extra-tirar {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-sec);
+  cursor: pointer;
+}
+
+.dano-extra-tirar:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* ─── AÇÃO COM ALVO (em combate) ────────────────────────────── */
+.acao-pendente {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in oklch, var(--primary) 45%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--primary) 10%, transparent);
+  font-size: 0.8rem;
+}
+
+.acao-pendente i {
+  color: var(--primary);
+}
+
+/* Chip que o combate está esperando ser rolado. */
+.acao-rolar.esperando {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--primary) 30%, transparent);
+  animation: acao-espera 1.4s ease-in-out infinite;
+}
+
+@keyframes acao-espera {
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in oklch, var(--primary) 10%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acao-rolar.esperando {
+    animation: none;
+  }
+}
+
+.iniciativa-pedido {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 8px 30px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.iniciativa-minhas-condicoes,
+.iniciativa-detalhe-condicoes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.iniciativa-condicoes i {
+  color: var(--color-power);
+  font-size: 0.62rem;
+}
+
+.efeito-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+}
+
+.iniciativa-pedido-botoes {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Janela de reação: pede atenção, o dano está esperando. */
+.iniciativa-pedido.reacao {
+  background: color-mix(in oklch, var(--color-react) 10%, transparent);
+  border-top-color: color-mix(in oklch, var(--color-react) 45%, var(--border));
+}
+
+.iniciativa-pedido.reacao i {
+  color: var(--color-react);
+}
+
+.turno-finalizar.secundario {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-sec);
+}
+
+.iniciativa-pedido i {
+  color: var(--primary);
+}
+
+/* ─── AÇÕES DO TURNO (em combate) ───────────────────────────── */
+.turno-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 18px;
+  margin: 12px 0 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+
+.turno-acoes.na-vez {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary) inset;
+}
+
+.turno-acoes-lista {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+}
+
+.turno-acao {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-sec);
+}
+
+.turno-bolinhas {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.turno-bolinha {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--acao-cor);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--acao-cor) 28%, transparent);
+  transition: background 0.2s, box-shadow 0.2s;
+}
+
+.turno-bolinha.gasta {
+  background: var(--border);
+  box-shadow: none;
+}
+
+.turno-espera {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--text-sec);
+}
+
+.turno-finalizar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 16px;
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+
+.turno-finalizar:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.turno-finalizar:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.turno-finalizar.compacto {
+  flex-shrink: 0;
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 0.78rem;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* ─── INICIATIVA DO COMBATE (faixa do jogador) ──────────────── */
 .iniciativa-faixa {
   --iniciativa-altura: 60px;
@@ -5645,6 +5938,11 @@ body:has(.iniciativa-faixa) .faixa-vitais {
     display: none;
   }
 
+  .turno-finalizar.compacto {
+    padding: 0 10px;
+    font-size: 0.72rem;
+  }
+
   .iniciativa-resumo {
     flex: 1;
     min-width: 0;
@@ -5849,6 +6147,31 @@ body:has(.iniciativa-faixa) .faixa-vitais {
   border-color: var(--primary);
   background: color-mix(in oklch, var(--primary) 16%, transparent);
   color: var(--text-main);
+}
+
+/* Chip com a cara escolhida na Biblioteca (tipo de dano): a cor vem do
+   estilo; o marcado ganha um contorno e os outros ficam um pouco apagados. */
+.sugestao.chip-opcao.fx-chip,
+.sugestao.chip-opcao.fx-chip.ativo,
+.sugestao.chip-opcao.fx-chip:hover {
+  border-color: color-mix(in oklch, var(--fx-cor) 40%, transparent);
+  background: color-mix(in oklch, var(--fx-cor) 14%, transparent);
+  color: var(--fx-txt);
+}
+
+.sugestao.chip-opcao.fx-chip {
+  opacity: 0.72;
+}
+
+.sugestao.chip-opcao.fx-chip:hover,
+.sugestao.chip-opcao.fx-chip.ativo {
+  opacity: 1;
+}
+
+.sugestao.chip-opcao.fx-chip.ativo {
+  outline: 2px solid var(--fx-cor);
+  outline-offset: 1px;
+  font-weight: 700;
 }
 
 .modal-box .chips-campo > input {

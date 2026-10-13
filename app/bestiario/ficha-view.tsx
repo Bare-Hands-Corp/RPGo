@@ -17,6 +17,9 @@ const D6: Dado = { faces: 6, sinal: 1 };
 export type UsosContexto = {
   usosAcoes: Record<string, number>;
   onDefinir: (componenteId: string, novoValor: number) => void;
+  // Usar a ação no combate: escolhe alvo, gasta usos, PP e a ação do turno e
+  // segue pras rolagens de acerto e dano. Ausente = só os chips de rolagem livre.
+  onUsarAcao?: (item: ComponentePayload) => void;
   // Revelação pros jogadores: as ações que eles já veem na prévia da ficha,
   // o aviso de que uma ação foi usada (rolada) e o botão de revelar/esconder.
   revelacao?: {
@@ -545,6 +548,16 @@ export function FichaCriaturaView({ criatura: c, onEditar, onFechar, permitirRol
                     <div className="bestiario-acao-topo">
                       <div className="bestiario-acao-titulo">{item.nome || "(sem nome)"}</div>
                       {item.usos !== null && <ControleUsos item={item} usosContexto={usosContexto} />}
+                      {usosContexto?.onUsarAcao && key !== "aspecto" && key !== "condicao" && (
+                        <button
+                          type="button"
+                          className="bestiario-acao-usar"
+                          title="Escolher o alvo e rolar"
+                          onClick={() => usosContexto.onUsarAcao?.(item)}
+                        >
+                          <i className="fas fa-play" /> Usar
+                        </button>
+                      )}
                       {revelacao && (
                         <button
                           type="button"

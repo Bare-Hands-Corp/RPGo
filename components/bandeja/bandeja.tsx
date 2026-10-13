@@ -25,6 +25,8 @@ type Props = {
   // Efeitos contextuais do personagem — o Rolador casa com o contexto da
   // rolagem empilhada pra sugerir chips (vantagem, crit expandido…).
   efeitosContexto?: EfeitosContexto;
+  // Narrador com o combate em rolagem privada: o chat não recebe os números.
+  rolagensPrivadas?: boolean;
 };
 
 type Aba = "rolador" | "chat";
@@ -44,6 +46,7 @@ export function Bandeja({
   mensagemExternaCriada,
   mensagensIniciais,
   efeitosContexto,
+  rolagensPrivadas = false,
 }: Props) {
   const bandejaRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
@@ -289,6 +292,7 @@ export function Bandeja({
             sessionId={sessionId}
             onMensagemCriada={onMensagemCriadaLocal}
             efeitosContexto={efeitosContexto}
+            privado={rolagensPrivadas}
           />
         </div>
 

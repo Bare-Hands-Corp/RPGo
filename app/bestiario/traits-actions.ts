@@ -6,7 +6,7 @@ import { usuarioDaRequest } from "@/lib/supabase/server";
 import type { TemplatePayload } from "./types";
 import { serializarTemplate } from "./utils";
 import { CATALOGO_PADRAO } from "@/lib/tipos-dano";
-import { CATEGORIA_TIPO_DANO } from "@/lib/tipos-dano-servidor";
+import { CATEGORIA_TIPO_DANO, renomearTipoDano } from "@/lib/tipos-dano-servidor";
 
 async function autorizarNarrador() {
   const user = await usuarioDaRequest();
@@ -80,7 +80,10 @@ export async function atualizarTemplate(templateId: string, payload: TemplatePay
   const user = await autorizarNarrador();
   validarTemplate(payload);
 
-  const existente = await prisma.traitTemplate.findUnique({ where: { id: templateId }, select: { userId: true } });
+  const existente = await prisma.traitTemplate.findUnique({
+    where: { id: templateId },
+    select: { userId: true, nome: true, categoria: true },
+  });
   if (!existente) throw new Error("Trait não encontrado.");
   if (existente.userId !== user.id) throw new Error("Apenas o dono pode editar este trait.");
 
@@ -88,6 +91,14 @@ export async function atualizarTemplate(templateId: string, payload: TemplatePay
     where: { id: templateId },
     data: normalizarPayload(payload),
   });
+  // Tipo de dano renomeado: o nome novo vai pra tudo que citava o antigo.
+  if (
+    existente.categoria === CATEGORIA_TIPO_DANO &&
+    template.categoria === CATEGORIA_TIPO_DANO &&
+    existente.nome.trim() !== template.nome
+  ) {
+    await renomearTipoDano(user.id, existente.nome, template.nome);
+  }
 
   revalidar();
   return serializarTemplate(template);
