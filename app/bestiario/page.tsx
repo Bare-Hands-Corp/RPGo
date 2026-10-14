@@ -3,8 +3,14 @@ import { prisma } from "@/lib/prisma";
 import { usuarioDaRequest } from "@/lib/supabase/server";
 import { ThemeButton } from "@/components/temas/theme-button";
 import { BotaoVoltar } from "@/components/botao-voltar";
+import { CatalogoTiposProvider } from "@/components/tipos-dano/tipos-dano";
+import { CatalogoCondicoesProvider } from "@/components/tipos-dano/condicoes";
+import { catalogoCondicoesDoNarrador } from "@/lib/combate-servidor";
+import { catalogoTiposDoNarrador } from "@/lib/tipos-dano-servidor";
 import { BestiarioManager } from "./bestiario-manager";
 import { serializarCriatura, serializarTemplate } from "./utils";
+// O editor de efeitos de ficha (os mesmos do jogador) usa os estilos de lá.
+import "@/app/ficha/[uid]/ficha.css";
 import "./bestiario.css";
 
 export default async function BestiarioPage() {
@@ -27,6 +33,12 @@ export default async function BestiarioPage() {
     }),
   ]);
 
+  // Tipos de dano do narrador (Biblioteca), com cor e ícone, pros campos de tipo.
+  const [catalogoTipos, catalogoCondicoes] = await Promise.all([
+    catalogoTiposDoNarrador(user.id),
+    catalogoCondicoesDoNarrador(user.id),
+  ]);
+
   return (
     <div className="bestiario-page-wrapper">
       <div className="bestiario-page-topbar">
@@ -44,11 +56,15 @@ export default async function BestiarioPage() {
         <ThemeButton />
       </div>
 
-      <BestiarioManager
-        criaturasIniciais={criaturas.map(serializarCriatura)}
-        templates={templates.map(serializarTemplate)}
-        linhagens={linhagens.map((l) => l.nome)}
-      />
+      <CatalogoTiposProvider tipos={catalogoTipos}>
+        <CatalogoCondicoesProvider condicoes={catalogoCondicoes}>
+          <BestiarioManager
+            criaturasIniciais={criaturas.map(serializarCriatura)}
+            templates={templates.map(serializarTemplate)}
+            linhagens={linhagens.map((l) => l.nome)}
+          />
+        </CatalogoCondicoesProvider>
+      </CatalogoTiposProvider>
     </div>
   );
 }

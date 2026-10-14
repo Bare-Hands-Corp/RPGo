@@ -460,6 +460,10 @@ function CardAtalhos({ onPedirTeste }: { onPedirTeste: () => void }) {
           <i className="fas fa-people-group" />
           <span>Encontros</span>
         </Link>
+        <Link href="/biblioteca">
+          <i className="fas fa-book" />
+          <span>Biblioteca</span>
+        </Link>
       </div>
     </section>
   );

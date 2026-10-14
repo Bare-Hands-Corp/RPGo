@@ -5,6 +5,7 @@
 import { faixaDaRolagem, parseFormulaDados, type Dado } from "./dice";
 import { avaliarFormula, formulaUsaGrau, formulaVariavel } from "./formula";
 import { cobre, lerCobertura } from "./dano";
+import { duraAlemDoUso, duracaoPvTempNoBanco, lerDuracaoPvTemp, type DuracaoPvTemp } from "./duracao";
 
 export function modificador(valor: number): number {
   return Math.floor((valor - 10) / 2);
@@ -954,17 +955,29 @@ export type GatilhoExplosao = "maximo" | "valor" | "total" | "critico";
 // O que faz o bônus progressivo subir sozinho; sem isso, só na mão.
 export type GatilhoProgressivo = "turno" | "rolagem";
 
-export type EfeitoHabilidade =
+// Em ação com duração, o que o efeito faz depois do uso. Efeito na hora (cura,
+// PV temporário, recurso): "turno" acontece no uso e repete a cada turno. Os
+// outros: "mantem" fica valendo na ficha até a ação acabar. Ausente = como
+// sempre (na hora, ou só nas rolagens da ação).
+export type DuraEfeito = "turno" | "mantem";
+
+export type EfeitoHabilidade = EfeitoBase & { dura?: DuraEfeito };
+
+type EfeitoBase =
   // `formula` (ex: "PROF/2+1", "3*NIVEL") vale no lugar de `valor` quando existe.
-  | { tipo: "modificador"; alvo: string; valor: number; formula?: string; quando?: string }
+  // `duracaoPv`: em PV temporário, até quando ele dura (ausente = até acabar).
+  | { tipo: "modificador"; alvo: string; valor: number; formula?: string; quando?: string; duracaoPv?: DuracaoPvTemp }
   | { tipo: "vantagem"; alvo: string; quando?: string }
   | { tipo: "desvantagem"; alvo: string; quando?: string }
   | { tipo: "proficiencia"; alvo: string; dobrada?: boolean }
   | { tipo: "recurso_delta"; recurso: string; valor: number }
-  | { tipo: "cura"; valor: string; alvoCura?: string }
+  | { tipo: "cura"; valor: string; alvoCura?: string; duracaoPv?: DuracaoPvTemp }
   | { tipo: "condicao_imune"; condicao: string }
   | { tipo: "condicao_remover"; condicao: string }
-  | { tipo: "condicao_aplicar"; condicao: string; cd?: number; duracao?: string }
+  // `rodadas`: quanto dura no combate (1, 3 ou 10 = um minuto; ausente = 1).
+  // `repete`: o afetado pode repetir a salvaguarda pra sair antes. `duracao`
+  // é o texto livre de antes das rodadas, só descritivo.
+  | { tipo: "condicao_aplicar"; condicao: string; cd?: number; duracao?: string; rodadas?: number; repete?: boolean }
   | { tipo: "resistencia"; tipoDano: string }
   | { tipo: "imunidade"; tipoDano: string }
   // Recebe o dobro do tipo de dano (depois da resistência).
@@ -1659,9 +1672,27 @@ export function lerEfeitos(raw: unknown): EfeitoHabilidade[] {
     const t = obj.tipo;
     if (typeof t !== "string") continue;
     const e = normalizarEfeito(t as TipoEfeito, obj);
-    if (e) out.push(e);
+    if (e) out.push(comDura(e, obj.dura));
   }
   return out;
+}
+
+// Como o efeito pode durar numa ação: repetir a cada turno, ficar valendo ou nada.
+export function comoDura(e: EfeitoHabilidade): "repete" | "mantem" | null {
+  if (efeitoInstantaneo(e)) return "repete";
+  return e.tipo !== "por_turno" && efeitoEhSustentado(e) ? "mantem" : null;
+}
+
+// O `dura` dos efeitos só vale em ação que dura mais que o uso e age em quem usa.
+export function efeitosDuram(acao: { duracao?: unknown; aliado?: boolean }): boolean {
+  return !acao.aliado && duraAlemDoUso(acao.duracao);
+}
+
+// Põe o `dura` lido do form/banco, só o que cabe no efeito.
+export function comDura(e: EfeitoHabilidade, raw: unknown): EfeitoHabilidade {
+  const como = comoDura(e);
+  const cabe = como === "repete" ? raw === "turno" : como === "mantem" && raw === "mantem";
+  return cabe ? { ...e, dura: raw as DuraEfeito } : e;
 }
 
 // Graus de técnica (1º–7º), sem repetir e em ordem.
@@ -1677,6 +1708,14 @@ function lerFiltroDano(obj: Record<string, unknown>): FiltroDano {
   const graus = lerGraus(obj.graus);
   const tipos = typeof obj.tipos === "string" ? obj.tipos.trim().slice(0, 80) : "";
   return { ...(graus.length ? { graus } : {}), ...(tipos ? { tipos } : {}) };
+}
+
+// Duração do PV temporário, só em efeito que dá PV temporário e só fora do padrão.
+function duracaoPvDe(alvo: string, raw: unknown): { duracaoPv?: DuracaoPvTemp } {
+  const a = alvo.trim().toLowerCase();
+  if (a !== "hp-temp" && a !== "hptemp") return {};
+  const d = lerDuracaoPvTemp(raw);
+  return d === "acabar" ? {} : { duracaoPv: d };
 }
 
 // Normaliza um único efeito vindo do form/banco. Retorna null se for inválido.
@@ -1701,6 +1740,7 @@ export function normalizarEfeito(
         valor: Math.trunc(numerica ? Number(formula) : num(obj.valor)),
         ...(formula && !numerica ? { formula } : {}),
         ...(str(obj.quando) ? { quando: str(obj.quando) } : {}),
+        ...duracaoPvDe(str(obj.alvo), obj.duracaoPv),
       };
     }
     case "vantagem":
@@ -1737,6 +1777,7 @@ export function normalizarEfeito(
         tipo,
         valor: str(obj.valor),
         ...(str(obj.alvoCura) ? { alvoCura: str(obj.alvoCura) } : {}),
+        ...duracaoPvDe(alvoDaCura({ alvoCura: str(obj.alvoCura) }), obj.duracaoPv),
       };
     case "condicao_imune":
     case "condicao_remover":
@@ -1747,6 +1788,9 @@ export function normalizarEfeito(
       const e: EfeitoHabilidade = { tipo, condicao: str(obj.condicao) };
       if (typeof obj.cd === "number" && Number.isFinite(obj.cd)) e.cd = Math.trunc(obj.cd);
       if (str(obj.duracao)) e.duracao = str(obj.duracao);
+      const rodadas = Math.trunc(num(obj.rodadas));
+      if (rodadas > 0) e.rodadas = Math.min(100, rodadas);
+      if (obj.repete === true) e.repete = true;
       return e;
     }
     case "resistencia":
@@ -2541,8 +2585,13 @@ export type PorTurno = {
   tipoDano?: string;
   fonte: string;
   habilidadeId?: string;
-  // Técnica em concentração que traz o efeito.
+  // Ação que traz o efeito: técnica em concentração ou, com `emCurso`, ação em curso.
   acaoId?: string;
+  emCurso?: boolean;
+  // Efeito na hora que repete: já aconteceu no uso, que conta como um turno.
+  noUso?: boolean;
+  // Grau da técnica, pro GRAU da fórmula.
+  grau?: number;
 };
 
 // Efeito de dano só em certos graus de técnica ou tipos de dano.
@@ -2653,6 +2702,8 @@ export type EfeitosAgregados = {
   extrasDano: ExtraDano[];
   // O que acontece a cada turno; `habilidadeId` = ligada que desliga se o gasto zerar.
   porTurno: PorTurno[];
+  // Ações a mais por turno ("Ação Extra" sem condição), por tipo de ação.
+  acoesExtras: Partial<Record<"padrao" | "bonus" | "react", FonteValor>>;
   // Valor igual a outro (ou à metade dele): CR, deslocamentos e atributos.
   valoresIguais: ValorIgual[];
   // Multiataque por alvo de ataque: vale o maior total, mais os ataques a mais.
@@ -2766,6 +2817,7 @@ function vazio(): EfeitosAgregados {
     },
     extrasDano: [],
     porTurno: [],
+    acoesExtras: {},
     valoresIguais: [],
     multiAtaques: [],
     explosoes: [],
@@ -2840,6 +2892,8 @@ function aplicarDefesa(
 export type DeltasInstantaneos = {
   hpAtual: number;
   hpTemp: number;
+  // Até quando dura o `hpTemp` concedido, como vai pro banco (null = até acabar).
+  hpTempDuracao?: string | null;
   ppAtual: number;
   hpMax: number;
   ppMax: number;
@@ -2937,6 +2991,12 @@ export function computarDeltasInstantaneos(
     exaustao: 0,
     recursos: {},
   };
+  // Vale a maior concessão, com a duração dela.
+  const darTemp = (v: number, duracao?: DuracaoPvTemp) => {
+    if (v <= d.hpTemp) return;
+    d.hpTemp = v;
+    d.hpTempDuracao = duracaoPvTempNoBanco(duracao ?? "acabar");
+  };
   // Slugs canônicos de pool: hp (PV atual), hp-temp, hp-max, pp (PP atual),
   // pp-max. Aliases antigos (pv, ppv, pv-temp, hpMax, hptemp…) são tolerados
   // aqui pra não quebrar habilidades já salvas no banco.
@@ -2948,12 +3008,12 @@ export function computarDeltasInstantaneos(
       const v = Math.trunc(n);
       const onde = alvoDaCura(e);
       if (onde === "pp") d.ppAtual += v;
-      else if (onde === "hp-temp") d.hpTemp = Math.max(d.hpTemp, v);
+      else if (onde === "hp-temp") darTemp(v, e.duracaoPv);
       else d.hpAtual += v;
     } else if (e.tipo === "modificador") {
       const alvo = e.alvo.trim().toLowerCase();
       const v = Math.trunc(valorDe(e));
-      if (alvo === "hp-temp" || alvo === "hptemp") d.hpTemp = Math.max(d.hpTemp, v);
+      if (alvo === "hp-temp" || alvo === "hptemp") darTemp(v, e.duracaoPv);
       else if (incluirMax && (alvo === "hp-max" || alvo === "hpmax")) d.hpMax += v;
       else if (incluirMax && (alvo === "pp-max" || alvo === "ppmax")) d.ppMax += v;
     } else if (e.tipo === "recurso_delta") {
@@ -3754,6 +3814,17 @@ export function agregarEfeitos(
           d.dv += e.dv;
           if (!d.fontes.includes(h.nome)) d.fontes.push(h.nome);
         }
+      } else if (e.tipo === "acao_extra") {
+        // Com condição ("1× por descanso") fica descritivo: não vira ação de todo turno.
+        const tipoAcao = ({ acao: "padrao", "acao bônus": "bonus", reacao: "react" } as const)[
+          e.acao as "acao" | "acao bônus" | "reacao"
+        ];
+        if (tipoAcao && !e.gatilho) {
+          const atual = out.acoesExtras[tipoAcao] ?? { valor: 0, fontes: [] };
+          atual.valor += e.quantidade;
+          if (!atual.fontes.includes(h.nome)) atual.fontes.push(h.nome);
+          out.acoesExtras[tipoAcao] = atual;
+        }
       } else if (e.tipo === "por_turno") {
         out.porTurno.push({
           o: e.o,
@@ -3882,9 +3953,13 @@ export function agregarEfeitos(
 // efeitos próprios dela, resolvendo GRAU pelo grau da técnica.
 export function efeitosDaTecnica(
   base: EfeitosAgregados,
-  acao: { nome: string; efeitos: unknown; grau: number },
+  acao: { nome: string; efeitos: unknown; grau: number; duracao?: unknown; aliado?: boolean },
 ): EfeitosAgregados {
-  const proprios = lerEfeitos(acao.efeitos).filter((e) => !efeitoInstantaneo(e));
+  // O que fica valendo na ficha entra por lá (ação em curso), não na rolagem dela.
+  const dura = efeitosDuram(acao);
+  const proprios = lerEfeitos(acao.efeitos).filter(
+    (e) => !efeitoInstantaneo(e) && !(dura && e.dura === "mantem"),
+  );
   if (proprios.length === 0) return base;
   return agregarEfeitos([{ nome: acao.nome, tipo: "passiva", efeitos: proprios }], new Set(), base, {
     grau: acao.grau,
@@ -4624,7 +4699,10 @@ export function resumoEfeito(
     case "condicao_remover":
       return e.condicao;
     case "condicao_aplicar":
-      return e.cd ? `${e.condicao} (CD ${e.cd})` : e.condicao;
+      return (
+        (e.cd ? `${e.condicao} (CD ${e.cd})` : e.condicao) +
+        ` · ${e.rodadas === 10 ? "1 minuto" : `${e.rodadas ?? 1} rodada${(e.rodadas ?? 1) === 1 ? "" : "s"}`}`
+      );
     case "resistencia":
     case "imunidade":
     case "vulnerabilidade":

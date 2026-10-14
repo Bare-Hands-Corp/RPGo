@@ -934,7 +934,7 @@ button.narrador-miniatura:focus-visible .narrador-miniatura-editar {
 
 .nv-atalhos {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -1381,100 +1381,642 @@ button.narrador-miniatura:focus-visible .narrador-miniatura-editar {
   gap: 16px;
 }
 
-.sessao-vazio {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 24px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  color: var(--text-sec);
+/* Botões do painel: mesma altura em todo lugar, nunca esticados. */
+.sessao-painel .nv-btn {
+  align-self: center;
+  padding: 0 14px;
+  white-space: nowrap;
 }
 
-.sessao-topo-acoes {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
+.nv-btn.primario {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.nv-btn.primario:hover:not(:disabled) {
+  color: var(--on-primary);
+  filter: brightness(1.1);
+}
+
+.nv-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.sessao-painel .nv-titulo .nv-status {
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.sessao-painel .nv-vazio .nv-btn {
+  margin-top: 8px;
 }
 
 .sessao-topo-botoes {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Retrato: redondo pra jogador, quadrado pra criatura (igual à faixa do jogador). */
+.sessao-retrato {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-sec);
+  font-size: 0.8rem;
+}
+
+.sessao-retrato.criatura {
+  border-radius: 9px;
+}
+
+.sessao-retrato img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.sessao-icone-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-sec);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.sessao-icone-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* ─── Iniciativa + ficha de combate lado a lado ─── */
+.sessao-combate-corpo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.sessao-combate-corpo.com-ficha {
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 440px);
+}
+
+.sessao-linha-iniciativa.selecionada {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+/* Com a ficha aberta a lista estreita: a linha vira a versão compacta. */
+.sessao-combate-corpo.com-ficha .sessao-linha-iniciativa.cabecalho {
+  display: none;
+}
+
+.sessao-combate-corpo.com-ficha .sessao-linha-iniciativa {
+  grid-template-columns: 20px 32px 34px minmax(0, 1fr) 32px 32px;
+  row-gap: 8px;
+}
+
+/* Linha e coluna fixas: só com a linha, a grade encaixa o botão antes dos
+   itens automáticos, na coluna 1, e empurra o resto da linha. */
+.sessao-combate-corpo.com-ficha .sessao-linha-iniciativa > .sessao-icone-btn {
+  grid-row: 1;
+  grid-column: 5;
+}
+
+.sessao-combate-corpo.com-ficha .sessao-linha-iniciativa > .sessao-icone-btn:last-child {
+  grid-column: 6;
+}
+
+.sessao-combate-corpo.com-ficha .sessao-linha-iniciativa > .sessao-olhos {
+  grid-column: 1 / -1;
+}
+
+.sessao-combate-corpo.com-ficha .sessao-linha-iniciativa > .sessao-vital {
+  grid-column: span 3;
+}
+
+.sessao-combate-corpo.com-ficha .sessao-linha-iniciativa > span:empty {
+  display: none;
+}
+
+/* ─── Ficha de combate da criatura ─── */
+.fc {
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-surface);
+}
+
+.fc.na-vez {
+  border-color: var(--primary);
+}
+
+.fc-topo {
+  display: flex;
+  align-items: center;
   gap: 10px;
 }
 
-.sessao-status {
+.fc-retrato {
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-card);
+  color: var(--text-sec);
+}
+
+.fc-retrato img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.fc-identidade {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fc-identidade h3 {
+  margin: 0;
+  overflow: hidden;
+  font-size: 1.05rem;
+  color: var(--text-main);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-identidade span {
+  font-size: 0.75rem;
+  color: var(--text-sec);
+}
+
+.fc-nav {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.fc-vitais {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 14px;
+}
+
+.fc-vital {
+  flex: 1 1 110px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fc-vitais .nv-btn {
+  align-self: flex-end;
+  padding: 0 12px;
+}
+
+.fc-trilho {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.fc-trilho > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--danger);
+  transition: width 0.25s;
+}
+
+.fc-trilho.pp > span {
+  background: var(--color-padrao);
+}
+
+.fc-numeros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 0.82rem;
+  color: var(--text-sec);
+}
+
+.fc-numeros strong {
+  color: var(--text-main);
+}
+
+.fc-estado {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.fc-estado .sessao-acoes {
+  margin-left: 0;
+}
+
+.fc-estado .sessao-acoes button {
+  width: 16px;
+  height: 16px;
+}
+
+.fc-estado .sessao-condicoes {
+  margin-top: 0;
+}
+
+.fc-loot {
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+}
+
+.fc-loot p {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+}
+
+.fc-bloco {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fc-bloco h4 {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--text-main);
-  font-weight: 600;
+  margin: 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid color-mix(in oklch, var(--acao-cor, var(--border)) 45%, var(--border));
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-sec);
 }
 
-.sessao-sem-combate,
-.sessao-combate {
+.fc-bloco h4 i {
+  color: var(--acao-cor, var(--accent));
+}
+
+.fc-acao {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--acao-cor, var(--border));
+  border-radius: 10px;
+  background: var(--bg-card);
 }
 
+.fc-acao.indisponivel > :not(.fc-acao-rodape) {
+  opacity: 0.55;
+}
+
+.fc-acao-topo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.fc-acao-topo strong {
+  margin-right: auto;
+  color: var(--text-main);
+}
+
+.fc-selo {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-sec);
+}
+
+.fc-selo-botao,
+.fc-olho {
+  padding: 2px 4px;
+  border: 0;
+  background: none;
+  color: var(--text-sec);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.fc-selo-botao:hover,
+.fc-olho:hover,
+.fc-olho.ativo {
+  color: var(--primary);
+}
+
+.fc-resumo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 0.78rem;
+  color: var(--text-sec);
+}
+
+.fc-descricao {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.fc-acao-rodape {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.fc-trava {
+  margin-right: auto;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-sec);
+}
+
+.fc-acao-rodape .nv-btn {
+  align-self: center;
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 0.8rem;
+}
+
+.fc-solto {
+  position: relative;
+  font-size: 0.75rem;
+  color: var(--text-sec);
+}
+
+.fc-solto summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.fc-solto summary::-webkit-details-marker {
+  display: none;
+}
+
+.fc-solto summary:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+.fc-solto[open] > div {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.fc-solto[open] .nv-btn {
+  justify-content: flex-start;
+  white-space: nowrap;
+}
+
+.fc-completa > summary {
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-sec);
+}
+
+.fc-atributos {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.fc-atributos button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  font: inherit;
+  cursor: pointer;
+}
+
+.fc-atributos button:hover {
+  border-color: var(--primary);
+}
+
+.fc-atributos span,
+.fc-atributos small {
+  font-size: 0.65rem;
+  color: var(--text-sec);
+}
+
+.fc-texto {
+  margin-top: 10px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.fc-texto p {
+  margin: 0 0 6px;
+}
+
+.fc-teste {
+  margin: 0 6px 4px 0;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.fc-teste:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* Tela estreita: a ficha sobe de baixo, por cima da lista. */
+@media (max-width: 1000px) {
+  .sessao-combate-corpo.com-ficha {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fc {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 60;
+    max-height: 82vh;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* Alça de arrastar a linha. */
+.sessao-alca {
+  width: 20px;
+  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-sec);
+  font-size: 0.8rem;
+  opacity: 0.55;
+  cursor: grab;
+  touch-action: none;
+}
+
+.sessao-alca:hover,
+.sessao-alca:focus-visible {
+  opacity: 1;
+  color: var(--primary);
+}
+
+.sessao-alca:active {
+  cursor: grabbing;
+}
+
+.sessao-linha-iniciativa.arrastando,
+.sessao-preparo-linha.arrastando {
+  border-style: dashed;
+  border-color: var(--primary);
+  opacity: 0.75;
+}
+
+/* ─── Iniciativa em andamento ─── */
 .sessao-iniciativa-lista {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
+/* Cabeçalho e linhas dividem a mesma grade, então as colunas alinham. */
 .sessao-linha-iniciativa {
   display: grid;
-  grid-template-columns: 44px 1fr 90px auto 32px;
+  grid-template-columns: 20px 40px 34px minmax(0, 1fr) 124px 108px 96px 32px 32px;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: var(--bg-card);
+  background: var(--bg-surface);
+}
+
+.sessao-linha-iniciativa.cabecalho {
+  padding-block: 0;
+  border-color: transparent;
+  background: none;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-sec);
 }
 
 .sessao-linha-iniciativa.ativo {
   border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 8%, var(--bg-surface));
   box-shadow: 0 0 0 1px var(--primary) inset;
 }
 
 .sessao-iniciativa-valor {
+  font-size: 1.05rem;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   text-align: center;
-  color: var(--text-sec);
+  color: var(--text-main);
 }
 
-.sessao-iniciativa-nome {
+.sessao-iniciativa-nome,
+.sessao-preparo-nome {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
   color: var(--text-main);
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.sessao-iniciativa-nome em {
+.sessao-iniciativa-nome small,
+.sessao-preparo-nome small {
+  font-size: 0.7rem;
   font-weight: 400;
   color: var(--text-sec);
-  font-style: normal;
-  font-size: 0.78rem;
 }
 
 .sessao-nome-link {
-  border: none !important;
-  background: transparent !important;
-  padding: 0 !important;
-  color: var(--text-main) !important;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-main);
+  font: inherit;
   font-weight: 600;
-  font-size: inherit;
-  font-family: inherit;
-  cursor: pointer;
   text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
 }
 
 .sessao-nome-link:hover {
-  color: var(--primary) !important;
+  color: var(--primary);
   text-decoration: underline;
 }
 
@@ -1490,17 +2032,27 @@ button.narrador-miniatura:focus-visible .narrador-miniatura-editar {
   overflow-y: auto;
 }
 
+/* Valor editável + máximo (PV ou PP). */
+.sessao-vital {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .sessao-iniciativa-pv {
+  width: 56px;
+  height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 70px;
-  padding: 6px 8px;
-  border-radius: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
   border: 1px solid var(--border);
-  background: var(--bg-surface);
+  background: var(--bg-card);
   color: var(--text-main);
+  font: inherit;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   text-align: center;
   cursor: pointer;
 }
@@ -1509,87 +2061,1421 @@ input.sessao-iniciativa-pv {
   cursor: text;
 }
 
+.sessao-iniciativa-pp {
+  width: 48px;
+  border-color: color-mix(in oklch, var(--color-padrao) 45%, var(--border));
+}
+
 .sessao-iniciativa-pvmax {
   color: var(--text-sec);
   font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-.sessao-linha-iniciativa button {
-  border: 1px solid var(--border);
+/* PV temporário da criatura, ao lado do PV. */
+.sessao-pv-temp {
+  padding: 0 4px;
+  border: 0;
   background: transparent;
-  color: var(--text-sec);
-  border-radius: 6px;
+  color: var(--bar-hp-temp);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
 
+/* Escolha da reação de uma criatura (dentro do alerta). */
+.sessao-reacao-campo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+.sessao-reacao-campo .swal2-select,
+.sessao-reacao-campo .swal2-input {
+  width: 100%;
+  margin: 0;
+}
+
+.sessao-reacao-dica {
+  margin: 12px 0 0;
+  color: var(--text-sec);
+  font-size: 0.8rem;
+  text-align: left;
+}
+
+/* O que os jogadores veem de uma criatura: PV, PP, CR e prévia da ficha. */
+.sessao-olhos {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.sessao-olhos button {
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-sec);
+  font-size: 0.72rem;
+  opacity: 0.55;
+  cursor: pointer;
+}
+
+.sessao-olhos button:hover {
+  opacity: 1;
+  border-color: var(--primary);
+}
+
+.sessao-olhos button.ativo {
+  opacity: 1;
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 14%, transparent);
+  color: var(--primary);
+}
+
+/* Condições de um participante, embaixo do nome. */
+.sessao-condicoes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-top: 4px;
+}
+
+.sessao-condicao-mais {
+  padding: 1px 8px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-sec);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sessao-condicao-mais:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.condicao-modal {
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.condicao-modal-lista {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.condicao-opcao {
+  padding: 4px 10px;
+  border-width: 1px;
+  border-style: solid;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  opacity: 0.75;
+  cursor: pointer;
+}
+
+.condicao-opcao:hover,
+.condicao-opcao.ativo {
+  opacity: 1;
+}
+
+.condicao-opcao.ativo {
+  outline: 2px solid var(--fx-cor);
+  outline-offset: 1px;
+}
+
+.condicao-modal-duracoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.condicao-modal-duracoes .nv-btn {
+  align-self: auto;
+  padding: 0 14px;
+}
+
+.nv-btn.ativo {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 14%, var(--bg-surface));
+  color: var(--primary);
+}
+
+/* Ações com alvo que ainda esperam rolagem. */
+.sessao-pendencias {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sessao-pendencia {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 6px 6px 12px;
+  border: 1px solid color-mix(in oklch, var(--primary) 35%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in oklch, var(--primary) 7%, transparent);
+  font-size: 0.85rem;
+}
+
+/* Ações do turno de um jogador (mesmas cores da ficha). */
+.sessao-acoes {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.sessao-acoes button {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 2px solid var(--acao-cor);
+  border-radius: 50%;
+  background: var(--acao-cor);
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+
+.sessao-acoes button:hover {
+  transform: scale(1.2);
+}
+
+.sessao-acoes button.gasta {
+  border-color: var(--border);
+  background: var(--border);
+}
+
+.sessao-revelar-todas {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.sessao-painel .sessao-reforco {
+  align-self: flex-start;
+  border-style: dashed;
+  background: transparent;
+}
+
+/* ─── Preparar combate ─── */
 .sessao-builder {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   padding: 14px;
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: 12px;
 }
 
-.sessao-builder-atalhos {
+.sessao-fontes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.sessao-fonte {
+  min-width: 0;
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+
+.sessao-fonte-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sessao-chip-jogador {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px 0 3px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.sessao-chip-jogador .sessao-retrato {
+  width: 28px;
+  height: 28px;
+}
+
+.sessao-chip-jogador.todos {
+  padding-left: 12px;
+  border-style: dashed;
+  color: var(--primary);
+}
+
+.sessao-chip-jogador:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.sessao-fonte-linha {
+  display: flex;
+  gap: 8px;
+}
+
+/* Campos do preparo: mesma altura dos botões (36px). */
+.sessao-builder select,
+.sessao-builder input[type="number"] {
+  height: 36px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.sessao-fonte-linha select {
+  flex: 1;
+}
+
+.sessao-fonte-linha input[type="number"] {
+  width: 64px;
+  text-align: center;
+}
+
+.sessao-preparo-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sessao-preparo-linha {
+  display: grid;
+  grid-template-columns: 20px 104px 34px minmax(0, 1fr) auto 32px;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
-}
-
-.sessao-builder-atalhos select {
-  padding: 8px 10px;
-  border-radius: 8px;
+  padding: 8px 12px;
   border: 1px solid var(--border);
+  border-radius: 10px;
   background: var(--bg-card);
-  color: var(--text-main);
 }
 
-.sessao-linha-participante {
-  display: flex;
+.sessao-preparo-iniciativa {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.sessao-preparo-iniciativa input[type="number"] {
+  width: 60px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.sessao-preparo-iniciativa button {
+  width: 36px;
+  height: 36px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-sec);
+  cursor: pointer;
+}
+
+.sessao-preparo-iniciativa button:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.sessao-preparo-qtd {
+  display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 12px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-card);
-  flex-wrap: wrap;
 }
 
-.sessao-linha-nome {
-  flex: 1;
-  min-width: 120px;
-  color: var(--text-main);
-  font-weight: 600;
-}
-
-.sessao-linha-campo {
-  display: flex;
+.sessao-preparo-qtd label {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
   font-size: 0.75rem;
   color: var(--text-sec);
+  white-space: nowrap;
 }
 
-.sessao-linha-campo input[type="number"] {
+.sessao-preparo-qtd input[type="number"] {
   width: 60px;
-  padding: 4px 6px;
-  border-radius: 6px;
+  text-align: center;
+}
+
+.sessao-builder-rodape {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 760px) {
+  .sessao-linha-iniciativa.cabecalho {
+    display: none;
+  }
+
+  /* Iniciativa, retrato, nome e botões em cima; olhos, PV e PP embaixo. */
+  .sessao-linha-iniciativa {
+    grid-template-columns: 20px 32px 34px minmax(0, 1fr) 32px 32px;
+    row-gap: 8px;
+  }
+
+  .sessao-linha-iniciativa > .sessao-icone-btn {
+    grid-row: 1;
+  }
+
+  .sessao-linha-iniciativa > .sessao-icone-btn:last-child {
+    grid-column: 6;
+  }
+
+  .sessao-linha-iniciativa > .sessao-olhos {
+    grid-column: 1 / -1;
+  }
+
+  .sessao-linha-iniciativa > .sessao-vital {
+    grid-column: span 3;
+  }
+
+  .sessao-linha-iniciativa > .sessao-vital + .sessao-vital {
+    grid-column: span 3;
+  }
+
+  .sessao-linha-iniciativa > span:empty {
+    display: none;
+  }
+
+  .sessao-preparo-linha {
+    grid-template-columns: 20px 104px 34px minmax(0, 1fr) 32px;
+  }
+
+  .sessao-preparo-qtd {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: flex-start;
+  }
+
+  .sessao-preparo-linha > span:empty {
+    display: none;
+  }
+
+  .sessao-fonte-linha {
+    flex-wrap: wrap;
+  }
+
+  .sessao-topo-botoes {
+    width: 100%;
+  }
+
+  .sessao-topo-botoes .nv-btn {
+    flex: 1;
+  }
+
+  .sessao-builder-rodape .nv-btn {
+    flex: 1;
+  }
+}
+
+.dano-criatura-modal {
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dano-criatura-partes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dano-criatura-parte {
+  display: grid;
+  grid-template-columns: 90px 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.modal-box .dano-criatura-parte input,
+.modal-box .dano-criatura-parte select {
+  margin: 0;
+  min-width: 0;
+}
+
+.dano-criatura-parte .nv-btn {
+  align-self: auto;
+  padding: 0 10px;
+}
+
+.dano-criatura-defesas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dano-criatura-defesa {
+  padding: 4px 10px;
   border: 1px solid var(--border);
+  border-radius: 999px;
   background: var(--bg-surface);
+  color: var(--text-sec);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-decoration: line-through;
+  cursor: pointer;
+}
+
+.dano-criatura-defesa.ativo {
+  border-color: var(--primary);
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.dano-criatura-previa {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-surface);
+  font-size: 0.85rem;
+  color: var(--text-sec);
+}
+
+.dano-criatura-previa strong {
   color: var(--text-main);
 }
 
-.sessao-linha-checkbox {
-  flex-direction: row-reverse;
+.dano-criatura-rodape {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
-.sessao-linha-participante > button {
+.dano-criatura-rodape .nv-btn {
+  align-self: auto;
+  padding: 0 16px;
+}
+
+/* Recursos próprios da criatura na ficha de combate. */
+.fc-recursos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(170px, 100%), 1fr));
+  gap: 10px 14px;
+}
+
+/* Dano extra de aspecto: a pergunta antes de rolar o dano do acerto. */
+.sessao-extras {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+  font-size: 0.9rem;
+}
+
+.sessao-extras label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+/* ─── Estatísticas e histórico de combates ──────────────────────────── */
+/* Jogadores e inimigos: as duas primeiras cores da paleta categórica
+   validada (separação adjacente em daltonismo ≥ 24, contraste ≥ 3:1). */
+.est,
+.est-historico {
+  --est-jogadores: #2a78d6;
+  --est-inimigos: #eb6834;
+  --est-trilho: color-mix(in oklch, var(--text-sec) 12%, transparent);
+}
+
+html.dark-mode .est,
+html.dark-mode .est-historico {
+  --est-jogadores: #3987e5;
+  --est-inimigos: #d95926;
+}
+
+.est {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.est [data-lado="jogadores"],
+.est-historico [data-lado="jogadores"] {
+  --est-cor: var(--est-jogadores);
+}
+
+.est [data-lado="inimigos"],
+.est-historico [data-lado="inimigos"] {
+  --est-cor: var(--est-inimigos);
+}
+
+/* Histórico */
+.est-historico {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.est-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.est-acoes .nv-btn {
+  align-self: center;
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 0.8rem;
+}
+
+.est-sessao + .est-sessao {
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.est-combate {
+  margin-top: 10px;
+  padding: 0 12px;
   border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-surface);
+  transition: border-color 0.15s;
+}
+
+.est-combate[open] {
+  padding-bottom: 14px;
+}
+
+.est-combate.marcado {
+  border-color: var(--primary);
+}
+
+.est-combate.legado {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 12px 12px;
+  font-size: 0.85rem;
+  color: var(--text-sec);
+}
+
+.est-sessao > summary,
+.est-combate > summary,
+.est-cabeca {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 0;
+  list-style: none;
+  color: var(--text-main);
+}
+
+.est-sessao > summary,
+.est-combate > summary {
+  cursor: pointer;
+}
+
+.est-combate[open] > summary {
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.est-sessao > summary::-webkit-details-marker,
+.est-combate > summary::-webkit-details-marker {
+  display: none;
+}
+
+.est-sessao > summary::before,
+.est-combate > summary::before {
+  content: "\f054";
+  font-family: "Font Awesome 6 Free", "Font Awesome 5 Free", sans-serif;
+  font-weight: 900;
+  font-size: 0.65rem;
+  color: var(--text-sec);
+  transition: transform 0.15s;
+}
+
+.est-sessao[open] > summary::before,
+.est-combate[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.est-titulo {
+  display: flex;
+  flex: 1 1 140px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.est-titulo strong {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 0.9rem;
+  color: var(--text-main);
+}
+
+.est-sessao > summary .est-titulo strong {
+  font-size: 0.98rem;
+}
+
+.est-titulo em {
+  font-style: normal;
+  font-weight: 500;
+}
+
+.est-titulo > span {
+  font-size: 0.76rem;
+  color: var(--text-sec);
+}
+
+/* Resultado do combate: o ícone leva a cor, o texto ao lado diz o mesmo. */
+.est-selo {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  font-size: 0.8rem;
+  color: var(--text-sec);
+  background: color-mix(in oklch, var(--text-sec) 14%, transparent);
+}
+
+.est-selo[data-resultado="vitoria"] {
+  color: var(--success);
+  background: color-mix(in oklch, var(--success) 14%, transparent);
+}
+
+.est-selo[data-resultado="derrota"] {
+  color: var(--danger);
+  background: color-mix(in oklch, var(--danger) 14%, transparent);
+}
+
+.est-parcial {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 9px;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-sec);
+}
+
+.est-placar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+.est-placar span {
+  font-weight: 400;
+  color: var(--text-sec);
+}
+
+.est-icone,
+.est-marca {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-sec);
-  border-radius: 6px;
+  font-size: 0.8rem;
   cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.est-icone:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.est-icone:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.est-marca {
+  width: 22px;
+  height: 22px;
+  margin: 4px;
+  border: 2px solid var(--text-sec);
+  border-radius: 6px;
+  font-size: 0.7rem;
+}
+
+.est-marca.marcada {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.est-kpis,
+.est-destaques {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.est-kpis {
+  margin-top: 4px;
+}
+
+.est-kpi,
+.est-destaque {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+
+.est-kpi > span,
+.est-destaque-rotulo {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-sec);
+}
+
+.est-kpi strong,
+.est-destaque strong {
+  font-size: 1.25rem;
+  line-height: 1.15;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+.est-destaque-quem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 0.8rem;
+  color: var(--text-main);
+}
+
+.est-destaque-quem > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.est-destaque small {
+  font-size: 0.72rem;
+  color: var(--text-sec);
+}
+
+.est-nota,
+.est-vazio {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-sec);
+}
+
+.est-legado {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+/* Confronto: jogadores × inimigos, uma barra dividida por métrica */
+.est-confronto {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+
+.est-confronto figcaption {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.est-time {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 7px;
+  font-size: 0.86rem;
+  color: var(--text-main);
+}
+
+.est-time[data-lado="inimigos"] {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+
+.est-time small {
+  font-size: 0.74rem;
+  color: var(--text-sec);
+}
+
+.est-duelo {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr) 84px;
+  align-items: end;
+  gap: 10px;
+}
+
+.est-duelo-valor {
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+.est-duelo-valor:first-child {
+  text-align: right;
+}
+
+.est-duelo-meio {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.est-duelo-rotulo {
+  font-size: 0.72rem;
+  text-align: center;
+  color: var(--text-sec);
+}
+
+.est-duelo-barra {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+}
+
+.est-duelo-fatia {
+  min-width: 3px;
+  background: var(--est-cor);
+  outline-offset: 2px;
+}
+
+.est-duelo-fatia:first-child {
+  border-radius: 4px 0 0 4px;
+}
+
+.est-duelo-fatia:last-child {
+  border-radius: 0 4px 4px 0;
+}
+
+.est-duelo-fatia:only-child {
+  border-radius: 4px;
+}
+
+.est-duelo-fatia:hover,
+.est-duelo-fatia:focus-visible {
+  filter: brightness(1.12);
+}
+
+/* Abas de métrica */
+.est-abas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.est-aba {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-sec);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.est-aba.vazia {
+  opacity: 0.55;
+}
+
+.est-aba:hover {
+  border-color: var(--primary);
+  color: var(--text-main);
+}
+
+.est-aba.ativa {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 14%, transparent);
+  color: var(--text-main);
+  opacity: 1;
+}
+
+/* Gráficos */
+.est-par {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+  gap: 22px 28px;
+}
+
+.est-grafico {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+}
+
+.est-grafico figcaption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.est-grafico figcaption strong {
+  font-size: 0.9rem;
+  color: var(--text-main);
+}
+
+.est-grafico figcaption span {
+  font-size: 0.74rem;
+  color: var(--text-sec);
+}
+
+.est-legenda {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.76rem;
+  color: var(--text-sec);
+}
+
+.est-legenda li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.est-amostra {
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--est-cor, var(--text-sec));
+}
+
+.est-amostra.neutra {
+  background: var(--text-main);
+}
+
+.est-amostra.clara {
+  opacity: 0.45;
+}
+
+.est-barras {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 -6px;
+  padding: 0;
+  list-style: none;
+}
+
+.est-linha {
+  display: grid;
+  grid-template-columns: 14px minmax(70px, 28%) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  outline-offset: -1px;
+}
+
+.est-linha:hover,
+.est-linha:focus-visible {
+  background: var(--est-trilho);
+}
+
+.est-posicao {
+  font-size: 0.7rem;
+  text-align: right;
+  color: var(--text-sec);
+  font-variant-numeric: tabular-nums;
+}
+
+.est-rotulo {
+  overflow: hidden;
+  font-size: 0.8rem;
+  color: var(--text-main);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.est-trilho {
+  display: flex;
+  height: 14px;
+  border-radius: 0 4px 4px 0;
+  background: var(--est-trilho);
+}
+
+/* Barra fina, quina arredondada só na ponta de dados; 2px de superfície
+   entre os segmentos de uma barra empilhada. */
+.est-barra {
+  display: flex;
+  gap: 2px;
+  min-width: 3px;
+  height: 100%;
+  transform-origin: left;
+  animation: est-crescer 0.45s ease-out;
+}
+
+@keyframes est-crescer {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+.est-segmento {
+  min-width: 2px;
+  background: var(--est-cor);
+}
+
+.est-segmento:last-child {
+  border-radius: 0 4px 4px 0;
+}
+
+.est-segmento.clara {
+  opacity: 0.45;
+}
+
+.est-valor {
+  min-width: 44px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: right;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+.est-mais {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-sec);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.est-mais:hover {
+  color: var(--text-main);
+}
+
+/* Colunas no tempo: escala à esquerda, linhas de grade no topo e no meio */
+.est-plano {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  margin: 10px 0 22px;
+}
+
+.est-escala {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 170px;
+  font-size: 0.68rem;
+  line-height: 1;
+  text-align: right;
+  color: var(--text-sec);
+  font-variant-numeric: tabular-nums;
+}
+
+.est-escala span:first-child {
+  transform: translateY(-50%);
+}
+
+.est-escala span:last-child {
+  transform: translateY(50%);
+}
+
+.est-colunas {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 170px;
+  border-bottom: 1px solid var(--border);
+  background-image: linear-gradient(var(--border), var(--border)), linear-gradient(var(--border), var(--border));
+  background-repeat: no-repeat;
+  background-position: 0 0, 0 50%;
+  background-size: 100% 1px;
+}
+
+.est-grupo {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: 100%;
+}
+
+.est-pilha {
+  display: flex;
+  flex: 1;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+}
+
+.est-coluna {
+  position: relative;
+  flex: 1;
+  max-width: 24px;
+  min-width: 3px;
+  background: var(--est-cor);
+  border-radius: 4px 4px 0 0;
+  outline-offset: 2px;
+  transform-origin: bottom;
+  animation: est-subir 0.45s ease-out;
+}
+
+@keyframes est-subir {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+.est-coluna:hover,
+.est-coluna:focus-visible {
+  filter: brightness(1.12);
+}
+
+.est-coluna em {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  margin-bottom: 3px;
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 700;
+  color: var(--text-main);
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.est-eixo {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-top: 6px;
+  font-size: 0.68rem;
+  color: var(--text-sec);
+  transform: translateX(-50%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .est-barra,
+  .est-coluna {
+    animation: none;
+  }
+}
+
+/* Dica */
+.est-dica {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-width: 220px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  transform: translate(-50%, calc(-100% - 10px));
+  pointer-events: none;
+}
+
+.est-dica strong {
+  font-size: 0.95rem;
+  color: var(--text-main);
+}
+
+.est-dica span {
+  font-size: 0.76rem;
+  color: var(--text-sec);
+}
+
+.est-dica small {
+  font-size: 0.72rem;
+  color: var(--text-sec);
+}
+
+/* Tabelas */
+.est-rolagem {
+  overflow-x: auto;
+}
+
+.est-rolagem + .est-rolagem {
+  margin-top: 16px;
+}
+
+.est-tabela {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+.est-tabela caption {
+  padding-bottom: 6px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-align: left;
+  text-transform: uppercase;
+  color: var(--text-sec);
+}
+
+.est-tabela th,
+.est-tabela td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.est-tabela tbody tr:hover > * {
+  background: var(--est-trilho);
+}
+
+.est-tabela th[scope="col"] {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-sec);
+}
+
+.est-tabela th[scope="row"],
+.est-tabela th:first-child {
+  text-align: left;
+}
+
+.est-detalhe > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-sec);
+  cursor: pointer;
+}
+
+.est-detalhe > summary:hover {
+  color: var(--text-main);
+}
+
+@media (max-width: 560px) {
+  .est-linha {
+    grid-template-columns: 12px minmax(60px, 32%) minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .est-duelo {
+    grid-template-columns: 62px minmax(0, 1fr) 62px;
+    gap: 8px;
+  }
+
+  .est-duelo-valor {
+    font-size: 0.76rem;
+  }
+
+  .est-placar {
+    display: none;
+  }
 }

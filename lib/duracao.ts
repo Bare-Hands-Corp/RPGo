@@ -56,6 +56,12 @@ export function textoDuracao(d: Duracao | null): string | null {
   return d.concentracao ? `${base} · Concentração` : base;
 }
 
+// Dura mais que o uso: dá pra efeito repetir ou ficar valendo.
+export function duraAlemDoUso(raw: unknown): boolean {
+  const d = lerDuracao(raw);
+  return !!d && d.unidade !== "instantanea";
+}
+
 export function pedeConcentracao(raw: unknown): boolean {
   return lerDuracao(raw)?.concentracao === true;
 }
@@ -99,4 +105,25 @@ export const EVENTO_CONCENTRACAO = "rpgo:concentracao";
 export function anunciarConcentracao(c: Concentracao | null) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent<Concentracao | null>(EVENTO_CONCENTRACAO, { detail: c }));
+}
+
+// ─── PV temporário ─────────────────────────────────────────
+// Até quando dura o PV temporário que um efeito dá. "acabar": até o dano
+// consumir; "combate": some quando o combate encerra; "turno": some quando a
+// próxima vez de quem recebeu começa.
+export type DuracaoPvTemp = "acabar" | "combate" | "turno";
+
+export const DURACOES_PV_TEMP: { slug: DuracaoPvTemp; nome: string; texto: string }[] = [
+  { slug: "acabar", nome: "Até acabar", texto: "até acabar" },
+  { slug: "combate", nome: "Fim do combate", texto: "até o fim do combate" },
+  { slug: "turno", nome: "Próximo turno", texto: "até o início do próximo turno" },
+];
+
+export function lerDuracaoPvTemp(raw: unknown): DuracaoPvTemp {
+  return raw === "combate" || raw === "turno" ? raw : "acabar";
+}
+
+// Como fica no banco (Personagem.hpTempDuracao, InstanciaCombate.pvTempDuracao): "acabar" é null.
+export function duracaoPvTempNoBanco(d: DuracaoPvTemp): string | null {
+  return d === "acabar" ? null : d;
 }

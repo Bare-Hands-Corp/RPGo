@@ -1,0 +1,73 @@
+"use client";
+
+import { createContext, useContext, useMemo } from "react";
+import {
+  CATALOGO_CONDICOES_PADRAO,
+  condicaoNoCatalogo,
+  corDaCondicao,
+  textoRodadas,
+  type CondicaoCatalogo,
+} from "@/lib/condicoes";
+import { EFEITO_COR_PADRAO, estiloAplicado } from "@/lib/estilos-cor";
+
+// Condições do narrador da mesa (Biblioteca); sem provider valem as do livro.
+const CatalogoCondicoesContext = createContext<CondicaoCatalogo[]>(CATALOGO_CONDICOES_PADRAO);
+
+export function CatalogoCondicoesProvider({
+  condicoes,
+  children,
+}: {
+  condicoes: CondicaoCatalogo[];
+  children: React.ReactNode;
+}) {
+  return <CatalogoCondicoesContext.Provider value={condicoes}>{children}</CatalogoCondicoesContext.Provider>;
+}
+
+// Nomes das condições, na ordem do catálogo.
+export function useCatalogoCondicoes(): string[] {
+  const catalogo = useContext(CatalogoCondicoesContext);
+  return useMemo(() => catalogo.map((c) => c.nome), [catalogo]);
+}
+
+// Cara do chip de uma condição: o estilo da Biblioteca ou, fora dela, a cor fixa do nome.
+export function useEstiloCondicao() {
+  const catalogo = useContext(CatalogoCondicoesContext);
+  return (nome: string) => {
+    const entrada = condicaoNoCatalogo(catalogo, nome);
+    const { className, style } = estiloAplicado(
+      {
+        cor: entrada?.cor ?? corDaCondicao(nome),
+        cor2: entrada?.cor2 ?? null,
+        efeito: entrada?.efeito ?? EFEITO_COR_PADRAO,
+      },
+      "chip",
+    );
+    return { className, style, descricao: entrada?.descricao ?? "" };
+  };
+}
+
+// Condição valendo em alguém: o nome com a cara dela e as rodadas que faltam.
+// `children` são os botões de quem pode mexer nela (tirar, repetir a salvaguarda).
+export function ChipCondicao({
+  nome,
+  rodadas,
+  origem,
+  children,
+}: {
+  nome: string;
+  rodadas?: number;
+  origem?: string;
+  children?: React.ReactNode;
+}) {
+  const cara = useEstiloCondicao()(nome);
+  const dica = [cara.descricao, origem ? `De ${origem}` : "", rodadas ? `Falta ${textoRodadas(rodadas)}` : ""]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <span className={`condicao-chip ${cara.className}`} style={cara.style} title={dica || undefined}>
+      <span className="fx-texto">{nome}</span>
+      {rodadas != null && <span className="condicao-chip-rodadas">{rodadas}</span>}
+      {children}
+    </span>
+  );
+}

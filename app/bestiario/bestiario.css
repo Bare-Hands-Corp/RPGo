@@ -994,6 +994,13 @@ button.bestiario-ficha-badge-rolavel:hover {
   border-color: color-mix(in srgb, var(--primary) 35%, transparent);
 }
 
+.bestiario-check {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
 .bestiario-acao-desc {
   font-size: 0.85rem;
   color: var(--text-sec);
@@ -1529,3 +1536,629 @@ button.bestiario-ficha-badge-rolavel:hover {
   color: var(--text-sec);
 }
 
+
+/* ─── Ficha da criatura: cabeçalho com retrato e ND ─────────────────── */
+.bestiario-ficha-cabecalho.com-retrato {
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+}
+
+.bestiario-ficha-retrato {
+  width: 72px;
+  height: 72px;
+  flex-shrink: 0;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--bg-card);
+  color: var(--text-sec);
+  font-size: 1.6rem;
+}
+
+.bestiario-ficha-retrato img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.bestiario-ficha-identidade {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bestiario-ficha-identidade h2 {
+  overflow-wrap: anywhere;
+}
+
+.bestiario-ficha-nd {
+  flex-shrink: 0;
+  min-width: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in oklch, var(--primary) 40%, var(--border));
+  border-radius: 14px;
+  background: color-mix(in oklch, var(--primary) 10%, transparent);
+  line-height: 1.15;
+}
+
+.bestiario-ficha-nd span,
+.bestiario-ficha-nd small {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-sec);
+}
+
+.bestiario-ficha-nd strong {
+  font-size: 1.6rem;
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Números de destaque: PV, PP, CR, CD, proficiência e deslocamento. */
+.bestiario-ficha-vitais {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 8px;
+}
+
+.bestiario-ficha-vital {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--vital-cor, var(--border));
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+
+.bestiario-ficha-vital-rotulo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-sec);
+}
+
+.bestiario-ficha-vital-rotulo i {
+  color: var(--vital-cor, var(--text-sec));
+}
+
+.bestiario-ficha-vital strong {
+  font-size: 1.35rem;
+  line-height: 1.1;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+.bestiario-ficha-vital small {
+  font-size: 0.72rem;
+  color: var(--text-sec);
+}
+
+/* Atributo: o modificador é o que se usa na mesa, o valor fica embaixo. */
+.bestiario-ficha-atributos {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.bestiario-ficha-atributo {
+  background: var(--bg-card);
+}
+
+.bestiario-ficha-atributo-mod {
+  font-size: 1.2rem;
+  line-height: 1.1;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+.bestiario-ficha-atributo-valor {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--text-sec);
+}
+
+@media (max-width: 520px) {
+  .bestiario-ficha-atributos {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.bestiario-ficha-linha-testes > strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-sec);
+}
+
+.bestiario-ficha-linha-testes > strong i {
+  color: var(--defesa-cor, var(--text-sec));
+}
+
+.bestiario-ficha-teste b {
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.bestiario-ficha-defesa {
+  padding: 2px 9px;
+  border: 1px solid color-mix(in oklch, var(--defesa-cor) 40%, transparent);
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--defesa-cor) 12%, transparent);
+  color: var(--text-main);
+  font-size: 0.8rem;
+}
+
+.bestiario-ficha-privado {
+  border-style: dashed;
+}
+
+.bestiario-acao-topo {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.bestiario-acao-titulo {
+  flex: 1;
+  min-width: 0;
+}
+
+.bestiario-acao-tags {
+  align-items: center;
+}
+
+/* ─── Recursos da criatura ──────────────────────────────────────────── */
+.bestiario-ficha-recursos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(180px, 100%), 1fr));
+  gap: 10px;
+}
+
+.bestiario-recurso {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.bestiario-recurso-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bestiario-recurso-nome {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-main);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bestiario-recurso-valor {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  color: var(--text-sec);
+  font-variant-numeric: tabular-nums;
+}
+
+.bestiario-recurso-valor strong {
+  color: var(--text-main);
+}
+
+.bestiario-recurso-trilho {
+  height: 7px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.bestiario-recurso-trilho > div {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--bar-recurso, var(--primary));
+  transition: width 0.25s;
+}
+
+.bestiario-recurso-linha {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+
+/* ─── Card de ação recolhível do editor ─────────────────────────────── */
+.bestiario-componente-card {
+  border-left: 3px solid var(--acao-cor, var(--border));
+}
+
+.bestiario-componente-topo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bestiario-componente-abrir {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--text-main);
+  text-align: left;
+  cursor: pointer;
+}
+
+.bestiario-componente-abrir strong {
+  flex-shrink: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bestiario-componente-seta {
+  flex-shrink: 0;
+  width: 12px;
+  font-size: 0.7rem;
+  color: var(--text-sec);
+  transition: transform 0.15s;
+}
+
+.bestiario-componente-card.aberto .bestiario-componente-seta {
+  transform: rotate(90deg);
+}
+
+.bestiario-componente-resumo {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.78rem;
+  color: var(--text-sec);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bestiario-componente-total {
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-sec);
+}
+
+.bestiario-componente-header {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+
+/* ─── Tipos de dano em chips (catálogo da Biblioteca) ───────────────── */
+.bestiario-tipos-dano {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 0;
+}
+
+.bestiario-tipos-dano .sugestoes {
+  margin-top: 0;
+}
+
+.bestiario-efeito-largo {
+  grid-column: 1 / -1;
+}
+
+.bestiario-ficha-defesa {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.bestiario-acao-tipo-dano {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ─── Formulário da criatura: atalhos e campos reconhecíveis ────────── */
+.bestiario-tipos-dano-rotulo {
+  font-size: 0.75rem;
+  color: var(--text-sec);
+}
+
+.bestiario-chip-fora {
+  border-style: dashed !important;
+}
+
+.bestiario-tipo-novo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bestiario-tipo-novo input {
+  width: 150px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-size: 0.75rem;
+}
+
+.bestiario-atalhos {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: var(--text-sec);
+}
+
+.bestiario-mod {
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.bestiario-salvaguardas {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(230px, 100%), 1fr));
+  gap: 8px;
+}
+
+.bestiario-salvaguarda {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--text-main);
+}
+
+.bestiario-campo-retrato {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.bestiario-campo-retrato label {
+  flex: 1;
+  min-width: 0;
+}
+
+.bestiario-campo-retrato .bestiario-ficha-retrato {
+  width: 56px;
+  height: 56px;
+  font-size: 1.2rem;
+}
+
+.bestiario-campo-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Cabeçalho do editor sempre à vista: salvar não exige subir a página. */
+.bestiario-editor-header.fixo {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding: 10px 0;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+}
+
+.bestiario-editor-estado {
+  font-size: 0.75rem;
+  color: var(--text-sec);
+}
+
+.bestiario-editor-estado.alterado {
+  color: var(--warning);
+  font-weight: 700;
+}
+
+.wizard-rodape {
+  align-items: center;
+}
+
+.wizard-rodape-passo {
+  font-size: 0.75rem;
+  color: var(--text-sec);
+}
+
+/* ─── Retrato com recorte ───────────────────────────────────────────── */
+.bestiario-campo-retrato {
+  align-items: center;
+}
+
+.bestiario-retrato-botao {
+  position: relative;
+  padding: 0;
+  cursor: pointer;
+}
+
+.bestiario-retrato-camera {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 1rem;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.bestiario-retrato-botao:hover .bestiario-retrato-camera,
+.bestiario-retrato-botao:focus-visible .bestiario-retrato-camera {
+  opacity: 1;
+}
+
+.bestiario-retrato-acoes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bestiario-retrato-acoes > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.bestiario-retrato-zoom {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: 0.8rem;
+  color: var(--text-sec);
+}
+
+.bestiario-retrato-zoom input {
+  flex: 1;
+}
+
+/* ─── Respiro entre os blocos dos formulários ───────────────────────── */
+/* Passo do wizard com mais de uma seção. */
+.wizard-corpo {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.wizard-revisao {
+  gap: 16px;
+}
+
+/* Blocos de ação: cada categoria separada da anterior, sem linha colada. */
+.bestiario-componente-grupo {
+  gap: 10px;
+  padding: 12px 0 14px;
+}
+
+.bestiario-componente-grupo:first-of-type {
+  padding-top: 0;
+}
+
+.bestiario-componente-grupo:last-of-type {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.bestiario-componente-card {
+  gap: 12px;
+  padding: 12px;
+}
+
+.bestiario-componente-card.aberto .bestiario-componente-topo {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Efeitos de ficha: o editor do jogador traz margens próprias; aqui quem
+   espaça é o gap do bloco. */
+.bestiario-efeitos-extras .efeito-editor,
+.bestiario-efeitos-extras .picker-preset {
+  margin: 0;
+}
+
+.bestiario-efeitos-extras-corpo {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bestiario-efeitos-lista {
+  gap: 10px;
+}
+
+.bestiario-efeito-corpo {
+  gap: 10px 12px;
+}
+
+/* Chips (tipos de dano, condições, perícias): respiro acima e abaixo. */
+.bestiario-secao > .bestiario-tipos-dano + .bestiario-tipos-dano {
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+
+.bestiario-secao > .sugestoes {
+  gap: 6px;
+}
+
+.bestiario-secao > .bestiario-sublabel {
+  margin-top: 4px;
+}
+
+.bestiario-recurso-linha {
+  gap: 10px;
+  padding: 12px;
+}
+
+.bestiario-lista-linhas {
+  gap: 8px;
+}
+
+/* ─── Técnica, grau e notas de bloco ────────────────────────────────── */
+.bestiario-tecnica {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bestiario-campo-curto {
+  max-width: 260px;
+}
+
+.bestiario-ficha-nota {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-sec);
+}
+
+/* Campos numéricos sem as setinhas do navegador. */
+.bestiario-page-wrapper input[type="number"],
+.fc input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.bestiario-page-wrapper input[type="number"]::-webkit-outer-spin-button,
+.bestiario-page-wrapper input[type="number"]::-webkit-inner-spin-button,
+.fc input[type="number"]::-webkit-outer-spin-button,
+.fc input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}

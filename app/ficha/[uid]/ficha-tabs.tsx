@@ -1,5 +1,6 @@
 "use client";
 
+import type { CombateVisto } from "@/lib/combate";
 import { useMemo, useState } from "react";
 import { AcoesTab } from "./acoes-tab";
 import { ArvoresTab, type Arvore, type ArvoreCopiavel } from "./arvores-tab";
@@ -49,6 +50,11 @@ type Props = {
   objetivos: Objetivo[];
   isNarradorDaMesa: boolean;
   tripulantes: Tripulante[];
+  // O personagem no combate ativo da mesa; null = fora de combate.
+  turno: CombateVisto["voce"];
+  // Quem está no combate, pra escolher alvo.
+  alvosCombate: CombateVisto["participantes"];
+  atributoCdTecnicas: string | null;
   navio: Navio;
   arvores: Arvore[];
   arvoresCopiaveis: ArvoreCopiavel[];
@@ -99,6 +105,9 @@ export function FichaTabs({
   objetivos,
   isNarradorDaMesa,
   tripulantes,
+  turno,
+  alvosCombate,
+  atributoCdTecnicas,
   navio,
   arvores,
   arvoresCopiaveis,
@@ -217,6 +226,9 @@ export function FichaTabs({
           ppAtual={ppAtual}
           ppMax={ppMax}
           tripulantes={tripulantes}
+          turno={turno}
+          alvosCombate={alvosCombate}
+          atributoCdTecnicas={atributoCdTecnicas}
         />
       </div>
 
@@ -256,6 +268,7 @@ export function FichaTabs({
           proficienciasRaw={proficienciasRaw}
           periciasCustom={periciasCustom}
           efeitosAgregados={efeitosAgregados}
+          salvaguardasPedidas={turno?.salvaguardas ?? []}
         />
       </div>
 
