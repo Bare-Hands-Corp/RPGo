@@ -81,6 +81,27 @@ export const PRESETS_ACAO: PresetAcao[] = [
     criar: () => ({ efeitos: [{ id: uuid(), tipo: "cura", formula: "2d8" } satisfies EfeitoAcao] }),
   },
   {
+    id: "multiataque",
+    nome: "Ataques múltiplos",
+    descricao: "Ela faz vários ataques comuns por turno. No combate, cada ataque conta um da ação padrão.",
+    icone: "fa-layer-group",
+    criar: () => ({ nome: "Ataques Múltiplos", efeitosExtras: [{ tipo: "multi_ataque", vezes: 2 }] }),
+  },
+  {
+    id: "dano-extra-turno",
+    nome: "Dano extra uma vez por turno",
+    descricao: "Soma dano a um acerto, uma vez por turno (Crueldade Inata, Ataque Assassino). O combate pergunta na hora.",
+    icone: "fa-plus",
+    criar: () => ({ usos: 1, recarga: { tipo: "turno" }, efeitosExtras: [{ tipo: "dano_extra", formula: "4d6" }] }),
+  },
+  {
+    id: "critico",
+    nome: "Crítico expandido",
+    descricao: "Os ataques dela (ou só esta ação) são críticos a partir de um número menor no d20.",
+    icone: "fa-burst",
+    criar: () => ({ efeitosExtras: [{ tipo: "crit_range", minimo: 19 }] }),
+  },
+  {
     id: "passivo",
     nome: "Passivo",
     descricao: "Sem rolagem, sem efeito estruturado — só descreve um traço permanente no texto.",

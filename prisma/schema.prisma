@@ -116,6 +116,8 @@ model Personagem {
   hpAtual       Int     @default(0) @map("hp_atual")
   hpMax         Int     @default(0) @map("hp_max")
   hpTemp        Int     @default(0) @map("hp_temp")
+  // Até quando o PV temporário dura: "combate" | "turno"; null = até acabar (lib/duracao.ts).
+  hpTempDuracao String? @map("hp_temp_duracao")
   // Dano sofrido a 0 PV; vale só com hpAtual ≤ 0 (lib/dano.ts).
   pvNegativos   Int     @default(0) @map("pv_negativos")
   ppAtual       Int     @default(0) @map("pp_atual")
@@ -156,6 +158,10 @@ model Personagem {
   sabedoria    Int @default(0)
   vontade      Int @default(0)
   presenca     Int @default(0)
+
+  // Atributo da CD das técnicas do personagem; vale nas ações com salvaguarda
+  // que não escolhem uma CD própria.
+  atributoCdTecnicas String? @map("atributo_cd_tecnicas")
 
   // Em que está concentrando: { tipo: "habilidade" | "acao", id, nome } (lib/duracao.ts).
   concentracao Json?
@@ -324,6 +330,8 @@ model Acao {
   nome      String
   descricao String
   tipo      String // "padrao" | "bonus" | "power" | "react" | "livre"
+  // Reação: o que a dispara no combate (lib/combate.ts GATILHOS_REACAO); null = qualquer ação que o pegue.
+  gatilho   String?
   tag       String? // texto livre (dano resumido, ex: "1d8+2")
 
   // Custos da técnica.
@@ -345,10 +353,15 @@ model Acao {
   // Mecânica de ataque/salvaguarda.
   atributoAtaque String? @map("atributo_ataque") // "forca" | "destreza" | "sabedoria" | …
   atributoSalv   String? @map("atributo_salv") // atributo que o alvo testa pra resistir
-  atributoCd     String? @map("atributo_cd") // atributo primário do usuário pra CD (8+prof+mod)
+  atributoCd     String? @map("atributo_cd") // legado: a CD vem de Personagem.atributoCdTecnicas; só vale sem ele
+  // Dano de quem passa na salvaguarda: "nada" | "metade".
+  salvSucesso    String  @default("nada") @map("salv_sucesso")
   dano           String? // "1d8 cortante", "2d6 fogo"
   // Tipo do dano escolhido no modal (lib/dano.ts TIPOS_DANO ou texto).
   tipoDano       String? @map("tipo_dano")
+  // Danos a mais, de outros tipos: [{ formula, tipo }]. Cada um é rolado à
+  // parte e passa pelas defesas do alvo pelo próprio tipo.
+  danosExtras    Json    @default("[]") @map("danos_extras")
   alcance        String? // "cc 1,5 m", "9 m", "linha 18 m"
   // Armas que desferem esta ação (Item.id[], sem FK).
   armaIds        Json    @default("[]") @map("arma_ids")
@@ -377,6 +390,12 @@ model Acao {
 
   // { unidade, quantidade?, concentracao? } (lib/duracao.ts); null = não informada.
   duracao Json?
+
+  // Usada e ainda valendo: os efeitos que duram seguem até ela acabar (lib/turno.ts).
+  // Técnica de concentração não usa: vale enquanto o personagem concentra nela.
+  emCurso         Boolean @default(false) @map("em_curso")
+  // Turnos que faltam enquanto em curso (duração em turnos/minutos); null = não conta.
+  turnosRestantes Int?    @map("turnos_restantes")
 
   @@map("acoes")
 }
@@ -939,6 +958,14 @@ model Combate {
   // avançar turno é só somar 1 e voltar a 0 (+ rodada) ao passar do fim.
   turnoAtual  Int @default(0) @map("turno_atual")
 
+  // Rolagens do narrador (das criaturas) vão pro chat sem os dados nem o total.
+  rolagensPrivadas Boolean @default(false) @map("rolagens_privadas")
+
+  // Ações com alvo em andamento: do "Usar" até o dano descontado
+  // (Resolucao[] em lib/combate.ts). Mora aqui, e não numa tabela, pra chegar
+  // aos jogadores pelo realtime de `combates`.
+  resolucoes Json @default("[]")
+
   participantes InstanciaCombate[]
 
   @@index([sessaoId, encerradoEm])
@@ -968,16 +995,29 @@ model InstanciaCombate {
 
   pvAtual Int? @map("pv_atual")
   pvMax   Int? @map("pv_max")
+  // PV temporário da criatura (o do PJ mora em Personagem.hpTemp) e até quando
+  // dura: "combate" | "turno"; null = até acabar.
+  pvTemp        Int     @default(0) @map("pv_temp")
+  pvTempDuracao String? @map("pv_temp_duracao")
 
   // [{ nome: string, duracaoRodadas: number }]
   condicoesAtivas Json @default("[]") @map("condicoes_ativas")
   ppGasto         Int  @default(0) @map("pp_gasto")
-  // { [traitInstanceId]: "gasto" | "disponivel" }
+  // Ações já usadas no turno: { padrao, bonus, power, react } (lib/combate.ts).
+  // Zera quando a vez do participante começa.
+  acoesGastas     Json @default("{}") @map("acoes_gastas")
+  // Usos que restam de cada ação com usos limitados: { [traitInstanceId]: número }.
+  // Ação fora do mapa está com os usos cheios.
   estadoRecargas  Json @default("{}") @map("estado_recargas")
 
   // Revelação progressiva pro jogador (seção "Modo Sessão" combinada antes) —
   // só relevante quando é criatura; PJ não tem nada disso, é sempre visível.
   pvVisivel        Boolean  @default(false) @map("pv_visivel")
+  // Barra de PP (Criatura.pontosPoder − ppGasto) e Classe de Resistência.
+  ppVisivel        Boolean  @default(false) @map("pp_visivel")
+  crVisivel        Boolean  @default(false) @map("cr_visivel")
+  // Prévia da ficha: o jogador vê as ações em `acoesReveladas`.
+  fichaVisivel     Boolean  @default(false) @map("ficha_visivel")
   ameacaVisivel    Boolean  @default(false) @map("ameaca_visivel")
   acoesReveladas   String[] @default([]) @map("acoes_reveladas")
   autoRevelarAcoes Boolean  @default(true) @map("auto_revelar_acoes")

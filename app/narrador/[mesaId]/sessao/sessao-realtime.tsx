@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRefreshAgrupado } from "@/lib/use-refresh-agrupado";
 import { useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -9,21 +9,22 @@ import { createClient } from "@/lib/supabase/client";
 // reassina o canal quando ele aparece (a própria sessão vira prop nova após
 // o router.refresh() disparado pelas actions).
 export function SessaoRealtime({ mesaId, sessaoId, combateId }: { mesaId: string; sessaoId: string | null; combateId: string | null }) {
-  const router = useRouter();
+  // Uma ação de combate mexe em várias tabelas: os eventos viram um refresh só.
+  const refresh = useRefreshAgrupado();
 
   useEffect(() => {
     const supabase = createClient();
     const channel = supabase.channel(`sessao-${mesaId}`).on(
       "postgres_changes",
       { event: "*", schema: "public", table: "sessoes", filter: `mesa_id=eq.${mesaId}` },
-      () => router.refresh(),
+      () => refresh(),
     );
 
     if (sessaoId) {
       channel.on(
         "postgres_changes",
         { event: "*", schema: "public", table: "combates", filter: `sessao_id=eq.${sessaoId}` },
-        () => router.refresh(),
+        () => refresh(),
       );
     }
 
@@ -31,7 +32,7 @@ export function SessaoRealtime({ mesaId, sessaoId, combateId }: { mesaId: string
       channel.on(
         "postgres_changes",
         { event: "*", schema: "public", table: "instancias_combate", filter: `combate_id=eq.${combateId}` },
-        () => router.refresh(),
+        () => refresh(),
       );
     }
 
@@ -40,7 +41,7 @@ export function SessaoRealtime({ mesaId, sessaoId, combateId }: { mesaId: string
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [mesaId, sessaoId, combateId, router]);
+  }, [mesaId, sessaoId, combateId, refresh]);
 
   return null;
 }

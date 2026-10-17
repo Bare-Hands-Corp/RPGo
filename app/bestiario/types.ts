@@ -1,4 +1,7 @@
 import type { EfeitoCor } from "@/lib/estilos-cor";
+import type { EfeitoHabilidade } from "@/lib/op-rpg";
+import type { DanoPorTurno } from "@/lib/condicoes";
+import type { GatilhoReacao } from "@/lib/combate";
 
 // Categorias possíveis de um TraitInstance — mesmos blocos do statblock do
 // manual, mais "condicao": não é algo que uma criatura "tem" como as outras,
@@ -12,24 +15,15 @@ export type ComponenteCategoria =
   | "reacao"
   | "acaoPoderosa"
   | "acaoLendaria"
-  | "condicao";
+  | "condicao"
+  // Tipo de dano do catálogo do narrador: só existe na biblioteca (nome +
+  // descrição), nunca vira bloco de statblock — por isso fica fora de
+  // CATEGORIAS_COMPONENTE.
+  | "tipoDano";
 
 export type AtributoSalvaguarda = "forca" | "destreza" | "constituicao" | "sabedoria" | "presenca" | "vontade";
 
 export type FormaArea = "nenhuma" | "cone" | "linha" | "esfera" | "emanacao" | "cilindro";
-
-// Sugestões de tipo de dano vistos no manual — texto livre, não enum fechado,
-// mesmo padrão que EfeitoHabilidade.tipoDano já usa em lib/op-rpg.ts (pra não
-// travar homebrew com um tipo de dano fora da lista).
-export const TIPOS_DANO_SUGERIDOS = [
-  "Cortante",
-  "Contundente",
-  "Perfurante",
-  "Fogo",
-  "Psíquico",
-  "Veneno",
-  "Verdadeiro",
-];
 
 // "nenhuma" é o alcance de toque — alvo único por definição. Qualquer outra
 // forma (cone, linha, esfera...) é área, logo alvo múltiplo por definição —
@@ -68,7 +62,8 @@ export type EfeitoAcao =
   // Jogada de ataque contra a CR do alvo (ex: "+5 para atingir").
   | { id: string; tipo: "ataque"; bonus: string }
   // O alvo faz uma salvaguarda contra uma CD.
-  | { id: string; tipo: "salvaguarda"; atributo: AtributoSalvaguarda; cd: number }
+  // `metade`: quem passa ainda leva metade do dano da ação (sem ela, não leva nada).
+  | { id: string; tipo: "salvaguarda"; atributo: AtributoSalvaguarda; cd: number; metade?: boolean }
   // Uma entrada de dano — repetível (dano composto = duas entradas, ex: "1d6
   // Cortante" + "1d4 Fogo"). Vários tipos na mesma entrada = escolha entre
   // eles, não soma (ex: "Contundente, Cortante ou Perfurante").
@@ -99,6 +94,8 @@ export type EfeitoAcao =
       cor2?: string;
       efeito?: EfeitoCor;
       duracaoTurnos: number | null;
+      // Dano que o afetado leva a cada turno enquanto a condição durar.
+      danoPorTurno?: DanoPorTurno | null;
     }
   // Catch-all pra mecânica que não cabe nos tipos acima (comum em ações
   // lendárias e poderosas, que variam demais pra modelar tudo).
@@ -148,9 +145,11 @@ export function criarEfeitoAcao(tipo: EfeitoAcaoTipo): EfeitoAcao {
 // no mesmo aqui: cada combate novo começa com os usos cheios de novo, sem
 // precisar de um reset explícito. "dado" é recarga ao estilo "5-6" do
 // manual — rola 1d6 no início do turno, recarrega se bater o mínimo.
-export type RecargaAcao = { tipo: "combate" } | { tipo: "dado"; minimo: number } | { tipo: "manual" };
+// "turno" volta sozinho quando a vez da criatura começa ("uma vez por turno").
+export type RecargaAcao = { tipo: "combate" } | { tipo: "turno" } | { tipo: "dado"; minimo: number } | { tipo: "manual" };
 
 export const RECARGAS_ACAO: { tipo: RecargaAcao["tipo"]; label: string }[] = [
+  { tipo: "turno", label: "A cada turno dela (ex: uma vez por turno)" },
   { tipo: "combate", label: "A cada combate (ex: 3/dia)" },
   { tipo: "dado", label: "Dado (ex: Recarga 5-6)" },
   { tipo: "manual", label: "Manual (o narrador reseta)" },
@@ -165,6 +164,13 @@ export type ComponentePayload = {
   descricao: string;
 
   efeitos: EfeitoAcao[];
+  // Os mesmos efeitos de habilidade da ficha do jogador (vantagem, crítico
+  // expandido, gasto de recurso...). Na criatura são de consulta: aparecem
+  // na ficha, quem aplica é o narrador.
+  efeitosExtras: EfeitoHabilidade[];
+  // Entrada da biblioteca de onde a ação veio ou onde ela fica guardada
+  // (TraitInstance.traitTemplateId); null = ainda não foi salva.
+  templateId: string | null;
 
   // Usos limitados (ex: "5/dia", "Recarga 5-6"). null = ilimitado. O
   // contador de quanto já foi usado não mora aqui — isso é por cópia da
@@ -174,6 +180,15 @@ export type ComponentePayload = {
 
   alcance: string;
   custo: string;
+
+  // Técnica e grau (1–7; 0 = sem grau, como a Técnica Auxiliar), iguais aos
+  // das ações do jogador (Acao.tecnica / Acao.grau).
+  tecnica: boolean;
+  grau: number;
+  // Quantas ações lendárias custa usar (só no bloco de Ações Lendárias).
+  custoLendario: number;
+  // Reação: em que situação o combate a oferece ao narrador (lib/combate.ts).
+  gatilho: GatilhoReacao;
 };
 
 export type CaracteristicasPayload = {
@@ -181,6 +196,18 @@ export type CaracteristicasPayload = {
   salvaguardas: { id: string; nome: string; bonus: number }[];
   percepcaoPassiva: number | null;
   sentidosExtras: string;
+};
+
+// Recurso próprio da criatura (Fúria, Munição...), como os da ficha do
+// jogador. Aqui fica só o máximo e a cara; quanto resta é de cada cópia em
+// combate (InstanciaCombate.estadoRecargas, pela mesma chave de id).
+export type RecursoCriatura = {
+  id: string;
+  nome: string;
+  valorMax: number;
+  cor: string;
+  cor2: string;
+  efeito: EfeitoCor;
 };
 
 export type ResistenciasPayload = {
@@ -229,6 +256,9 @@ export type CriaturaPayload = {
 
   caracteristicas: CaracteristicasPayload;
   resistencias: ResistenciasPayload;
+  recursos: RecursoCriatura[];
+  // Ações lendárias por rodada (0 = não tem); voltam no começo do turno dela.
+  acoesLendarias: number;
 
   anotacoesPrivadas: string;
   loot: string;
@@ -260,22 +290,39 @@ export const CATEGORIAS_COMPONENTE: { key: ComponenteCategoria; label: string; i
 // juntas — só "Aspectos" e "Condições" ganham pasta própria).
 export const CATEGORIAS_ACAO: ComponenteCategoria[] = ["acao", "acaoBonus", "reacao", "acaoPoderosa", "acaoLendaria"];
 
-// ─── Biblioteca de traits (TraitTemplate) ─────────────────────────────────
+// O que a criatura guarda sozinha na biblioteca ao ser salva.
+export const CATEGORIAS_GUARDADAS: ComponenteCategoria[] = ["aspecto", ...CATEGORIAS_ACAO];
+
+// Criatura que criou a entrada da biblioteca: é a pasta dela por lá. O nome
+// vai junto pra pasta continuar existindo se a criatura for apagada.
+export type OrigemTemplate = { criaturaId: string; nome: string };
+
+// ─── Biblioteca (TraitTemplate) ─────────────────────────────────
 // Mesma lista de efeitos do componente — aplicar um template só copia os
 // efeitos literalmente pra criatura (o mestre ajusta os números à mão pro
 // ND dela depois; não tem cálculo automático de proficiência/atributo aqui).
 export type TemplateFormula = {
   efeitos: EfeitoAcao[];
+  efeitosExtras: EfeitoHabilidade[];
+  // null = criada direto na biblioteca.
+  origem: OrigemTemplate | null;
   usos: number | null;
   recarga: RecargaAcao | null;
-  // Só relevante pra templates de categoria "condicao" — estilo escolhido
-  // pelo narrador na criação (cor vazia = cor automática por hash do nome;
-  // cor2 vazia = derivada da primeira no gradiente).
+  // Só relevante pra templates de categoria "condicao" e "tipoDano" — estilo
+  // escolhido pelo narrador na criação (cor vazia = cor automática por hash
+  // do nome na condição, sem cor no tipo de dano; cor2 vazia = derivada da
+  // primeira no gradiente).
   cor: string;
   cor2: string;
   efeito: EfeitoCor;
+  // Ícone Font Awesome do tipo de dano ("fa-fire"); vazio = sem ícone.
+  icone: string;
   alcance: string;
   custo: string;
+  tecnica: boolean;
+  grau: number;
+  custoLendario: number;
+  gatilho: GatilhoReacao;
 };
 
 export type TemplatePayload = {

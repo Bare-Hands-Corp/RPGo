@@ -1,7 +1,9 @@
 "use client";
 
 import { Children, useState } from "react";
-import { TIPOS_DANO, lerCobertura, mesmoTipo, tiposDaCobertura } from "@/lib/dano";
+import { lerCobertura, mesmoTipo, tiposDaCobertura } from "@/lib/dano";
+import { useCatalogoTipos, useEstiloTipoDano } from "@/components/tipos-dano/tipos-dano";
+import { useCatalogoCondicoes, useEstiloCondicao } from "@/components/tipos-dano/condicoes";
 
 export type OpcaoSegmento<T extends string | number> = {
   valor: T;
@@ -165,6 +167,7 @@ export function ChipsCampo({
   onChange,
   igual = (a, b) => semAcento(a) === semAcento(b),
   exemplo,
+  decorar,
 }: {
   rotulo: string;
   opcoes: string[];
@@ -172,6 +175,10 @@ export function ChipsCampo({
   onChange: (v: string) => void;
   igual?: (a: string, b: string) => boolean;
   exemplo?: string;
+  // Cara própria de cada opção: classes e variáveis de estilo, e um ícone.
+  decorar?: (
+    opcao: string,
+  ) => { className: string; style?: React.CSSProperties; icone?: string | null } | undefined;
 }) {
   const indice = opcoes.findIndex((o) => igual(o, valor));
   const proprio = valor.trim() !== "" && indice < 0;
@@ -181,20 +188,25 @@ export function ChipsCampo({
     <div className="chips-campo">
       <label>{rotulo}</label>
       <Sugestoes limite={CHIPS_A_VISTA} aberto={aberto} onAberto={setAberto}>
-        {opcoes.map((o, i) => (
+        {opcoes.map((o, i) => {
+          const cara = decorar?.(o);
+          return (
           <button
             type="button"
             key={o}
-            className={`sugestao chip-opcao${i === indice ? " ativo" : ""}`}
+            className={`sugestao chip-opcao${i === indice ? " ativo" : ""}${cara?.className ? ` ${cara.className}` : ""}`}
+            style={cara?.style}
             aria-pressed={i === indice}
             onClick={() => {
               setEscrevendo(false);
               onChange(i === indice ? "" : o);
             }}
           >
-            {o}
+            {cara?.icone && <i className={`fas ${cara.icone}`} />}
+            <span className="fx-texto">{o}</span>
           </button>
-        ))}
+          );
+        })}
         <button
           type="button"
           className={`sugestao chip-opcao${escrevendo ? " ativo" : ""}`}
@@ -222,9 +234,7 @@ export function ChipsCampo({
   );
 }
 
-const NOMES_DOS_TIPOS = TIPOS_DANO.map((t) => t.nome);
-
-// Um tipo de dano: os do livro ou outro.
+// Um tipo de dano: os do catálogo do narrador ou outro.
 export function TipoDanoCampo({
   valor,
   onChange,
@@ -234,46 +244,22 @@ export function TipoDanoCampo({
   onChange: (tipo: string) => void;
   rotulo?: string;
 }) {
+  const nomes = useCatalogoTipos();
+  const estiloDoTipo = useEstiloTipoDano();
   return (
     <ChipsCampo
       rotulo={rotulo}
-      opcoes={NOMES_DOS_TIPOS}
+      opcoes={nomes}
       valor={valor}
       onChange={onChange}
       igual={mesmoTipo}
       exemplo="Ex: sônico"
+      decorar={estiloDoTipo}
     />
   );
 }
 
-// Condições do livro (cap. 10.3).
-export const CONDICOES = [
-  "Agarrado",
-  "Amedrontado",
-  "Atordoado",
-  "Caído",
-  "Cego",
-  "Envenenado",
-  "Bêbado",
-  "Doente",
-  "Empoderado",
-  "Enfeitiçado",
-  "Enfraquecido",
-  "Enfurecido",
-  "Estremecido",
-  "Impedido",
-  "Incapacitado",
-  "Inconsciente",
-  "Invisível",
-  "Letárgico",
-  "Paralisado",
-  "Queimado",
-  "Sangramento",
-  "Sonolento",
-  "Sufocado",
-  "Surdo",
-];
-
+// Uma condição: as do catálogo do narrador (Biblioteca) ou outra.
 export function CondicaoCampo({
   valor,
   onChange,
@@ -283,7 +269,18 @@ export function CondicaoCampo({
   onChange: (condicao: string) => void;
   rotulo?: string;
 }) {
-  return <ChipsCampo rotulo={rotulo} opcoes={CONDICOES} valor={valor} onChange={onChange} exemplo="Ex: marcado" />;
+  const condicoes = useCatalogoCondicoes();
+  const estilo = useEstiloCondicao();
+  return (
+    <ChipsCampo
+      rotulo={rotulo}
+      opcoes={condicoes}
+      valor={valor}
+      onChange={onChange}
+      exemplo="Ex: marcado"
+      decorar={estilo}
+    />
+  );
 }
 
 const lista = (texto: string) =>
@@ -306,19 +303,21 @@ export function TiposDanoCampo({
   // Vazio já quer dizer todos (redução de dano, filtro de efeito).
   vazioETodos?: boolean;
 }) {
+  const nomes = useCatalogoTipos();
+  const estiloDoTipo = useEstiloTipoDano();
   const cob = lerCobertura(valor);
   const [modo, setModo] = useState<"alguns" | "todos">(
     cob.todos || (vazioETodos && valor.trim() === "") ? "todos" : "alguns",
   );
   const chaves = modo === "todos" ? cob.exceto : cob.tipos;
-  const marcados = NOMES_DOS_TIPOS.filter((n) => chaves.some((k) => mesmoTipo(k, n)));
-  // Tipos escritos que não são do livro.
+  const marcados = nomes.filter((n) => chaves.some((k) => mesmoTipo(k, n)));
+  // Tipos escritos que não são do catálogo.
   const [outros, setOutros] = useState(() =>
     tiposDaCobertura(valor)
-      .filter((t) => !NOMES_DOS_TIPOS.some((n) => mesmoTipo(n, t)))
+      .filter((t) => !nomes.some((n) => mesmoTipo(n, t)))
       .join(", "),
   );
-  const [aberto, setAberto] = useState(marcados.some((n) => NOMES_DOS_TIPOS.indexOf(n) >= CHIPS_A_VISTA));
+  const [aberto, setAberto] = useState(marcados.some((n) => nomes.indexOf(n) >= CHIPS_A_VISTA));
 
   function montar(novoModo: "alguns" | "todos", nomes: string[], extras: string) {
     const tudo = [...nomes, ...lista(extras)];
@@ -345,19 +344,22 @@ export function TiposDanoCampo({
       />
       {modo === "todos" && <span className="chips-campo-sub">Exceto</span>}
       <Sugestoes limite={CHIPS_A_VISTA} aberto={aberto} onAberto={setAberto}>
-        {NOMES_DOS_TIPOS.map((n) => {
+        {nomes.map((n) => {
           const ativo = marcados.includes(n);
+          const cara = estiloDoTipo(n);
           return (
             <button
               type="button"
               key={n}
-              className={`sugestao chip-opcao${ativo ? " ativo" : ""}`}
+              className={`sugestao chip-opcao${ativo ? " ativo" : ""}${cara?.className ? ` ${cara.className}` : ""}`}
+              style={cara?.style}
               aria-pressed={ativo}
               onClick={() =>
                 onChange(montar(modo, ativo ? marcados.filter((x) => x !== n) : [...marcados, n], outros))
               }
             >
-              {n}
+              {cara?.icone && <i className={`fas ${cara.icone}`} />}
+              <span className="fx-texto">{n}</span>
             </button>
           );
         })}

@@ -37,6 +37,8 @@ type Props = {
   sessionId: string;
   onMensagemCriada: (msg: MensagemSerializada) => void;
   efeitosContexto?: EfeitosContexto;
+  // Rolagens saem sem os números no chat.
+  privado?: boolean;
 };
 
 // Escapa partes dinâmicas (nomes de habilidade) antes de entrar na string HTML
@@ -383,7 +385,15 @@ export function PainelRolador({
   sessionId,
   onMensagemCriada,
   efeitosContexto,
+  privado = false,
 }: Props) {
+  // Rolagem privada (narrador, com o combate marcado assim): vai pro chat sem números.
+  const registrar: typeof registrarRolagem = (sessao, nome, rolagem) =>
+    registrarRolagem(
+      sessao,
+      nome,
+      privado ? { ...rolagem, ocultarRolagem: true, ocultarResultado: true, somenteNarrador: true } : rolagem,
+    );
   const [dados, setDados] = useState<Dado[]>([]);
   const [modificadorTexto, setModificadorTexto] = useState("0");
   const [negativo, setNegativo] = useState(false);
@@ -409,6 +419,31 @@ export function PainelRolador({
   // Último ataque rolado: crítico, d20 natural e se trocou acerto por dano. O
   // próximo dano empilhado liga sozinho os chips que dependem disso.
   const ultimoAtaque = useRef({ critico: false, natural: 0, poderoso: false });
+  // Rolagem empilhada que já sai rolada: aperta o "ROLAR!" depois que o estado
+  // dela (dados, contexto, chips) assentou.
+  const [rolarAuto, setRolarAuto] = useState(0);
+  const botaoRolar = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!rolarAuto) return;
+    const espera = setTimeout(() => botaoRolar.current?.click(), 0);
+    return () => clearTimeout(espera);
+  }, [rolarAuto]);
+  // Quem empilhou a rolagem quer saber o resultado (combate).
+  const aoConcluir = useRef<EmpilharRolagemDetail["aoConcluir"] | null>(null);
+  function avisarConclusao(lances: Lance[]) {
+    const avisar = aoConcluir.current;
+    aoConcluir.current = null;
+    avisar?.(
+      lances.map((l) => ({
+        total: l.total,
+        natural: l.natural,
+        critico: l.critico === "sucesso",
+        explosao: l.explosao === true,
+      })),
+    );
+  }
+  // Vantagem/desvantagem que veio decidida com a rolagem empilhada, por lance.
+  const modosEmpilhados = useRef<ModoRolagem[] | null>(null);
   const efeitosContextoRef = useRef(efeitosContexto);
   useEffect(() => {
     efeitosContextoRef.current = efeitosContexto;
@@ -448,7 +483,7 @@ export function PainelRolador({
       const ligados: string[] = [];
       const efeitos = det.efeitos ?? efeitosContextoRef.current;
       if (det.contexto?.tipo === "dano") {
-        if (ataque.critico) ligados.push("critico");
+        if (ataque.critico || det.critico) ligados.push("critico");
         for (const c of efeitos ? chipsDoContexto(efeitos, det.contexto) : []) {
           if (c.tipo === "dano_poderoso" && ataque.poderoso) ligados.push(c.chave);
           if (
@@ -462,6 +497,8 @@ export function PainelRolador({
           }
         }
       }
+      aoConcluir.current = det.aoConcluir ?? null;
+      modosEmpilhados.current = det.modos?.length ? det.modos : null;
       setDados(det.dados ?? []);
       setModificadorTexto(String(det.modificador ?? 0));
       setNegativo(false);
@@ -474,6 +511,7 @@ export function PainelRolador({
       setPendente(null);
       setModoGravacao(false);
       setResultado({ tipo: "preview" });
+      if (det.rolarAuto) setRolarAuto((n) => n + 1);
     }
     window.addEventListener(EVENTO_EMPILHAR, ouvir);
     return () => window.removeEventListener(EVENTO_EMPILHAR, ouvir);
@@ -487,7 +525,7 @@ export function PainelRolador({
       const r = det.resultado;
       const detalhesHtml = `[${r.total}] = ${formatarResultadoRolagemHtml(r)}`;
       setResultado({ tipo: "rolado", total: String(r.total), detalhesHtml });
-      registrarRolagem(sessionId, userName, {
+      registrar(sessionId, userName, {
         tipo: "rolagem",
         total: r.total,
         detalhes: r.detalhes,
@@ -585,6 +623,8 @@ export function PainelRolador({
   }
 
   function limpar() {
+    aoConcluir.current = null;
+    modosEmpilhados.current = null;
     setDados([]);
     setModificadorTexto("0");
     setNegativo(false);
@@ -640,7 +680,7 @@ export function PainelRolador({
     const detalhesHtml = `[${total}] = ${stringFinal}`;
     setResultado({ tipo: "rolado", total: String(total), detalhesHtml });
 
-    registrarRolagem(sessionId, userName, {
+    registrar(sessionId, userName, {
       tipo: "rolagem",
       total,
       detalhes: rolls,
@@ -678,7 +718,7 @@ export function PainelRolador({
         detalhesHtml: `[${resumo}] ${formulaTexto(dadosUsar, modUsar)}${modUsar !== 0 ? ` ${modUsar >= 0 ? "+" : "-"} ${Math.abs(modUsar)}` : ""}<div class="roll-batch-list">${linhas}</div>`,
       });
 
-      registrarRolagem(sessionId, userName, {
+      registrar(sessionId, userName, {
         tipo: "lote",
         total: null,
         quantidade: lote.quantidade,
@@ -706,7 +746,7 @@ export function PainelRolador({
       detalhesHtml: `[${r.total}] = ${stringFinal}`,
     });
 
-    registrarRolagem(sessionId, userName, {
+    registrar(sessionId, userName, {
       tipo: "rolagem",
       total: r.total,
       detalhes: r.detalhes,
@@ -810,7 +850,19 @@ export function PainelRolador({
     };
     // No ataque, a explosão rende outro ataque.
     const explosoesAtaque = contexto?.tipo === "ataque" ? explosoes : [];
-    const rolar = () => montarDadosContextuais(dadosUsar, modUsar, opc);
+    // Modo decidido antes de empilhar (alvo já escolhido) soma com os chips, por lance.
+    const modos = modosEmpilhados.current;
+    modosEmpilhados.current = null;
+    const opcDe = (i: number): OpcoesContextuais => {
+      const modo = modos?.[Math.min(i, modos.length - 1)];
+      if (!modo) return opc;
+      return {
+        ...opc,
+        vantagem: ligado("vantagem") || modo === "vantagem",
+        desvantagem: ligado("desvantagem") || modo === "desvantagem",
+      };
+    };
+    const rolar = (i = 0) => montarDadosContextuais(dadosUsar, modUsar, opcDe(i));
     // Multiataque ou repetições: o maior dos dois.
     const vezes = Math.max(quantidadeValida, valorChip("multi_ataque") ?? 1);
 
@@ -844,15 +896,19 @@ export function PainelRolador({
     // Lote contextual: mais de uma vez roda N execuções contextuais e persiste
     // como lote. Reroll não se aplica num lote — só no lance único.
     if (vezes > 1) {
-      const execucoes = Array.from({ length: vezes }, () =>
-        comAtaquesExplosivos(rolar(), explosoesAtaque, rolar),
+      const execucoes = Array.from({ length: vezes }, (_, i) =>
+        comAtaquesExplosivos(rolar(i), explosoesAtaque, () => rolar(i)),
       ).flat();
       gastarMunicao(execucoes.length);
+      avisarConclusao(execucoes);
       publicarLote(execucoes, dadosUsar, modUsar, nomePreset, opc, notas);
       gastarHabilidades(gastos);
       return;
     }
 
+    const opcUm = opcDe(0);
+    if (modos?.[0] === "vantagem" && !ligado("vantagem")) notas.push("Vantagem");
+    if (modos?.[0] === "desvantagem" && !ligado("desvantagem")) notas.push("Desvantagem");
     const r = rolar();
     if (contexto?.tipo === "ataque") {
       ultimoAtaque.current = {
@@ -872,7 +928,7 @@ export function PainelRolador({
         dadosUsar: [...dadosUsar],
         modUsar,
         nomePreset,
-        opc,
+        opc: opcUm,
         notas,
         stringDados: r.stringDados,
         total: r.total,
@@ -888,9 +944,9 @@ export function PainelRolador({
         gastaReroll: ligados.find((c) => c.tipo === "reroll")?.gasta,
       });
     } else {
-      const lances = comAtaquesExplosivos(r, explosoesAtaque, rolar);
+      const lances = comAtaquesExplosivos(r, explosoesAtaque, () => rolar(0));
       gastarMunicao(lances.length);
-      concluir(lances, dadosUsar, modUsar, nomePreset, opc, notas);
+      concluir(lances, dadosUsar, modUsar, nomePreset, opcUm, notas);
       gastarHabilidades(gastos);
     }
   }
@@ -904,6 +960,7 @@ export function PainelRolador({
     opc: OpcoesContextuais,
     notas: string[],
   ) {
+    avisarConclusao(lances);
     if (lances.length > 1) return publicarLote(lances, dadosUsar, modUsar, nomePreset, opc, notas);
     const r = lances[0];
     finalizar(r.total, r.rolls, modUsar, montarStringFinal(r.stringDados, notas), nomePreset);
@@ -952,7 +1009,7 @@ export function PainelRolador({
       detalhesHtml: `[${resumo}] ${formulaTexto(dadosUsar, modUsar)}${notasHtml}<div class="roll-batch-list">${linhas}</div>`,
     });
 
-    registrarRolagem(sessionId, userName, {
+    registrar(sessionId, userName, {
       tipo: "lote",
       total: null,
       quantidade,
@@ -1301,6 +1358,7 @@ export function PainelRolador({
 
       <button
         type="button"
+        ref={botaoRolar}
         className={"roll-btn" + (modoGravacao ? " recording" : "")}
         onClick={clicarRolar}
         disabled={vazio}

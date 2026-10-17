@@ -51,8 +51,8 @@ export function DuracaoCampo({
   porTurno?: EfeitoPorTurno[];
   onPorTurno?: (lista: EfeitoPorTurno[]) => void;
   recursos?: RecursoMinimo[];
-  // Técnica só repete enquanto o personagem concentra nela.
-  aCadaTurno?: "sempre" | "concentrando";
+  // Ação só repete enquanto dura: sem duração, não tem "a cada turno".
+  aCadaTurno?: "sempre" | "durando";
 }) {
   const modo = modoDe(valor);
   const quantidade = valor?.quantidade ?? 1;
@@ -72,7 +72,7 @@ export function DuracaoCampo({
     !!porTurno &&
     !!onPorTurno &&
     modo !== "instantanea" &&
-    (aCadaTurno === "sempre" || concentra || porTurno.length > 0);
+    (aCadaTurno === "sempre" || !!valor || porTurno.length > 0);
 
   return (
     <>

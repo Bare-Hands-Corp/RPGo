@@ -1,5 +1,6 @@
 "use client";
 
+import type { CombateVisto } from "@/lib/combate";
 import { useMemo, useState } from "react";
 import { AcoesTab } from "./acoes-tab";
 import { ArvoresTab, type Arvore, type ArvoreCopiavel } from "./arvores-tab";
@@ -56,6 +57,11 @@ type Props = {
   /** Quem pode receber um efeito de aliado: a mesa e as subfichas. */
   alvos: Tripulante[];
   subfichas: SubfichaCard[];
+  // O personagem no combate ativo da mesa; null = fora de combate.
+  turno: CombateVisto["voce"];
+  // Quem está no combate, pra escolher alvo.
+  alvosCombate: CombateVisto["participantes"];
+  atributoCdTecnicas: string | null;
   arvores: Arvore[];
   arvoresCopiaveis: ArvoreCopiavel[];
   habilidadesTravadas: string[];
@@ -88,6 +94,9 @@ export function FichaTabs({
   tripulantes,
   alvos,
   subfichas,
+  turno,
+  alvosCombate,
+  atributoCdTecnicas,
   arvores,
   arvoresCopiaveis,
   habilidadesTravadas,
@@ -206,6 +215,9 @@ export function FichaTabs({
           ppAtual={ppAtual}
           ppMax={ppMax}
           tripulantes={alvos}
+          turno={turno}
+          alvosCombate={alvosCombate}
+          atributoCdTecnicas={atributoCdTecnicas}
         />
       </div>
 
@@ -245,6 +257,7 @@ export function FichaTabs({
           proficienciasRaw={proficienciasRaw}
           periciasCustom={periciasCustom}
           efeitosAgregados={efeitosAgregados}
+          salvaguardasPedidas={turno?.salvaguardas ?? []}
         />
       </div>
 

@@ -23,12 +23,14 @@ import {
   type PericiaSlug,
 } from "@/lib/op-rpg";
 import {
+  SELECT_ACAO_QUE_DURA,
   SELECT_HABILIDADE_FONTE,
   SELECT_ITEM_FONTE,
   agregadoDaFicha,
   penalidadeDesDasArmaduras,
   recebidasDaMesa,
 } from "@/lib/efeitos-servidor";
+import { acoesEmCurso, type AcaoQueDura } from "@/lib/turno";
 import type { Prisma } from "@prisma/client";
 import type { Dado } from "@/lib/dice";
 
@@ -59,6 +61,8 @@ type PersonagemTeste = {
   vontade: number;
   presenca: number;
   proficiencias: unknown;
+  concentracao: unknown;
+  acoes: AcaoQueDura[];
   periciasCustom: Array<{
     nome: string;
     slug: string;
@@ -117,6 +121,9 @@ const SELECT_PERSONAGEM_TESTE = {
   habilidades: { select: SELECT_HABILIDADE_FONTE },
   itens: { select: SELECT_ITEM_FONTE },
   arvores: { select: { nos: { select: { habilidadeId: true, rankAtual: true } } } },
+  // Ações em curso: os efeitos que elas mantêm valem no teste.
+  concentracao: true,
+  acoes: { select: SELECT_ACAO_QUE_DURA },
 } as const;
 
 function normalizarTexto(valor: string): string {
@@ -191,6 +198,7 @@ function calcularBonusTesteInterno(
     slugsPericiaCustom: personagem.periciasCustom.map((p) => p.slug),
     base: personagem,
     recebidas,
+    emCurso: acoesEmCurso(personagem.acoes, personagem.concentracao),
   });
   const efetivos = atributosEfetivos(personagem, agg);
   const atributos = {

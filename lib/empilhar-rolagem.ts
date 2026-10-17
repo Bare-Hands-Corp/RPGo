@@ -4,7 +4,7 @@
 // Rolador, guarda o contexto da rolagem e (por padrão) abre a Bandeja. O usuário
 // ajusta e confirma com "ROLAR!". Mesmo padrão dos eventos `rpgo:patch-*`.
 
-import { rolarDados, type Dado, type ResultadoRolagem } from "@/lib/dice";
+import { rolarDados, type Dado, type ModoRolagem, type ResultadoRolagem } from "@/lib/dice";
 import type { ContextoRolagem, EfeitosContexto } from "@/lib/op-rpg";
 import type { MensagemSerializada } from "@/lib/mensagens";
 
@@ -64,6 +64,15 @@ export function rolarCuras(
   };
 }
 
+// O que sobra de uma rolagem concluída pra quem a empilhou.
+export type LanceConcluido = {
+  total: number;
+  natural: number | null;
+  critico: boolean;
+  // Ataque a mais que veio de uma explosão do lance anterior.
+  explosao: boolean;
+};
+
 export type EmpilharRolagemDetail = {
   dados: Dado[];
   modificador?: number;
@@ -75,6 +84,16 @@ export type EmpilharRolagemDetail = {
   efeitos?: EfeitosContexto;
   // Abre + expande a Bandeja na tab Rolador. Default: true.
   abrirAuto?: boolean;
+  // Chamado quando a rolagem vai pro chat (depois de manter ou rerrolar), com
+  // um lance por execução. O combate usa pra resolver ataque, dano e salvaguarda.
+  aoConcluir?: (lances: LanceConcluido[]) => void;
+  // Rola na hora, sem esperar o "ROLAR!" (acerto de ação com alvo já escolhido).
+  rolarAuto?: boolean;
+  // Dano de um acerto crítico: liga o chip de crítico.
+  critico?: boolean;
+  // Vantagem ou desvantagem já decidida pra esta rolagem, uma por lance
+  // (multiataque); o último vale pros lances que passarem da lista.
+  modos?: ModoRolagem[];
 };
 
 // Despacha o evento. Só roda no cliente (chamado em handlers de clique).
@@ -92,6 +111,7 @@ export function empilharD20(
   nomePreset: string,
   contexto: ContextoRolagem,
   efeitos?: EfeitosContexto,
+  extras?: Pick<EmpilharRolagemDetail, "aoConcluir" | "rolarAuto" | "modos">,
 ) {
-  empilharRolagem({ dados: [D20], modificador, nomePreset, contexto, efeitos });
+  empilharRolagem({ dados: [D20], modificador, nomePreset, contexto, efeitos, ...extras });
 }

@@ -8,8 +8,11 @@ import {
   atualizarAcao,
   criarAcao,
   deletarAcao,
+  encerrarAcao,
   guardarNaPasta,
   usarAcao,
+  resolverAtaqueEmCombate,
+  aplicarDanoEmCombate,
 } from "./actions";
 import { BarraFiltros, casaBusca, pastasDe } from "./barra-filtros";
 import { useConfirmarUso } from "./usar-modal";
@@ -34,6 +37,7 @@ import {
   efeitosComArma,
   efeitosDaTecnica,
   efeitosDoContexto,
+  efeitosDuram,
   exaustaoQueConta,
   extrasDeCura,
   formatarMod,
@@ -48,17 +52,26 @@ import {
   resolverAtaqueArma,
   resolverDanoArma,
   resolverFormula,
+  chipsDoContexto,
   subirPassosDano,
   usosMaximos,
   type Atributo,
   type EfeitoHabilidade,
   type EfeitosAgregados,
 } from "@/lib/op-rpg";
-import { empilharD20, empilharRolagem, rolarCuras } from "@/lib/empilhar-rolagem";
+import {
+  empilharD20,
+  empilharRolagem,
+  publicarRolagem,
+  rolarCuras,
+  type EmpilharRolagemDetail,
+} from "@/lib/empilhar-rolagem";
+import { rolarDados, type ModoRolagem } from "@/lib/dice";
 import {
   ChipEfeito,
   DatalistAlvos,
   EfeitoDeAcaoContext,
+  EfeitosDuramContext,
   EfeitosEditor,
   FormulaContext,
   NomesRecursoContext,
@@ -67,7 +80,24 @@ import {
   useContagemDoRolador,
 } from "./efeitos-editor";
 import { useExaustaoOtimista, usePpOtimista } from "./use-exaustao-otimista";
+import {
+  ACAO_COMBATE,
+  GATILHOS_REACAO,
+  MAX_DANOS_EXTRAS,
+  ehAcaoDeCombate,
+  lerDanosExtras,
+  lerGatilho,
+  maximoDeAcoes,
+  textoGatilho,
+  type AcoesGastas,
+  type CombateVisto,
+  type DanoExtra,
+  type GatilhoReacao,
+  type ResultadoAlvo,
+} from "@/lib/combate";
+import { AcoesDoTurno, EVENTO_CD_TECNICAS } from "./acoes-do-turno";
 import { useEscolherAlvo } from "./escolher-alvo";
+import { useEscolherAlvosCombate } from "./escolher-alvos-combate";
 import type { Tripulante } from "./tripulacao-tab";
 import { MarcaExausto } from "./marca-exausto";
 import { TagChip } from "./estilo-cor-picker";
@@ -85,9 +115,16 @@ import {
   lerDuracao,
   pedeConcentracao,
   textoDuracao,
+  textoTurnosRestantes,
   turnosDaDuracao,
   type Duracao,
 } from "@/lib/duracao";
+import {
+  EVENTO_ACAO_EM_CURSO,
+  anunciarAcaoEmCurso,
+  ficaEmCurso,
+  type AcaoEmCursoDetail,
+} from "@/lib/turno";
 
 // O modelo de Ação só guarda alcance como texto livre, então inferimos CC vs
 // distância por palavra-chave / metragem pra montar o contexto da rolagem.
@@ -107,6 +144,8 @@ type Acao = {
   nome: string;
   descricao: string;
   tipo: string;
+  // Reação: o que a dispara no combate (null = qualquer ação que o pegue).
+  gatilho?: string | null;
   tag: string | null;
   custoPp: number;
   custoPa: number;
@@ -114,6 +153,8 @@ type Acao = {
   custoRecursoValor: number;
   atributoAtaque: string | null;
   atributoSalv: string | null;
+  salvSucesso?: string;
+  danosExtras?: unknown;
   atributoCd: string | null;
   dano: string | null;
   tipoDano?: string | null;
@@ -126,6 +167,9 @@ type Acao = {
   efeitos: unknown;
   aliado: boolean;
   duracao?: unknown;
+  // Usada e ainda valendo, com os turnos que faltam.
+  emCurso?: boolean;
+  turnosRestantes?: number | null;
   pasta?: string | null;
   // Ação de que esta é forma alternativa.
   formaDe?: string | null;
@@ -216,8 +260,30 @@ type ItemArma = {
   municaoId?: string | null;
 };
 
+// O que a ação resolve num alvo do combate e como empilhar as rolagens dela.
+type Resolve = {
+  ataque: boolean;
+  salvaguarda: boolean;
+  dano: boolean;
+  // A ação põe condição em quem ela pega (efeito "Aplica Condição").
+  condicao: boolean;
+  cd: number | null;
+  // Quantos ataques a rolagem de acerto faz (multiataque): um alvo pra cada.
+  ataques: number;
+  atacar: (extras: Pick<EmpilharRolagemDetail, "aoConcluir" | "rolarAuto" | "modos">) => void;
+  danar: (extras: Pick<EmpilharRolagemDetail, "aoConcluir" | "critico">) => void;
+  // Tipo do dano principal.
+  tipoDano: string;
+};
+
 type Props = {
   personagemId: string;
+  // O personagem no combate ativo da mesa; null = fora de combate.
+  turno: CombateVisto["voce"];
+  // Quem está no combate, pra escolher alvo.
+  alvosCombate: CombateVisto["participantes"];
+  // Atributo da CD das técnicas do personagem (padrão das ações com salvaguarda).
+  atributoCdTecnicas: string | null;
   acoes: Acao[];
   nivel: number;
   exaustao: number;
@@ -267,12 +333,15 @@ type FormState = {
   nome: string;
   descricao: string;
   tipo: string;
+  gatilho: GatilhoReacao;
   tag: string;
   custoPp: string;
   custoRecursoId: string;
   custoRecursoValor: string;
   atributoAtaque: string;
   atributoSalv: string;
+  salvSucesso: "nada" | "metade";
+  danosExtras: DanoExtra[];
   atributoCd: string;
   dano: string;
   tipoDano: string;
@@ -299,12 +368,15 @@ const FORM_VAZIO: FormState = {
   nome: "",
   descricao: "",
   tipo: "padrao",
+  gatilho: "qualquer",
   tag: "",
   custoPp: "",
   custoRecursoId: "",
   custoRecursoValor: "",
   atributoAtaque: "",
   atributoSalv: "",
+  salvSucesso: "nada",
+  danosExtras: [],
   atributoCd: "",
   dano: "",
   tipoDano: "",
@@ -392,7 +464,120 @@ export function AcoesTab({
   ppAtual: ppServer,
   ppMax,
   tripulantes,
+  turno,
+  alvosCombate,
+  atributoCdTecnicas,
 }: Props) {
+  const alvosDoCombate = useEscolherAlvosCombate(alvosCombate);
+  // Atributo da CD das técnicas, escolhido na ficha lateral.
+  const [cdPadrao, setCdPadrao] = useState(atributoCdTecnicas ?? "");
+  const [cdPadraoDoServidor, setCdPadraoDoServidor] = useState(atributoCdTecnicas);
+  if (atributoCdTecnicas !== cdPadraoDoServidor) {
+    setCdPadraoDoServidor(atributoCdTecnicas);
+    setCdPadrao(atributoCdTecnicas ?? "");
+  }
+  // Ações do turno: o que o servidor diz mais o que acabou de ser gasto aqui.
+  const [gastasLocal, setGastasLocal] = useState<AcoesGastas>({});
+  const [gastasDoServidor, setGastasDoServidor] = useState(turno?.gastas);
+  if (turno?.gastas !== gastasDoServidor) {
+    setGastasDoServidor(turno?.gastas);
+    setGastasLocal({});
+  }
+  const maximoAcoes = maximoDeAcoes(efeitosAgregados.acoesExtras ?? {});
+  const gastas: AcoesGastas = {};
+  for (const tipo of ["padrao", "bonus", "power", "react"] as const) {
+    gastas[tipo] = (turno?.gastas[tipo] ?? 0) + (gastasLocal[tipo] ?? 0);
+  }
+  // A ficha lateral muda a CD das técnicas; os cards acompanham na hora.
+  useEffect(() => {
+    const ouvir = (e: Event) => setCdPadrao((e as CustomEvent<string>).detail ?? "");
+    window.addEventListener(EVENTO_CD_TECNICAS, ouvir);
+    return () => window.removeEventListener(EVENTO_CD_TECNICAS, ouvir);
+  }, []);
+
+  // Danos a mais da ação: cada um é rolado à parte (o crítico dobra os dados),
+  // vai pro chat e volta com o próprio tipo.
+  function rolarDanosExtras(acao: Acao, critico: boolean): { valor: number; tipo: string }[] {
+    return lerDanosExtras(acao.danosExtras).map((e) => {
+      const f = resolverFormula(e.formula, atributos, nivel, { grau: acao.grau });
+      const dados = critico ? [...f.dados, ...f.dados] : f.dados;
+      if (dados.length === 0) return { valor: Math.max(0, f.modificador), tipo: e.tipo };
+      const r = rolarDados(dados, f.modificador);
+      publicarRolagem(
+        r,
+        `Dano ${acao.nome}: ${e.formula}${e.tipo ? ` ${e.tipo.toLowerCase()}` : ""}${critico ? " (crítico)" : ""}`,
+      );
+      return { valor: Math.max(0, r.total), tipo: e.tipo };
+    });
+  }
+
+  // Dano de cada acerto, um por vez: empilha a rolagem e, quando ela sai,
+  // desconta do alvo e pede a do próximo acerto.
+  function pedirDano(resolucaoId: string, acao: Acao, resolve: Resolve, acertos: ResultadoAlvo[]) {
+    const [atual, ...resto] = acertos;
+    if (!atual) return;
+    const critico = atual === "critico";
+    resolve.danar({
+      critico,
+      aoConcluir: (lances) => {
+        const lance = lances[0];
+        if (!lance) return;
+        const partes = [{ valor: lance.total, tipo: resolve.tipoDano }, ...rolarDanosExtras(acao, critico)];
+        startTransition(async () => {
+          try {
+            exigir(await aplicarDanoEmCombate(personagemId, resolucaoId, partes));
+            pedirDano(resolucaoId, acao, resolve, resto);
+          } catch (err) {
+            mostrarErro(err);
+          }
+        });
+      },
+    });
+  }
+
+  // Acerto de uma resolução: o servidor compara com a CR de cada alvo e os
+  // acertos já pedem o dano. Com `modos` (vantagem ou desvantagem de cada
+  // ataque, já decidida) a rolagem sai sem esperar o "ROLAR!".
+  function pedirAtaque(resolucaoId: string, acao: Acao, resolve: Resolve, modos?: ModoRolagem[]) {
+    resolve.atacar({
+      rolarAuto: !!modos,
+      modos,
+      aoConcluir: (lances) => {
+        // Ataque que veio de explosão é no mesmo alvo do lance que explodiu.
+        let ataque = -1;
+        const comAlvo = lances.map((l) => {
+          if (!l.explosao || ataque < 0) ataque += 1;
+          return { total: l.total, natural: l.natural, critico: l.critico, ataque };
+        });
+        startTransition(async () => {
+          try {
+            const { resultados } = exigir(await resolverAtaqueEmCombate(personagemId, resolucaoId, comAlvo));
+            if (resolve.dano) {
+              pedirDano(
+                resolucaoId,
+                acao,
+                resolve,
+                resultados.filter((r) => r !== "erro"),
+              );
+            }
+          } catch (err) {
+            mostrarErro(err);
+          }
+        });
+      },
+    });
+  }
+
+  // Por que a ação não dá pra usar agora no combate; null = dá (ou não é de combate).
+  function travaDoTurno(tipo: string): string | null {
+    if (!turno || !ehAcaoDeCombate(tipo)) return null;
+    if (tipo !== "react" && !turno.naVez) return "Não é a sua vez.";
+    if (tipo === "react" && turno.naVez) return "Reação é só fora da sua vez.";
+    if ((gastas[tipo] ?? 0) >= maximoAcoes[tipo]) {
+      return `Sem ação ${ACAO_COMBATE[tipo].nome.toLowerCase()} neste turno.`;
+    }
+    return null;
+  }
   // Penalidade de exaustão (−2 × nível) some no acerto (teste de d20). NÃO entra
   // no dano (não é d20) nem na CD da técnica (quem rola é o alvo). Otimista.
   const exaustao = useExaustaoOtimista(exaustaoServer);
@@ -481,6 +666,35 @@ export function AcoesTab({
   const [, startTransition] = useTransition();
   const atualizar = useRefreshAgrupado(0);
 
+  // Ação que entrou em curso, contou turno ou acabou antes do servidor responder.
+  const [emCursoLocal, setEmCursoLocal] = useState<Record<string, AcaoEmCursoDetail>>({});
+  const [acoesAnterior, setAcoesAnterior] = useState(acoes);
+  if (acoesAnterior !== acoes) {
+    setAcoesAnterior(acoes);
+    setEmCursoLocal({});
+  }
+  useEffect(() => {
+    function ouvir(e: Event) {
+      const det = (e as CustomEvent<AcaoEmCursoDetail>).detail;
+      if (det) setEmCursoLocal((o) => ({ ...o, [det.id]: det }));
+    }
+    window.addEventListener(EVENTO_ACAO_EM_CURSO, ouvir);
+    return () => window.removeEventListener(EVENTO_ACAO_EM_CURSO, ouvir);
+  }, []);
+
+  // Encerra a ação em curso antes da duração acabar.
+  function encerrar(acao: Acao) {
+    anunciarAcaoEmCurso({ id: acao.id, emCurso: false });
+    startTransition(async () => {
+      try {
+        exigir(await encerrarAcao(personagemId, acao.id));
+      } catch (err) {
+        atualizar();
+        mostrarErro(err);
+      }
+    });
+  }
+
   // Formas alternativas ficam dentro do card da ação de origem.
   const acoesPorId = new Map(acoesOtimistas.map((a) => [a.id, a]));
   const { origemDe, grupoDe } = agruparFormas(acoesOtimistas);
@@ -515,6 +729,7 @@ export function AcoesTab({
       nome: acao.nome,
       descricao: acao.descricao,
       tipo: acao.tipo,
+      gatilho: lerGatilho(acao.gatilho),
       tag: acao.tag || "",
       custoPp: acao.custoPpFormula ?? (acao.custoPp ? String(acao.custoPp) : ""),
       custoRecursoId: acao.custoRecursoId || "",
@@ -524,6 +739,8 @@ export function AcoesTab({
       recarga: acao.recarga ?? "",
       atributoAtaque: acao.atributoAtaque || "",
       atributoSalv: acao.atributoSalv || "",
+      salvSucesso: acao.salvSucesso === "metade" ? "metade" : "nada",
+      danosExtras: lerDanosExtras(acao.danosExtras),
       atributoCd: acao.atributoCd || "",
       dano: acao.dano || "",
       tipoDano: acao.tipoDano || "",
@@ -574,6 +791,7 @@ export function AcoesTab({
       nome: nomeLimpo,
       descricao: form.descricao,
       tipo: form.tipo,
+      gatilho: form.tipo === "react" && form.gatilho !== "qualquer" ? form.gatilho : null,
       tag: form.tag,
       custoPp: pp.numero,
       custoPpFormula: pp.formula,
@@ -586,6 +804,8 @@ export function AcoesTab({
       recarga: usos && form.recarga ? form.recarga : null,
       atributoAtaque: form.atributoAtaque || null,
       atributoSalv: form.atributoSalv || null,
+      salvSucesso: form.salvSucesso,
+      danosExtras: form.danosExtras.filter((d) => d.formula.trim()),
       atributoCd: form.atributoCd || null,
       dano: form.dano || null,
       tipoDano: form.dano ? form.tipoDano.trim() || null : null,
@@ -632,13 +852,52 @@ export function AcoesTab({
 
   // Debita os custos (PP já com desconto) e aplica os efeitos na hora da ação.
   // Sem PP, técnica de grau 1–5 vai com Sobrecarga (exaustão = grau).
-  async function usar(acao: Acao, custoPp: number, recurso: RecursoMinimo | undefined) {
+  async function usar(
+    acao: Acao,
+    custoPp: number,
+    recurso: RecursoMinimo | undefined,
+    // O que a ação tem pra resolver num alvo (em combate).
+    resolve?: Resolve,
+  ) {
     const instantaneos = lerEfeitos(acao.efeitos).filter(efeitoInstantaneo);
     const usosMax = usosMaximos(acao, ctxFormula);
     const usosAtual = acao.usosAtual ?? usosMax ?? 0;
     if (usosMax != null && usosAtual <= 0) {
       mostrarErro(new Error("Sem usos restantes."));
       return;
+    }
+    // Em combate, gasta uma ação do turno do tipo dela.
+    const tipoAcao = turno && ehAcaoDeCombate(acao.tipo) ? acao.tipo : null;
+    const trava = travaDoTurno(acao.tipo);
+    if (trava) {
+      mostrarErro(new Error(trava));
+      return;
+    }
+    // Em quem: um alvo por ataque (multiataque escolhe o de cada um); vários
+    // de uma vez na salvaguarda e no dano direto.
+    if (tipoAcao && resolve && !resolve.ataque && acao.atributoSalv && resolve.cd == null) {
+      mostrarErro(new Error("Escolha a CD das suas técnicas na ficha lateral antes de usar esta ação."));
+      return;
+    }
+    let alvosCombate: string[] = [];
+    // Vantagem ou desvantagem de cada ataque, decidida junto com o alvo.
+    let modosAtaque: ModoRolagem[] = [];
+    if (
+      tipoAcao &&
+      resolve &&
+      !acao.aliado &&
+      (resolve.ataque || resolve.salvaguarda || resolve.dano || resolve.condicao)
+    ) {
+      if (resolve.ataque) {
+        const ataques = await alvosDoCombate.escolherAtaques(`${acao.nome}: em quem?`, resolve.ataques);
+        if (ataques === null) return;
+        alvosCombate = ataques.map((a) => a.alvo);
+        modosAtaque = ataques.map((a) => a.modo);
+      } else {
+        const escolhidos = await alvosDoCombate.escolher(`${acao.nome}: em quem?`);
+        if (escolhidos === null) return;
+        alvosCombate = escolhidos;
+      }
     }
     const sobrecarga = custoPp > ppAtual;
     if (sobrecarga) {
@@ -661,11 +920,14 @@ export function AcoesTab({
         : [],
     );
     const concentra = pedeConcentracao(acao.duracao);
+    // Sem concentração, o que repete e o que se mantém seguem até ela acabar.
+    const segue = ficaEmCurso(acao);
     const linhas = [
       sobrecarga ? `Sem PP: recebe <b>${acao.grau}</b> de exaustão.` : null,
       partes.length > 0 ? `Vai consumir: ${partes.join(", ")}.` : null,
       curas.length > 0 ? `Cura: <b>${curas.join(" + ")}</b>.` : null,
       concentra ? "Passa a concentrar nela." : null,
+      segue ? "Fica em curso até a duração acabar." : null,
     ].filter((l): l is string => !!l);
 
     // Em aliado: escolher quem já confirma.
@@ -696,8 +958,15 @@ export function AcoesTab({
               ...(pp > 0 ? [{ valor: pp, nome: "PP" }] : []),
               ...(recurso ? [{ valor: acao.custoRecursoValor, nome: recurso.nome }] : []),
               ...(usosMax != null ? [{ valor: 1, nome: "uso", proprio: true }] : []),
+              ...(tipoAcao
+                ? [{ valor: 1, nome: `ação ${ACAO_COMBATE[tipoAcao].nome.toLowerCase()}`, proprio: true }]
+                : []),
             ],
-            faz: [...curas.map((c) => `Cura ${c}`), ...(concentra ? ["Concentração"] : [])],
+            faz: [
+              ...curas.map((c) => `Cura ${c}`),
+              ...(concentra ? ["Concentração"] : []),
+              ...(segue ? ["Fica em curso"] : []),
+            ],
           },
         ],
       });
@@ -736,16 +1005,37 @@ export function AcoesTab({
     if (concentra) {
       const turnos = turnosDaDuracao(lerDuracao(acao.duracao));
       anunciarConcentracao({ tipo: "acao", id: acao.id, nome: acao.nome, ...(turnos ? { turnos } : {}) });
+    } else if (segue) {
+      anunciarAcaoEmCurso({ id: acao.id, emCurso: true, turnos: turnosDaDuracao(lerDuracao(acao.duracao)) });
     }
     startTransition(async () => {
       if (usosMax != null) {
         aplicarPatch({ kind: "update", id: acao.id, patch: { usosAtual: usosAtual - 1 } });
       }
+      if (tipoAcao) setGastasLocal((g) => ({ ...g, [tipoAcao]: (g[tipoAcao] ?? 0) + 1 }));
       try {
-        exigir(await usarAcao(personagemId, acao.id, rolagens, { sobrecarga, alvoId }));
+        const { resolucaoId } = exigir(
+          await usarAcao(personagemId, acao.id, rolagens, {
+            sobrecarga,
+            alvoId,
+            combate: {
+              alvos: alvosCombate,
+              modo: resolve?.ataque ? "ataque" : resolve?.salvaguarda ? "salvaguarda" : "direto",
+              cd: resolve?.cd ?? null,
+            },
+          }),
+        );
         publicar();
+        // Com alvo, as rolagens seguem sozinhas: o acerto já sai rolado e o dano
+        // fica pronto no Rolador.
+        if (resolucaoId && resolve) {
+          if (resolve.ataque) pedirAtaque(resolucaoId, acao, resolve, modosAtaque);
+          else if (resolve.dano) pedirDano(resolucaoId, acao, resolve, ["acerto"]);
+        }
       } catch (err) {
         // Recarrega a página pra desfazer o otimismo.
+        setGastasLocal({});
+        setEmCursoLocal({});
         atualizar();
         mostrarErro(err);
       }
@@ -870,6 +1160,21 @@ export function AcoesTab({
         </div>
       </div>
 
+      {turno && (
+        <AcoesDoTurno
+          personagemId={personagemId}
+          naVez={turno.naVez}
+          rolagensPendentes={turno.resolucoes.length}
+          gastas={gastas}
+          maximo={maximoAcoes}
+          fontesExtras={{
+            padrao: efeitosAgregados.acoesExtras?.padrao?.fontes,
+            bonus: efeitosAgregados.acoesExtras?.bonus?.fontes,
+            react: efeitosAgregados.acoesExtras?.react?.fontes,
+          }}
+        />
+      )}
+
       <BarraFiltros
         busca={busca}
         onBusca={setBusca}
@@ -904,7 +1209,10 @@ export function AcoesTab({
                     (r) => r.id === acao.custoRecursoId,
                   );
                   const atributoAtq = acao.atributoAtaque as Atributo | null;
-                  const atributoCd = acao.atributoCd as Atributo | null;
+                  // A CD da ação com salvaguarda é a das técnicas do personagem (ficha
+                  // lateral). O atributo gravado na ação é de antes disso e só vale
+                  // enquanto o personagem não escolheu o dele.
+                  const atributoCd = ((acao.atributoSalv ? cdPadrao || acao.atributoCd : "") || null) as Atributo | null;
                   // Armas ligadas à ação; só as equipadas desferem.
                   const armasDaAcao = lerIds(acao.armaIds)
                     .map((id) => armas.find((a) => a.id === id))
@@ -1073,12 +1381,22 @@ export function AcoesTab({
                   const efeitosAcao = lerEfeitos(acao.efeitos);
                   const usosMax = usosMaximos(acao, ctxFormula);
                   const usosAtual = acao.usosAtual ?? usosMax ?? 0;
+                  const travaTurno = travaDoTurno(acao.tipo);
                   const podeUsar =
+                    (!!turno && ehAcaoDeCombate(acao.tipo)) ||
                     ppFinal > 0 ||
                     !!recursoGasto ||
                     usosMax != null ||
                     efeitosAcao.some(efeitoInstantaneo) ||
-                    pedeConcentracao(acao.duracao);
+                    pedeConcentracao(acao.duracao) ||
+                    ficaEmCurso(acao);
+                  // Em curso: usada e ainda valendo (a de concentração aparece na ficha lateral).
+                  const curso = emCursoLocal[acao.id] ?? {
+                    emCurso: !!acao.emCurso,
+                    turnos: acao.turnosRestantes ?? null,
+                  };
+                  const emCursoAgora = curso.emCurso && ficaEmCurso(acao);
+                  const duram = efeitosDuram(acao);
                   const duracaoTexto = textoDuracao(lerDuracao(acao.duracao));
                   const temPorTurno = efeitosAcao.some((e) => e.tipo === "por_turno");
                   const chipsAcao = efeitosAcao.filter((e) => e.tipo !== "por_turno");
@@ -1088,6 +1406,89 @@ export function AcoesTab({
                       ? ` ${acao.tipoDano.toLowerCase()}`
                       : "";
                   const origens = [...habsDerivadas.map((h) => h.nome), ...(itemOrigem ? [itemOrigem.nome] : [])];
+                  const danosExtras = lerDanosExtras(acao.danosExtras);
+                  // Uso desta ação em combate que ainda espera rolagem.
+                  const pendente = turno?.resolucoes.find((r) => r.acaoId === acao.id) ?? null;
+                  const esperaAcerto = pendente?.etapa === "ataque";
+                  // Acertos que ainda esperam a rolagem de dano.
+                  const acertosPendentes: ResultadoAlvo[] =
+                    pendente?.etapa !== "dano"
+                      ? []
+                      : pendente.modo !== "ataque"
+                        ? ["acerto"]
+                        : pendente.alvos.flatMap((a) =>
+                            !a.danoAplicado && (a.resultado === "acerto" || a.resultado === "critico")
+                              ? [a.resultado]
+                              : [],
+                          );
+                  // Acerto: com a arma (1ª equipada com munição, se nenhuma for dada) ou o da técnica.
+                  const golpePadrao = golpes.find((g) => g.atq && !g.semMunicao) ?? null;
+                  const empilharAcerto = (
+                    golpe: (typeof golpes)[number] | null,
+                    extras?: Pick<EmpilharRolagemDetail, "aoConcluir" | "rolarAuto" | "modos">,
+                  ) => {
+                    if (golpe?.atq) {
+                      empilharD20(
+                        golpe.atq.bonus - penD20,
+                        `Atacar ${acao.nome} (${golpe.arma.nome})`,
+                        {
+                          tipo: "ataque",
+                          alcance: golpe.atq.alcance,
+                          tecnica: acao.tecnica,
+                          ...(golpe.municao.item
+                            ? { municao: { id: golpe.municao.item.id, nome: golpe.municao.item.nome } }
+                            : {}),
+                        },
+                        efeitosDoContexto(aggDaArma(golpe.arma)),
+                        extras,
+                      );
+                    } else if (bonusAtq != null) {
+                      empilharD20(
+                        bonusAtq - penD20,
+                        `Atacar ${acao.nome}`,
+                        { tipo: "ataque", alcance: alcanceContexto, tecnica: acao.tecnica },
+                        efeitosDoContexto(aggAcao),
+                        extras,
+                      );
+                    }
+                  };
+                  const empilharDano = (i: number, extras?: Pick<EmpilharRolagemDetail, "aoConcluir" | "critico">) => {
+                    const x = danos[i];
+                    if (!x?.d) return;
+                    empilharRolagem({
+                      dados: x.d.dados,
+                      modificador: x.d.modificador,
+                      nomePreset: `Dano ${acao.nome}${x.rotulo ? ` (${x.rotulo})` : ""}`,
+                      // Contexto de dano pros efeitos de dano do Rolador.
+                      contexto: {
+                        tipo: "dano",
+                        alcance: alcanceContexto,
+                        tecnica: acao.tecnica,
+                        grau: acao.grau,
+                        tiposDano: x.tiposDano,
+                      },
+                      efeitos: x.efeitos,
+                      ...extras,
+                    });
+                  };
+                  const iDano = danos.findIndex((x) => x.d?.rolavel);
+                  const resolve: Resolve = {
+                    ataque: !!golpePadrao || bonusAtq != null,
+                    salvaguarda: cd != null && !!atributoSalv,
+                    dano: iDano >= 0,
+                    condicao: efeitosAcao.some((e) => e.tipo === "condicao_aplicar"),
+                    cd,
+                    // Multiataque ligado de saída: um alvo pra cada ataque.
+                    ataques:
+                      chipsDoContexto(efeitosDoContexto(golpePadrao ? aggDaArma(golpePadrao.arma) : aggAcao), {
+                        tipo: "ataque",
+                        alcance: golpePadrao?.atq?.alcance ?? alcanceContexto,
+                        tecnica: acao.tecnica,
+                      }).find((c) => c.tipo === "multi_ataque" && !c.opcional)?.valor ?? 1,
+                    atacar: (extras) => empilharAcerto(golpePadrao, extras),
+                    danar: (extras) => empilharDano(iDano, extras),
+                    tipoDano: acao.tipoDano || danos[iDano]?.tiposDano[0] || "",
+                  };
                   return (
                     <div
                       key={origem.id}
@@ -1145,6 +1546,15 @@ export function AcoesTab({
                             ))}
                           </div>
                         )}
+                        {pendente && (
+                          <div className="acao-pendente">
+                            <i className="fas fa-crosshairs" />
+                            <span>
+                              <strong>{pendente.alvos.map((a) => a.nome).join(", ")}</strong>
+                              {pendente.etapa === "ataque" ? " · role o acerto" : " · role o dano"}
+                            </span>
+                          </div>
+                        )}
                         {(bonusAtq != null || cd != null || atributoSalv || acao.dano || acao.alcance || alcancesAcao.length > 0 || golpes.length > 0 || acao.tecnica || duracaoTexto || temPorTurno || usosMax != null) && (
                           <div className="acao-stats">
                             {acao.tecnica && (
@@ -1156,6 +1566,19 @@ export function AcoesTab({
                             {duracaoTexto && (
                               <span className="acao-stat">
                                 <i className="fas fa-hourglass-half" /> {duracaoTexto}
+                              </span>
+                            )}
+                            {acao.tipo === "react" && acao.gatilho && (
+                              <span className="acao-stat" title="Gatilho da reação">
+                                <i className="fas fa-bell" /> {textoGatilho(lerGatilho(acao.gatilho))}
+                              </span>
+                            )}
+                            {emCursoAgora && (
+                              <span className="acao-stat acao-em-curso">
+                                <i className="fas fa-circle-play" /> Em curso
+                                {curso.turnos != null && curso.turnos > 0
+                                  ? ` · ${textoTurnosRestantes(curso.turnos).toLowerCase()}`
+                                  : ""}
                               </span>
                             )}
                             <StatsPorTurno
@@ -1190,7 +1613,7 @@ export function AcoesTab({
                                       key={arma.id}
                                       type="button"
                                       disabled={travada || semMunicao}
-                                      className={`acao-stat acao-rolar ${penD20 > 0 || (atq.atributo === "destreza" && desReduz) ? "valor-exausto" : ""}`}
+                                      className={`acao-stat acao-rolar ${esperaAcerto ? "esperando" : ""} ${penD20 > 0 || (atq.atributo === "destreza" && desReduz) ? "valor-exausto" : ""}`}
                                       title={`${semMunicao ? textoMunicao(municao) : `Empilhar ataque com ${arma.nome}`}${
                                         atq.fontes.length
                                           ? ` · inclui bônus de ${atq.fontes.join(", ")}`
@@ -1198,21 +1621,16 @@ export function AcoesTab({
                                       }${penD20 ? ` · −${penD20} de exaustão` : ""}${
                                         municao.item && !semMunicao ? ` · ${textoMunicao(municao)}` : ""
                                       }`}
-                                      onClick={() =>
-                                        empilharD20(
-                                          atq.bonus - penD20,
-                                          `Atacar ${acao.nome} (${arma.nome})`,
-                                          {
-                                            tipo: "ataque",
-                                            alcance: atq.alcance,
-                                            tecnica: acao.tecnica,
-                                            ...(municao.item
-                                              ? { municao: { id: municao.item.id, nome: municao.item.nome } }
-                                              : {}),
-                                          },
-                                          efeitosDoContexto(aggDaArma(arma)),
-                                        )
-                                      }
+                                      onClick={() => {
+                                        const golpe = golpes.find((g) => g.arma.id === arma.id) ?? null;
+                                        if (pendente && esperaAcerto) {
+                                          pedirAtaque(
+                                            pendente.id,
+                                            acao,
+                                            { ...resolve, atacar: (extras) => empilharAcerto(golpe, extras) },
+                                          );
+                                        } else empilharAcerto(golpe);
+                                      }}
                                     >
                                       <i className="fas fa-crosshairs" /> {arma.nome}{" "}
                                       <strong>{formatarMod(atq.bonus - penD20)}</strong>
@@ -1225,20 +1643,16 @@ export function AcoesTab({
                                   <button
                                     type="button"
                                     disabled={travada}
-                                    className={`acao-stat acao-rolar ${penD20 > 0 || desReduzAtq ? "valor-exausto" : ""}`}
+                                    className={`acao-stat acao-rolar ${esperaAcerto ? "esperando" : ""} ${penD20 > 0 || desReduzAtq ? "valor-exausto" : ""}`}
                                     title={`Empilhar ataque no Rolador${
                                       fontesAtaque.length
                                         ? ` · inclui bônus de ${fontesAtaque.join(", ")}`
                                         : ""
                                     }${desReduzAtq ? ` · −${Math.abs(penalidadeDesArmadura)} de DES (armadura)` : ""}${penD20 ? ` · −${penD20} de exaustão` : ""}`}
-                                    onClick={() =>
-                                      empilharD20(
-                                        bonusAtq - penD20,
-                                        `Atacar ${acao.nome}`,
-                                        { tipo: "ataque", alcance: alcanceContexto, tecnica: acao.tecnica },
-                                        efeitosDoContexto(aggAcao),
-                                      )
-                                    }
+                                    onClick={() => {
+                                      if (pendente && esperaAcerto) pedirAtaque(pendente.id, acao, resolve);
+                                      else empilharAcerto(null);
+                                    }}
                                   >
                                     <i className="fas fa-crosshairs" /> Acerto{" "}
                                     <strong>{formatarMod(bonusAtq - penD20)}</strong>
@@ -1246,7 +1660,7 @@ export function AcoesTab({
                                     {penD20 > 0 && <MarcaExausto titulo={`−${penD20} de exaustão`} />}
                                   </button>
                                 )}
-                            {danos.map(({ rotulo, d, efeitos, tiposDano }, i) => {
+                            {danos.map(({ rotulo, d }, i) => {
                               if (!d) return null;
                               const titulo = d.partes
                                 .map((x) => `${x.rotulo}: ${x.texto}`)
@@ -1264,24 +1678,26 @@ export function AcoesTab({
                                 <button
                                   key={`d${i}`}
                                   type="button"
-                                  className="acao-stat acao-rolar"
+                                  className={`acao-stat acao-rolar${acertosPendentes.length > 0 ? " esperando" : ""}`}
                                   title={`Empilhar dano no Rolador · ${titulo}`}
-                                  onClick={() =>
-                                    empilharRolagem({
-                                      dados: d.dados,
-                                      modificador: d.modificador,
-                                      nomePreset: `Dano ${acao.nome}${rotulo ? ` (${rotulo})` : ""}`,
-                                      // Contexto de dano pros efeitos de dano do Rolador.
-                                      contexto: {
-                                        tipo: "dano",
-                                        alcance: alcanceContexto,
-                                        tecnica: acao.tecnica,
-                                        grau: acao.grau,
-                                        tiposDano,
-                                      },
-                                      efeitos,
-                                    })
-                                  }
+                                  onClick={() => {
+                                    if (pendente && acertosPendentes.length > 0) {
+                                      pedirDano(
+                                        pendente.id,
+                                        acao,
+                                        { ...resolve, danar: (extras) => empilharDano(i, extras) },
+                                        acertosPendentes,
+                                      );
+                                    } else {
+                                      // Fora de uma resolução, os danos a mais só vão pro chat.
+                                      empilharDano(
+                                        i,
+                                        danosExtras.length > 0
+                                          ? { aoConcluir: () => void rolarDanosExtras(acao, false) }
+                                          : undefined,
+                                      );
+                                    }
+                                  }}
                                 >
                                   {miolo}
                                 </button>
@@ -1291,6 +1707,12 @@ export function AcoesTab({
                                 </span>
                               );
                             })}
+                            {danosExtras.map((e, i) => (
+                              <span key={`x${i}`} className="acao-stat" title="Rolado à parte, junto com o dano">
+                                <i className="fas fa-plus" /> {e.formula}
+                                {e.tipo ? ` ${e.tipo.toLowerCase()}` : ""}
+                              </span>
+                            ))}
                             {cd != null && atributoSalv && (
                               <span
                                 className="acao-stat"
@@ -1332,6 +1754,7 @@ export function AcoesTab({
                                 key={i}
                                 efeito={e}
                                 grau={acao.tecnica && acao.grau > 0 ? acao.grau : undefined}
+                                dura={duram ? e.dura : undefined}
                               />
                             ))}
                           </div>
@@ -1359,11 +1782,21 @@ export function AcoesTab({
                             <button
                               type="button"
                               className="hab-usar"
-                              disabled={travada || (usosMax != null && usosAtual <= 0)}
-                              title={usosMax != null && usosAtual <= 0 ? "Sem usos" : undefined}
-                              onClick={() => usar(acao, ppFinal, recursoGasto)}
+                              disabled={travada || !!travaTurno || (usosMax != null && usosAtual <= 0)}
+                              title={usosMax != null && usosAtual <= 0 ? "Sem usos" : (travaTurno ?? undefined)}
+                              onClick={() => usar(acao, ppFinal, recursoGasto, resolve)}
                             >
                               <i className="fas fa-play" /> Usar
+                            </button>
+                          )}
+                          {emCursoAgora && (
+                            <button
+                              type="button"
+                              className="hab-usar"
+                              title="Encerrar antes da duração acabar"
+                              onClick={() => encerrar(acao)}
+                            >
+                              <i className="fas fa-stop" /> Encerrar
                             </button>
                           )}
                           {acao.tag && (
@@ -1429,6 +1862,7 @@ export function AcoesTab({
       {filtrando && visiveis.length === 0 && <p className="filtros-vazio">Nada encontrado.</p>}
 
       {alvo.modal}
+      {alvosDoCombate.modal}
       {uso.modal}
 
       {modalAberto && (
@@ -1472,6 +1906,24 @@ export function AcoesTab({
                 placeholder="Ex: Soco Meteoro"
                 autoFocus
               />
+
+              {form.tipo === "react" && (
+                <>
+                  <label>Gatilho da reação</label>
+                  <select value={form.gatilho} onChange={(e) => setF("gatilho", e.target.value as GatilhoReacao)}>
+                    {GATILHOS_REACAO.map((g) => (
+                      <option key={g.slug} value={g.slug}>
+                        {g.texto}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="campo-dica">
+                    Em combate, quando o gatilho bate, a reação é oferecida antes de a ação valer. Efeitos que entram
+                    sozinhos: bônus na CR (o ataque é comparado de novo), PV temporário (o dano sai dele primeiro) e
+                    Redução de Dano.
+                  </p>
+                </>
+              )}
 
               {form.origemForma && acoesPorId.has(form.origemForma) && (
                 <>
@@ -1543,7 +1995,7 @@ export function AcoesTab({
                 porTurno={porTurnoDe(form.efeitos)}
                 onPorTurno={(lista) => setF("efeitos", comPorTurno(form.efeitos, lista))}
                 recursos={recursos}
-                aCadaTurno="concentrando"
+                aCadaTurno="durando"
               />
 
               <h3 className="modal-secao">
@@ -1621,12 +2073,62 @@ export function AcoesTab({
                 <TipoDanoCampo valor={form.tipoDano} onChange={(t) => setF("tipoDano", t)} />
               )}
 
+              {form.dano.trim() && (
+                <div className="danos-extras">
+                  {form.danosExtras.map((extra, i) => {
+                    const mudar = (patch: Partial<DanoExtra>) =>
+                      setF(
+                        "danosExtras",
+                        form.danosExtras.map((x, j) => (j === i ? { ...x, ...patch } : x)),
+                      );
+                    return (
+                      <div key={i} className="dano-extra">
+                        <div className="dano-extra-topo">
+                          <CampoFormula
+                            label={`Dano ${i + 2}`}
+                            valor={extra.formula}
+                            onChange={(v) => mudar({ formula: v })}
+                            placeholder="Ex: 1d4"
+                            dados
+                            comGrau={form.tecnica}
+                            grau={form.tecnica && form.grau > 0 ? form.grau : undefined}
+                          />
+                          <button
+                            type="button"
+                            className="dano-extra-tirar"
+                            aria-label={`Tirar o dano ${i + 2}`}
+                            title="Tirar este dano"
+                            onClick={() =>
+                              setF(
+                                "danosExtras",
+                                form.danosExtras.filter((_, j) => j !== i),
+                              )
+                            }
+                          >
+                            <i className="fas fa-xmark" />
+                          </button>
+                        </div>
+                        <TipoDanoCampo valor={extra.tipo} onChange={(t) => mudar({ tipo: t })} rotulo={`Tipo do dano ${i + 2}`} />
+                      </div>
+                    );
+                  })}
+                  {form.danosExtras.length < MAX_DANOS_EXTRAS && (
+                    <button
+                      type="button"
+                      className="sugestao"
+                      onClick={() => setF("danosExtras", [...form.danosExtras, { formula: "", tipo: "" }])}
+                    >
+                      <i className="fas fa-plus" /> Outro dano, de outro tipo
+                    </button>
+                  )}
+                </div>
+              )}
+
               <div className="atrib-grade">
                 {(
                   [
                     ["atributoAtaque", "Acerto"],
                     ["atributoSalv", "Salvaguarda"],
-                    ["atributoCd", "CD"],
                   ] as const
                 ).map(([campo, rotulo]) => (
                   <Fragment key={campo}>
@@ -1640,6 +2142,31 @@ export function AcoesTab({
                   </Fragment>
                 ))}
               </div>
+
+              {form.atributoSalv && (
+                <p className="campo-dica">
+                  {cdPadrao
+                    ? `A CD é a das suas técnicas (${SIGLA[cdPadrao as Atributo]}), definida na ficha lateral.`
+                    : form.atributoCd
+                      ? `A CD usa ${SIGLA[form.atributoCd as Atributo]}, como estava nesta ação. Escolha a CD das suas técnicas na ficha lateral pra valer em todas.`
+                      : "Escolha a CD das suas técnicas na ficha lateral pra esta ação ter CD."}
+                </p>
+              )}
+
+              {form.atributoSalv && (
+                <div className="atrib-grade">
+                  <span className="atrib-grade-rotulo">Quem passa</span>
+                  <Segmentos
+                    rotulo="Dano de quem passa na salvaguarda"
+                    valor={form.salvSucesso}
+                    onChange={(v) => setF("salvSucesso", v)}
+                    opcoes={[
+                      { valor: "nada", rotulo: "Não leva dano" },
+                      { valor: "metade", rotulo: "Leva metade" },
+                    ]}
+                  />
+                </div>
+              )}
 
               <details
                 className="modal-secao-detalhe"
@@ -1716,13 +2243,15 @@ export function AcoesTab({
                       </button>
                     ))}
                   </div>
-                  <EfeitosEditor
-                    efeitos={form.efeitos}
-                    onChange={(efeitos) => setF("efeitos", efeitos)}
-                    recursos={recursos}
-                    pergunta="O que essa ação faz?"
-                    presets={PRESETS_ACAO}
-                  />
+                  <EfeitosDuramContext.Provider value={efeitosDuram(form)}>
+                    <EfeitosEditor
+                      efeitos={form.efeitos}
+                      onChange={(efeitos) => setF("efeitos", efeitos)}
+                      recursos={recursos}
+                      pergunta="O que essa ação faz?"
+                      presets={PRESETS_ACAO}
+                    />
+                  </EfeitosDuramContext.Provider>
                 </div>
               </details>
 

@@ -257,6 +257,24 @@ export function defesasDoAgregado(
   return out;
 }
 
+// Defesas de uma criatura do bestiário (Criatura.resistencias): uma por linha escrita.
+export function defesasDaCriatura(r: {
+  danoImunidade?: string[];
+  danoResistencia?: string[];
+  danoVulneravel?: string[];
+}): DefesaDano[] {
+  const linhas = (tipo: TipoDefesa, sigla: string, fonte: string, lista: string[] = []) =>
+    lista
+      .map((cobre) => cobre.trim())
+      .filter(Boolean)
+      .map((cobre) => ({ id: `${sigla}:${cobre}`, tipo, cobre, fontes: [fonte], valor: 0 }));
+  return [
+    ...linhas("imunidade", "imu", "Imunidade", r.danoImunidade),
+    ...linhas("resistencia", "res", "Resistência", r.danoResistencia),
+    ...linhas("vulnerabilidade", "vul", "Vulnerabilidade", r.danoVulneravel),
+  ];
+}
+
 const TODAS: Cobertura = { todos: true, tipos: [], exceto: [] };
 
 // Redução vale também no Verdadeiro (o livro só tira isso do Umidaiko).

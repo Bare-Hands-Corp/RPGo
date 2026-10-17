@@ -1,4 +1,6 @@
 import type { CriaturaSerializada } from "@/app/bestiario/types";
+import type { AcoesGastas, Resolucao } from "@/lib/combate";
+import type { CondicaoAtiva } from "@/lib/condicoes";
 
 export type InstanciaCombateSerializada = {
   id: string;
@@ -10,14 +12,37 @@ export type InstanciaCombateSerializada = {
   // null quando é PJ (PV mora em Personagem.hpAtual/hpMax, não aqui).
   pvAtual: number | null;
   pvMax: number | null;
+  // PV temporário da criatura (o do PJ está na ficha dele): o dano sai dele primeiro.
+  pvTemp: number;
+  // Condições valendo nele (lib/condicoes.ts).
+  condicoes: CondicaoAtiva[];
+  // Ações que o participante já usou neste turno (lib/combate.ts).
+  acoesGastas: AcoesGastas;
+  // Usos que restam das ações com usos limitados (id do componente → número).
+  usosAcoes: Record<string, number>;
+  // PP que a criatura já gastou neste combate (o máximo é Criatura.pontosPoder).
+  ppGasto: number;
+  // O que os jogadores veem desta criatura (lib/combate.ts).
+  pvVisivel: boolean;
+  ppVisivel: boolean;
+  crVisivel: boolean;
+  fichaVisivel: boolean;
+  // Ações (TraitInstance.id) que aparecem na prévia da ficha.
+  acoesReveladas: string[];
+  autoRevelarAcoes: boolean;
 };
 
 export type CombateSerializado = {
   id: string;
   sessaoId: string;
   rodadaAtual: number;
+  // Índice em `participantes`, que vem na ordem do combate (InstanciaCombate.ordem).
   turnoAtual: number;
   participantes: InstanciaCombateSerializada[];
+  // Ações com alvo que ainda têm rolagem ou dano pendente.
+  resolucoes: Resolucao[];
+  // As rolagens do narrador vão pro chat sem os números.
+  rolagensPrivadas: boolean;
 };
 
 export type SessaoSerializada = {
@@ -37,6 +62,9 @@ export type PersonagemParaCombate = {
   hpAtual: number;
   hpMax: number;
   destreza: number;
+  // Bônus de iniciativa como está na ficha (atributo, efeitos, exaustão).
+  iniciativa: number;
+  fotoUrl: string | null;
 };
 export type EncontroParaCombate = {
   id: string;
@@ -44,7 +72,8 @@ export type EncontroParaCombate = {
   itens: { criaturaId: string; quantidade: number }[];
 };
 
-// Participante a incluir num combate novo ou já em andamento.
+// Participante a incluir num combate novo ou já em andamento. A lista chega
+// na ordem em que o combate começa.
 export type NovoParticipante = {
   criaturaId?: string;
   personagemId?: string;

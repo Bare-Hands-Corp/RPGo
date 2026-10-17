@@ -20,11 +20,18 @@ import { habilidadesTravadas } from "@/lib/arvore";
 import { INCLUDE_ACESSO, acessoAFicha, fichasDoGrupo, sessaoDoChat } from "@/lib/acesso-ficha";
 import { resumirSubficha } from "@/lib/resumo-personagem";
 import { abasDaFicha, ehSubficha, perfilDe } from "@/lib/subficha";
+import { acoesEmCurso, comAcoesEmCurso } from "@/lib/turno";
 import { PerfilSidebar } from "./perfil-sidebar";
 import { FichaTabs } from "./ficha-tabs";
 import { RelogioMesa } from "../../calendario/[mesaId]/relogio";
 import { FichaRealtime } from "./realtime-refresher";
 import { Bandeja } from "@/components/bandeja/bandeja";
+import { CatalogoTiposProvider } from "@/components/tipos-dano/tipos-dano";
+import { catalogoTiposDoNarrador } from "@/lib/tipos-dano-servidor";
+import { carregarCombateDoJogador, catalogoCondicoesDoNarrador } from "@/lib/combate-servidor";
+import { CatalogoCondicoesProvider } from "@/components/tipos-dano/condicoes";
+import { SessaoRealtime } from "@/app/narrador/[mesaId]/sessao/sessao-realtime";
+import { IniciativaJogador } from "./iniciativa-jogador";
 import { ThemeButton } from "@/components/temas/theme-button";
 import "../../calendario/[mesaId]/calendario.css";
 import "./ficha.css";
@@ -117,26 +124,31 @@ export default async function FichaPage({ params, searchParams }: Params) {
 
   const habilidadesAtivas = personagem.habilidades.filter(estaAtiva);
 
-  // Agrega efeitos das habilidades ativas, dos itens equipados e dos aliados.
-  const efeitosAgregados = agregarEfeitos(
-    [
-      ...habilidadesAtivas,
-      ...fontesDeEfeitoDeItens(personagem.itens),
-      ...recebidas.map(fonteRecebida),
-    ],
+  // Agrega efeitos das habilidades ativas, dos itens equipados, dos aliados e
+  // os que as ações em curso mantêm.
+  const efeitosAgregados = comAcoesEmCurso(
+    agregarEfeitos(
+      [
+        ...habilidadesAtivas,
+        ...fontesDeEfeitoDeItens(personagem.itens),
+        ...recebidas.map(fonteRecebida),
+      ],
+      slugsPericiaCustom,
+      undefined,
+      {
+        nivel: personagem.nivel,
+        atributos: atributosBase,
+        recursos: personagem.recursos.map((r) => ({
+          id: r.id,
+          nome: r.nome,
+          valorAtual: r.valorAtual,
+          valorMax: r.valorMax,
+        })),
+        ppAtual: personagem.ppAtual,
+      },
+    ),
+    acoesEmCurso(personagem.acoes, personagem.concentracao),
     slugsPericiaCustom,
-    undefined,
-    {
-      nivel: personagem.nivel,
-      atributos: atributosBase,
-      recursos: personagem.recursos.map((r) => ({
-        id: r.id,
-        nome: r.nome,
-        valorAtual: r.valorAtual,
-        valorMax: r.valorMax,
-      })),
-      ppAtual: personagem.ppAtual,
-    },
   );
 
   // Penalidade de DES das armaduras equipadas (geralmente negativa). Reduz o
@@ -168,8 +180,14 @@ export default async function FichaPage({ params, searchParams }: Params) {
 
   // Pré-carrega mensagens do chat + calendário + quem joga junto + subfichas em
   // paralelo. Tripulação = personagens que compartilham o mesaId.
-  const [mensagensIniciais, calendario, grupo, subfichasCarregadas, arvoresCopiaveis] =
+  const [catalogoTipos, catalogoCondicoes, { sessaoId, combate }, mensagensIniciais, calendario, grupo, subfichasCarregadas, arvoresCopiaveis] =
     await Promise.all([
+    // Tipos de dano do narrador da mesa (Biblioteca do bestiário).
+    catalogoTiposDoNarrador(personagem.mesa?.userId),
+    // Condições do narrador da mesa (Biblioteca).
+    catalogoCondicoesDoNarrador(personagem.mesa?.userId),
+    // Combate ativo da mesa, só com o que o narrador liberou das criaturas.
+    carregarCombateDoJogador(personagem.mesaId, personagem.id),
     listarMensagensSessao(sessionId),
     personagem.mesaId
       ? carregarCalendario(personagem.mesaId, { isNarrador })
@@ -257,12 +275,24 @@ export default async function FichaPage({ params, searchParams }: Params) {
   });
 
   return (
+    <CatalogoCondicoesProvider condicoes={catalogoCondicoes}>
+    {/* Fora do grid da ficha pra faixa grudar no topo ao rolar a página. */}
+    {combate && (
+      <IniciativaJogador
+        combate={combate}
+        personagemId={personagem.id}
+      />
+    )}
     <div className={"ficha-layout" + (calendario ? " com-relogio" : "")}>
       <FichaRealtime
         personagemId={personagem.id}
         mesaId={personagem.mesaId}
         temSubfichas={!subficha}
       />
+      {personagem.mesaId && (
+        <SessaoRealtime mesaId={personagem.mesaId} sessaoId={sessaoId} combateId={combate?.id ?? null} />
+      )}
+      <CatalogoTiposProvider tipos={catalogoTipos}>
       <PerfilSidebar
         personagem={personagem}
         perfil={perfil.slug}
@@ -288,7 +318,11 @@ export default async function FichaPage({ params, searchParams }: Params) {
           id: a.id,
           nome: a.nome,
           efeitos: a.efeitos,
+          grau: a.grau,
           duracao: a.duracao,
+          aliado: a.aliado,
+          emCurso: a.emCurso,
+          turnosRestantes: a.turnosRestantes,
         }))}
       />
       <FichaTabs
@@ -362,7 +396,11 @@ export default async function FichaPage({ params, searchParams }: Params) {
         }))}
         alvos={alvos}
         subfichas={subfichas}
+        turno={combate?.voce ?? null}
+        alvosCombate={combate?.participantes ?? []}
+        atributoCdTecnicas={personagem.atributoCdTecnicas}
       />
+      </CatalogoTiposProvider>
       <div className="ficha-topo-acoes">
         {personagem.mesaId && calendario && (
           <RelogioMesa
@@ -384,5 +422,6 @@ export default async function FichaPage({ params, searchParams }: Params) {
         efeitosContexto={efeitosDoContexto(efeitosAgregados)}
       />
     </div>
+    </CatalogoCondicoesProvider>
   );
 }

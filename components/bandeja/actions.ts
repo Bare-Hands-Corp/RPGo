@@ -67,6 +67,9 @@ type BaseRolagemPayload = {
   privacidadeResultado?: boolean | null;
   ocultarRolagem?: boolean | null;
   ocultarResultado?: boolean | null;
+  // Rolagem privada do narrador: nem os dados nem o total são gravados, então
+  // não chegam ao navegador de ninguém. O chat só mostra que ela aconteceu.
+  somenteNarrador?: boolean | null;
   bonusDetalhe?: string | null;
   bonusTotal?: number | null;
   solicitacaoTesteId?: string | null;
@@ -123,6 +126,23 @@ export async function registrarRolagem(
   rolagem: RolagemPayload,
 ): Promise<MensagemSerializada> {
   const user = await requireUser();
+  const privada = rolagem.somenteNarrador === true;
+  if (privada) {
+    // Tira os números antes de montar a mensagem.
+    rolagem = {
+      ...rolagem,
+      total: rolagem.tipo === "lote" ? null : 0,
+      modificador: 0,
+      texto: null,
+      bonusDetalhe: null,
+      bonusTotal: null,
+      ocultarRolagem: true,
+      ocultarResultado: true,
+      ...(rolagem.tipo === "lote"
+        ? { execucoes: rolagem.execucoes.map((e) => ({ ...e, total: 0, modificador: 0, detalhes: [], texto: null })) }
+        : { detalhes: [] }),
+    } as RolagemPayload;
+  }
 
   const nova = await prisma.mensagem.create({
     data: {
@@ -130,7 +150,7 @@ export async function registrarRolagem(
       uid: user.id,
       nome: nome || "Anônimo",
       tipo: "rolagem",
-      total: rolagem.total,
+      total: privada ? null : rolagem.total,
       modificador: rolagem.modificador,
       detalhes: (
         rolagem.tipo === "lote"
