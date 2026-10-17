@@ -20,6 +20,8 @@ type Props = {
   ppMax: number;
   cr: number;
   exaustao: number;
+  // Ficha sem Pontos de Poder (veículo) não mostra o contador.
+  comPp?: boolean;
   // Bloco da sidebar observado; a faixa só aparece quando ele sai por cima.
   ancora: RefObject<HTMLElement | null>;
   onOtimista: (patch: PatchVitais) => void;
@@ -37,6 +39,7 @@ export function FaixaVitais({
   ppMax,
   cr,
   exaustao,
+  comPp = true,
   ancora,
   onOtimista,
   onDano,
@@ -104,6 +107,7 @@ export function FaixaVitais({
           </button>
         </span>
 
+        {comPp && (
         <span className="faixa-vital faixa-vital-pp">
           <i className="fas fa-bolt" title="Pontos de Poder" />
           <EditableStat
@@ -115,6 +119,7 @@ export function FaixaVitais({
           />
           <span className="faixa-vital-max">/{ppMax}</span>
         </span>
+        )}
 
         <span className="faixa-vital faixa-vital-cr" title="Classe de Resistência">
           <i className="fas fa-shield-alt" />

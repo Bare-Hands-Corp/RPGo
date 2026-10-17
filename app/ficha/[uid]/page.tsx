@@ -9,6 +9,7 @@ import {
   comCustosResolvidos,
   contextoDasFormulas,
   efeitosDoContexto,
+  fonteDeAliado,
   fontesDeEfeitoDeItens,
   lerEfeitos,
   maximoDoRecurso,
@@ -16,6 +17,9 @@ import {
 import { juntarTipos, tiposDoDano, tiposDosEfeitos } from "@/lib/dano";
 import { carregarRecebidas, fonteRecebida } from "@/lib/efeitos-servidor";
 import { habilidadesTravadas } from "@/lib/arvore";
+import { INCLUDE_ACESSO, acessoAFicha, fichasDoGrupo, sessaoDoChat } from "@/lib/acesso-ficha";
+import { resumirSubficha } from "@/lib/resumo-personagem";
+import { abasDaFicha, ehSubficha, perfilDe } from "@/lib/subficha";
 import { PerfilSidebar } from "./perfil-sidebar";
 import { FichaTabs } from "./ficha-tabs";
 import { RelogioMesa } from "../../calendario/[mesaId]/relogio";
@@ -39,7 +43,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
     prisma.personagem.findUnique({
       where: { id: uid },
       include: {
-        mesa: true,
+        ...INCLUDE_ACESSO,
         itens: { orderBy: { nome: "asc" } },
         acoes: true,
         recursos: { orderBy: [{ ordem: "asc" }, { nome: "asc" }] },
@@ -95,15 +99,15 @@ export default async function FichaPage({ params, searchParams }: Params) {
     acoes: carregado.acoes.map((a) => comCustosResolvidos(a, ctxFormula, a.grau)),
   };
 
-  // Autorização: dono OU narrador da mesa.
-  const isDono = personagem.userId === user.id;
-  const isNarrador = personagem.mesa?.userId === user.id;
-  if (!isDono && !isNarrador) {
-    redirect("/dashboard");
-  }
+  // Autorização: dono OU narrador da mesa; subficha da mesa, qualquer membro.
+  const acesso = await acessoAFicha(personagem, user.id);
+  if (!acesso) redirect("/dashboard");
+  const { isNarrador } = acesso;
 
-  // Bandeja: sessionId = mesa quando o personagem tá numa, senão usa o próprio personagem.
-  const sessionId = personagem.mesaId || personagem.id;
+  // Bandeja: sessionId = mesa quando o personagem tá numa, senão usa o próprio
+  // personagem. A subficha fala na sessão do dono.
+  const sessionId = sessaoDoChat(personagem);
+  const subficha = ehSubficha(personagem);
 
   // Slugs das perícias customizadas — permite que efeitos de habilidade
   // (modificador/proficiência) mirem uma perícia custom e caiam no agregador.
@@ -162,24 +166,49 @@ export default async function FichaPage({ params, searchParams }: Params) {
     0,
   );
 
-  // Pré-carrega mensagens do chat + calendário + tripulação/navio (se houver
-  // mesa) em paralelo. Tripulação = personagens que compartilham o mesaId.
-  const [mensagensIniciais, calendario, tripulantes, navio, arvoresCopiaveis] =
+  // Pré-carrega mensagens do chat + calendário + quem joga junto + subfichas em
+  // paralelo. Tripulação = personagens que compartilham o mesaId.
+  const [mensagensIniciais, calendario, grupo, subfichasCarregadas, arvoresCopiaveis] =
     await Promise.all([
     listarMensagensSessao(sessionId),
     personagem.mesaId
       ? carregarCalendario(personagem.mesaId, { isNarrador })
       : Promise.resolve(null),
-    personagem.mesaId
-      ? prisma.personagem.findMany({
-          where: { mesaId: personagem.mesaId },
-          select: { id: true, nome: true, fotoUrl: true, nivel: true, hpAtual: true, hpMax: true },
+    // Membros da mesa e subfichas: os alvos de "usar em aliado".
+    prisma.personagem.findMany({
+      where: { molde: false, ...fichasDoGrupo(personagem) },
+      select: {
+        id: true,
+        nome: true,
+        fotoUrl: true,
+        nivel: true,
+        hpAtual: true,
+        hpMax: true,
+        mesaId: true,
+        dono: { select: { nome: true } },
+        mesaDona: { select: { nome: true } },
+      },
+      orderBy: { nome: "asc" },
+    }),
+    // Subfichas do personagem e as da mesa dele, pros cards.
+    subficha
+      ? Promise.resolve([])
+      : prisma.personagem.findMany({
+          where: {
+            OR: [
+              { donoPersonagemId: personagem.id },
+              ...(personagem.mesaId ? [{ donoMesaId: personagem.mesaId }] : []),
+            ],
+          },
+          include: {
+            itens: true,
+            habilidades: true,
+            recursos: { orderBy: [{ ordem: "asc" }, { nome: "asc" }] },
+            periciasCustom: { select: { slug: true } },
+            arvores: { select: { id: true, nos: true } },
+          },
           orderBy: { nome: "asc" },
-        })
-      : Promise.resolve([]),
-    personagem.mesaId
-      ? prisma.navio.findUnique({ where: { mesaId: personagem.mesaId } })
-      : Promise.resolve(null),
+        }),
     // Árvores de qualquer personagem do mesmo dono, pra copiar.
     prisma.arvore.findMany({
       where: { personagem: { userId: user.id } },
@@ -195,11 +224,55 @@ export default async function FichaPage({ params, searchParams }: Params) {
     }),
   ]);
 
+  // Roster da Tripulação: só os membros da mesa. `de` diz de quem é a subficha.
+  const tripulantes = personagem.mesaId
+    ? grupo.filter((g) => g.mesaId === personagem.mesaId)
+    : [];
+  const alvos = grupo.map((g) => ({
+    id: g.id,
+    nome: g.nome,
+    fotoUrl: g.fotoUrl,
+    nivel: g.nivel,
+    hpAtual: g.hpAtual,
+    hpMax: g.hpMax,
+    de: g.dono?.nome ?? g.mesaDona?.nome ?? null,
+  }));
+
+  // Habilidades deste personagem ligadas numa subficha entram no card dela.
+  const subfichas = subfichasCarregadas.map((sub) =>
+    resumirSubficha(
+      sub,
+      habilidadesAtivas
+        .filter((h) => h.aliado && h.ligada && h.alvoPersonagemId === sub.id)
+        .map((h) => fonteDeAliado({ nome: h.nome, de: personagem.nome, efeitos: h.efeitos })),
+    ),
+  );
+
+  const perfil = perfilDe(personagem.perfil);
+  const abas = abasDaFicha({
+    perfil: personagem.perfil,
+    abas: personagem.abas,
+    subficha,
+    temCalendario: !!(personagem.mesaId && calendario),
+  });
+
   return (
     <div className={"ficha-layout" + (calendario ? " com-relogio" : "")}>
-      <FichaRealtime personagemId={personagem.id} mesaId={personagem.mesaId} />
+      <FichaRealtime
+        personagemId={personagem.id}
+        mesaId={personagem.mesaId}
+        temSubfichas={!subficha}
+      />
       <PerfilSidebar
         personagem={personagem}
+        perfil={perfil.slug}
+        dono={
+          personagem.dono
+            ? { nome: personagem.dono.nome, href: `/ficha/${personagem.dono.id}?aba=subfichas` }
+            : personagem.mesaDona
+              ? { nome: personagem.mesaDona.nome, href: null }
+              : null
+        }
         habilidades={habilidadesAtivas}
         recebidas={recebidas.map((r) => ({
           id: r.id,
@@ -221,6 +294,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
       <FichaTabs
         personagemId={personagem.id}
         personagemNome={personagem.nome}
+        abas={abas}
         abaInicial={typeof aba === "string" ? aba : null}
         mesaId={personagem.mesaId}
         nivel={personagem.nivel}
@@ -278,21 +352,16 @@ export default async function FichaPage({ params, searchParams }: Params) {
           ordem: o.ordem,
         }))}
         isNarradorDaMesa={isNarrador}
-        tripulantes={tripulantes}
-        navio={
-          navio
-            ? {
-                id: navio.id,
-                nome: navio.nome,
-                tamanho: navio.tamanho,
-                madeira: navio.madeira,
-                pvAtual: navio.pvAtual,
-                velocidadeNos: navio.velocidadeNos,
-                canhoes: navio.canhoes,
-                descricao: navio.descricao,
-              }
-            : null
-        }
+        tripulantes={tripulantes.map((t) => ({
+          id: t.id,
+          nome: t.nome,
+          fotoUrl: t.fotoUrl,
+          nivel: t.nivel,
+          hpAtual: t.hpAtual,
+          hpMax: t.hpMax,
+        }))}
+        alvos={alvos}
+        subfichas={subfichas}
       />
       <div className="ficha-topo-acoes">
         {personagem.mesaId && calendario && (

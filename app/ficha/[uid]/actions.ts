@@ -91,7 +91,20 @@ import {
   planejarImportacao,
   type PacoteView,
 } from "@/lib/pacote";
-import { TAMANHOS_VALIDOS, MADEIRAS_VALIDAS, statsTamanho } from "@/lib/navio";
+import { TAMANHOS_VALIDOS, MADEIRAS_VALIDAS, presetDeNavio } from "@/lib/navio";
+import { INCLUDE_ACESSO, acessoAFicha, mesmoGrupo, sessaoDoChat } from "@/lib/acesso-ficha";
+import {
+  MAX_COPIAS,
+  MAX_NOME_SUBFICHA,
+  MAX_SUBFICHAS,
+  MAX_SUBFICHAS_DA_MESA,
+  PERFIS_DE_SUBFICHA,
+  ehSubficha,
+  lerAbas,
+  nomesDasCopias,
+  perfilDe,
+} from "@/lib/subficha";
+import { carregarParaCopia, copiarFicha, opsDeCopia, semLinhas } from "@/lib/clonar-ficha";
 import {
   corValida,
   normalizarEfeitoCor,
@@ -135,23 +148,20 @@ import {
 import { nosDoMolde } from "@/lib/moldes-arvore";
 
 // ─── Auth helper interno ───────────────────────────────────
-// Verifica sessão + acesso (dono OU narrador) e retorna o personagem com mesa.
-// Auth (Supabase) e personagem (Postgres) rodam em paralelo — checagem de
-// ownership é feita depois que as duas resolvem.
+// Verifica sessão + acesso (lib/acesso-ficha.ts) e retorna o personagem com a
+// mesa e o dono. Auth (Supabase) e personagem (Postgres) rodam em paralelo —
+// checagem de ownership é feita depois que as duas resolvem.
 async function autorizar(personagemId: string) {
   const [user, personagem] = await Promise.all([
     usuarioDaRequest(),
     prisma.personagem.findUnique({
       where: { id: personagemId },
-      include: { mesa: true },
+      include: INCLUDE_ACESSO,
     }),
   ]);
   if (!user) throw new ErroDeUso("Não autenticado.");
   if (!personagem) throw new ErroDeUso("Personagem não encontrado.");
-
-  const isDono = personagem.userId === user.id;
-  const isNarrador = personagem.mesa?.userId === user.id;
-  if (!isDono && !isNarrador) throw new ErroDeUso("Acesso negado.");
+  if (!(await acessoAFicha(personagem, user.id))) throw new ErroDeUso("Acesso negado.");
 
   return { user, personagem };
 }
@@ -200,6 +210,8 @@ export async function patchPersonagem(
     for (const key of ALLOWED_PERSONAGEM) {
       if (patch[key] !== undefined) data[key] = patch[key];
     }
+    // Subficha joga na mesa do dono.
+    if (ehSubficha(personagem)) delete data.mesaId;
     // PV editado à mão: abaixo de 0 vira PV negativo; de 0 pra cima, os negativos zeram.
     if (data.hpAtual !== undefined) Object.assign(data, separarPv(Number(data.hpAtual)));
     // 0 PV ou exaustão 6 incapacitam: a concentração acaba.
@@ -221,8 +233,19 @@ export async function patchPersonagem(
         ? opsConcentracao(personagemId, personagem.concentracao, null)
         : []),
     ]);
-    revalidatePath(`/ficha/${personagemId}`);
+    revalidarFicha(personagem);
   });
+}
+
+// Revalida a ficha e quem mostra o card dela: o dono ou, se for da mesa, todo membro.
+function revalidarFicha(p: {
+  id: string;
+  donoPersonagemId: string | null;
+  donoMesaId: string | null;
+}) {
+  if (p.donoMesaId) return revalidatePath("/ficha/[uid]", "page");
+  revalidatePath(`/ficha/${p.id}`);
+  if (p.donoPersonagemId) revalidatePath(`/ficha/${p.donoPersonagemId}`);
 }
 
 // Campo que aceita fórmula sem dados ("PROF", "NIVEL/2"): só número vira null.
@@ -1474,16 +1497,15 @@ const SEM_DELTAS: Omit<DeltasInstantaneos, "recursos"> = {
   exaustao: 0,
 };
 
-// Aliado da mesma mesa (não o próprio), com o agregado dele pros máximos.
+// Aliado do mesmo grupo (não o próprio), com o agregado dele pros máximos.
 async function aliadoDoUso(personagem: PersonagemDoUso, alvoId: unknown): Promise<AliadoDoUso> {
   const id = typeof alvoId === "string" ? alvoId : "";
-  if (!personagem.mesaId) throw new ErroDeUso("Entre numa mesa pra usar em um aliado.");
   if (!id || id === personagem.id) throw new ErroDeUso("Escolha um aliado.");
   const [alvo, { agg }] = await Promise.all([
-    prisma.personagem.findFirst({ where: { id, mesaId: personagem.mesaId } }),
+    prisma.personagem.findFirst({ where: { id, molde: false, ...mesmoGrupo(personagem.id) } }),
     carregarAgregado(id),
   ]);
-  if (!alvo) throw new ErroDeUso("Esse aliado não está na mesa.");
+  if (!alvo) throw new ErroDeUso("Esse aliado não joga com você.");
   return { personagem: alvo, agg };
 }
 
@@ -1805,105 +1827,214 @@ function atributosDoPersonagem(p: Record<Atributo, number>): Record<Atributo, nu
   };
 }
 
-// ─── Navio da tripulação ───────────────────────────────────
-// O navio é 1:1 com a Mesa. Como o caller chama da própria ficha, `autorizar`
-// (dono OU narrador) já cobre "qualquer membro edita": cada membro é dono do
-// seu personagem na mesa. Daí derivamos o mesaId — não confiamos no cliente.
-function navioSerializado(n: {
-  id: string;
-  nome: string;
-  tamanho: string;
-  madeira: string;
-  pvAtual: number;
-  velocidadeNos: number;
-  canhoes: number;
-  descricao: string;
-}) {
-  return {
-    id: n.id,
-    nome: n.nome,
-    tamanho: n.tamanho,
-    madeira: n.madeira,
-    pvAtual: n.pvAtual,
-    velocidadeNos: n.velocidadeNos,
-    canhoes: n.canhoes,
-    descricao: n.descricao,
-  };
+// ─── Subfichas ─────────────────────────────────────────────
+// Ficha com dono: de um personagem (lacaio, animal) ou da mesa (o navio da
+// tripulação). Subficha não tem subficha.
+
+type SubfichaInput = {
+  nome?: unknown;
+  perfil?: unknown;
+  molde?: unknown;
+  hpMax?: unknown;
+  // Vale pra mesa inteira (a ficha de quem cria precisa estar numa).
+  daMesa?: unknown;
+  // Navio do livro como ficha de partida (lib/navio.ts).
+  navio?: { tamanho?: unknown; madeira?: unknown } | null;
+};
+
+function nomeDeSubficha(raw: unknown): string {
+  const nome = typeof raw === "string" ? raw.trim().slice(0, MAX_NOME_SUBFICHA) : "";
+  if (!nome) throw new ErroDeUso("Dê um nome pra subficha.");
+  return nome;
 }
 
-async function mesaDoPersonagem(personagemId: string) {
-  const { personagem } = await autorizar(personagemId);
-  if (!personagem.mesaId) {
-    throw new ErroDeUso("Entre em uma mesa para ter um navio.");
-  }
-  return personagem.mesaId;
+function perfilDeSubficha(raw: unknown): string {
+  if (!PERFIS_DE_SUBFICHA.some((p) => p.slug === raw)) throw new ErroDeUso("Perfil inválido.");
+  return raw as string;
 }
 
-export async function criarNavio(personagemId: string) {
+export async function criarSubficha(personagemId: string, input: SubfichaInput) {
   return executar("ficha", async () => {
-    const mesaId = await mesaDoPersonagem(personagemId);
-    // upsert idempotente — tolera double-click / race entre dois membros.
-    // Nasce com o PV cheio do tamanho default (mais útil que começar em 0).
-    const navio = await prisma.navio.upsert({
-      where: { mesaId },
-      update: {},
-      create: { mesaId, nome: "Novo Navio", pvAtual: statsTamanho("pequeno").pvMax },
-    });
+    const { personagem } = await autorizar(personagemId);
+    if (ehSubficha(personagem)) throw new ErroDeUso("Subficha não tem subficha.");
+
+    const daMesa = input.daMesa === true;
+    const mesa = daMesa ? personagem.mesa : null;
+    if (daMesa && !mesa) throw new ErroDeUso("Entre em uma mesa pra criar a ficha dela.");
+    const dono = mesa ? { donoMesaId: mesa.id } : { donoPersonagemId: personagemId };
+    const quantas = await prisma.personagem.count({ where: { ...dono, moldeId: null } });
+    if (quantas >= (mesa ? MAX_SUBFICHAS_DA_MESA : MAX_SUBFICHAS)) {
+      throw new ErroDeUso("Limite de subfichas atingido.");
+    }
+
+    const nome = nomeDeSubficha(input.nome);
+    const perfil = perfilDeSubficha(input.perfil);
+    const navio =
+      perfil === "veiculo" && input.navio
+        ? { tamanho: String(input.navio.tamanho), madeira: String(input.navio.madeira) }
+        : null;
+    if (navio && !TAMANHOS_VALIDOS.has(navio.tamanho)) throw new ErroDeUso("Tamanho de navio inválido.");
+    if (navio && !MADEIRAS_VALIDAS.has(navio.madeira)) throw new ErroDeUso("Madeira inválida.");
+    const preset = navio ? presetDeNavio(navio.tamanho, navio.madeira) : null;
+    const hpMax = preset?.hpMax ?? clamp(Math.trunc(Number(input.hpMax) || 0), 0, 99999);
+
+    const id = randomUUID();
+    await prisma.$transaction([
+      prisma.personagem.create({
+        data: {
+          id,
+          // A da mesa é do narrador; a de personagem, de quem é o dono.
+          userId: mesa ? mesa.userId : personagem.userId,
+          ...dono,
+          nome,
+          perfil,
+          molde: !mesa && input.molde === true,
+          hpMax,
+          hpAtual: hpMax,
+          // Veículo não tem atributo: 10 deixa todo modificador em zero.
+          ...(perfil === "veiculo"
+            ? {
+                forca: 10,
+                destreza: 10,
+                constituicao: 10,
+                sabedoria: 10,
+                vontade: 10,
+                presenca: 10,
+                deslocamento: 0,
+                nado: 0,
+              }
+            : {}),
+        },
+      }),
+      ...(preset
+        ? [
+            prisma.habilidade.createMany({
+              data: preset.habilidades.map((h, ordem) => ({
+                personagemId: id,
+                nome: h.nome,
+                tipo: "passiva",
+                descricao: h.descricao,
+                tags: h.tags,
+                ordem,
+                efeitos: h.efeitos,
+              })),
+            }),
+            prisma.recurso.create({
+              data: { personagemId: id, nome: preset.recurso.nome, valorMax: preset.recurso.valorMax },
+            }),
+          ]
+        : []),
+    ]);
     revalidatePath(`/ficha/${personagemId}`);
-    return navioSerializado(navio);
+    return { id };
   });
 }
 
-const ALLOWED_NAVIO = [
-  "nome",
-  "tamanho",
-  "madeira",
-  "pvAtual",
-  "velocidadeNos",
-  "canhoes",
-  "descricao",
-] as const;
+// Subficha autorizada; `autorizar` já cobre dono, narrador e membro da mesa.
+async function autorizarSubficha(subfichaId: string) {
+  const acesso = await autorizar(subfichaId);
+  if (!ehSubficha(acesso.personagem)) throw new ErroDeUso("Esta ficha não é subficha.");
+  return acesso;
+}
 
-type NavioPatch = Partial<Record<(typeof ALLOWED_NAVIO)[number], unknown>>;
-
-export async function patchNavio(personagemId: string, patch: NavioPatch) {
+export async function atualizarSubficha(
+  subfichaId: string,
+  patch: { nome?: unknown; perfil?: unknown; molde?: unknown; abas?: unknown },
+) {
   return executar("ficha", async () => {
-    const mesaId = await mesaDoPersonagem(personagemId);
+    const { personagem } = await autorizarSubficha(subfichaId);
 
-    const data: Record<string, unknown> = {};
-    for (const key of ALLOWED_NAVIO) {
-      if (patch[key] !== undefined) data[key] = patch[key];
-    }
-
-    if (typeof data.nome === "string") data.nome = data.nome.trim();
-    if (typeof data.descricao === "string") data.descricao = data.descricao.trim();
-    if (data.tamanho !== undefined && !TAMANHOS_VALIDOS.has(String(data.tamanho))) {
-      throw new ErroDeUso("Tamanho de navio inválido.");
-    }
-    if (data.madeira !== undefined && !MADEIRAS_VALIDAS.has(String(data.madeira))) {
-      throw new ErroDeUso("Madeira inválida.");
-    }
-    for (const num of ["pvAtual", "velocidadeNos", "canhoes"] as const) {
-      if (data[num] !== undefined) {
-        const n = Number(data[num]);
-        if (!Number.isFinite(n)) throw new ErroDeUso("Valor inválido.");
-        data[num] = Math.max(0, Math.trunc(n));
+    const data: Prisma.PersonagemUpdateInput = {};
+    if (patch.nome !== undefined) data.nome = nomeDeSubficha(patch.nome);
+    if (patch.perfil !== undefined) data.perfil = perfilDeSubficha(patch.perfil);
+    if (patch.molde !== undefined) {
+      // Só ficha de personagem que não é cópia vira molde.
+      if (patch.molde === true && (personagem.donoMesaId || personagem.moldeId)) {
+        throw new ErroDeUso("Esta subficha não pode ser molde.");
       }
+      data.molde = patch.molde === true;
     }
-
+    if (patch.abas !== undefined) {
+      const abas = lerAbas(patch.abas);
+      const padrao = perfilDe(data.perfil ?? personagem.perfil).abas;
+      // Iguais às do perfil, não guarda nada.
+      const iguais = !!abas && abas.length === padrao.length && abas.every((a) => padrao.includes(a));
+      data.abas = !abas || iguais ? Prisma.DbNull : abas;
+    }
     if (Object.keys(data).length === 0) return;
 
-    await prisma.navio.update({ where: { mesaId }, data });
-    revalidatePath(`/ficha/${personagemId}`);
+    await prisma.personagem.update({ where: { id: subfichaId }, data });
+    revalidarFicha(personagem);
   });
 }
 
-export async function deletarNavio(personagemId: string) {
+// Apaga a subficha; se for molde, as cópias somem junto.
+export async function apagarSubficha(subfichaId: string) {
   return executar("ficha", async () => {
-    const mesaId = await mesaDoPersonagem(personagemId);
-    // deleteMany tolera ausência (sem throw se já não existe).
-    await prisma.navio.deleteMany({ where: { mesaId } });
-    revalidatePath(`/ficha/${personagemId}`);
+    const { personagem } = await autorizarSubficha(subfichaId);
+    await prisma.personagem.deleteMany({
+      where: {
+        OR: [
+          { id: subfichaId },
+          ...(personagem.molde && personagem.donoPersonagemId
+            ? [{ moldeId: subfichaId, donoPersonagemId: personagem.donoPersonagemId }]
+            : []),
+        ],
+      },
+    });
+    revalidarFicha(personagem);
+  });
+}
+
+// Cópias novas de um molde, cada uma com a ficha inteira dele.
+export async function invocarCopias(moldeId: string, quantidade: number) {
+  return executar("ficha", async () => {
+    const [{ personagem }, origem] = await Promise.all([
+      autorizarSubficha(moldeId),
+      carregarParaCopia(moldeId),
+    ]);
+    const donoPersonagemId = personagem.donoPersonagemId;
+    if (!personagem.molde || !donoPersonagemId || !origem) {
+      throw new ErroDeUso("Só um molde invoca cópias.");
+    }
+    const quantas = clamp(Math.trunc(Number(quantidade) || 0), 1, MAX_COPIAS);
+    const existentes = await prisma.personagem.findMany({
+      where: { moldeId, donoPersonagemId },
+      select: { nome: true },
+    });
+    if (existentes.length + quantas > MAX_COPIAS) {
+      throw new ErroDeUso(`Um molde tem até ${MAX_COPIAS} cópias.`);
+    }
+
+    const linhas = semLinhas();
+    const nomes = nomesDasCopias(
+      origem.nome,
+      existentes.map((c) => c.nome),
+      quantas,
+    );
+    const copias = nomes.map((nome) => ({
+      id: copiarFicha(origem, { nome, molde: false, moldeId }, linhas),
+      nome,
+    }));
+    await prisma.$transaction(opsDeCopia(linhas));
+    revalidarFicha(personagem);
+    return { copias };
+  });
+}
+
+// Dispensa (apaga) cópias de um molde; sem `ids`, todas.
+export async function dispensarCopias(moldeId: string, ids?: string[]) {
+  return executar("ficha", async () => {
+    const { personagem } = await autorizarSubficha(moldeId);
+    if (!personagem.donoPersonagemId) throw new ErroDeUso("Só um molde tem cópias.");
+    await prisma.personagem.deleteMany({
+      where: {
+        moldeId,
+        donoPersonagemId: personagem.donoPersonagemId,
+        ...(Array.isArray(ids) ? { id: { in: ids.filter((i) => typeof i === "string") } } : {}),
+      },
+    });
+    revalidarFicha(personagem);
   });
 }
 
@@ -2772,7 +2903,7 @@ export async function receberDano(
     };
     const mensagem = prisma.mensagem.create({
       data: {
-        sessionId: personagem.mesaId || personagem.id,
+        sessionId: sessaoDoChat(personagem),
         uid: user.id,
         nome: personagem.nome,
         mensagem: `recebeu ${r.final} de dano`,
@@ -2842,7 +2973,7 @@ export async function curarPv(personagemId: string, valor: unknown) {
       prisma.personagem.update({ where: { id: personagemId }, data: { hpAtual: depois } }),
       prisma.mensagem.create({
         data: {
-          sessionId: personagem.mesaId || personagem.id,
+          sessionId: sessaoDoChat(personagem),
           uid: user.id,
           nome: personagem.nome,
           mensagem: `recuperou ${depois - personagem.hpAtual} PV`,
@@ -2997,7 +3128,7 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
     }
     const mensagem = prisma.mensagem.create({
       data: {
-        sessionId: personagem.mesaId || personagem.id,
+        sessionId: sessaoDoChat(personagem),
         uid: user.id,
         nome: personagem.nome,
         mensagem: "passou o turno",

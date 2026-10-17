@@ -12,8 +12,8 @@ export function modificador(valor: number): number {
 
 // Formata um modificador como string com sinal (+3, 0, -2).
 export function formatarMod(mod: number): string {
-  if (mod > 0) return `+${mod}`;
-  return String(mod);
+  const texto = String(mod).replace(".", ",");
+  return mod > 0 ? `+${texto}` : texto;
 }
 
 // Bônus de proficiência por nível (livro do jogador, p. 32).
@@ -954,7 +954,10 @@ export type GatilhoExplosao = "maximo" | "valor" | "total" | "critico";
 // O que faz o bônus progressivo subir sozinho; sem isso, só na mão.
 export type GatilhoProgressivo = "turno" | "rolagem";
 
-export type EfeitoHabilidade =
+// `sempreAtivo`: vale sempre, mesmo em habilidade de Usar, desligada ou com usos limitados.
+export type EfeitoHabilidade = EfeitoCru & { sempreAtivo?: boolean };
+
+type EfeitoCru =
   // `formula` (ex: "PROF/2+1", "3*NIVEL") vale no lugar de `valor` quando existe.
   | { tipo: "modificador"; alvo: string; valor: number; formula?: string; quando?: string }
   | { tipo: "vantagem"; alvo: string; quando?: string }
@@ -1725,6 +1728,14 @@ export function normalizarEfeito(
   tipo: TipoEfeito,
   obj: Record<string, unknown>,
 ): EfeitoHabilidade | null {
+  const e = normalizarCampos(tipo, obj);
+  return e && obj.sempreAtivo === true && podeSerSempreAtivo(e) ? { ...e, sempreAtivo: true } : e;
+}
+
+// Metros de deslocamento andam de meio em meio (1,5 · 4,5 · 7,5).
+const meioMetro = (n: number) => Math.round(n * 2) / 2;
+
+function normalizarCampos(tipo: TipoEfeito, obj: Record<string, unknown>): EfeitoCru | null {
   const str = (v: unknown) => (typeof v === "string" ? v : "");
   const num = (v: unknown) =>
     typeof v === "number" && Number.isFinite(v) ? v : Number(v) || 0;
@@ -1734,10 +1745,11 @@ export function normalizarEfeito(
       // Fórmula que é só número vira `valor`.
       const formula = str(obj.formula).trim();
       const numerica = formula !== "" && Number.isFinite(Number(formula));
+      const valor = numerica ? Number(formula) : num(obj.valor);
       return {
         tipo,
         alvo: str(obj.alvo),
-        valor: Math.trunc(numerica ? Number(formula) : num(obj.valor)),
+        valor: alvoDeMovimento(str(obj.alvo)) ? meioMetro(valor) : Math.trunc(valor),
         ...(formula && !numerica ? { formula } : {}),
         ...(str(obj.quando) ? { quando: str(obj.quando) } : {}),
       };
@@ -1783,7 +1795,7 @@ export function normalizarEfeito(
       return { tipo, condicao: str(obj.condicao) };
     case "condicao_aplicar": {
       if (!str(obj.condicao)) return null;
-      const e: EfeitoHabilidade = { tipo, condicao: str(obj.condicao) };
+      const e: EfeitoCru = { tipo, condicao: str(obj.condicao) };
       if (typeof obj.cd === "number" && Number.isFinite(obj.cd)) e.cd = Math.trunc(obj.cd);
       if (str(obj.duracao)) e.duracao = str(obj.duracao);
       return e;
@@ -1795,7 +1807,7 @@ export function normalizarEfeito(
       return { tipo, tipoDano: str(obj.tipoDano) };
     case "deslocamento":
       if (!str(obj.tipoMov)) return null;
-      return { tipo, tipoMov: str(obj.tipoMov), valor: num(obj.valor) };
+      return { tipo, tipoMov: str(obj.tipoMov), valor: meioMetro(num(obj.valor)) };
     case "valor_igual": {
       const alvo = str(obj.alvo).trim().toLowerCase();
       const de = str(obj.de).trim().toLowerCase();
@@ -2100,6 +2112,15 @@ export const MOVIMENTOS: { slug: string; nome: string }[] = [
   { slug: "cavar", nome: "Cavar" },
 ];
 
+// Modos além de andar; como alvo de bônus, somam em quem já tem o modo.
+const MODOS_DE_MOVIMENTO = new Set(MOVIMENTOS.map((m) => m.slug).filter((m) => m !== "caminhar"));
+
+// Alvo de bônus medido em metros (aceita meio metro).
+function alvoDeMovimento(alvoRaw: string): boolean {
+  const alvo = alvoRaw.trim().toLowerCase();
+  return alvo === "deslocamento" || MODOS_DE_MOVIMENTO.has(alvo);
+}
+
 
 // ─── Alvos canônicos de efeito (slugs que a automação reconhece) ─────
 
@@ -2131,7 +2152,12 @@ export const ALVOS_AGREGAVEIS: { slug: string; nome: string; grupo: string }[] =
   { slug: "cr", nome: "Classe de Resistência", grupo: "Geral" },
   { slug: "iniciativa", nome: "Iniciativa", grupo: "Geral" },
   { slug: "percepcao-passiva", nome: "Percepção Passiva", grupo: "Geral" },
-  { slug: "deslocamento", nome: "Deslocamento", grupo: "Geral" },
+  { slug: "deslocamento", nome: "Deslocamento", grupo: "Deslocamento" },
+  ...MOVIMENTOS.filter((m) => MODOS_DE_MOVIMENTO.has(m.slug)).map((m) => ({
+    slug: m.slug,
+    nome: m.nome,
+    grupo: "Deslocamento",
+  })),
   { slug: "carga", nome: "Capacidade de Carga", grupo: "Geral" },
   { slug: "hp-max", nome: "PV Máximo", grupo: "PV e PP" },
   { slug: "hp-temp", nome: "PV Temporário", grupo: "PV e PP" },
@@ -2540,12 +2566,16 @@ type FonteProficiencia = FonteLista & { dobrada: boolean };
 // "cru" no agregado com alvo + fonte; quem rola decide se casa com o contexto
 // atual (ataque CC, perícia X…). Diferente de crit_range/floor_d20 (globais) e
 // reroll (por gatilho), que já têm bucket próprio.
-export type EfeitoContextual = {
+export type EfeitoContextual = Gasto & {
   tipo: "vantagem" | "desvantagem" | "sucesso_auto" | "falha_auto";
   alvo: string;
   fonte: string;
   quando?: string;
 };
+
+// Uso limitado de quem dá o efeito: o chip nasce desligado e gasta 1 uso ao
+// rolar. `gasta` = a habilidade; `usos` ("2/3") e `custo` vão pro chip.
+export type Gasto = { gasta?: string; usos?: string; custo?: string };
 
 // Desconto de técnica cru; o custo sai de `custoComDescontos` com o grau da ação.
 export type DescontoTecnica = {
@@ -2561,21 +2591,19 @@ export type DescontoTecnica = {
 // Nível e atributos com que as fórmulas dos efeitos são resolvidas.
 export type ContextoFormula = { nivel: number; atributos: Record<Atributo, number> };
 
-// Dano extra ou dados extras guardados crus. `gasta` = habilidade de Usar que o
-// chip gasta ao rolar (dano sob demanda, tipo Heat); `usos` e `custo` vão pro tooltip.
+// Dano extra ou dados extras guardados crus. Com `gasta`, o chip é sob demanda
+// (habilidade de Usar, tipo Heat, ou passiva com usos limitados).
 // `vezes` = quantos usos dá pra empilhar na mesma rolagem (usos, recurso e PP que sobram).
-export type ExtraDano = FiltroDano & {
-  chave: string;
-  tipo: "dano_extra" | "dados_extra";
-  formula: string;
-  sempre: boolean;
-  em: string;
-  fonte: string;
-  gasta?: string;
-  usos?: string;
-  custo?: string;
-  vezes?: number;
-};
+export type ExtraDano = FiltroDano &
+  Gasto & {
+    chave: string;
+    tipo: "dano_extra" | "dados_extra";
+    formula: string;
+    sempre: boolean;
+    em: string;
+    fonte: string;
+    vezes?: number;
+  };
 
 // Teto de usos da mesma habilidade empilhados numa rolagem.
 const MAX_EMPILHAR = 10;
@@ -2646,9 +2674,9 @@ export type EfeitosAgregados = {
   // Nível e atributos usados pelas fórmulas dos efeitos (null = sem fórmula).
   ctxFormula: ContextoFormula | null;
   // Crítico expandido por alvo de ataque; na jogada vale o menor que casa.
-  critsFaixa: { minimo: number; alvo: string; fonte: string }[];
+  critsFaixa: (Gasto & { minimo: number; alvo: string; fonte: string })[];
   // Mínimos no d20 por alvo; na jogada vale o maior que casa.
-  floorsD20: { minimo: number; alvo: string; fonte: string }[];
+  floorsD20: (Gasto & { minimo: number; alvo: string; fonte: string })[];
   // Rerrolagens por gatilho (ataque/salvaguarda/teste). Usos somam.
   rerolls: Partial<Record<string, UsoLimitado>>;
   // Sentidos especiais (visão escuro, sentir presença…). Indexado por nome
@@ -2659,6 +2687,8 @@ export type EfeitosAgregados = {
   // maior", regra das espécies). "caminhar" NÃO entra aqui: soma no
   // bonusDeslocamento (deslocamento base) pra casar com `modificador→deslocamento`.
   deslocamentosExtra: Partial<Record<string, FonteValor>>;
+  // Bônus em nadar/voar/escalar/cavar: soma em quem já tem o modo.
+  bonusMovimento: Partial<Record<string, FonteValor>>;
   // Fatores multiplicativos (ex: Espécie Gigante ×2 carga). Indexado pelo
   // slug do alvo. Vários multiplicadores compõem por produto (×2 × ×1.5 = ×3).
   // Default 1 (sem efeito). Ordem com aditivo: (base + bônus) × fator.
@@ -2672,21 +2702,19 @@ export type EfeitosAgregados = {
   // ─ Contextuais de dano/ataque (etapa 3.5) ─
   // Piso de dano (metade do MÁXIMO da fórmula), por dano (`em`). O piso depende
   // da fórmula rolada, então é calculado no Rolador.
-  danosMin: (FiltroDano & { em: string; fonte: string; quando?: string })[];
-  // Bônus com `quando` numa rolagem: chip desligado no Rolador, fora dos totais.
-  situacionais: { alvo: string; valor: number; fonte: string; quando: string }[];
-  // Dano máximo por dano; `gasta` = habilidade de Usar (sob demanda).
-  danosMaximos: (FiltroDano & {
-    em: string;
-    sempre: boolean;
-    apartir: number;
-    fonte: string;
-    gasta?: string;
-    usos?: string;
-    custo?: string;
-  })[];
+  danosMin: (FiltroDano & Gasto & { em: string; fonte: string; quando?: string })[];
+  // Bônus de rolagem com `quando` ou uso limitado: chip desligado no Rolador, fora dos totais.
+  situacionais: (Gasto & { alvo: string; valor: number; fonte: string; quando: string })[];
+  // Dano máximo por dano; com `gasta`, sob demanda.
+  danosMaximos: (FiltroDano &
+    Gasto & {
+      em: string;
+      sempre: boolean;
+      apartir: number;
+      fonte: string;
+    })[];
   // Dado de dano mínimo.
-  pisosDado: (FiltroDano & { ate: number; vira: number; em: string; fonte: string })[];
+  pisosDado: (FiltroDano & Gasto & { ate: number; vira: number; em: string; fonte: string })[];
   // Crítico maior: multiplicador dos dados e dados a mais.
   critsExtra: (FiltroDano & { dados: number; vezes: number; em: string; fonte: string })[];
   // Acerto por dano (alvo de ataque).
@@ -2704,9 +2732,15 @@ export type EfeitosAgregados = {
   // Valor igual a outro (ou à metade dele): CR, deslocamentos e atributos.
   valoresIguais: ValorIgual[];
   // Multiataque por alvo de ataque: vale o maior total, mais os ataques a mais.
-  multiAtaques: { vezes: number; soma: boolean; alvo: string; fonte: string }[];
+  multiAtaques: (Gasto & { vezes: number; soma: boolean; alvo: string; fonte: string })[];
   // Explosões de dano e de ataque.
-  explosoes: { gatilho: GatilhoExplosao; valor: number; limite: number; em: string; fonte: string }[];
+  explosoes: (Gasto & {
+    gatilho: GatilhoExplosao;
+    valor: number;
+    limite: number;
+    em: string;
+    fonte: string;
+  })[];
   // Bônus progressivos de rolagem, crus, com a contagem atual.
   progressivos: {
     formula: string;
@@ -2724,19 +2758,17 @@ export type EfeitosAgregados = {
   // Troca de tipo de dano. Primeira habilidade a definir vence; fontes acumulam.
   trocaDano: { tipoDano: string; fontes: string[] } | null;
   // Defesas do alvo ignoradas, por ataque — DESCRITIVO (chip da rolagem).
-  // `opcional`: tem `quando`; `gasta` = habilidade de Usar (sob demanda).
-  ignoras: (FiltroDano & {
-    defesas: string;
-    em: string;
-    quando?: string;
-    opcional?: boolean;
-    fonte: string;
-    gasta?: string;
-    usos?: string;
-    custo?: string;
-  })[];
+  // `opcional`: tem `quando` ou é sob demanda (`gasta`).
+  ignoras: (FiltroDano &
+    Gasto & {
+      defesas: string;
+      em: string;
+      quando?: string;
+      opcional?: boolean;
+      fonte: string;
+    })[];
   // Alcance a mais ou trocado, por alvo de ataque — DESCRITIVO (chip da rolagem).
-  // `opcional`: vem de habilidade de Usar ou tem `quando`; nasce desligado.
+  // `opcional`: vem de habilidade de Usar ou com usos limitados, ou tem `quando`; nasce desligado.
   alcances: {
     valor: number;
     vira?: string;
@@ -2806,6 +2838,7 @@ function vazio(): EfeitosAgregados {
     rerolls: {},
     sentidos: {},
     deslocamentosExtra: {},
+    bonusMovimento: {},
     multiplicadores: {},
     contextuais: [],
     substituicoesAtributo: {},
@@ -3017,9 +3050,13 @@ export function computarDeltasInstantaneos(
   return d;
 }
 
-// Voar/nadar/escalar/cavar: o maior entre efeito de deslocamento e valor fixo.
+// Voar/nadar/escalar/cavar: o maior entre o efeito de deslocamento, o valor fixo
+// e, no nado, o da ficha (`nado`); o bônus soma por cima de quem tem o modo.
 export function modosDeDeslocamento(
-  agg: Pick<EfeitosAgregados, "deslocamentosExtra" | "valoresFixos">,
+  agg: Pick<EfeitosAgregados, "deslocamentosExtra" | "valoresFixos"> & {
+    bonusMovimento?: EfeitosAgregados["bonusMovimento"];
+  },
+  nado = 0,
 ): Record<string, { valor: number; fontes: string[] }> {
   const out: Record<string, { valor: number; fontes: string[] }> = {};
   for (const [tipo, fv] of Object.entries(agg.deslocamentosExtra)) {
@@ -3028,6 +3065,15 @@ export function modosDeDeslocamento(
   for (const tipo of ["nadar", "voar", "escalar", "cavar"]) {
     const fixo = agg.valoresFixos[tipo];
     if (fixo && fixo.valor > (out[tipo]?.valor ?? 0)) out[tipo] = fixo;
+  }
+  if (nado > (out.nadar?.valor ?? 0)) out.nadar = { valor: nado, fontes: [] };
+  for (const [tipo, bonus] of Object.entries(agg.bonusMovimento ?? {})) {
+    const atual = out[tipo];
+    if (!bonus || !atual || atual.valor <= 0) continue;
+    out[tipo] = {
+      valor: Math.max(0, atual.valor + bonus.valor),
+      fontes: dedup([...atual.fontes, ...bonus.fontes]),
+    };
   }
   return out;
 }
@@ -3146,7 +3192,8 @@ export function modoDosEfeitos(
 ): { vantagem: string[]; desvantagem: string[]; sucesso: string[]; falha: string[] } {
   const out = { vantagem: [] as string[], desvantagem: [] as string[], sucesso: [] as string[], falha: [] as string[] };
   for (const c of contextuais) {
-    if (c.quando?.trim() || !casaContexto(c.alvo, ctx)) continue;
+    // Com `quando` ou uso limitado, só vale se ligarem na hora.
+    if (c.quando?.trim() || c.gasta || !casaContexto(c.alvo, ctx)) continue;
     if (c.tipo === "vantagem") out.vantagem.push(c.fonte);
     else if (c.tipo === "desvantagem") out.desvantagem.push(c.fonte);
     else if (c.tipo === "sucesso_auto") out.sucesso.push(c.fonte);
@@ -3235,7 +3282,65 @@ export function efeitoInstantaneo(e: EfeitoHabilidade): boolean {
 // on/off (estado `ligada`) em vez do botão "Usar" de disparo único. Auto-detect:
 // sem passo novo de autoria.
 export function temEfeitoSustentado(efeitos: EfeitoHabilidade[]): boolean {
-  return efeitos.some(efeitoEhSustentado);
+  return efeitos.some((e) => !e.sempreAtivo && efeitoEhSustentado(e));
+}
+
+// Efeito que pode ficar valendo sempre: tudo que não acontece só na hora do uso.
+export function podeSerSempreAtivo(e: EfeitoCru): boolean {
+  if (e.tipo === "por_turno") return false;
+  return (
+    efeitoEhSustentado(e) ||
+    e.tipo === "dano_extra" ||
+    e.tipo === "dados_extra" ||
+    e.tipo === "dano_maximo" ||
+    e.tipo === "ignora" ||
+    e.tipo === "alcance"
+  );
+}
+
+// Efeito que a passiva com usos limitados só dá gastando 1 uso (chip sob demanda
+// no Rolador). Espelha o que `agregarEfeitos` faz com `gasto`.
+export function dependeDosUsos(e: EfeitoCru, slugsPericiaCustom: Set<string> = new Set()): boolean {
+  switch (e.tipo) {
+    case "modificador":
+      return alvoDeRolagem(e.alvo, slugsPericiaCustom);
+    // Dado a mais na cura não passa pelo Rolador.
+    case "dano_extra":
+      return (e.em ?? "dano").trim().toLowerCase() !== "cura";
+    case "vantagem":
+    case "desvantagem":
+    case "sucesso_auto":
+    case "falha_auto":
+    case "crit_range":
+    case "floor_d20":
+    case "reroll":
+    case "dados_extra":
+    case "dano_maximo":
+    case "piso_dado":
+    case "dano_min":
+    case "dano_melhor_de":
+    case "explosao":
+    case "multi_ataque":
+    case "ignora":
+    case "alcance":
+      return true;
+    default:
+      return false;
+  }
+}
+
+// Efeitos "sempre ativo" viram uma fonte passiva sem usos; o resto segue a habilidade.
+function comSempreAtivos(fontes: HabilidadeFonte[]): HabilidadeFonte[] {
+  return fontes.flatMap((h) => {
+    if (h.aliado) return [h];
+    const efeitos = lerEfeitos(h.efeitos);
+    const sempre = efeitos.filter((e) => e.sempreAtivo);
+    if (sempre.length === 0) return [h];
+    return [
+      { nome: h.nome, tipo: "passiva", efeitos: sempre },
+      { ...h, efeitos: efeitos.filter((e) => !e.sempreAtivo) },
+    ];
+  });
 }
 
 // Fonte de efeito do `agregarEfeitos`; item equipado entra como passiva.
@@ -3428,7 +3533,7 @@ function atributosComBonusFixos(
   const out = { ...base };
   const fixos: Partial<Record<Atributo, number>> = {};
   const iguais: ValorIgual[] = [];
-  for (const h of habilidades) {
+  for (const h of comSempreAtivos(habilidades)) {
     if (!agrega(h) || h.aliado) continue;
     for (const e of lerEfeitos(h.efeitos)) {
       if (e.tipo === "modificador" && !e.formula) {
@@ -3574,12 +3679,16 @@ export function agregarEfeitos(
   }
   const grau = ctx?.grau ?? 0;
   const f = out.ctxFormula;
-  const numero = (formula: string) =>
-    f ? valorDaFormula(formula, f.atributos, f.nivel, { grau }) : Number(formula) || 0;
+  // Número com casa decimal ("7,5") é o próprio valor, não uma conta.
+  const numero = (formula: string) => {
+    const decimal = /^\s*-?\d+[.,]\d+\s*$/.test(formula) ? Number(formula.replace(",", ".")) : null;
+    if (decimal != null) return decimal;
+    return f ? valorDaFormula(formula, f.atributos, f.nivel, { grau }) : Number(formula) || 0;
+  };
   const novoExtra = (x: Omit<ExtraDano, "chave">) =>
     out.extrasDano.push({ ...x, chave: `extra-${out.extrasDano.length}` });
 
-  for (const h of habilidades) {
+  for (const h of comSempreAtivos(habilidades)) {
     // Efeito em aliado vale no aliado, não em quem usa.
     if (h.aliado) continue;
     const ehPassiva = h.tipo === "passiva";
@@ -3652,6 +3761,11 @@ export function agregarEfeitos(
       }
       continue;
     }
+    // Passiva com usos limitados: o que ela dá numa rolagem vira chip sob demanda
+    // (nasce desligado e gasta 1 uso); sem usos, sai do Rolador. O resto vale sempre.
+    const limite = ehPassiva ? limiteDeUso(h, f) : null;
+    const semUsos = limite === "esgotado";
+    const gasto = limite && limite !== "esgotado" ? limite : null;
     for (const e of efeitos) {
       // Defesas (resistência/imunidade/imune a condição/imune a crítico) são
       // traços; `passiva` marca se a fonte é permanente (vs. condicional ao
@@ -3678,14 +3792,15 @@ export function agregarEfeitos(
       }
       if (e.tipo === "modificador") {
         const valor = e.formula ? numero(e.formula) : e.valor;
-        // Com `quando`, bônus de rolagem vira chip desligado (fora dos totais).
-        if (e.quando?.trim() && alvoDeRolagem(e.alvo, slugsPericiaCustom)) {
-          if (valor) {
+        // Com `quando` ou uso limitado, bônus de rolagem vira chip desligado (fora dos totais).
+        if ((e.quando?.trim() || limite) && alvoDeRolagem(e.alvo, slugsPericiaCustom)) {
+          if (valor && !semUsos) {
             out.situacionais.push({
               alvo: e.alvo.trim().toLowerCase(),
               valor,
               fonte: h.nome,
-              quando: e.quando.trim(),
+              quando: e.quando?.trim() ?? "",
+              ...gasto,
             });
           }
         } else {
@@ -3694,19 +3809,21 @@ export function agregarEfeitos(
       } else if (e.tipo === "proficiencia") {
         aplicarProficiencia(out, e.alvo, !!e.dobrada, h.nome, slugsPericiaCustom);
       } else if (e.tipo === "crit_range") {
-        if (e.minimo < 20) {
+        if (e.minimo < 20 && !semUsos) {
           out.critsFaixa.push({
             minimo: e.minimo,
             alvo: (e.alvo ?? "ataque").trim().toLowerCase() || "ataque",
             fonte: h.nome,
+            ...gasto,
           });
         }
       } else if (e.tipo === "floor_d20") {
-        if (e.minimo > 0) {
+        if (e.minimo > 0 && !semUsos) {
           out.floorsD20.push({
             minimo: e.minimo,
             alvo: (e.alvo ?? "qualquer").trim().toLowerCase() || "qualquer",
             fonte: h.nome,
+            ...gasto,
           });
         }
       } else if (e.tipo === "reroll") {
@@ -3751,30 +3868,36 @@ export function agregarEfeitos(
         e.tipo === "falha_auto"
       ) {
         const alvo = e.alvo.trim().toLowerCase();
-        if (alvo) {
-          out.contextuais.push({ tipo: e.tipo, alvo, fonte: h.nome, quando: e.quando });
+        if (alvo && !semUsos) {
+          out.contextuais.push({ tipo: e.tipo, alvo, fonte: h.nome, quando: e.quando, ...gasto });
         }
       } else if (e.tipo === "dano_min") {
+        if (semUsos) continue;
         out.danosMin.push({
           em: (e.em ?? "dano").trim().toLowerCase() || "dano",
           fonte: h.nome,
           ...(e.quando?.trim() ? { quando: e.quando.trim() } : {}),
+          ...gasto,
           ...filtroDe(e),
         });
       } else if (e.tipo === "dano_maximo") {
+        if (semUsos) continue;
         out.danosMaximos.push({
           em: (e.em ?? "dano").trim().toLowerCase() || "dano",
-          sempre: !!e.sempre,
+          sempre: !gasto && !!e.sempre,
           apartir: e.apartir ?? 0,
           fonte: h.nome,
+          ...gasto,
           ...filtroDe(e),
         });
       } else if (e.tipo === "piso_dado") {
+        if (semUsos) continue;
         out.pisosDado.push({
           ate: e.ate,
           vira: e.vira,
           em: (e.em ?? "dano").trim().toLowerCase() || "dano",
           fonte: h.nome,
+          ...gasto,
           ...filtroDe(e),
         });
       } else if (e.tipo === "critico_extra") {
@@ -3830,12 +3953,16 @@ export function agregarEfeitos(
           ...(!ehPassiva && h.id ? { habilidadeId: h.id } : {}),
         });
       } else if (e.tipo === "dano_extra" || e.tipo === "dados_extra") {
+        // O dado a mais na cura não passa pelo Rolador: não gasta uso.
+        const sobDemanda = dependeDosUsos(e);
+        if (semUsos && sobDemanda) continue;
         novoExtra({
           tipo: e.tipo,
           formula: e.tipo === "dano_extra" ? e.formula : e.quantidade,
-          sempre: !!e.sempre,
+          sempre: !(gasto && sobDemanda) && !!e.sempre,
           em: (e.em ?? "dano").trim().toLowerCase() || "dano",
           fonte: h.nome,
+          ...(sobDemanda ? gasto : null),
           ...filtroDe(e),
         });
       } else if (e.tipo === "valor_fixo") {
@@ -3854,9 +3981,12 @@ export function agregarEfeitos(
           if (!atual || v > atual.valor) out.valoresFixos[alvo] = { valor: v, fontes: [h.nome] };
         }
       } else if (e.tipo === "alcance") {
-        out.alcances.push(alcanceDe(e, h.nome));
+        // Como na habilidade de Usar: chip desligado, sem gastar.
+        if (!semUsos) out.alcances.push({ ...alcanceDe(e, h.nome), ...(gasto ? { opcional: true } : {}) });
       } else if (e.tipo === "ignora") {
-        out.ignoras.push(ignoraDe(e, h.nome));
+        if (!semUsos) {
+          out.ignoras.push({ ...ignoraDe(e, h.nome), ...(gasto ? { opcional: true, ...gasto } : {}) });
+        }
       } else if (e.tipo === "trocar_dano") {
         const t = e.tipoDano.trim();
         if (t) {
@@ -3888,19 +4018,23 @@ export function agregarEfeitos(
         const atual = somarUsoLimitado(out.danoMelhorDe ?? undefined, h.nome, limite);
         out.danoMelhorDe = { ...atual, vezes: Math.max(out.danoMelhorDe?.vezes ?? 0, e.vezes) };
       } else if (e.tipo === "multi_ataque") {
+        if (semUsos) continue;
         out.multiAtaques.push({
           vezes: e.vezes,
           soma: !!e.soma,
           alvo: (e.alvo ?? "ataque").trim().toLowerCase() || "ataque",
           fonte: h.nome,
+          ...gasto,
         });
       } else if (e.tipo === "explosao") {
+        if (semUsos) continue;
         out.explosoes.push({
           gatilho: e.gatilho,
           valor: e.valor ?? 0,
           limite: e.limite,
           em: (e.em ?? "dano").trim().toLowerCase() || "dano",
           fonte: h.nome,
+          ...gasto,
         });
       } else if (e.tipo === "progressivo") {
         const em = (e.em ?? "dano").trim().toLowerCase() || "dano";
@@ -4020,8 +4154,9 @@ export type ChipContexto = {
   extras?: number;
   // Dado mínimo: até quanto e no que vira (0 = o máximo).
   piso?: { ate: number; vira: number };
-  // Habilidade de Usar que o chip gasta ao rolar.
+  // Habilidade que o chip gasta ao rolar, e o saldo de usos dela ("2/3").
   gasta?: string;
+  usos?: string;
   // Explosão: quando dispara e quantas vezes.
   explosao?: { gatilho: GatilhoExplosao; valor: number; limite: number };
   // Teto da contagem: passos do bônus progressivo, ou usos empilháveis do chip sob demanda.
@@ -4127,7 +4262,7 @@ export function chipsDoContexto(
           opcional: !x.sempre || talvez,
           dados: r.dados,
           valor: r.modificador,
-          gasta: x.gasta,
+          ...gastoDoChip(x),
           ...(x.vezes ? { max: x.vezes } : {}),
           detalhe,
         });
@@ -4141,7 +4276,7 @@ export function chipsDoContexto(
           fontes: [x.fonte],
           opcional: !x.sempre || talvez,
           valor: n,
-          gasta: x.gasta,
+          ...gastoDoChip(x),
           ...(x.vezes ? { max: x.vezes } : {}),
           detalhe,
         });
@@ -4152,10 +4287,10 @@ export function chipsDoContexto(
   // ─ Efeitos de d20 — só em rolagens de d20 (não em dano) ─
   if (!ehDano) {
     // Vantagem, desvantagem, sucesso e falha automáticos: um chip ligado com as
-    // fontes que valem sempre e um desligado por fonte com `quando`.
+    // fontes que valem sempre e um desligado por fonte com `quando` ou uso limitado.
     for (const tipo of ["vantagem", "desvantagem", "sucesso_auto", "falha_auto"] as const) {
       const casados = agg.contextuais.filter((c) => c.tipo === tipo && casaContexto(c.alvo, ctx));
-      const sempre = casados.filter((c) => !c.quando?.trim());
+      const sempre = casados.filter((c) => !c.quando?.trim() && !c.gasta);
       if (sempre.length) {
         chips.push({
           chave: tipo,
@@ -4165,7 +4300,7 @@ export function chipsDoContexto(
         });
       }
       casados
-        .filter((c) => c.quando?.trim())
+        .filter((c) => c.quando?.trim() || c.gasta)
         .forEach((c, i) =>
           chips.push({
             chave: `${tipo}-quando-${i}`,
@@ -4173,38 +4308,72 @@ export function chipsDoContexto(
             rotulo: ROTULO_CONTEXTUAL[tipo],
             fontes: [c.fonte],
             opcional: true,
-            detalhe: `quando: ${c.quando!.trim()}`,
+            ...gastoDoChip(c),
+            detalhe: juntarDetalhes(
+              c.quando?.trim() ? `quando: ${c.quando.trim()}` : undefined,
+              detalheDoGasto(c),
+            ),
           }),
         );
     }
 
     // Crítico expandido só em ataque: o menor mínimo que casa, menos a margem.
+    // Com uso limitado, um chip desligado por fonte.
     if (ctx.tipo === "ataque") {
       const casados = agg.critsFaixa.filter((c) => casaContexto(c.alvo, ctx));
-      const faixa = casados.length ? Math.min(...casados.map((c) => c.minimo)) : 20;
+      const fixos = casados.filter((c) => !c.gasta);
+      const faixa = fixos.length ? Math.min(...fixos.map((c) => c.minimo)) : 20;
       const minimo = Math.max(2, faixa - agg.margemCritico.valor);
       if (minimo < 20) {
         chips.push({
           chave: "crit_range",
           tipo: "crit_range",
           rotulo: `Crítico ${minimo}-20`,
-          fontes: dedup([...casados.map((c) => c.fonte), ...agg.margemCritico.fontes]),
+          fontes: dedup([...fixos.map((c) => c.fonte), ...agg.margemCritico.fontes]),
           valor: minimo,
         });
       }
+      casados.forEach((c, i) => {
+        if (!c.gasta) return;
+        const doUso = Math.max(2, c.minimo - agg.margemCritico.valor);
+        chips.push({
+          chave: `crit_range-uso-${i}`,
+          tipo: "crit_range",
+          rotulo: `Crítico ${doUso}-20`,
+          fontes: [c.fonte],
+          valor: doUso,
+          opcional: true,
+          ...gastoDoChip(c),
+          detalhe: detalheDoGasto(c),
+        });
+      });
     }
     // Mínimo no d20: vale o maior entre os que casam com a jogada.
     const floors = agg.floorsD20.filter((f) => casaContexto(f.alvo, ctx));
-    if (floors.length) {
-      const minimo = Math.max(...floors.map((f) => f.minimo));
+    const floorsFixos = floors.filter((f) => !f.gasta);
+    if (floorsFixos.length) {
+      const minimo = Math.max(...floorsFixos.map((f) => f.minimo));
       chips.push({
         chave: "floor_d20",
         tipo: "floor_d20",
         rotulo: `Mínimo ${minimo} no d20`,
-        fontes: dedup(floors.filter((f) => f.minimo === minimo).map((f) => f.fonte)),
+        fontes: dedup(floorsFixos.filter((f) => f.minimo === minimo).map((f) => f.fonte)),
         valor: minimo,
       });
     }
+    floors.forEach((f, i) => {
+      if (!f.gasta) return;
+      chips.push({
+        chave: `floor_d20-uso-${i}`,
+        tipo: "floor_d20",
+        rotulo: `Mínimo ${f.minimo} no d20`,
+        fontes: [f.fonte],
+        valor: f.minimo,
+        opcional: true,
+        ...gastoDoChip(f),
+        detalhe: detalheDoGasto(f),
+      });
+    });
     // Reroll: nasce desligado e vale 1 rerrolagem por jogada; com uso limitado,
     // gasta 1 uso da habilidade ao rerrolar.
     const rerolls = Object.entries(agg.rerolls).flatMap(([gatilho, r]) =>
@@ -4219,7 +4388,7 @@ export function chipsDoContexto(
         fontes: dedup(rerolls.flatMap((r) => r.fontes)),
         valor: 1,
         opcional: true,
-        ...(limitado ? { gasta: limitado.gasta, detalhe: detalheDoGasto(limitado) } : {}),
+        ...(limitado ? { ...gastoDoChip(limitado), detalhe: detalheDoGasto(limitado) } : {}),
       });
     }
     empilharExtras();
@@ -4237,8 +4406,10 @@ export function chipsDoContexto(
           detalhe: `+${a.bonus} no dano se acertar`,
         });
       });
-      // Multiataque: o maior total que casa, mais os ataques a mais.
-      const multis = multiAtaques.filter((m) => casaContexto(m.alvo, ctx));
+      // Multiataque: o maior total que casa, mais os ataques a mais. Com uso
+      // limitado, um chip desligado por fonte, já somado aos que valem sempre.
+      const casados = multiAtaques.filter((m) => casaContexto(m.alvo, ctx));
+      const multis = casados.filter((m) => !m.gasta);
       const vezes =
         Math.max(1, ...multis.filter((m) => !m.soma).map((m) => m.vezes)) +
         multis.filter((m) => m.soma).reduce((s, m) => s + m.vezes, 0);
@@ -4251,6 +4422,20 @@ export function chipsDoContexto(
           valor: vezes,
         });
       }
+      casados.forEach((m, i) => {
+        const doUso = m.soma ? vezes + m.vezes : m.vezes;
+        if (!m.gasta || doUso <= vezes) return;
+        chips.push({
+          chave: `multi_ataque-uso-${i}`,
+          tipo: "multi_ataque",
+          rotulo: `${doUso} ataques`,
+          fontes: [m.fonte],
+          valor: doUso,
+          opcional: true,
+          ...gastoDoChip(m),
+          detalhe: detalheDoGasto(m),
+        });
+      });
       // Explosão no ataque: ataca de novo.
       explosoes.forEach((x, i) => {
         if (!x.em.startsWith("ataque") || !casaContexto(x.em, ctx)) return;
@@ -4260,7 +4445,8 @@ export function chipsDoContexto(
           rotulo: x.gatilho === "critico" ? "Crítico ataca de novo" : `${x.valor}+ ataca de novo`,
           fontes: [x.fonte],
           explosao: { gatilho: x.gatilho, valor: x.valor, limite: x.limite },
-          ...(x.limite > 1 ? { detalhe: `até ${x.limite} vezes` } : {}),
+          ...(x.gasta ? { opcional: true, ...gastoDoChip(x) } : {}),
+          detalhe: juntarDetalhes(x.limite > 1 ? `até ${x.limite} vezes` : undefined, detalheDoGasto(x)),
         });
       });
     }
@@ -4299,18 +4485,19 @@ export function chipsDoContexto(
     });
   });
 
-  // Bônus com `quando`: desligados, somam no modificador.
+  // Bônus com `quando` ou uso limitado: desligados, somam no modificador.
   agg.situacionais.forEach((s, i) => {
     const casa = ehDano ? s.alvo.startsWith("dano") && casaDano(s.alvo, ctx) : casaContexto(s.alvo, ctx);
     if (!casa) return;
     chips.push({
       chave: `bonus-${i}`,
       tipo: "bonus",
-      rotulo: `${formatarMod(s.valor)} ${s.quando}`,
+      rotulo: s.quando ? `${formatarMod(s.valor)} ${s.quando}` : formatarMod(s.valor),
       fontes: [s.fonte],
       valor: s.valor,
       opcional: true,
-      detalhe: `quando: ${s.quando}`,
+      ...gastoDoChip(s),
+      detalhe: juntarDetalhes(s.quando ? `quando: ${s.quando}` : undefined, detalheDoGasto(s)),
     });
   });
 
@@ -4348,7 +4535,7 @@ export function chipsDoContexto(
         fontes: [d.fonte],
         opcional: !d.sempre || filtro === "talvez",
         valor: d.apartir,
-        gasta: d.gasta,
+        ...gastoDoChip(d),
         detalhe: juntarDetalhes(
           d.apartir ? `liga com ${d.apartir}+ no d20 do ataque, sem crítico` : undefined,
           detalheDoGasto(d),
@@ -4366,7 +4553,12 @@ export function chipsDoContexto(
         rotulo: `${p.ate === 1 ? "1" : `1-${p.ate}`} vira ${p.vira || "o máximo"}`,
         fontes: [p.fonte],
         piso: { ate: p.ate, vira: p.vira },
-        ...(filtro === "talvez" ? { opcional: true, detalhe: textoFiltroDano(p) } : {}),
+        ...(filtro === "talvez" || p.gasta ? { opcional: true } : {}),
+        ...gastoDoChip(p),
+        detalhe: juntarDetalhes(
+          detalheDoGasto(p),
+          filtro === "talvez" ? textoFiltroDano(p) : undefined,
+        ),
       });
     });
     // Acerto por dano: o bônus no dano; liga sozinho se o ataque usou.
@@ -4395,17 +4587,19 @@ export function chipsDoContexto(
               : `Explode com ${x.valor}+ no dado`,
         fontes: [x.fonte],
         explosao: { gatilho: x.gatilho, valor: x.valor, limite: x.limite },
-        ...(x.limite > 1 ? { detalhe: `até ${x.limite} vezes` } : {}),
+        ...(x.gasta ? { opcional: true, ...gastoDoChip(x) } : {}),
+        detalhe: juntarDetalhes(x.limite > 1 ? `até ${x.limite} vezes` : undefined, detalheDoGasto(x)),
       });
     });
     empilharExtras();
   }
   // Piso de dano: só em rolagem de dano. Sem valor — o Rolador calcula a partir
-  // da fórmula (metade do máximo dos dados). Com `quando`, nasce desligado.
+  // da fórmula (metade do máximo dos dados). Com `quando` ou uso limitado, nasce desligado.
   const pisos = ehDano
     ? agg.danosMin.filter((d) => casaDano(d.em, ctx) && filtroDeDano(d, ctx) !== "nao")
     : [];
-  const pisoCerto = (d: (typeof pisos)[number]) => !d.quando && filtroDeDano(d, ctx) === "sim";
+  const pisoCerto = (d: (typeof pisos)[number]) =>
+    !d.quando && !d.gasta && filtroDeDano(d, ctx) === "sim";
   const pisosSempre = pisos.filter(pisoCerto);
   if (pisosSempre.length) {
     chips.push({
@@ -4424,7 +4618,12 @@ export function chipsDoContexto(
         rotulo: "Dano mín. (½ do máx)",
         fontes: [d.fonte],
         opcional: true,
-        detalhe: juntarDetalhes(d.quando ? `quando: ${d.quando}` : undefined, textoFiltroDano(d)),
+        ...gastoDoChip(d),
+        detalhe: juntarDetalhes(
+          d.quando ? `quando: ${d.quando}` : undefined,
+          detalheDoGasto(d),
+          textoFiltroDano(d),
+        ),
       }),
     );
   // Melhor de N: só em dano, nasce desligado.
@@ -4437,7 +4636,7 @@ export function chipsDoContexto(
       fontes: m.fontes,
       valor: m.vezes,
       opcional: true,
-      ...(!m.livre && m.gasta ? { gasta: m.gasta, detalhe: detalheDoGasto(m) } : {}),
+      ...(!m.livre && m.gasta ? { ...gastoDoChip(m), detalhe: detalheDoGasto(m) } : {}),
     });
   }
   // Troca de tipo de dano: só em dano.
@@ -4471,7 +4670,7 @@ export function chipsDoContexto(
         rotulo,
         fontes: [g.fonte],
         opcional: true,
-        ...(g.gasta ? { gasta: g.gasta } : {}),
+        ...gastoDoChip(g),
         detalhe: juntarDetalhes(
           g.quando ? `quando: ${g.quando}` : undefined,
           detalheDoGasto(g),
@@ -4526,6 +4725,11 @@ function juntarDetalhes(...partes: (string | undefined)[]): string | undefined {
   return partes.filter(Boolean).join(" · ") || undefined;
 }
 
+// O que o chip sob demanda gasta: a habilidade e o saldo de usos dela.
+function gastoDoChip(x: Gasto): Pick<ChipContexto, "gasta" | "usos"> {
+  return x.gasta ? { gasta: x.gasta, ...(x.usos ? { usos: x.usos } : {}) } : {};
+}
+
 // "gasta 1 uso (7/9), 1 Dados Brutais (4/8)" do chip sob demanda.
 function detalheDoGasto(x: { usos?: string; custo?: string }): string | undefined {
   const partes = [x.usos ? `1 uso (${x.usos})` : null, x.custo ?? null].filter(Boolean);
@@ -4574,6 +4778,10 @@ function aplicarModificador(
   }
   if (ATRIBUTOS_SET.has(alvo)) {
     somarFonteValor(out.bonusAtributo, alvo, valor, fonte);
+    return;
+  }
+  if (MODOS_DE_MOVIMENTO.has(alvo)) {
+    somarFonteValor(out.bonusMovimento, alvo, valor, fonte);
     return;
   }
   // Derivados e pools — slug → bucket simples. Map evita switch gigante.
@@ -4721,7 +4929,7 @@ export function resumoEfeito(
     case "vulnerabilidade":
       return e.tipoDano;
     case "deslocamento":
-      return `${e.tipoMov} ${e.valor}m`;
+      return `${e.tipoMov} ${String(e.valor).replace(".", ",")}m`;
     case "valor_igual": {
       const nome = (slug: string) => ALVOS_VALOR_IGUAL.find((a) => a.slug === slug)?.nome ?? slug;
       return `${nome(e.alvo)} = ${e.metade ? "metade de " : ""}${nome(e.de)}`;

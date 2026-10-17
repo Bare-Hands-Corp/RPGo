@@ -20,14 +20,17 @@ function mudouTripulante(
 // Escuta mudanças em personagens (este uid), acoes (deste uid) e itens (deste uid).
 // Cada evento dispara router.refresh() — a página re-renderiza no servidor com
 // dados frescos. Sem polling, sem race entre tabs.
-// Quando o personagem está numa mesa, também escuta o navio da mesa e os demais
-// personagens dela (pro painel de Tripulação refletir colegas e o navio ao vivo).
+// Quando o personagem está numa mesa, também escuta as subfichas da mesa (o
+// navio) e os demais personagens dela, pro painel de Tripulação. `temSubfichas`
+// liga a escuta das subfichas do próprio personagem (os cards dele).
 export function FichaRealtime({
   personagemId,
   mesaId,
+  temSubfichas = false,
 }: {
   personagemId: string;
   mesaId?: string | null;
+  temSubfichas?: boolean;
 }) {
   const refresh = useRefreshAgrupado();
   useRefreshOnFocus();
@@ -130,7 +133,20 @@ export function FichaRealtime({
         refresh,
       );
 
-    // Tripulação: navio da mesa + demais personagens dela (roster ao vivo).
+    if (temSubfichas) {
+      channel = channel.on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "personagens",
+          filter: `dono_personagem_id=eq.${personagemId}`,
+        },
+        refresh,
+      );
+    }
+
+    // Tripulação: subfichas da mesa (navio) + demais personagens dela (roster ao vivo).
     if (mesaId) {
       channel = channel
         .on(
@@ -138,8 +154,8 @@ export function FichaRealtime({
           {
             event: "*",
             schema: "public",
-            table: "navios",
-            filter: `mesa_id=eq.${mesaId}`,
+            table: "personagens",
+            filter: `dono_mesa_id=eq.${mesaId}`,
           },
           refresh,
         )
@@ -164,7 +180,7 @@ export function FichaRealtime({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [personagemId, mesaId, refresh]);
+  }, [personagemId, mesaId, temSubfichas, refresh]);
 
   return null;
 }

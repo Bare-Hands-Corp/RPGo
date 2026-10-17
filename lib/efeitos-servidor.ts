@@ -1,6 +1,7 @@
 // Agregado de efeitos no servidor, com os mesmos filtros da página da ficha.
 
 import { prisma } from "@/lib/prisma";
+import { mesmoGrupo } from "@/lib/acesso-ficha";
 import { habilidadesTravadas } from "@/lib/arvore";
 import {
   agregarEfeitos,
@@ -112,14 +113,14 @@ export const SELECT_RECEBIDA = {
   personagem: { select: { nome: true } },
 } as const;
 
-// Filtro das habilidades de aliados da mesma mesa ligadas em `personagemId`.
+// Filtro das habilidades de aliados (mesma mesa ou mesmo dono) ligadas em `personagemId`.
 export function ondeRecebidas(personagemId: string) {
   return {
     alvoPersonagemId: personagemId,
     ligada: true,
     aliado: true,
     personagemId: { not: personagemId },
-    personagem: { mesa: { personagens: { some: { id: personagemId } } } },
+    personagem: mesmoGrupo(personagemId),
   };
 }
 
@@ -179,7 +180,13 @@ export async function recebidasDaMesa(
   try {
     const habs = await semTravadasNoDono(
       await prisma.habilidade.findMany({
-        where: { alvoPersonagemId: { in: ids }, ligada: true, aliado: true, personagem: { mesaId } },
+        where: {
+          alvoPersonagemId: { in: ids },
+          ligada: true,
+          aliado: true,
+          // Membro da mesa, subficha de um membro ou subficha da mesa.
+          personagem: { OR: [{ mesaId }, { dono: { mesaId } }, { donoMesaId: mesaId }] },
+        },
         select: {
           ...SELECT_RECEBIDA,
           itemId: true,

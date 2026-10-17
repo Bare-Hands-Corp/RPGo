@@ -1120,7 +1120,11 @@ function CardHabilidade({
         {chips.length > 0 && (
           <div className="efeito-chips">
             {chips.map((e, i) => (
-              <ChipEfeito key={i} efeito={e} />
+              <ChipEfeito
+                key={i}
+                efeito={e}
+                comUsos={habilidade.tipo === "passiva" && usosMax != null}
+              />
             ))}
           </div>
         )}
@@ -1570,6 +1574,7 @@ function HabilidadeModal({
                 onChange={setEfeitos}
                 recursos={recursos}
                 pergunta="O que essa habilidade faz?"
+                sempreAtivo={tipo !== "passiva" ? "todos" : usos.trim() !== "" ? "gastam" : undefined}
               />
             </div>
           </details>

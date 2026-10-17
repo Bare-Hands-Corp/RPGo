@@ -19,7 +19,8 @@ export default async function DashboardPage() {
   // Duas queries em paralelo. Personagens inclui a mesa pro footer do card.
   const [personagens, mesas] = await Promise.all([
     prisma.personagem.findMany({
-      where: { userId: user.id },
+      // Subficha aparece na ficha do dono, não aqui.
+      where: { userId: user.id, donoPersonagemId: null, donoMesaId: null },
       include: { mesa: { select: { nome: true } } },
       orderBy: { nome: "asc" },
     }),

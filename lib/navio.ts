@@ -1,10 +1,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Embarcações (OP RPG, cap. 14)
 //
-// O navio guarda só as ESCOLHAS (tamanho, madeira) e os valores mutáveis
-// (PV atual, velocidade, nº de canhões). Tudo o mais é DERIVADO destas tabelas
-// do livro — não duplicamos no banco pra não dessincronizar. As funções
-// `statsTamanho`/`statsMadeira` toleram slug inválido caindo no default.
+// O navio é uma subficha de perfil "veiculo" (lib/subficha.ts). As tabelas do
+// livro entram como ficha de partida (`presetDeNavio`): daí pra frente quem
+// manda é a ficha. `statsTamanho`/`statsMadeira` toleram slug inválido caindo
+// no default.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type TamanhoNavio = "pequeno" | "medio" | "grande" | "enorme" | "colossal";
@@ -57,4 +57,38 @@ export function statsTamanho(slug: string): StatsTamanho {
 
 export function statsMadeira(slug: string): StatsMadeira {
   return MADEIRAS_NAVIO.find((m) => m.slug === slug) ?? MADEIRAS_NAVIO[0];
+}
+
+// Ficha de partida de um navio do livro: PV do tamanho, casco da madeira (CR e
+// redução de dano) e os canhões como recurso.
+export function presetDeNavio(tamanho: string, madeira: string) {
+  const t = statsTamanho(tamanho);
+  const m = statsMadeira(madeira);
+  return {
+    hpMax: t.pvMax,
+    habilidades: [
+      {
+        nome: `Navio ${t.nome}`,
+        tags: "Tamanho",
+        descricao: [
+          t.dimensao,
+          `${t.deques} ${t.deques === 1 ? "deque" : "deques"}`,
+          `até ${t.comodos} cômodos`,
+          `até ${t.tripulantes} tripulantes`,
+          `${t.desaceleracaoNos} nós por peso`,
+        ].join(" · "),
+        efeitos: [],
+      },
+      {
+        nome: `Casco de ${m.nome}`,
+        tags: "Madeira",
+        descricao: `CR ${m.cr}. Bônus de Resistência ${m.br}: reduz todo dano recebido.`,
+        efeitos: [
+          { tipo: "valor_fixo", alvo: "cr", valor: String(m.cr) },
+          { tipo: "reducao_dano", valor: m.br },
+        ],
+      },
+    ],
+    recurso: { nome: "Canhões", valorMax: t.canhoesMax },
+  };
 }

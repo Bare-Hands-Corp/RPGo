@@ -11,9 +11,11 @@ import { exigir } from "@/lib/acoes";
 type Props = {
   personagemId: string;
   avatarAtual: string;
+  // Ícone no lugar da foto (subficha sem foto).
+  icone?: string;
 };
 
-export function AvatarUploadModal({ personagemId, avatarAtual }: Props) {
+export function AvatarUploadModal({ personagemId, avatarAtual, icone }: Props) {
   const [aberto, setAberto] = useState(false);
   const [imgSrc, setImgSrc] = useState<string | null>(null);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
@@ -122,7 +124,13 @@ export function AvatarUploadModal({ personagemId, avatarAtual }: Props) {
         title="Alterar foto de perfil"
         style={{ padding: 0, background: "transparent", border: "3px solid var(--accent)" }}
       >
-        <img src={avatarAtual} alt="Avatar" />
+        {icone ? (
+          <span className="avatar-icone">
+            <i className={`fas ${icone}`} />
+          </span>
+        ) : (
+          <img src={avatarAtual} alt="Avatar" />
+        )}
         <span className="avatar-overlay">
           <i className="fas fa-camera" />
         </span>

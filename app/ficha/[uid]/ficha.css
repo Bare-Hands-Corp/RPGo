@@ -201,6 +201,17 @@
   transition: filter 0.3s;
 }
 
+/* Subficha sem foto: o ícone do perfil. */
+.avatar-icone {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 2.4rem;
+}
+
 .avatar-overlay {
   position: absolute;
   inset: 0;
@@ -375,6 +386,11 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+/* Um deslocamento só (veículo) ocupa a linha inteira. */
+.recurso-dupla.sozinha {
+  grid-template-columns: 1fr;
 }
 
 .recurso-dupla .recurso-linha {
@@ -1891,6 +1907,12 @@
   opacity: 0.85;
 }
 
+/* Efeito marcado "Sempre ativo", no cabeçalho do editor. */
+.efeito-sempre {
+  font-size: 0.7rem;
+  color: var(--text-sec);
+}
+
 .efeito-chip-resumo {
   font-weight: 700;
 }
@@ -2352,74 +2374,146 @@
   color: var(--text-sec);
 }
 
-/* ─── NAVIO ───────────────────────────────────────────────── */
-.navio-vazio {
+/* ─── SUBFICHAS ───────────────────────────────────────────── */
+.subfichas-topo {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.section-header-acao {
+  margin-left: auto;
+}
+
+.subfichas-grade {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.subficha-vazio {
   text-align: center;
   padding: 24px 16px;
   border: 1px dashed var(--border);
   border-radius: 10px;
+  color: var(--text-sec);
 }
 
-.navio-card {
+.subficha-vazio p {
+  margin-bottom: 12px;
+}
+
+.subficha-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 16px;
+  padding: 14px;
+  min-width: 0;
 }
 
-.navio-cabecalho {
+.subficha-cabecalho {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
   gap: 12px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
-.navio-nome {
-  display: block;
-  font-size: 1.25rem;
+.subficha-avatar {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: color-mix(in srgb, var(--primary) 12%, var(--bg-surface));
+  color: var(--primary);
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.subficha-titulo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.subficha-nome {
+  font-size: 1.05rem;
   font-weight: 700;
+  color: var(--text-main);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.navio-sub {
-  display: block;
-  font-size: 0.82rem;
+.subficha-nome:hover {
+  color: var(--primary);
+}
+
+.subficha-sub {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 0.8rem;
   color: var(--text-sec);
-  margin-top: 2px;
 }
 
-.navio-acoes {
+.subficha-marca {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--primary);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0 7px;
+}
+
+.subficha-botoes {
   display: flex;
   gap: 6px;
   flex-shrink: 0;
 }
 
-.navio-btn {
+.subficha-btn {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
   background: none;
   border: 1px solid var(--border);
-  color: var(--text-sec);
-  width: 32px;
-  height: 32px;
   border-radius: 8px;
+  color: var(--text-sec);
+  font-size: 0.8rem;
+  text-decoration: none;
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+  transition: color var(--dur-rapida) var(--ease-saida), border-color var(--dur-rapida) var(--ease-saida);
 }
 
-.navio-btn:hover {
+.subficha-btn:hover,
+.subficha-btn:focus-visible {
   color: var(--primary);
   border-color: var(--primary);
 }
 
-.navio-btn.rm:hover {
-  color: var(--danger);
-  border-color: var(--danger);
+.subficha-btn.rm:hover,
+.subficha-btn.rm:focus-visible {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
 }
 
-.navio-pv {
-  margin-bottom: 16px;
+.subficha-pv {
+  margin-bottom: 12px;
 }
 
-.navio-pv-topo {
+.subficha-pv-topo {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2428,21 +2522,25 @@
   margin-bottom: 6px;
 }
 
-.navio-pv-rotulo {
+.subficha-pv-rotulo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 0.85rem;
   color: var(--text-sec);
+}
+
+.subficha-pv-rotulo i {
+  color: var(--bar-hp);
+}
+
+.subficha-pv-ctrl {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.navio-pv-ctrl {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.navio-pv-ctrl button {
+.subficha-pv-ctrl button {
   width: 26px;
   height: 26px;
   border-radius: 6px;
@@ -2454,13 +2552,13 @@
   line-height: 1;
 }
 
-.navio-pv-ctrl button:hover {
+.subficha-pv-ctrl button:hover {
   border-color: var(--primary);
   color: var(--primary);
 }
 
-.navio-pv-ctrl input {
-  width: 70px;
+.subficha-pv-ctrl input {
+  width: 58px;
   text-align: right;
   padding: 4px 6px;
   border: 1px solid var(--border);
@@ -2473,73 +2571,207 @@
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.navio-pv-ctrl input:focus {
+.subficha-pv-ctrl input:focus {
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 22%, transparent);
 }
 
-.navio-pv-max {
+.subficha-pv-max {
   font-size: 0.85rem;
   color: var(--text-sec);
+  white-space: nowrap;
 }
 
-.navio-pv-barra {
-  height: 9px;
+.subficha-pv-barra {
+  height: 8px;
   border-radius: 5px;
   background: var(--border);
   overflow: hidden;
 }
 
-.navio-pv-fill {
+.subficha-pv-fill {
   height: 100%;
   background: var(--bar-hp);
   transition: width 0.25s;
 }
 
-.navio-stats {
+.subficha-stats {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
 }
 
-.navio-stat {
+.subficha-stat {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 10px;
-  background: var(--bg-soft, color-mix(in oklch, var(--bg-card) 70%, var(--border)));
+  padding: 7px 10px;
+  background: color-mix(in oklch, var(--bg-card) 70%, var(--border));
   border-radius: 8px;
+  min-width: 0;
 }
 
-.navio-stat > i {
+.subficha-stat > i {
   color: var(--text-sec);
   width: 18px;
   text-align: center;
 }
 
-.navio-stat-rotulo {
+.subficha-stat-rotulo {
   display: block;
   font-size: 0.72rem;
   color: var(--text-sec);
 }
 
-.navio-stat-valor {
+.subficha-stat-valor {
   display: block;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
-.navio-stat-valor.alerta {
-  color: var(--warning);
-}
-
-.navio-descricao {
-  margin-top: 14px;
+/* Cópias de um molde, dentro do card dele. */
+.subficha-copias {
+  margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--border);
-  font-size: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.subficha-invocar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.subficha-invocar .btn-rect.danger {
+  margin-left: auto;
+}
+
+/* O passo fora de modal não herda o estilo de campo. */
+.subficha-invocar .passo input {
+  width: 42px;
+  margin: 0;
+  padding: 5px 2px;
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-main);
+  font: inherit;
+  font-weight: 700;
+  text-align: center;
+  appearance: textfield;
+}
+
+.subficha-invocar .passo input:focus {
+  outline: none;
+}
+
+.subficha-invocar .passo input::-webkit-inner-spin-button,
+.subficha-invocar .passo input::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.subficha-copia {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.subficha-copia-nome {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--text-main);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.subficha-copia-nome:hover {
+  color: var(--primary);
+}
+
+/* Modal da subficha: campos e grades de escolha. */
+.subficha-campo {
+  margin-top: 12px;
+}
+
+.opcoes-grade {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 6px;
+}
+
+.opcao-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-rapida) var(--ease-saida), background var(--dur-rapida) var(--ease-saida);
+}
+
+.opcao-card > i {
   color: var(--text-sec);
-  white-space: pre-wrap;
+  margin-bottom: 2px;
+}
+
+.opcao-card strong {
+  font-size: 0.85rem;
+}
+
+.opcao-card span {
+  font-size: 0.72rem;
+  color: var(--text-sec);
+}
+
+.opcao-card:hover {
+  border-color: var(--primary);
+}
+
+.opcao-card.ativo {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--bg-card));
+}
+
+.opcao-card.ativo > i {
+  color: var(--primary);
+}
+
+.opcao-card:active {
+  transform: scale(0.97);
+}
+
+/* Sidebar da subficha: de quem ela é. */
+.char-dono {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 0.8rem;
+  color: var(--sidebar-text-sec);
+  text-decoration: none;
+}
+
+a.char-dono:hover {
+  color: var(--sidebar-text-main);
 }
 
 /* ─── EDITOR DE TAGS (texto livre + estilo por tag) ──────── */

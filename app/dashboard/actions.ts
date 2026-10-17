@@ -53,7 +53,8 @@ export async function entrarEmMesa(input: { codigoAcesso: string; personagemId: 
       select: { id: true, nome: true },
     }),
     prisma.personagem.findFirst({
-      where: { id: input.personagemId, userId },
+      // Subficha entra na mesa junto do dono.
+      where: { id: input.personagemId, userId, donoPersonagemId: null, donoMesaId: null },
       select: { id: true, nome: true, mesaId: true },
     }),
   ]);
