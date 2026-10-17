@@ -11,7 +11,7 @@ import {
   textoTecnica,
 } from "@/app/bestiario/utils";
 import { parseFormulaDados, rolarDados } from "@/lib/dice";
-import { defesasDaCriatura, resolverDano, type ParteDano } from "@/lib/dano";
+import { defesasDaCriatura, pvComSinal, resolverDano, type ParteDano } from "@/lib/dano";
 import { tipoDominante } from "@/lib/estatisticas-combate";
 import { marcarVez, registrarDano } from "@/lib/estatisticas-servidor";
 import { CATEGORIAS_COMPONENTE } from "@/app/bestiario/types";
@@ -29,7 +29,12 @@ import {
 } from "@/lib/combate";
 import { modificador, type Atributo } from "@/lib/op-rpg";
 import { resumirPersonagem } from "@/lib/resumo-personagem";
-import { SELECT_ACAO_QUE_DURA, carregarRecebidas, fonteRecebida } from "@/lib/efeitos-servidor";
+import {
+  SELECT_ACAO_QUE_DURA,
+  carregarRecebidas,
+  fonteRecebida,
+  soltarOQueDuravaComPvTemp,
+} from "@/lib/efeitos-servidor";
 import {
   MAX_CONDICOES,
   condicaoDoCatalogo,
@@ -66,7 +71,7 @@ export async function carregarCombateDoJogador(
     prisma.criatura.findMany({ where: { id: { in: ids("criaturaId") } }, include: { componentes: true } }),
     prisma.personagem.findMany({
       where: { id: { in: ids("personagemId") } },
-      select: { id: true, fotoUrl: true, hpAtual: true, hpMax: true },
+      select: { id: true, fotoUrl: true, hpAtual: true, pvNegativos: true, hpMax: true },
     }),
   ]);
   const criaturaDe = new Map(criaturas.map((c) => [c.id, serializarCriatura(c)]));
@@ -94,7 +99,7 @@ export async function carregarCombateDoJogador(
         foto: pj?.fotoUrl || `https://api.dicebear.com/7.x/adventurer/svg?seed=${p.personagemId}`,
         tipo: "personagem",
         voce: p.personagemId === personagemId,
-        pv: pj ? { atual: pj.hpAtual, max: pj.hpMax } : null,
+        pv: pj ? { atual: pvComSinal(pj.hpAtual, pj.pvNegativos), max: pj.hpMax } : null,
         pp: null,
         cr: null,
         acoes: null,
@@ -271,10 +276,11 @@ export async function avancarTurnoDoCombate(combateId: string): Promise<{ period
   // PV temporário que dura "até o início do próximo turno" de quem recebe a
   // vez acaba aqui, antes do dano de início de turno.
   if (proximo?.personagemId) {
-    await prisma.personagem.updateMany({
-      where: { id: proximo.personagemId, hpTempDuracao: "turno" },
+    const { count } = await prisma.personagem.updateMany({
+      where: { id: proximo.personagemId, hpTempDuracao: "turno", hpTemp: { gt: 0 } },
       data: { hpTemp: 0, hpTempDuracao: null },
     });
+    if (count > 0) await soltarOQueDuravaComPvTemp([proximo.personagemId]);
   } else if (proximo && proximo.pvTempDuracao === "turno") {
     proximo.pvTemp = 0;
     await prisma.instanciaCombate.update({ where: { id: proximo.id }, data: { pvTemp: 0, pvTempDuracao: null } });

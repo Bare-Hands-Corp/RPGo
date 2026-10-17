@@ -66,7 +66,7 @@ function poolsCheios(origem: FichaInteira): { hpAtual: number; ppAtual: number }
 }
 
 // Junta em `linhas` uma cópia de `origem` e devolve o id dela. A cópia nasce
-// descansada: PV e PP cheios, sem exaustão, concentração nem alvo em aliado.
+// descansada: PV e PP cheios, sem exaustão, concentração, ação em curso nem alvo em aliado.
 export function copiarFicha(
   origem: FichaInteira,
   sobre: { nome: string; molde: boolean; moldeId: string | null },
@@ -96,7 +96,7 @@ export function copiarFicha(
     );
 
   linhas.personagens.push({
-    ...religar(ficha, ["concentracao", "ultimaRolagem", "moldeId"]),
+    ...religar(ficha, ["concentracao", "ultimaRolagem", "moldeId", "hpTempDuracao"]),
     ...poolsCheios(origem),
     hpTemp: 0,
     pvNegativos: 0,
@@ -114,7 +114,7 @@ export function copiarFicha(
       return h.aliado ? { ...linha, ligada: false } : linha;
     }),
   );
-  linhas.acoes.push(...acoes.map((a) => religar(a)));
+  linhas.acoes.push(...acoes.map((a) => ({ ...religar(a, ["turnosRestantes"]), emCurso: false })));
   linhas.pericias.push(...periciasCustom.map((p) => religar(p)));
   linhas.arvores.push(...arvores.map((a) => religar(a, ["camadas", "ramos", "nos"])));
   linhas.camadas.push(...camadas.map((c) => religar(c)));

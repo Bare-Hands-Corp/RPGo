@@ -39,7 +39,7 @@ import {
   type TipoEfeito,
 } from "@/lib/op-rpg";
 import { faixaDaRolagem } from "@/lib/dice";
-import { SELECT_ACAO_QUE_DURA, carregarAgregado } from "@/lib/efeitos-servidor";
+import { SELECT_ACAO_QUE_DURA, acabaComOPvTemp, carregarAgregado } from "@/lib/efeitos-servidor";
 import {
   MAX_TIPOS_SALVOS,
   cdConcentracao,
@@ -278,6 +278,8 @@ export async function patchPersonagem(
     }
     // PV editado à mão: abaixo de 0 vira PV negativo; de 0 pra cima, os negativos zeram.
     if (data.hpAtual !== undefined) Object.assign(data, separarPv(Number(data.hpAtual)));
+    // PV temporário mexido à mão dura até acabar.
+    if (data.hpTemp !== undefined) data.hpTempDuracao = null;
     // 0 PV ou exaustão 6 incapacitam: a concentração acaba.
     const incapacitou =
       (data.hpAtual !== undefined && Number(data.hpAtual) <= 0) ||
@@ -825,52 +827,6 @@ function opsConcentracao(
     }),
   );
   return ops;
-}
-
-// O que acaba quando o PV temporário zera: as habilidades ligadas e as ações em
-// curso que duram enquanto ele durar e a concentração que dependia de uma delas
-// (ou de técnica assim).
-async function acabaComOPvTemp(personagemId: string, concentracaoRaw: unknown) {
-  const concentracao = lerConcentracao(concentracaoRaw);
-  const [ligadas, emCurso, tecnica] = await Promise.all([
-    prisma.habilidade.findMany({
-      where: { personagemId, ligada: true },
-      select: { id: true, nome: true, duracao: true },
-    }),
-    prisma.acao.findMany({
-      where: { personagemId, emCurso: true },
-      select: { id: true, nome: true, duracao: true },
-    }),
-    concentracao?.tipo === "acao"
-      ? prisma.acao.findFirst({
-          where: { id: concentracao.id, personagemId },
-          select: { duracao: true },
-        })
-      : null,
-  ]);
-  const habilidades = ligadas.filter((h) => acabaSemPvTemp(h.duracao));
-  const acoes = emCurso.filter((a) => acabaSemPvTemp(a.duracao));
-  return {
-    habilidades,
-    acoes,
-    soltaConcentracao:
-      !!concentracao &&
-      (habilidades.some((h) => h.id === concentracao.id) || acabaSemPvTemp(tecnica?.duracao)),
-    ops: [
-      ...habilidades.map((h) =>
-        prisma.habilidade.update({
-          where: { id: h.id, personagemId },
-          data: { ligada: false, turnosRestantes: null },
-        }),
-      ),
-      ...acoes.map((a) =>
-        prisma.acao.update({
-          where: { id: a.id, personagemId },
-          data: { emCurso: false, turnosRestantes: null },
-        }),
-      ),
-    ],
-  };
 }
 
 // A habilidade ou ação apagada/desligada era a da concentração: ela acaba.
@@ -2251,19 +2207,30 @@ export async function atualizarSubficha(
   });
 }
 
+// Apaga as fichas e desliga as habilidades de aliado que estavam nelas.
+async function apagarFichas(where: Prisma.PersonagemWhereInput) {
+  const ids = (await prisma.personagem.findMany({ where, select: { id: true } })).map((p) => p.id);
+  if (ids.length === 0) return;
+  await prisma.$transaction([
+    prisma.habilidade.updateMany({
+      where: { alvoPersonagemId: { in: ids }, ligada: true },
+      data: { ligada: false },
+    }),
+    prisma.personagem.deleteMany({ where: { id: { in: ids } } }),
+  ]);
+}
+
 // Apaga a subficha; se for molde, as cópias somem junto.
 export async function apagarSubficha(subfichaId: string) {
   return executar("ficha", async () => {
     const { personagem } = await autorizarSubficha(subfichaId);
-    await prisma.personagem.deleteMany({
-      where: {
-        OR: [
-          { id: subfichaId },
-          ...(personagem.molde && personagem.donoPersonagemId
-            ? [{ moldeId: subfichaId, donoPersonagemId: personagem.donoPersonagemId }]
-            : []),
-        ],
-      },
+    await apagarFichas({
+      OR: [
+        { id: subfichaId },
+        ...(personagem.molde && personagem.donoPersonagemId
+          ? [{ moldeId: subfichaId, donoPersonagemId: personagem.donoPersonagemId }]
+          : []),
+      ],
     });
     revalidarFicha(personagem);
   });
@@ -2310,12 +2277,10 @@ export async function dispensarCopias(moldeId: string, ids?: string[]) {
   return executar("ficha", async () => {
     const { personagem } = await autorizarSubficha(moldeId);
     if (!personagem.donoPersonagemId) throw new ErroDeUso("Só um molde tem cópias.");
-    await prisma.personagem.deleteMany({
-      where: {
-        moldeId,
-        donoPersonagemId: personagem.donoPersonagemId,
-        ...(Array.isArray(ids) ? { id: { in: ids.filter((i) => typeof i === "string") } } : {}),
-      },
+    await apagarFichas({
+      moldeId,
+      donoPersonagemId: personagem.donoPersonagemId,
+      ...(Array.isArray(ids) ? { id: { in: ids.filter((i) => typeof i === "string") } } : {}),
     });
     revalidarFicha(personagem);
   });

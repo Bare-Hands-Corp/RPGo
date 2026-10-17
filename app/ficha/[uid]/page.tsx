@@ -15,7 +15,7 @@ import {
   maximoDoRecurso,
 } from "@/lib/op-rpg";
 import { juntarTipos, tiposDoDano, tiposDosEfeitos } from "@/lib/dano";
-import { carregarRecebidas, fonteRecebida } from "@/lib/efeitos-servidor";
+import { SELECT_ACAO_QUE_DURA, carregarRecebidas, fonteRecebida } from "@/lib/efeitos-servidor";
 import { habilidadesTravadas } from "@/lib/arvore";
 import { INCLUDE_ACESSO, acessoAFicha, fichasDoGrupo, sessaoDoChat } from "@/lib/acesso-ficha";
 import { resumirSubficha } from "@/lib/resumo-personagem";
@@ -115,6 +115,9 @@ export default async function FichaPage({ params, searchParams }: Params) {
   // personagem. A subficha fala na sessão do dono.
   const sessionId = sessaoDoChat(personagem);
   const subficha = ehSubficha(personagem);
+  // A subficha usa a Biblioteca do narrador da mesa em que joga.
+  const narradorDaMesa =
+    personagem.mesa?.userId ?? personagem.dono?.mesa?.userId ?? personagem.mesaDona?.userId;
 
   // Slugs das perícias customizadas — permite que efeitos de habilidade
   // (modificador/proficiência) mirem uma perícia custom e caiam no agregador.
@@ -183,9 +186,9 @@ export default async function FichaPage({ params, searchParams }: Params) {
   const [catalogoTipos, catalogoCondicoes, { sessaoId, combate }, mensagensIniciais, calendario, grupo, subfichasCarregadas, arvoresCopiaveis] =
     await Promise.all([
     // Tipos de dano do narrador da mesa (Biblioteca do bestiário).
-    catalogoTiposDoNarrador(personagem.mesa?.userId),
+    catalogoTiposDoNarrador(narradorDaMesa),
     // Condições do narrador da mesa (Biblioteca).
-    catalogoCondicoesDoNarrador(personagem.mesa?.userId),
+    catalogoCondicoesDoNarrador(narradorDaMesa),
     // Combate ativo da mesa, só com o que o narrador liberou das criaturas.
     carregarCombateDoJogador(personagem.mesaId, personagem.id),
     listarMensagensSessao(sessionId),
@@ -224,6 +227,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
             recursos: { orderBy: [{ ordem: "asc" }, { nome: "asc" }] },
             periciasCustom: { select: { slug: true } },
             arvores: { select: { id: true, nos: true } },
+            acoes: { select: SELECT_ACAO_QUE_DURA },
           },
           orderBy: { nome: "asc" },
         }),

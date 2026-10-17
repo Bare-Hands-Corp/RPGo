@@ -1,5 +1,6 @@
 // Agregado de efeitos no servidor, com os mesmos filtros da página da ficha.
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { mesmoGrupo } from "@/lib/acesso-ficha";
 import { habilidadesTravadas } from "@/lib/arvore";
@@ -11,7 +12,7 @@ import {
   type EfeitosAgregados,
   type HabilidadeFonte,
 } from "@/lib/op-rpg";
-import { lerConcentracao } from "@/lib/duracao";
+import { acabaSemPvTemp, lerConcentracao } from "@/lib/duracao";
 import { acoesEmCurso, comAcoesEmCurso, type AcaoEmCurso } from "@/lib/turno";
 
 type HabilidadeServidor = HabilidadeFonte & {
@@ -287,6 +288,71 @@ export async function carregarAcoesEmCurso(personagemId: string): Promise<AcaoEm
     select: SELECT_ACAO_QUE_DURA,
   });
   return acoesEmCurso(acoes, personagem?.concentracao);
+}
+
+// O que acaba quando o PV temporário zera: as habilidades ligadas e as ações em
+// curso que duram enquanto ele durar e a concentração que dependia de uma delas
+// (ou de técnica assim).
+export async function acabaComOPvTemp(personagemId: string, concentracaoRaw: unknown) {
+  const concentracao = lerConcentracao(concentracaoRaw);
+  const [ligadas, emCurso, tecnica] = await Promise.all([
+    prisma.habilidade.findMany({
+      where: { personagemId, ligada: true },
+      select: { id: true, nome: true, duracao: true },
+    }),
+    prisma.acao.findMany({
+      where: { personagemId, emCurso: true },
+      select: { id: true, nome: true, duracao: true },
+    }),
+    concentracao?.tipo === "acao"
+      ? prisma.acao.findFirst({
+          where: { id: concentracao.id, personagemId },
+          select: { duracao: true },
+        })
+      : null,
+  ]);
+  const habilidades = ligadas.filter((h) => acabaSemPvTemp(h.duracao));
+  const acoes = emCurso.filter((a) => acabaSemPvTemp(a.duracao));
+  return {
+    habilidades,
+    acoes,
+    soltaConcentracao:
+      !!concentracao &&
+      (habilidades.some((h) => h.id === concentracao.id) || acabaSemPvTemp(tecnica?.duracao)),
+    ops: [
+      ...habilidades.map((h) =>
+        prisma.habilidade.update({
+          where: { id: h.id, personagemId },
+          data: { ligada: false, turnosRestantes: null },
+        }),
+      ),
+      ...acoes.map((a) =>
+        prisma.acao.update({
+          where: { id: a.id, personagemId },
+          data: { emCurso: false, turnosRestantes: null },
+        }),
+      ),
+    ],
+  };
+}
+
+// PV temporário que o combate zerou sozinho (acabou a duração): o que durava
+// enquanto ele durasse acaba junto.
+export async function soltarOQueDuravaComPvTemp(personagemIds: string[]) {
+  const personagens = await prisma.personagem.findMany({
+    where: { id: { in: personagemIds } },
+    select: { id: true, concentracao: true },
+  });
+  for (const p of personagens) {
+    const fim = await acabaComOPvTemp(p.id, p.concentracao);
+    const ops = [
+      ...fim.ops,
+      ...(fim.soltaConcentracao
+        ? [prisma.personagem.update({ where: { id: p.id }, data: { concentracao: Prisma.DbNull } })]
+        : []),
+    ];
+    if (ops.length > 0) await prisma.$transaction(ops);
+  }
 }
 
 // Penalidade de DES das armaduras equipadas (0 ou negativa).

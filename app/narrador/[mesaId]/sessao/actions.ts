@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioDaRequest } from "@/lib/supabase/server";
 import { pvComSinal, separarPv } from "@/lib/dano";
 import { parseFormulaDados, rolarDados } from "@/lib/dice";
 import { defesasDaCriatura, resolverDano, type ParteDano } from "@/lib/dano";
@@ -44,6 +44,7 @@ import {
   registrarReforco,
   registrarSaida,
 } from "@/lib/estatisticas-servidor";
+import { soltarOQueDuravaComPvTemp } from "@/lib/efeitos-servidor";
 import type { NovoParticipante } from "./types";
 import { lerUsosAcoes, serializarSessao } from "./utils";
 
@@ -58,10 +59,7 @@ function rolarPvCriatura(pvFormula: string, pvMedio: number): number {
 }
 
 async function autorizarNarrador(mesaId: string) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await usuarioDaRequest();
   if (!user) throw new Error("Não autenticado.");
 
   const mesa = await prisma.mesa.findUnique({ where: { id: mesaId }, select: { userId: true } });
@@ -73,6 +71,11 @@ async function autorizarNarrador(mesaId: string) {
 
 function revalidar(mesaId: string) {
   revalidatePath(`/narrador/${mesaId}`);
+}
+
+async function sessaoDaMesa(mesaId: string, sessaoId: string) {
+  const sessao = await prisma.sessao.findUnique({ where: { id: sessaoId }, select: { mesaId: true } });
+  if (sessao?.mesaId !== mesaId) throw new Error("Sessão não pertence a esta mesa.");
 }
 
 async function buscarSessaoCompleta(sessaoId: string) {
@@ -87,6 +90,8 @@ async function buscarSessaoCompleta(sessaoId: string) {
 // partir do cadastro atual da criatura/personagem no momento de entrar em
 // combate (cache: editar a criatura depois não afeta o combate em curso).
 async function montarLinhas(
+  mesaId: string,
+  narradorId: string,
   participantes: NovoParticipante[],
   ordemInicial: number,
   // Combate que já tem gente (reforço): a numeração das cópias continua dele.
@@ -98,12 +103,12 @@ async function montarLinhas(
   const [criaturas, personagens] = await Promise.all([
     criaturaIds.length
       ? prisma.criatura.findMany({
-          where: { id: { in: criaturaIds } },
+          where: { id: { in: criaturaIds }, OR: [{ userId: narradorId }, { userId: null }] },
           select: { id: true, nome: true, pvMedio: true, pvFormula: true },
         })
       : Promise.resolve([]),
     personagemIds.length
-      ? prisma.personagem.findMany({ where: { id: { in: personagemIds } }, select: { id: true, nome: true } })
+      ? prisma.personagem.findMany({ where: { id: { in: personagemIds }, mesaId }, select: { id: true, nome: true } })
       : Promise.resolve([]),
   ]);
 
@@ -141,6 +146,7 @@ async function montarLinhas(
   for (const p of participantes) {
     if (p.criaturaId) {
       const criatura = criaturas.find((c) => c.id === p.criaturaId);
+      if (!criatura) continue;
       const copias = Math.max(1, p.quantidade);
       const numerar = (totalDe.get(p.criaturaId) ?? 0) > 1;
       const numero = (numeroDe.get(p.criaturaId) ?? 0) + 1;
@@ -148,11 +154,11 @@ async function montarLinhas(
       for (let i = 0; i < copias; i += 1) {
         // Cada cópia rola a própria vida — duas "Soldado Recruta" no mesmo
         // grupo podem sair com PV diferente, igual rolar dado físico na mesa.
-        const pv = criatura ? rolarPvCriatura(criatura.pvFormula, criatura.pvMedio) : 0;
+        const pv = rolarPvCriatura(criatura.pvFormula, criatura.pvMedio);
         linhas.push({
           criaturaId: p.criaturaId,
           personagemId: null,
-          nomeExibicao: (criatura?.nome ?? "Criatura") + (numerar ? ` ${numero + i}` : ""),
+          nomeExibicao: criatura.nome + (numerar ? ` ${numero + i}` : ""),
           iniciativa: p.iniciativa,
           ordem: ordem++,
           pvAtual: pv,
@@ -161,10 +167,11 @@ async function montarLinhas(
       }
     } else if (p.personagemId) {
       const personagem = personagens.find((x) => x.id === p.personagemId);
+      if (!personagem) continue;
       linhas.push({
         criaturaId: null,
         personagemId: p.personagemId,
-        nomeExibicao: personagem?.nome ?? "Jogador",
+        nomeExibicao: personagem.nome,
         iniciativa: p.iniciativa,
         ordem: ordem++,
         pvAtual: null,
@@ -229,6 +236,7 @@ export async function iniciarSessao(mesaId: string) {
 
 export async function encerrarSessao(mesaId: string, sessaoId: string) {
   await autorizarNarrador(mesaId);
+  await sessaoDaMesa(mesaId, sessaoId);
 
   // Fecha qualquer combate residual sem log detalhado — o mestre deveria
   // encerrar o combate explicitamente antes, isso é só uma rede de segurança.
@@ -249,10 +257,12 @@ export async function encerrarSessao(mesaId: string, sessaoId: string) {
 }
 
 export async function iniciarCombate(mesaId: string, sessaoId: string, participantes: NovoParticipante[]) {
-  await autorizarNarrador(mesaId);
+  const user = await autorizarNarrador(mesaId);
+  await sessaoDaMesa(mesaId, sessaoId);
   if (participantes.length === 0) throw new Error("Adicione pelo menos um participante.");
 
-  const linhas = await montarLinhas(participantes, 0);
+  const linhas = await montarLinhas(mesaId, user.id, participantes, 0);
+  if (linhas.length === 0) throw new Error("Adicione pelo menos um participante.");
   const combate = await prisma.combate.create({ data: { sessaoId } });
   await prisma.instanciaCombate.createMany({
     data: linhas.map((l) => ({ ...l, combateId: combate.id })),
@@ -264,13 +274,18 @@ export async function iniciarCombate(mesaId: string, sessaoId: string, participa
 }
 
 export async function adicionarParticipantes(mesaId: string, combateId: string, participantes: NovoParticipante[]) {
-  await autorizarNarrador(mesaId);
+  const user = await autorizarNarrador(mesaId);
 
   const combate = await prisma.combate.findUniqueOrThrow({
     where: { id: combateId },
-    select: { sessaoId: true, participantes: { select: { id: true, iniciativa: true, ordem: true } } },
+    select: {
+      sessaoId: true,
+      sessao: { select: { mesaId: true } },
+      participantes: { select: { id: true, iniciativa: true, ordem: true } },
+    },
   });
-  const linhas = await montarLinhas(participantes, 0, combateId);
+  if (combate.sessao.mesaId !== mesaId) throw new Error("Combate não pertence a esta mesa.");
+  const linhas = await montarLinhas(mesaId, user.id, participantes, 0, combateId);
 
   // Reforço entra na ordem pela iniciativa: antes do primeiro que tem menos.
   const fila: { id?: string; iniciativa: number; linha?: (typeof linhas)[number] }[] = ordenarParticipantes(
@@ -760,8 +775,9 @@ export async function encerrarCombate(mesaId: string, combateId: string) {
 
   const combate = await prisma.combate.findUniqueOrThrow({
     where: { id: combateId },
-    include: { participantes: true },
+    include: { participantes: true, sessao: { select: { mesaId: true } } },
   });
+  if (combate.sessao.mesaId !== mesaId) throw new Error("Combate não pertence a esta mesa.");
 
   // Fecha o registro de estatísticas (PV final, resultado, vez em andamento)
   // antes de as linhas do combate sumirem.
@@ -769,10 +785,15 @@ export async function encerrarCombate(mesaId: string, combateId: string) {
   // PV temporário que só valia neste combate (ou até a próxima vez) acaba com ele.
   const personagemIds = combate.participantes.flatMap((p) => (p.personagemId ? [p.personagemId] : []));
   if (personagemIds.length > 0) {
+    const comPvTemp = await prisma.personagem.findMany({
+      where: { id: { in: personagemIds }, hpTempDuracao: { in: ["combate", "turno"] }, hpTemp: { gt: 0 } },
+      select: { id: true },
+    });
     await prisma.personagem.updateMany({
       where: { id: { in: personagemIds }, hpTempDuracao: { in: ["combate", "turno"] } },
       data: { hpTemp: 0, hpTempDuracao: null },
     });
+    await soltarOQueDuravaComPvTemp(comPvTemp.map((p) => p.id));
     // Técnica que dura "até o fim do encontro" acaba junto.
     await encerrarTecnicasDoEncontro(personagemIds);
     for (const id of personagemIds) revalidatePath(`/ficha/${id}`);
