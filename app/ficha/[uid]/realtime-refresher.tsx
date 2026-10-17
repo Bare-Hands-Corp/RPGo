@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import { canal } from "@/lib/supabase/canal";
 import { useRefreshAgrupado } from "@/lib/use-refresh-agrupado";
 import { useRefreshOnFocus } from "@/lib/use-refresh-on-focus";
 
@@ -38,7 +39,7 @@ export function FichaRealtime({
   useEffect(() => {
     const supabase = createClient();
     let channel = supabase
-      .channel(`ficha-${personagemId}`)
+      .channel(canal(`ficha-${personagemId}`))
       .on(
         "postgres_changes",
         {

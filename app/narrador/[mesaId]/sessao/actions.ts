@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { usuarioDaRequest } from "@/lib/supabase/server";
 import { pvComSinal, separarPv } from "@/lib/dano";
-import { parseFormulaDados, rolarDados } from "@/lib/dice";
+import { parseFormulaDados, rolarD20Contextual, rolarDados } from "@/lib/dice";
+import { modoDaSalvaguarda } from "@/lib/condicoes-mecanica";
 import { defesasDaCriatura, resolverDano, type ParteDano } from "@/lib/dano";
 import { comoResistencias } from "@/app/bestiario/utils";
 import {
@@ -108,7 +109,7 @@ async function montarLinhas(
         })
       : Promise.resolve([]),
     personagemIds.length
-      ? prisma.personagem.findMany({ where: { id: { in: personagemIds }, mesaId }, select: { id: true, nome: true } })
+      ? prisma.personagem.findMany({ where: { id: { in: personagemIds }, mesaId, molde: false }, select: { id: true, nome: true } })
       : Promise.resolve([]),
   ]);
 
@@ -662,14 +663,15 @@ export async function aplicarCondicao(
   if (!nome) throw new Error("Escolha a condição.");
   const rodadas = lerRodadas(condicao?.rodadas);
   const daVez = ordenarParticipantes(combate.participantes)[combate.turnoAtual];
-  const nomes = await aplicarCondicoes({
+  const { receberam, imunes } = await aplicarCondicoes({
     combateId,
     instanciaIds: [instanciaId],
     condicoes: [{ nome, rodadas, salvaguarda: null }],
     fonteId: daVez?.id ?? null,
     origem: "",
   });
-  if (nomes.length > 0) await avisar(mesaId, nomes[0], `ficou: ${nome} (${textoRodadas(rodadas)}).`);
+  if (receberam.length > 0) await avisar(mesaId, receberam[0], `ficou: ${nome} (${textoRodadas(rodadas)}).`);
+  if (imunes.length > 0) await avisar(mesaId, nome, `imune: ${imunes.join(", ")}.`);
 
   revalidar(mesaId);
   return serializarSessao(await buscarSessaoCompleta(combate.sessaoId));
@@ -701,16 +703,24 @@ export async function rolarSaidaDeCondicao(mesaId: string, combateId: string, in
   const criatura = await prisma.criatura.findUnique({ where: { id: instancia.criaturaId } });
   if (!criatura) throw new Error("Criatura não encontrada.");
 
+  // As outras condições dela pesam (falha automática, vantagem, desvantagem).
+  const outras = lerCondicoesAtivas(instancia.condicoesAtivas).filter((c) => c.id !== condicaoId);
+  const pelaCondicao = modoDaSalvaguarda(outras, condicao.salvaguarda.atributo);
   const bonus = bonusDeSalvaguardaDaCriatura(criatura, condicao.salvaguarda.atributo);
-  const total = rolarDados([{ faces: 20, sinal: 1 }], bonus).total;
-  const salv = resultadoDaSalvaguarda({ total, natural: total - bonus }, condicao.salvaguarda.cd);
+  const natural = pelaCondicao.falha
+    ? 1
+    : rolarD20Contextual({
+        vantagem: pelaCondicao.modo === "vantagem",
+        desvantagem: pelaCondicao.modo === "desvantagem",
+      }).mantido;
+  const salv = resultadoDaSalvaguarda({ total: natural + bonus, natural }, condicao.salvaguarda.cd);
   if (salv.resultado === "sucesso") await tirarCondicao(combateId, instanciaId, condicaoId);
   await avisar(
     mesaId,
     instancia.nomeExibicao,
     salv.resultado === "sucesso"
       ? `${textoDaSalvaguarda(salv)} e não está mais com ${condicao.nome}.`
-      : `${textoDaSalvaguarda(salv)} e continua com ${condicao.nome}.`,
+      : `${pelaCondicao.falha ? `falhou na salvaguarda (${pelaCondicao.falha})` : textoDaSalvaguarda(salv)} e continua com ${condicao.nome}.`,
   );
 
   revalidar(mesaId);

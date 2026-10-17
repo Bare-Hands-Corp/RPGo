@@ -2,6 +2,7 @@
 // criatura só o que o narrador liberou. Puro (cliente e servidor).
 
 import { lerCondicoesAplicadas, type CondicaoAplicada } from "./condicoes";
+import type { EstadoNavio } from "./navio";
 
 export type AcaoVista = {
   id: string;
@@ -29,7 +30,14 @@ export type ParticipanteVisto = {
   acoes: AcaoVista[] | null;
   // Condições valendo nele. `sair` só vem pro próprio personagem: a
   // salvaguarda que ele pode repetir pra se livrar antes.
-  condicoes: { id: string; nome: string; rodadas: number; sair: { atributo: string; cd: number } | null }[];
+  // `mecanica`: o que ela faz (lib/condicoes-mecanica.ts), crua.
+  condicoes: {
+    id: string;
+    nome: string;
+    rodadas: number;
+    sair: { atributo: string; cd: number } | null;
+    mecanica?: unknown;
+  }[];
 };
 
 export type CombateVisto = {
@@ -52,6 +60,8 @@ export type CombateVisto = {
     concentracoes: ConcentracaoPedida[];
     // Acertos nele que esperam a decisão de reagir.
     reacoes: ReacaoPedida[];
+    // Ficha de navio: velocidade atual (e a máxima com o dano), rumo e âncora.
+    navio: (EstadoNavio & { maxima: number; tamanho: string }) | null;
   } | null;
 };
 
@@ -193,6 +203,12 @@ export type Resolucao = {
   acaoId: string | null;
   nome: string;
   modo: ModoResolucao;
+  // Ataque a 1,5 m: pega o Caído com vantagem e acerto em indefeso vira crítico.
+  corpoACorpo?: boolean;
+  // Ataque com arma de fogo (multiplicador de dano que a deixa de fora).
+  armaDeFogo?: boolean;
+  // PP que a técnica gastou (Empoderado devolve se ela errar todos).
+  ppGasto?: number;
   // O que falta quem usou fazer: rolar o ataque, rolar o dano, ou nada.
   etapa: "ataque" | "dano" | "feito";
   salvaguarda: { atributo: string; cd: number; emSucesso: "nada" | "metade" } | null;
@@ -234,6 +250,9 @@ export function lerResolucoes(raw: unknown): Resolucao[] {
         acaoId: typeof o.acaoId === "string" ? o.acaoId : null,
         nome: String(o.nome ?? ""),
         modo: o.modo === "salvaguarda" || o.modo === "direto" ? o.modo : "ataque",
+        ...(o.corpoACorpo === true ? { corpoACorpo: true } : {}),
+        ...(o.armaDeFogo === true ? { armaDeFogo: true } : {}),
+        ...(Number(o.ppGasto) > 0 ? { ppGasto: Math.trunc(Number(o.ppGasto)) } : {}),
         etapa: o.etapa === "ataque" || o.etapa === "dano" ? o.etapa : "feito",
         salvaguarda: salv
           ? {
@@ -359,12 +378,14 @@ export type ResolucaoVista = {
   alvos: { nome: string; resultado: ResultadoAlvo | null; danoAplicado: boolean }[];
 };
 
+// `pelo`: salvaguarda de estrutura do navio que este personagem comanda.
 export type SalvaguardaPedida = {
   resolucaoId: string;
   de: string;
   nome: string;
   atributo: string;
   cd: number;
+  pelo?: { instanciaId: string; nome: string };
 };
 
 // Janela de reação: a ação pegou o personagem e ele decide se reage antes de
@@ -373,6 +394,17 @@ export type ReacaoPedida = { resolucaoId: string; de: string; nome: string; modo
 
 // Teste de concentração que um dano do combate pediu.
 export type ConcentracaoPedida = { resolucaoId: string; nome: string; cd: number };
+
+// Alcance pelo texto da ação ("cc 1,5 m", "9 m"): até 1,5 m é corpo a corpo.
+export function inferirAlcance(alcance: string | null | undefined): "corpo_a_corpo" | "distancia" {
+  if (!alcance) return "corpo_a_corpo";
+  const t = alcance.toLowerCase();
+  if (/corpo a corpo|adjacente|toque|melee/.test(t)) return "corpo_a_corpo";
+  if (/dist|arremess|tiro|proj|longo|alcance/.test(t)) return "distancia";
+  const num = t.match(/(\d+(?:[.,]\d+)?)\s*m/);
+  if (num) return parseFloat(num[1].replace(",", ".")) >= 3 ? "distancia" : "corpo_a_corpo";
+  return "corpo_a_corpo";
+}
 
 // Danos a mais de uma ação (Acao.danosExtras): cada um com a própria fórmula e tipo.
 export type DanoExtra = { formula: string; tipo: string };

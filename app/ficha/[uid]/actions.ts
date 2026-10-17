@@ -20,6 +20,8 @@ import {
   efeitoInstantaneo,
   extrasDeCura,
   efeitosDaTecnica,
+  agregarEfeitos,
+  fatorDeDano,
   lerEfeitos,
   maximoDoRecurso,
   modificador,
@@ -96,8 +98,27 @@ import {
   planejarImportacao,
   type PacoteView,
 } from "@/lib/pacote";
-import { TAMANHOS_VALIDOS, MADEIRAS_VALIDAS, presetDeNavio } from "@/lib/navio";
-import { INCLUDE_ACESSO, acessoAFicha, mesmoGrupo, sessaoDoChat } from "@/lib/acesso-ficha";
+import {
+  BOLAS_POR_CANHAO,
+  BOLA_DE_CHUMBO,
+  acaoDosCanhoes,
+  armaDosCanhoes,
+  DANO_ANCORA,
+  DANO_PRA_SOLTAR_ANCORA,
+  MANOBRA_GRAUS,
+  MANOBRA_NOS,
+  NOS_PRA_COLIDIR,
+  danoDeColisao,
+  lerEstadoNavio,
+  lerMontagem,
+  lerNavio,
+  metrosPorRodada,
+  presetDeNavio,
+  textoRumo,
+  velocidadeComDano,
+  type MontagemNavio,
+} from "@/lib/navio";
+import { INCLUDE_ACESSO, SO_PRINCIPAIS, acessoAFicha, mesmoGrupo, sessaoDoChat } from "@/lib/acesso-ficha";
 import {
   MAX_COPIAS,
   MAX_NOME_SUBFICHA,
@@ -164,6 +185,7 @@ import {
   resultadoDoAtaque,
   sofreDano,
   textoDaSalvaguarda,
+  type AcoesGastas,
   type AlvoResolucao,
   type OpcaoReacao,
   type ReacaoUsada,
@@ -171,7 +193,7 @@ import {
   type TipoAcaoCombate,
 } from "@/lib/combate";
 import { crComReacao, efeitosDaReacao, resumoDaReacao, type EfeitoDeReacao } from "@/lib/reacoes";
-import { lerResolucoes, ordenarParticipantes } from "@/lib/combate";
+import { inferirAlcance, lerResolucoes, ordenarParticipantes } from "@/lib/combate";
 import { tipoDominante } from "@/lib/estatisticas-combate";
 import {
   registrarAtaques,
@@ -185,15 +207,32 @@ import {
 import {
   aplicarCondicoes,
   avancarTurnoDoCombate,
+  bonusDePericiaDaCriatura,
   bonusDeSalvaguardaDaCriatura,
   tirarCondicao,
   crDoPersonagem,
   mudarResolucoes,
   participacaoEmCombate,
+  removerCondicoesPorEfeito,
   type DanoPeriodico,
 } from "@/lib/combate-servidor";
 import { defesasDaCriatura } from "@/lib/dano";
-import { lerRodadas, textoRodadas, type CondicaoAplicada } from "@/lib/condicoes";
+import {
+  RODADAS_MAX,
+  lerCondicoesAtivas,
+  lerRodadas,
+  textoRodadas,
+  type CondicaoAplicada,
+  type CondicaoAtiva,
+} from "@/lib/condicoes";
+import {
+  fontesDasCondicoes,
+  mecanicaDa,
+  modoDaSalvaguarda,
+  travaDaCondicaoNaAcao,
+  travasDasCondicoes,
+  viraCritico,
+} from "@/lib/condicoes-mecanica";
 import {
   CHAVE_LENDARIAS,
   comoResistencias,
@@ -203,7 +242,7 @@ import {
   serializarCriatura,
 } from "@/app/bestiario/utils";
 import { lerUsosAcoes } from "@/app/narrador/[mesaId]/sessao/utils";
-import { rolarDados } from "@/lib/dice";
+import { parseFormulaDados, rolarD20Contextual, rolarDados } from "@/lib/dice";
 
 // ─── Auth helper interno ───────────────────────────────────
 // Verifica sessão + acesso (lib/acesso-ficha.ts) e retorna o personagem com a
@@ -244,7 +283,6 @@ const ALLOWED_PERSONAGEM = [
   "sabedoria",
   "vontade",
   "presenca",
-  "mesaId",
   "berries",
   "tipoDadoVida",
   "dadosVidaGastos",
@@ -269,8 +307,6 @@ export async function patchPersonagem(
     for (const key of ALLOWED_PERSONAGEM) {
       if (patch[key] !== undefined) data[key] = patch[key];
     }
-    // Subficha joga na mesa do dono.
-    if (ehSubficha(personagem)) delete data.mesaId;
     if (data.atributoCdTecnicas !== undefined) {
       const v = data.atributoCdTecnicas ? String(data.atributoCdTecnicas) : null;
       if (v && !ATRIBUTOS_VALIDOS.has(v as Atributo)) throw new ErroDeUso("Atributo inválido.");
@@ -380,6 +416,7 @@ const ALLOWED_ACAO = [
   "grau",
   "efeitos",
   "aliado",
+  "armaDeFogo",
   "duracao",
   "tipoDano",
   "pasta",
@@ -458,6 +495,7 @@ function normalizarAcaoInput(input: AcaoInput) {
   }
   if (input.efeitos !== undefined) data.efeitos = normalizarEfeitosInput(input.efeitos);
   if (input.aliado !== undefined) data.aliado = Boolean(input.aliado);
+  if (input.armaDeFogo !== undefined) data.armaDeFogo = input.armaDeFogo === true;
   if (input.duracao !== undefined) data.duracao = lerDuracao(input.duracao) ?? Prisma.DbNull;
   if (input.formaDe !== undefined) data.formaDe = input.formaDe ? String(input.formaDe) : null;
   return data;
@@ -597,7 +635,7 @@ export async function usarAcao(
     alvoId?: string;
     // Em combate: alvos (InstanciaCombate.id), como a ficha vai resolver a
     // ação neles e a CD que ela calculou.
-    combate?: { alvos?: string[]; modo?: string; cd?: number | null };
+    combate?: { alvos?: string[]; modo?: string; cd?: number | null; corpoACorpo?: boolean };
   },
 ) {
   return executar("ficha", async () => {
@@ -617,6 +655,13 @@ export async function usarAcao(
       if ((combate.gastas[tipoAcao] ?? 0) >= maximoDeAcoes(agg.acoesExtras)[tipoAcao]) {
         throw new ErroDeUso(`Sem ação ${ACAO_COMBATE[tipoAcao].nome.toLowerCase()} neste turno.`);
       }
+      // Incapacitado, Sonolento, Letárgico…
+      const pelaCondicao = travaDaCondicaoNaAcao(
+        combate.condicoes,
+        tipoAcao,
+        combate.gastas,
+      );
+      if (pelaCondicao) throw new ErroDeUso(pelaCondicao);
     }
     // Custo por fórmula vira número com o nível, os atributos e o grau.
     const acao = comCustosResolvidos(bruta, agg.ctxFormula, bruta.grau);
@@ -645,9 +690,13 @@ export async function usarAcao(
       custoPp = 0;
     }
     const recurso = await recursoDeCusto(personagemId, acao.custoRecursoId, acao.custoRecursoValor);
-    const efeitos = lerEfeitos(acao.efeitos).filter(efeitoInstantaneo);
+    const todosEfeitos = lerEfeitos(acao.efeitos);
+    const efeitos = todosEfeitos.filter(efeitoInstantaneo);
+    const removeCondicao = todosEfeitos.some((e) => e.tipo === "condicao_remover");
     const aliado =
-      acao.aliado && efeitos.length > 0 ? await aliadoDoUso(personagem, opcoes?.alvoId) : null;
+      acao.aliado && (efeitos.length > 0 || removeCondicao)
+        ? await aliadoDoUso(personagem, opcoes?.alvoId)
+        : null;
 
     const ops = await opsDoUso({
       personagemId,
@@ -699,6 +748,7 @@ export async function usarAcao(
       );
     }
     if (ops.length > 0) await prisma.$transaction(ops);
+    if (removeCondicao) await removerCondicoesPorEfeito(aliado?.personagem.id ?? personagemId, todosEfeitos, acao.nome);
     await estatisticasDoUso({
       personagemId,
       nome: acao.nome,
@@ -719,6 +769,13 @@ export async function usarAcao(
             alvos,
             modo: modoResolucao,
             cd: cdDaFicha,
+            corpoACorpo: opcoes?.combate?.corpoACorpo === true,
+            // A tag da ação ou uma arma De Fogo ligada nela.
+            armaDeFogo:
+              acao.armaDeFogo ||
+              (ids.size > 0 &&
+                (await prisma.item.count({ where: { id: { in: [...ids] }, personagemId, categoria: "fogo" } })) > 0),
+            ppGasto: acao.tecnica ? custoPp : 0,
           })
         : null;
     revalidatePath(`/ficha/${personagemId}`);
@@ -1898,6 +1955,7 @@ async function aplicarUsoHabilidade(
   }
 
   if (ops.length > 0) await prisma.$transaction(ops);
+  await removerCondicoesPorEfeito(aliado?.personagem.id ?? personagemId, lerEfeitos(hab.efeitos), hab.nome);
   await estatisticasDoUso({
     personagemId,
     nome: hab.nome,
@@ -2077,8 +2135,8 @@ type SubfichaInput = {
   hpMax?: unknown;
   // Vale pra mesa inteira (a ficha de quem cria precisa estar numa).
   daMesa?: unknown;
-  // Navio do livro como ficha de partida (lib/navio.ts).
-  navio?: { tamanho?: unknown; madeira?: unknown } | null;
+  // Navio do livro como ficha de partida (lib/navio.ts, MontagemNavio).
+  navio?: unknown;
 };
 
 function nomeDeSubficha(raw: unknown): string {
@@ -2100,72 +2158,179 @@ export async function criarSubficha(personagemId: string, input: SubfichaInput) 
     const daMesa = input.daMesa === true;
     const mesa = daMesa ? personagem.mesa : null;
     if (daMesa && !mesa) throw new ErroDeUso("Entre em uma mesa pra criar a ficha dela.");
-    const dono = mesa ? { donoMesaId: mesa.id } : { donoPersonagemId: personagemId };
-    const quantas = await prisma.personagem.count({ where: { ...dono, moldeId: null } });
-    if (quantas >= (mesa ? MAX_SUBFICHAS_DA_MESA : MAX_SUBFICHAS)) {
-      throw new ErroDeUso("Limite de subfichas atingido.");
-    }
-
-    const nome = nomeDeSubficha(input.nome);
-    const perfil = perfilDeSubficha(input.perfil);
-    const navio =
-      perfil === "veiculo" && input.navio
-        ? { tamanho: String(input.navio.tamanho), madeira: String(input.navio.madeira) }
-        : null;
-    if (navio && !TAMANHOS_VALIDOS.has(navio.tamanho)) throw new ErroDeUso("Tamanho de navio inválido.");
-    if (navio && !MADEIRAS_VALIDAS.has(navio.madeira)) throw new ErroDeUso("Madeira inválida.");
-    const preset = navio ? presetDeNavio(navio.tamanho, navio.madeira) : null;
-    const hpMax = preset?.hpMax ?? clamp(Math.trunc(Number(input.hpMax) || 0), 0, 99999);
-
-    const id = randomUUID();
-    await prisma.$transaction([
-      prisma.personagem.create({
-        data: {
-          id,
-          // A da mesa é do narrador; a de personagem, de quem é o dono.
-          userId: mesa ? mesa.userId : personagem.userId,
-          ...dono,
-          nome,
-          perfil,
-          molde: !mesa && input.molde === true,
-          hpMax,
-          hpAtual: hpMax,
-          // Veículo não tem atributo: 10 deixa todo modificador em zero.
-          ...(perfil === "veiculo"
-            ? {
-                forca: 10,
-                destreza: 10,
-                constituicao: 10,
-                sabedoria: 10,
-                vontade: 10,
-                presenca: 10,
-                deslocamento: 0,
-                nado: 0,
-              }
-            : {}),
-        },
-      }),
-      ...(preset
-        ? [
-            prisma.habilidade.createMany({
-              data: preset.habilidades.map((h, ordem) => ({
-                personagemId: id,
-                nome: h.nome,
-                tipo: "passiva",
-                descricao: h.descricao,
-                tags: h.tags,
-                ordem,
-                efeitos: h.efeitos,
-              })),
-            }),
-            prisma.recurso.create({
-              data: { personagemId: id, nome: preset.recurso.nome, valorMax: preset.recurso.valorMax },
-            }),
-          ]
-        : []),
-    ]);
+    const id = await novaSubficha(
+      mesa
+        ? { userId: mesa.userId, donoMesaId: mesa.id, mesaId: mesa.id, doNarrador: false }
+        : { userId: personagem.userId, donoPersonagemId: personagemId, mesaId: personagem.mesaId },
+      input,
+    );
     revalidatePath(`/ficha/${personagemId}`);
     return { id };
+  });
+}
+
+// Navio do narrador (inimigo): ficha da mesa que só ele vê.
+export async function criarNavioDoNarrador(mesaId: string, input: SubfichaInput) {
+  return executar("narrador", async () => {
+    const [user, mesa] = await Promise.all([
+      usuarioDaRequest(),
+      prisma.mesa.findUnique({ where: { id: mesaId }, select: { userId: true } }),
+    ]);
+    if (!user) throw new ErroDeUso("Não autenticado.");
+    if (!mesa || mesa.userId !== user.id) throw new ErroDeUso("Só o narrador da mesa cria navio inimigo.");
+    const id = await novaSubficha(
+      { userId: user.id, donoMesaId: mesaId, mesaId, doNarrador: true },
+      { ...input, perfil: "veiculo", molde: false },
+    );
+    revalidatePath(`/narrador/${mesaId}`);
+    return { id };
+  });
+}
+
+// Cria a subficha (e, num navio do livro, as habilidades, os canhões e a montagem).
+async function novaSubficha(
+  dono: {
+    userId: string;
+    mesaId: string | null;
+    donoPersonagemId?: string;
+    donoMesaId?: string;
+    doNarrador?: boolean;
+  },
+  input: SubfichaInput,
+): Promise<string> {
+  const doDono = dono.donoMesaId
+    ? { donoMesaId: dono.donoMesaId, doNarrador: !!dono.doNarrador }
+    : { donoPersonagemId: dono.donoPersonagemId! };
+  const quantas = await prisma.personagem.count({ where: { ...doDono, moldeId: null } });
+  if (quantas >= (dono.donoMesaId ? MAX_SUBFICHAS_DA_MESA : MAX_SUBFICHAS)) {
+    throw new ErroDeUso("Limite de subfichas atingido.");
+  }
+
+  const nome = nomeDeSubficha(input.nome);
+  const perfil = perfilDeSubficha(input.perfil);
+  const navio = perfil === "veiculo" && input.navio ? lerMontagem(input.navio) : null;
+  if (perfil === "veiculo" && input.navio && !navio) throw new ErroDeUso("Navio inválido.");
+  const preset = navio ? presetDeNavio(navio) : null;
+  const hpMax = preset?.hpMax ?? clamp(Math.trunc(Number(input.hpMax) || 0), 0, 99999);
+
+  const id = randomUUID();
+  await prisma.$transaction([
+    prisma.personagem.create({
+      data: {
+        id,
+        // A da mesa é do narrador; a de personagem, de quem é o dono.
+        userId: dono.userId,
+        ...doDono,
+        // Joga na mesa do dono.
+        mesaId: dono.mesaId,
+        nome,
+        perfil,
+        molde: !dono.donoMesaId && input.molde === true,
+        hpMax,
+        hpAtual: hpMax,
+        ...(navio ? { navio: { montagem: navio, comandanteId: null } } : {}),
+        // Veículo não tem atributo: 10 deixa todo modificador em zero.
+        ...(perfil === "veiculo"
+          ? {
+              forca: 10,
+              destreza: 10,
+              constituicao: 10,
+              sabedoria: 10,
+              vontade: 10,
+              presenca: 10,
+              deslocamento: preset?.deslocamento ?? 0,
+              nado: 0,
+            }
+          : {}),
+      },
+    }),
+    ...(preset
+      ? [
+          prisma.habilidade.createMany({
+            data: preset.habilidades.map((h, ordem) => ({
+              personagemId: id,
+              nome: h.nome,
+              tipo: "passiva",
+              descricao: h.descricao,
+              tags: h.tags,
+              ordem,
+              efeitos: h.efeitos,
+            })),
+          }),
+          ...opsDosCanhoes(id, navio!),
+        ]
+      : []),
+  ]);
+  return id;
+}
+
+// Canhões do navio: a arma (quantidade = canhões), a munição e a ação que dispara.
+function opsDosCanhoes(personagemId: string, m: MontagemNavio): Prisma.PrismaPromise<unknown>[] {
+  if (m.canhoes <= 0) return [];
+  const canhaoId = randomUUID();
+  const bolaId = randomUUID();
+  const arma = armaDosCanhoes(m);
+  return [
+    prisma.item.create({
+      data: {
+        id: bolaId,
+        personagemId,
+        nome: BOLA_DE_CHUMBO.nome,
+        tipo: "municao",
+        quantidade: m.canhoes * BOLAS_POR_CANHAO,
+        dano: `${BOLA_DE_CHUMBO.dano} ${BOLA_DE_CHUMBO.tipo.toLowerCase()}`,
+      },
+    }),
+    prisma.item.create({
+      data: {
+        id: canhaoId,
+        personagemId,
+        nome: arma.nome,
+        descricao: arma.descricao,
+        tipo: "arma",
+        quantidade: m.canhoes,
+        categoria: "fogo",
+        alcance: "distancia",
+        alcanceMetros: arma.alcanceMetros,
+        modificador: arma.modificador,
+        propriedades: ["municao"],
+        proficienteArma: false,
+        equipado: true,
+        municaoId: bolaId,
+        efeitos: arma.efeitos,
+      },
+    }),
+    prisma.acao.create({
+      data: {
+        personagemId,
+        ...acaoDosCanhoes(m),
+        armaIds: [canhaoId],
+        tipoDano: BOLA_DE_CHUMBO.tipo,
+        armaDeFogo: true,
+      },
+    }),
+  ];
+}
+
+// Quem comanda o navio (a salvaguarda de estrutura sai da VON dele): um
+// jogador da mesa do navio; null tira.
+export async function definirComandante(navioId: string, comandanteId: string | null) {
+  return executar("ficha", async () => {
+    const { personagem } = await autorizar(navioId);
+    const navio = lerNavio(personagem.navio);
+    if (!navio) throw new ErroDeUso("Esta ficha não é de navio.");
+    if (comandanteId) {
+      const ok = await prisma.personagem.findFirst({
+        where: { id: comandanteId, mesaId: personagem.mesaId ?? "-", ...SO_PRINCIPAIS },
+        select: { id: true },
+      });
+      if (!ok) throw new ErroDeUso("Comandante não é jogador desta mesa.");
+    }
+    await prisma.personagem.update({
+      where: { id: navioId },
+      data: { navio: { ...navio, comandanteId: comandanteId || null } },
+    });
+    revalidarFicha(personagem);
   });
 }
 
@@ -4326,12 +4491,15 @@ async function criarResolucao(
     salvaguarda: Resolucao["salvaguarda"];
     condicoes: CondicaoAplicada[];
     alvos: string[];
+    corpoACorpo?: boolean;
+    armaDeFogo?: boolean;
+    ppGasto?: number;
   },
 ): Promise<string | null> {
   const { modo, salvaguarda } = entrada;
   const achadas = await prisma.instanciaCombate.findMany({
     where: { combateId: lado.combateId, id: { in: entrada.alvos } },
-    select: { id: true, nomeExibicao: true, personagemId: true, criaturaId: true },
+    select: { id: true, nomeExibicao: true, personagemId: true, criaturaId: true, condicoesAtivas: true },
   });
   if (achadas.length === 0) return null;
 
@@ -4351,11 +4519,24 @@ async function criarResolucao(
     let resultado: AlvoResolucao["resultado"] = null;
     const criatura = criaturas.find((c) => c.id === i.criaturaId);
     if (modo === "salvaguarda" && salvaguarda && criatura) {
-      const bonus = bonusDeSalvaguardaDaCriatura(criatura, salvaguarda.atributo);
-      const total = rolarDados([{ faces: 20, sinal: 1 }], bonus).total;
-      const salv = resultadoDaSalvaguarda({ total, natural: total - bonus }, salvaguarda.cd);
-      resultado = salv.resultado;
-      linhas.push(`${i.nomeExibicao} ${textoDaSalvaguarda(salv)}`);
+      // Condições da criatura: falha automática, vantagem ou desvantagem.
+      const pelaCondicao = modoDaSalvaguarda(lerCondicoesAtivas(i.condicoesAtivas), salvaguarda.atributo);
+      if (pelaCondicao.falha) {
+        resultado = "falha";
+        linhas.push(`${i.nomeExibicao} falhou na salvaguarda (${pelaCondicao.falha})`);
+      } else {
+        const bonus = bonusDeSalvaguardaDaCriatura(criatura, salvaguarda.atributo);
+        const natural = rolarD20Contextual({
+          vantagem: pelaCondicao.modo === "vantagem",
+          desvantagem: pelaCondicao.modo === "desvantagem",
+        }).mantido;
+        const salv = resultadoDaSalvaguarda({ total: natural + bonus, natural }, salvaguarda.cd);
+        resultado = salv.resultado;
+        linhas.push(
+          `${i.nomeExibicao} ${textoDaSalvaguarda(salv)}` +
+            (pelaCondicao.modo !== "normal" ? ` (com ${pelaCondicao.modo})` : ""),
+        );
+      }
     }
     return { instanciaId: i.id, nome: i.nomeExibicao, personagemId: i.personagemId, resultado, danoAplicado: false };
   });
@@ -4367,6 +4548,9 @@ async function criarResolucao(
     acaoId: entrada.acaoId,
     nome: entrada.nome,
     modo,
+    ...(entrada.corpoACorpo ? { corpoACorpo: true } : {}),
+    ...(entrada.armaDeFogo ? { armaDeFogo: true } : {}),
+    ...(entrada.ppGasto ? { ppGasto: entrada.ppGasto } : {}),
     etapa: modo === "ataque" ? "ataque" : entrada.temDano ? "dano" : "feito",
     salvaguarda: modo === "salvaguarda" ? salvaguarda : null,
     temDano: entrada.temDano,
@@ -4412,6 +4596,9 @@ async function abrirResolucao(entrada: {
   alvos: string[];
   modo: Resolucao["modo"];
   cd: number;
+  corpoACorpo?: boolean;
+  armaDeFogo?: boolean;
+  ppGasto?: number;
 }): Promise<string | null> {
   const { acao } = entrada;
   // Condições que a ação põe em quem ela pega (efeito "Aplica Condição").
@@ -4441,6 +4628,9 @@ async function abrirResolucao(entrada: {
       : null,
     condicoes,
     alvos: entrada.alvos,
+    corpoACorpo: entrada.corpoACorpo,
+    armaDeFogo: entrada.armaDeFogo,
+    ppGasto: entrada.ppGasto,
   });
 }
 
@@ -4463,13 +4653,14 @@ async function condicoesDaResolucao(combate: Pick<Lado, "combateId" | "mesaId">,
   });
   if (!feito) return;
   const { resolucao } = feito;
-  const nomes = await aplicarCondicoes({
+  const { receberam: nomes, imunes } = await aplicarCondicoes({
     combateId: combate.combateId,
     instanciaIds: feito.ids,
     condicoes: resolucao.condicoes,
     fonteId: resolucao.atacanteId,
     origem: `${resolucao.nome} de ${resolucao.atacanteNome}`,
   });
+  if (imunes.length > 0) await avisarCombate(combate.mesaId, resolucao.nome, `imune: ${imunes.join(", ")}.`);
   if (nomes.length === 0) return;
   await avisarCombate(
     combate.mesaId,
@@ -4486,84 +4677,112 @@ type Leva = { alvo: AlvoResolucao; fator: number; partes: ParteDano[]; reducao: 
 // depois de gravar a resolução (com a marca de "aplicado" já feita). A redução
 // de uma reação sai do dano antes das defesas do alvo.
 async function descontarDano(mesaId: string, combateId: string, resolucao: Resolucao, alvos: Leva[]) {
+  // Multiplicador no dano de quem atacou (Letárgico: metade, menos arma de fogo).
+  const doAtacante = alvos.length > 0 ? await fatorDoAtacante(resolucao) : { fator: 1, fontes: [] };
+  if (doAtacante.fator !== 1 && alvos.length > 0) {
+    await avisarCombate(mesaId, resolucao.atacanteNome, `dano ×${String(doAtacante.fator).replace(".", ",")} (${doAtacante.fontes.join(", ")}).`);
+  }
   for (const { alvo, fator, partes: roladas, reducao } of alvos) {
     let resta = reducao;
     const partes = roladas
       .map((p) => {
-        const valor = Math.floor(p.valor * fator);
+        const valor = Math.floor(p.valor * fator * doAtacante.fator);
         const menos = Math.min(resta, valor);
         resta -= menos;
         return { valor: valor - menos, tipo: p.tipo };
       })
       .filter((p) => p.valor > 0);
     if (partes.length === 0) {
-      if (reducao > 0) await avisarCombate(mesaId, alvo.nome, "não recebeu dano.");
+      if (reducao > 0 || doAtacante.fator < 1) await avisarCombate(mesaId, alvo.nome, "não recebeu dano.");
       continue;
     }
-
-    if (alvo.personagemId) {
-      const [personagem, { agg }] = await Promise.all([
-        prisma.personagem.findUnique({ where: { id: alvo.personagemId }, include: INCLUDE_ACESSO }),
-        carregarAgregado(alvo.personagemId),
-      ]);
-      if (!personagem) continue;
-      const { teste } = await danoNoPersonagem({
-        personagem,
-        agg,
-        uid: UID_COMBATE,
-        partes,
-        fonte: { de: resolucao.atacanteId, acao: resolucao.nome },
-      });
-      if (teste) {
-        // O jogador recebe o pedido na faixa da iniciativa e rola quando puder.
-        await mudarResolucoes(combateId, (lista) => {
-          const a = lista
-            .find((r) => r.id === resolucao.id)
-            ?.alvos.find((x) => x.instanciaId === alvo.instanciaId && !x.concentracao);
-          if (a) a.concentracao = teste;
-        });
-      }
-      continue;
-    }
-
-    const instancia = await prisma.instanciaCombate.findUnique({
-      where: { id: alvo.instanciaId },
-      select: { criaturaId: true, pvAtual: true, pvMax: true, pvTemp: true },
-    });
-    if (!instancia?.criaturaId) continue;
-    const criatura = await prisma.criatura.findUnique({
-      where: { id: instancia.criaturaId },
-      select: { resistencias: true },
-    });
-    // O dano sai primeiro do PV temporário; o que sobrar, do PV.
-    const r = resolverDano(
-      partes,
-      defesasDaCriatura(comoResistencias(criatura?.resistencias)),
-      { hpAtual: instancia.pvAtual ?? 0, hpTemp: instancia.pvTemp, hpMax: instancia.pvMax ?? 0 },
-    );
-    await prisma.instanciaCombate.update({
-      where: { id: alvo.instanciaId },
-      data: {
-        pvAtual: r.hpAtual.depois,
-        pvTemp: r.hpTemp.depois,
-        ...(r.hpTemp.depois === 0 ? { pvTempDuracao: null } : {}),
-      },
-    });
-    await registrarDano(combateId, {
+    const { teste } = await danoNaInstancia({ mesaId, combateId }, alvo, partes, {
       de: resolucao.atacanteId,
-      para: alvo.instanciaId,
-      valor: r.final,
-      bruto: r.bruto,
-      tipo: tipoDominante(r.partes),
       acao: resolucao.nome,
-      caiu: r.hpAtual.antes > 0 && r.hpAtual.depois <= 0,
     });
-    await avisarCombate(
-      mesaId,
-      alvo.nome,
-      `recebeu ${r.final} de dano` + (r.absorvido > 0 ? ` (${r.absorvido} no PV temporário).` : "."),
-    );
+    if (teste) {
+      // O jogador recebe o pedido na faixa da iniciativa e rola quando puder.
+      await mudarResolucoes(combateId, (lista) => {
+        const a = lista
+          .find((r) => r.id === resolucao.id)
+          ?.alvos.find((x) => x.instanciaId === alvo.instanciaId && !x.concentracao);
+        if (a) a.concentracao = teste;
+      });
+    }
   }
+}
+
+// Dano em quem está no combate: o jogador pela ficha (defesas, PV temporário,
+// concentração); a criatura pelo bestiário. Devolve o teste de concentração
+// que o dano pediu ao jogador.
+async function danoNaInstancia(
+  lado: { mesaId: string; combateId: string },
+  alvo: { instanciaId: string; nome: string; personagemId: string | null },
+  partes: ParteDano[],
+  fonte: { de: string | null; acao: string },
+): Promise<{ teste: { nome: string; cd: number } | null }> {
+  if (alvo.personagemId) {
+    const [personagem, { agg }] = await Promise.all([
+      prisma.personagem.findUnique({ where: { id: alvo.personagemId }, include: INCLUDE_ACESSO }),
+      carregarAgregado(alvo.personagemId),
+    ]);
+    if (!personagem) return { teste: null };
+    const { teste } = await danoNoPersonagem({ personagem, agg, uid: UID_COMBATE, partes, fonte });
+    return { teste };
+  }
+
+  const instancia = await prisma.instanciaCombate.findUnique({
+    where: { id: alvo.instanciaId },
+    select: { criaturaId: true, pvAtual: true, pvMax: true, pvTemp: true },
+  });
+  if (!instancia?.criaturaId) return { teste: null };
+  const criatura = await prisma.criatura.findUnique({
+    where: { id: instancia.criaturaId },
+    select: { resistencias: true },
+  });
+  // O dano sai primeiro do PV temporário; o que sobrar, do PV.
+  const r = resolverDano(
+    partes,
+    defesasDaCriatura(comoResistencias(criatura?.resistencias)),
+    { hpAtual: instancia.pvAtual ?? 0, hpTemp: instancia.pvTemp, hpMax: instancia.pvMax ?? 0 },
+  );
+  await prisma.instanciaCombate.update({
+    where: { id: alvo.instanciaId },
+    data: {
+      pvAtual: r.hpAtual.depois,
+      pvTemp: r.hpTemp.depois,
+      ...(r.hpTemp.depois === 0 ? { pvTempDuracao: null } : {}),
+    },
+  });
+  await registrarDano(lado.combateId, {
+    de: fonte.de,
+    para: alvo.instanciaId,
+    valor: r.final,
+    bruto: r.bruto,
+    tipo: tipoDominante(r.partes),
+    acao: fonte.acao,
+    caiu: r.hpAtual.antes > 0 && r.hpAtual.depois <= 0,
+  });
+  await avisarCombate(
+    lado.mesaId,
+    alvo.nome,
+    `recebeu ${r.final} de dano` + (r.absorvido > 0 ? ` (${r.absorvido} no PV temporário).` : "."),
+  );
+  return { teste: null };
+}
+
+// Multiplicador no dano de quem atacou: o jogador pela ficha (que já soma as
+// condições); a criatura só pelas condições.
+async function fatorDoAtacante(resolucao: Resolucao): Promise<{ fator: number; fontes: string[] }> {
+  const instancia = await prisma.instanciaCombate.findUnique({
+    where: { id: resolucao.atacanteId },
+    select: { personagemId: true, condicoesAtivas: true },
+  });
+  if (!instancia) return { fator: 1, fontes: [] };
+  const agg = instancia.personagemId
+    ? (await carregarAgregado(instancia.personagemId)).agg
+    : agregarEfeitos(fontesDasCondicoes(lerCondicoesAtivas(instancia.condicoesAtivas)));
+  return fatorDeDano(agg, { corpoACorpo: !!resolucao.corpoACorpo, armaDeFogo: !!resolucao.armaDeFogo });
 }
 
 // Marca como aplicado o dano de quem já pode levar e devolve a lista pra
@@ -4602,7 +4821,7 @@ async function reacoesCabiveis(
   const [instancia, combate] = await Promise.all([
     prisma.instanciaCombate.findUnique({
       where: { id: alvo.instanciaId },
-      select: { acoesGastas: true, criaturaId: true, estadoRecargas: true },
+      select: { acoesGastas: true, criaturaId: true, estadoRecargas: true, condicoesAtivas: true },
     }),
     prisma.combate.findUnique({
       where: { id: combateId },
@@ -4611,6 +4830,8 @@ async function reacoesCabiveis(
   ]);
   if (!instancia || !combate) return [];
   if (ordenarParticipantes(combate.participantes)[combate.turnoAtual]?.id === alvo.instanciaId) return [];
+  // Incapacitado ou Sonolento não reage.
+  if (travasDasCondicoes(lerCondicoesAtivas(instancia.condicoesAtivas)).semReacao) return [];
   const gasta = lerAcoesGastas(instancia.acoesGastas).react ?? 0;
 
   if (!alvo.personagemId) {
@@ -4736,7 +4957,20 @@ async function resolverAtaque(lado: Lado, resolucaoId: string, lances: LanceDeAt
   for (const alvo of alvos) {
     if (!crs.has(alvo.instanciaId)) crs.set(alvo.instanciaId, await crDoAlvo(alvo));
   }
-  const resultados = rolados.map((lance, i) => resultadoDoAtaque(lance, crs.get(alvos[i].instanciaId) ?? 10));
+  // Acerto a 1,5 m em alvo indefeso (Paralisado, Inconsciente) é crítico.
+  const condicoesDosAlvos = new Map(
+    (
+      await prisma.instanciaCombate.findMany({
+        where: { id: { in: [...crs.keys()] } },
+        select: { id: true, condicoesAtivas: true },
+      })
+    ).map((i) => [i.id, lerCondicoesAtivas(i.condicoesAtivas)]),
+  );
+  const resultados = rolados.map((lance, i) => {
+    const r = resultadoDoAtaque(lance, crs.get(alvos[i].instanciaId) ?? 10);
+    const indefeso = viraCritico(condicoesDosAlvos.get(alvos[i].instanciaId) ?? [], !!aberta.corpoACorpo);
+    return r === "acerto" && indefeso ? "critico" : r;
+  });
 
   const gravou = await mudarResolucoes(lado.combateId, (lista) => {
     const r = lista.find((x) => x.id === resolucaoId && x.etapa === "ataque");
@@ -4771,10 +5005,227 @@ async function resolverAtaque(lado: Lado, resolucaoId: string, lances: LanceDeAt
       alvos.map((a, i) => `${a.nome} · ${TEXTO_RESULTADO[resultados[i]]}`).join("; ") +
       (resultados.includes("critico") ? "!" : "."),
   );
+  // Técnica que errou todos com quem está Empoderado: o PP volta.
+  if (aberta.ppGasto && resultados.every((r) => r === "erro")) await devolverPpDoErro(lado, aberta);
+  // Dano de condição no 1º ataque do turno (Queimado).
+  await danoDeGatilho(lado, lado.instanciaId, "ataque");
   // Quem foi acertado decide se reage; sem reação a escolher, as condições já entram.
   await janelasDeReacao(lado.combateId, resolucaoId);
   await condicoesDaResolucao(lado, resolucaoId);
   return { resultados };
+}
+
+// PP da técnica que errou todos volta pra quem está com condição que devolve.
+async function devolverPpDoErro(lado: Lado, resolucao: Resolucao) {
+  const instancia = await prisma.instanciaCombate.findUnique({
+    where: { id: lado.instanciaId },
+    select: { personagemId: true, nomeExibicao: true, condicoesAtivas: true },
+  });
+  const quem = instancia ? travasDasCondicoes(lerCondicoesAtivas(instancia.condicoesAtivas)).ppDeErroVolta : null;
+  if (!instancia?.personagemId || !quem || !resolucao.ppGasto) return;
+  await prisma.personagem.update({
+    where: { id: instancia.personagemId },
+    data: { ppAtual: { increment: resolucao.ppGasto } },
+  });
+  await avisarCombate(lado.mesaId, instancia.nomeExibicao, `recuperou ${resolucao.ppGasto} PP (${quem}).`);
+}
+
+// Dano de condição com gatilho (1º ataque do turno, ao se mover): uma vez por
+// turno de combate. `condicaoId` restringe a uma. Devolve quantas dispararam.
+async function danoDeGatilho(
+  lado: { mesaId: string; combateId: string },
+  instanciaId: string,
+  gatilho: "ataque" | "movimento",
+  condicaoId?: string,
+): Promise<number> {
+  const [instancia, combate] = await Promise.all([
+    prisma.instanciaCombate.findUnique({
+      where: { id: instanciaId },
+      select: { combateId: true, nomeExibicao: true, personagemId: true, condicoesAtivas: true },
+    }),
+    prisma.combate.findUnique({ where: { id: lado.combateId }, select: { rodadaAtual: true, turnoAtual: true } }),
+  ]);
+  if (!instancia || !combate || instancia.combateId !== lado.combateId) return 0;
+  const vez = `${combate.rodadaAtual}:${combate.turnoAtual}`;
+  const condicoes = lerCondicoesAtivas(instancia.condicoesAtivas);
+  const disparam = condicoes.filter(
+    (c) => (!condicaoId || c.id === condicaoId) && mecanicaDa(c)?.dano?.quando === gatilho && c.disparou !== vez,
+  );
+  if (disparam.length === 0) return 0;
+  await prisma.instanciaCombate.update({
+    where: { id: instanciaId },
+    data: {
+      condicoesAtivas: condicoes.map((c) =>
+        disparam.includes(c) ? { ...c, disparou: vez } : c,
+      ) as unknown as Prisma.InputJsonValue,
+    },
+  });
+  for (const c of disparam) {
+    const dano = mecanicaDa(c)!.dano!;
+    const f = parseFormulaDados(dano.formula);
+    const valor = f.dados.length > 0 ? rolarDados(f.dados, f.modificador).total : f.modificador;
+    if (!(valor > 0)) continue;
+    await avisarCombate(lado.mesaId, instancia.nomeExibicao, `sofre com ${c.nome}.`);
+    await danoNaInstancia(
+      lado,
+      { instanciaId, nome: instancia.nomeExibicao, personagemId: instancia.personagemId },
+      [{ valor, tipo: dano.tipo }],
+      { de: c.fonteId, acao: c.nome },
+    );
+  }
+  return disparam.length;
+}
+
+// Ação de uma condição (Apagar, Tratar): gasta a ação do turno e tira, troca
+// por outra ou testa pra tirar. `total`: o teste, já rolado.
+async function acaoDaCondicao(
+  lado: { mesaId: string; combateId: string },
+  quem: {
+    instanciaId: string;
+    nome: string;
+    naVez: boolean;
+    gastas: AcoesGastas;
+    maximo: Record<TipoAcaoCombate, number>;
+    condicoes: CondicaoAtiva[];
+  },
+  condicaoId: string,
+  indice: number,
+  total: number | null,
+) {
+  const condicao = quem.condicoes.find((c) => c.id === condicaoId);
+  const acao = condicao ? mecanicaDa(condicao)?.acoes?.[Math.trunc(Number(indice))] : undefined;
+  if (!condicao || !acao) throw new ErroDeUso("Essa ação não existe mais.");
+  if (acao.custo !== "livre") {
+    if (!quem.naVez) throw new ErroDeUso("Não é a sua vez.");
+    if ((quem.gastas[acao.custo] ?? 0) >= quem.maximo[acao.custo]) {
+      throw new ErroDeUso(`Sem ação ${ACAO_COMBATE[acao.custo].nome.toLowerCase()} neste turno.`);
+    }
+    const trava = travaDaCondicaoNaAcao(quem.condicoes, acao.custo, quem.gastas);
+    if (trava) throw new ErroDeUso(trava);
+  }
+  if (acao.faz === "teste" && total == null) throw new ErroDeUso("Role o teste.");
+
+  if (acao.custo !== "livre") {
+    await prisma.instanciaCombate.update({
+      where: { id: quem.instanciaId },
+      data: { acoesGastas: { ...quem.gastas, [acao.custo]: (quem.gastas[acao.custo] ?? 0) + 1 } },
+    });
+  }
+  const passou = acao.faz !== "teste" || (total ?? 0) >= (acao.teste?.cd ?? 10);
+  if (passou) await tirarCondicao(lado.combateId, quem.instanciaId, condicaoId);
+  if (passou && acao.faz === "trocar" && acao.condicao) {
+    await aplicarCondicoes({
+      combateId: lado.combateId,
+      instanciaIds: [quem.instanciaId],
+      condicoes: [{ nome: acao.condicao, rodadas: RODADAS_MAX, salvaguarda: null }],
+      fonteId: null,
+      origem: condicao.nome,
+    });
+  }
+  const teste = acao.faz === "teste" ? ` (${total} contra CD ${acao.teste?.cd})` : "";
+  await avisarCombate(
+    lado.mesaId,
+    quem.nome,
+    passou
+      ? `${acao.nome}${teste}: não está mais com ${condicao.nome}` +
+          (acao.faz === "trocar" ? `, agora com ${acao.condicao}.` : ".")
+      : `${acao.nome}${teste}: continua com ${condicao.nome}.`,
+  );
+}
+
+// O jogador usa uma ação da condição dele.
+export async function usarAcaoDeCondicao(
+  personagemId: string,
+  condicaoId: string,
+  indice: number,
+  teste?: { total: number },
+) {
+  return executar("ficha", async () => {
+    const combate = await minhaResolucao(personagemId);
+    const [{ agg }, instancia] = await Promise.all([
+      carregarAgregado(personagemId),
+      prisma.instanciaCombate.findUnique({ where: { id: combate.instanciaId }, select: { nomeExibicao: true } }),
+    ]);
+    await acaoDaCondicao(
+      combate,
+      {
+        instanciaId: combate.instanciaId,
+        nome: instancia?.nomeExibicao ?? "",
+        naVez: combate.naVez,
+        gastas: combate.gastas,
+        maximo: maximoDeAcoes(agg.acoesExtras),
+        condicoes: combate.condicoes,
+      },
+      condicaoId,
+      indice,
+      teste ? Math.trunc(Number(teste.total) || 0) : null,
+    );
+    revalidarCombate(combate, personagemId);
+  });
+}
+
+// O narrador usa a ação de uma condição numa criatura; o teste rola aqui.
+export async function acaoDeCondicaoDaCriatura(
+  mesaId: string,
+  combateId: string,
+  instanciaId: string,
+  condicaoId: string,
+  indice: number,
+) {
+  return executar("sessao", async () => {
+    const { lado, instancia, criaturaId } = await ladoDaCriatura(mesaId, combateId, instanciaId);
+    const [combate, criatura] = await Promise.all([
+      prisma.combate.findUniqueOrThrow({
+        where: { id: combateId },
+        select: { turnoAtual: true, participantes: { select: { id: true, iniciativa: true, ordem: true } } },
+      }),
+      prisma.criatura.findUnique({ where: { id: criaturaId } }),
+    ]);
+    const condicoes = lerCondicoesAtivas(instancia.condicoesAtivas);
+    const acao = mecanicaDa(condicoes.find((c) => c.id === condicaoId) ?? { nome: "" })?.acoes?.[indice];
+    let total: number | null = null;
+    if (acao?.faz === "teste" && acao.teste && criatura) {
+      const bonus = bonusDePericiaDaCriatura(criatura, acao.teste.pericia);
+      total = rolarD20Contextual().mantido + bonus;
+    }
+    await acaoDaCondicao(
+      lado,
+      {
+        instanciaId,
+        nome: instancia.nomeExibicao,
+        naVez: ordenarParticipantes(combate.participantes)[combate.turnoAtual]?.id === instanciaId,
+        gastas: lerAcoesGastas(instancia.acoesGastas),
+        maximo: maximoDeAcoes(),
+        condicoes,
+      },
+      condicaoId,
+      indice,
+      total,
+    );
+    revalidatePath(`/narrador/${mesaId}`);
+  });
+}
+
+// A criatura se moveu com uma condição que dói ao se mover.
+export async function moverCriaturaComCondicao(mesaId: string, combateId: string, instanciaId: string, condicaoId: string) {
+  return executar("sessao", async () => {
+    const { lado } = await ladoDaCriatura(mesaId, combateId, instanciaId);
+    if ((await danoDeGatilho(lado, instanciaId, "movimento", condicaoId)) === 0) {
+      throw new ErroDeUso("Esse dano já caiu neste turno.");
+    }
+    revalidatePath(`/narrador/${mesaId}`);
+  });
+}
+
+// O jogador se moveu com uma condição que dói ao se mover (Sangramento).
+export async function moverComCondicao(personagemId: string, condicaoId: string) {
+  return executar("ficha", async () => {
+    const combate = await minhaResolucao(personagemId);
+    if ((await danoDeGatilho(combate, combate.instanciaId, "movimento", condicaoId)) === 0) {
+      throw new ErroDeUso("Esse dano já caiu neste turno.");
+    }
+    revalidarCombate(combate, personagemId);
+  });
 }
 
 // Dano rolado de uma resolução, uma parte por tipo: passa pelas defesas de cada
@@ -4835,24 +5286,23 @@ export async function responderSalvaguarda(
   personagemId: string,
   resolucaoId: string,
   rolagem: { total: number; natural: number | null },
+  // Salvaguarda de estrutura: o navio (InstanciaCombate.id) que ele comanda.
+  pelo?: string,
 ) {
   return executar("ficha", async () => {
     const combate = await minhaResolucao(personagemId);
+    const quem = pelo ? await navioComandado(combate.combateId, pelo, personagemId) : { instanciaId: combate.instanciaId, personagemId };
     const total = Math.trunc(Number(rolagem?.total) || 0);
     const natural = rolagem?.natural == null ? null : Math.trunc(Number(rolagem.natural) || 0);
     const temDano = await mudarResolucoes(
       combate.combateId,
       (lista) => lista.find((x) => x.id === resolucaoId && x.salvaguarda)?.temDano === true,
     );
-    const reacoes = await reacoesCabiveis(
-      combate.combateId,
-      { instanciaId: combate.instanciaId, personagemId },
-      { modo: "salvaguarda", temDano },
-    );
+    const reacoes = await reacoesCabiveis(combate.combateId, quem, { modo: "salvaguarda", temDano });
 
     const feito = await mudarResolucoes(combate.combateId, (lista) => {
       const r = lista.find((x) => x.id === resolucaoId && x.salvaguarda);
-      const alvo = r?.alvos.find((a) => a.instanciaId === combate.instanciaId && a.resultado === null);
+      const alvo = r?.alvos.find((a) => a.instanciaId === quem.instanciaId && a.resultado === null);
       if (!r || !alvo) return null;
       const salv = resultadoDaSalvaguarda({ total, natural }, r.salvaguarda!.cd);
       alvo.resultado = salv.resultado;
@@ -4878,6 +5328,154 @@ export async function responderSalvaguarda(
     await condicoesDaResolucao(combate, resolucaoId);
     revalidarCombate(combate, personagemId);
     return { resultado: feito.alvo.resultado };
+  });
+}
+
+// O navio do combate que o personagem comanda (ficha de navio com ele de comandante).
+async function navioComandado(combateId: string, instanciaId: string, comandanteId: string) {
+  const instancia = await prisma.instanciaCombate.findFirst({
+    where: { id: instanciaId, combateId },
+    select: { personagemId: true },
+  });
+  const navio = instancia?.personagemId
+    ? await prisma.personagem.findUnique({ where: { id: instancia.personagemId }, select: { navio: true } })
+    : null;
+  if (!instancia?.personagemId || lerNavio(navio?.navio)?.comandanteId !== comandanteId) {
+    throw new ErroDeUso("Você não comanda esse navio.");
+  }
+  return { instanciaId, personagemId: instancia.personagemId };
+}
+
+// ─── Navio no combate ──────────────────────────────────────────────────────
+
+type Manobra = { tipo: "velocidade"; valor: number } | { tipo: "virar"; lado: number } | { tipo: "ancora"; baixar: boolean };
+
+// O navio na vez dele: a ficha, o estado no combate e a velocidade máxima com o dano.
+async function navioNaVez(navioId: string, acao: TipoAcaoCombate) {
+  const combate = await minhaResolucao(navioId);
+  const [navio, instancia] = await Promise.all([
+    prisma.personagem.findUnique({
+      where: { id: navioId },
+      select: { navio: true, deslocamento: true, hpAtual: true, hpMax: true, nome: true },
+    }),
+    prisma.instanciaCombate.findUnique({ where: { id: combate.instanciaId }, select: { estadoNavio: true } }),
+  ]);
+  const dados = lerNavio(navio?.navio);
+  if (!navio || !dados) throw new ErroDeUso("Esta ficha não é de navio.");
+  if (!combate.naVez) throw new ErroDeUso("Não é a vez do navio.");
+  if ((combate.gastas[acao] ?? 0) >= 1) {
+    throw new ErroDeUso(acao === "bonus" ? "O navio já manobrou neste turno." : "O navio já usou a ação de combate.");
+  }
+  const maxima = velocidadeComDano(navio.deslocamento, navio.hpAtual, navio.hpMax);
+  return { combate, navio, dados, maxima, estado: lerEstadoNavio(instancia?.estadoNavio, maxima) };
+}
+
+// Manobra do navio (cap. 14.5), gasta a ação de manobra do turno: muda a
+// velocidade até 6 nós (entre 2 e o máximo), vira até 45° ou sobe/baixa a
+// âncora. Mover com a âncora baixada dá 8d10 contundente no navio a cada 6
+// nós; a cada 80 de dano, d20 ≤ 5 solta a âncora.
+export async function manobrarNavio(navioId: string, manobra: Manobra) {
+  return executar("ficha", async () => {
+    const { combate, navio, maxima, estado } = await navioNaVez(navioId, "bonus");
+    let texto = "";
+    if (manobra?.tipo === "velocidade") {
+      const pedido = Math.min(maxima, Math.max(2, Math.trunc(Number(manobra.valor) || 0)));
+      const alvo = Math.min(estado.velocidade + MANOBRA_NOS, Math.max(estado.velocidade - MANOBRA_NOS, pedido));
+      if (estado.ancora) {
+        const f = parseFormulaDados(DANO_ANCORA);
+        const vezes = Math.max(1, Math.ceil(alvo / MANOBRA_NOS));
+        let dano = 0;
+        for (let i = 0; i < vezes; i++) dano += rolarDados(f.dados, f.modificador).total;
+        const antes = Math.floor(estado.danoAncora / DANO_PRA_SOLTAR_ANCORA);
+        estado.danoAncora += dano;
+        let soltou = false;
+        for (let i = antes; i < Math.floor(estado.danoAncora / DANO_PRA_SOLTAR_ANCORA); i++) {
+          if (1 + Math.floor(Math.random() * 20) <= 5) soltou = true;
+        }
+        await avisarCombate(combate.mesaId, navio.nome, `forçou a âncora (${vezes * 8}d10).`);
+        await danoNaInstancia(combate, { instanciaId: combate.instanciaId, nome: navio.nome, personagemId: navioId }, [
+          { valor: dano, tipo: "Contundente" },
+        ], { de: null, acao: "Âncora" });
+        if (soltou) {
+          estado.ancora = false;
+          estado.velocidade = alvo;
+          texto = `a âncora soltou: ${alvo} nós.`;
+        } else {
+          texto = "a âncora segura o navio.";
+        }
+      } else {
+        estado.velocidade = alvo;
+        texto = `${alvo > pedido || alvo < pedido ? "mudou pra " : ""}${alvo} nós (${metrosPorRodada(alvo).toLocaleString("pt-BR")} m por rodada).`;
+      }
+    } else if (manobra?.tipo === "virar") {
+      const lado = Number(manobra.lado) < 0 ? -1 : 1;
+      estado.rumo = (((estado.rumo + lado * MANOBRA_GRAUS) % 360) + 360) % 360;
+      texto = `virou a ${lado < 0 ? "bombordo" : "estibordo"}: rumo ${textoRumo(estado.rumo)}.`;
+    } else if (manobra?.tipo === "ancora") {
+      estado.ancora = manobra.baixar === true;
+      if (estado.ancora) estado.velocidade = 0;
+      texto = estado.ancora ? "baixou a âncora e parou." : "subiu a âncora.";
+    } else {
+      throw new ErroDeUso("Manobra inválida.");
+    }
+    await prisma.instanciaCombate.update({
+      where: { id: combate.instanciaId },
+      data: {
+        estadoNavio: estado,
+        acoesGastas: { ...combate.gastas, bonus: (combate.gastas.bonus ?? 0) + 1 },
+      },
+    });
+    await avisarCombate(combate.mesaId, navio.nome, texto);
+    revalidarCombate(combate, navioId);
+  });
+}
+
+// Colisão (cap. 14.5), gasta a ação de combate: só acima de 16 nós; o dano é
+// o da maior categoria, e quem tem mais CR leva metade (CR igual, os dois inteiro).
+export async function colidirNavio(navioId: string, alvoInstanciaId: string) {
+  return executar("ficha", async () => {
+    const { combate, navio, dados, estado } = await navioNaVez(navioId, "padrao");
+    if (estado.velocidade <= NOS_PRA_COLIDIR) throw new ErroDeUso(`Precisa de mais de ${NOS_PRA_COLIDIR} nós pra colidir.`);
+    const alvo = await prisma.instanciaCombate.findFirst({
+      where: { id: alvoInstanciaId, combateId: combate.combateId, NOT: { id: combate.instanciaId } },
+      select: { id: true, nomeExibicao: true, personagemId: true },
+    });
+    if (!alvo) throw new ErroDeUso("Alvo não está no combate.");
+    // Navio contra navio: a maior categoria dos dois; contra outra coisa, a do próprio.
+    const fichaDoAlvo = alvo.personagemId
+      ? await prisma.personagem.findUnique({ where: { id: alvo.personagemId }, select: { navio: true } })
+      : null;
+    const tamanhoAlvo = lerNavio(fichaDoAlvo?.navio)?.montagem.tamanho ?? dados.montagem.tamanho;
+    const formula = danoDeColisao(dados.montagem.tamanho, tamanhoAlvo);
+    const f = parseFormulaDados(formula);
+    const dano = rolarDados(f.dados, f.modificador).total;
+    const [crMeu, crAlvo] = await Promise.all([
+      crDoPersonagem(navioId),
+      crDoAlvo({ instanciaId: alvo.id, nome: alvo.nomeExibicao, personagemId: alvo.personagemId, resultado: null, danoAplicado: false }),
+    ]);
+    await prisma.instanciaCombate.update({
+      where: { id: combate.instanciaId },
+      data: { acoesGastas: { ...combate.gastas, padrao: (combate.gastas.padrao ?? 0) + 1 } },
+    });
+    await avisarCombate(
+      combate.mesaId,
+      navio.nome,
+      `colidiu com ${alvo.nomeExibicao} a ${estado.velocidade} nós: ${formula} = ${dano}.`,
+    );
+    const metade = (cr: number, outra: number) => (cr > outra ? Math.floor(dano / 2) : dano);
+    await danoNaInstancia(
+      combate,
+      { instanciaId: alvo.id, nome: alvo.nomeExibicao, personagemId: alvo.personagemId },
+      [{ valor: metade(crAlvo, crMeu), tipo: "Contundente" }],
+      { de: combate.instanciaId, acao: "Colisão" },
+    );
+    await danoNaInstancia(
+      combate,
+      { instanciaId: combate.instanciaId, nome: navio.nome, personagemId: navioId },
+      [{ valor: metade(crMeu, crAlvo), tipo: "Contundente" }],
+      { de: alvo.id, acao: "Colisão" },
+    );
+    revalidarCombate(combate, navioId);
   });
 }
 
@@ -5156,6 +5754,7 @@ async function ladoDaCriatura(mesaId: string, combateId: string, instanciaId: st
       acoesReveladas: true,
       autoRevelarAcoes: true,
       pvTemp: true,
+      condicoesAtivas: true,
     },
   });
   if (!instancia?.criaturaId) throw new ErroDeUso("Criatura não encontrada neste combate.");
@@ -5246,6 +5845,11 @@ export async function usarAcaoDeCriatura(
     // Usos e PP conferidos antes de gastar.
     const custo = await custoDaAcaoDeCriatura(emCombate, componenteId, forcar);
     const { acao, tipoAcao } = custo;
+    // Incapacitado, Sonolento, Letárgico… (o narrador pode forçar).
+    const pelaCondicao = tipoAcao
+      ? travaDaCondicaoNaAcao(lerCondicoesAtivas(instancia.condicoesAtivas), tipoAcao, lerAcoesGastas(instancia.acoesGastas))
+      : null;
+    if (pelaCondicao && !forcar) throw new ErroDeUso(pelaCondicao);
 
     const ataque = acao.efeitos.flatMap((e) => (e.tipo === "ataque" && e.bonus.trim() ? [e] : []))[0];
     const salv = acao.efeitos.flatMap((e) => (e.tipo === "salvaguarda" ? [e] : []))[0];
@@ -5298,6 +5902,7 @@ export async function usarAcaoDeCriatura(
               : null,
             condicoes,
             alvos,
+            corpoACorpo: inferirAlcance(acao.alcance) === "corpo_a_corpo",
           })
         : null;
 

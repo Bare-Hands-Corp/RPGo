@@ -390,7 +390,8 @@ export function PericiasTab({
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    const pedidoAvulso = avulsa.current?.atributo === a.slug ? avulsa.current : null;
+                    const pedidoAvulso =
+                      avulsa.current?.atributo === a.slug && !avulsa.current.pericia ? avulsa.current : null;
                     avulsa.current = null;
                     if (pedidoAvulso) {
                       empilharD20(bonus, pedidoAvulso.rotulo, { tipo: "salvaguarda", atributo: a.slug }, undefined, {
@@ -489,15 +490,23 @@ export function PericiasTab({
                       <button
                         type="button"
                         className={`prof-bonus prof-rolar ${exausto ? "valor-exausto" : ""}`}
+                        data-pericia={p.slug}
                         title={`Empilhar ${p.nome} no Rolador`}
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          empilharD20(bonus, p.nome, {
-                            tipo: "pericia",
-                            pericia: p.slug,
-                            atributo: t.atributo,
-                          });
+                          // Pedido de fora da aba (Tratar uma condição) volta com o total.
+                          const pedidoAvulso = avulsa.current?.pericia === p.slug ? avulsa.current : null;
+                          avulsa.current = null;
+                          empilharD20(
+                            bonus,
+                            pedidoAvulso?.rotulo ?? p.nome,
+                            { tipo: "pericia", pericia: p.slug, atributo: t.atributo },
+                            undefined,
+                            pedidoAvulso
+                              ? { aoConcluir: (lances) => lances[0] && pedidoAvulso.aoConcluir(lances[0]) }
+                              : undefined,
+                          );
                         }}
                       >
                         {formatarMod(bonus)}

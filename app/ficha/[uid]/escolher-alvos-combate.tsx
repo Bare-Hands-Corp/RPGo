@@ -3,15 +3,27 @@
 import { useState } from "react";
 import type { ModoRolagem } from "@/lib/dice";
 import type { ParticipanteVisto } from "@/lib/combate";
+import { modoDoAtaque, type CondicaoComMecanica } from "@/lib/condicoes-mecanica";
 
 // Alvo e vantagem/desvantagem de um ataque.
 export type AtaqueEscolhido = { alvo: string; modo: ModoRolagem };
 
+// `atacante`: condições de quem ataca, pra quem não tem ficha (criatura); a
+// ficha do jogador já soma as dele no Rolador.
+export type OpcoesAtaque = { corpoACorpo?: boolean; atacante?: CondicaoComMecanica[] };
+
 type Pedido =
   | { tipo: "alvos"; titulo: string; resolver: (ids: string[] | null) => void }
-  | { tipo: "ataques"; titulo: string; ataques: number; resolver: (ataques: AtaqueEscolhido[] | null) => void };
+  | {
+      tipo: "ataques";
+      titulo: string;
+      ataques: number;
+      opcoes: OpcoesAtaque;
+      resolver: (ataques: AtaqueEscolhido[] | null) => void;
+    };
 
-type Linha = { alvo: string | null; modo: ModoRolagem };
+// `motivos`: por que o modo veio marcado ("Cego: vantagem").
+type Linha = { alvo: string | null; modo: ModoRolagem; motivos: string[] };
 
 function Retrato({ p }: { p: ParticipanteVisto }) {
   const classe = `alvo-retrato${p.tipo === "criatura" ? " criatura" : ""}`;
@@ -40,10 +52,15 @@ export function useEscolherAlvosCombate(participantes: ParticipanteVisto[]) {
     return new Promise((resolver) => setPedido({ tipo: "alvos", titulo, resolver }));
   }
 
-  function escolherAtaques(titulo: string, ataques: number): Promise<AtaqueEscolhido[] | null> {
+  function escolherAtaques(
+    titulo: string,
+    ataques: number,
+    opcoes: OpcoesAtaque = {},
+  ): Promise<AtaqueEscolhido[] | null> {
     const n = Math.max(1, ataques);
-    setLinhas(Array.from({ length: n }, () => ({ alvo: null, modo: "normal" as ModoRolagem })));
-    return new Promise((resolver) => setPedido({ tipo: "ataques", titulo, ataques: n, resolver }));
+    const proprio = modoDoAtaque([], opcoes.atacante ?? []);
+    setLinhas(Array.from({ length: n }, () => ({ alvo: null, modo: proprio.modo, motivos: proprio.motivos })));
+    return new Promise((resolver) => setPedido({ tipo: "ataques", titulo, ataques: n, opcoes, resolver }));
   }
 
   function cancelar() {
@@ -64,9 +81,23 @@ export function useEscolherAlvosCombate(participantes: ParticipanteVisto[]) {
     setPedido(null);
   }
 
-  // Escolher o alvo de um ataque já sugere o mesmo pros seguintes ainda sem alvo.
+  // Escolher o alvo de um ataque já sugere o mesmo pros seguintes ainda sem
+  // alvo, com a vantagem ou desvantagem que as condições dele dão.
   function marcarAlvo(i: number, id: string) {
-    setLinhas((ls) => ls.map((l, j) => (j === i || (j > i && l.alvo === null) ? { ...l, alvo: id } : l)));
+    const opcoes = pedido?.tipo === "ataques" ? pedido.opcoes : {};
+    const alvo = participantes.find((p) => p.id === id);
+    const pelaCondicao = modoDoAtaque(
+      alvo?.condicoes ?? [],
+      opcoes.atacante ?? [],
+      opcoes.corpoACorpo ?? true,
+    );
+    setLinhas((ls) =>
+      ls.map((l, j) =>
+        j === i || (j > i && l.alvo === null)
+          ? { alvo: id, modo: pelaCondicao.modo, motivos: pelaCondicao.motivos }
+          : l,
+      ),
+    );
   }
 
   function alternarModo(i: number, modo: ModoRolagem) {
@@ -134,6 +165,11 @@ export function useEscolherAlvosCombate(participantes: ParticipanteVisto[]) {
                     ))}
                   </span>
                 </div>
+                {linha.motivos.length > 0 && (
+                  <small className="ataque-motivos">
+                    <i className="fas fa-circle-info" /> {linha.motivos.join(" · ")}
+                  </small>
+                )}
                 <div className="ataque-alvos">
                   {participantes.map((p) => (
                     <button

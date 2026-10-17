@@ -257,7 +257,7 @@ export function FichaTabs({
           proficienciasRaw={proficienciasRaw}
           periciasCustom={periciasCustom}
           efeitosAgregados={efeitosAgregados}
-          salvaguardasPedidas={turno?.salvaguardas ?? []}
+          salvaguardasPedidas={(turno?.salvaguardas ?? []).filter((s) => !s.pelo)}
         />
       </div>
 

@@ -434,7 +434,7 @@ export function CamposDefesas({ draft, campo }: Base) {
       <TiposDanoChips rotulo="É imune a" value={r.danoImunidade} onChange={(v) => campo("resistencias", { ...r, danoImunidade: v })} />
       <TiposDanoChips rotulo="É vulnerável a" value={r.danoVulneravel} onChange={(v) => campo("resistencias", { ...r, danoVulneravel: v })} />
       <CondicoesChips
-        rotulo="É imune às condições (o narrador é quem lembra na hora)"
+        rotulo="É imune às condições"
         value={r.condicaoImunidade}
         onChange={(v) => campo("resistencias", { ...r, condicaoImunidade: v })}
       />

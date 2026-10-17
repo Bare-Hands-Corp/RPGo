@@ -7,6 +7,8 @@ import { useTransition } from "react";
 import Swal from "sweetalert2";
 import { exigir } from "@/lib/acoes";
 import { ACAO_COMBATE, TIPOS_ACAO_COMBATE, type AcoesGastas, type TipoAcaoCombate } from "@/lib/combate";
+import { empilharD20 } from "@/lib/empilhar-rolagem";
+import type { Atributo } from "@/lib/op-rpg";
 import { finalizarTurno } from "./actions";
 
 // A sidebar ouve e roda o "a cada turno" (efeitos e durações) antes de a vez passar.
@@ -20,15 +22,41 @@ export type RolarConcentracaoDetail = { cd: number; resolucaoId: string };
 // Pede à aba Perícias uma salvaguarda com o bônus da ficha; quem pede clica
 // em seguida no chip do atributo (`[data-salvaguarda]`), que a atende.
 export const EVENTO_SALVAGUARDA_AVULSA = "rpgo:salvaguarda-avulsa";
+// `pericia`: o pedido é de teste de perícia (o chip `[data-pericia]` atende).
 export type SalvaguardaAvulsa = {
   atributo: string;
+  pericia?: string;
   rotulo: string;
   aoConcluir: (lance: { total: number; natural: number | null }) => void;
 };
 
+// Ficha sem a aba Perícias (navio) rola o d20 puro.
 export function rolarSalvaguardaAvulsa(pedido: SalvaguardaAvulsa) {
+  const chip = document.querySelector<HTMLButtonElement>(`[data-salvaguarda="${pedido.atributo}"]`);
+  if (!chip) {
+    empilharD20(0, pedido.rotulo, { tipo: "salvaguarda", atributo: pedido.atributo as Atributo }, undefined, {
+      aoConcluir: (lances) => lances[0] && pedido.aoConcluir(lances[0]),
+    });
+    return;
+  }
   window.dispatchEvent(new CustomEvent<SalvaguardaAvulsa>(EVENTO_SALVAGUARDA_AVULSA, { detail: pedido }));
-  document.querySelector<HTMLButtonElement>(`[data-salvaguarda="${pedido.atributo}"]`)?.click();
+  chip.click();
+}
+
+// Teste de perícia pedido de fora da aba (Tratar uma condição). Ficha sem a
+// aba Perícias rola o d20 puro.
+export function rolarPericiaAvulsa(pedido: Omit<SalvaguardaAvulsa, "atributo"> & { pericia: string }) {
+  const chip = document.querySelector<HTMLButtonElement>(`[data-pericia="${pedido.pericia}"]`);
+  if (!chip) {
+    empilharD20(0, pedido.rotulo, { tipo: "pericia", pericia: pedido.pericia }, undefined, {
+      aoConcluir: (lances) => lances[0] && pedido.aoConcluir(lances[0]),
+    });
+    return;
+  }
+  window.dispatchEvent(
+    new CustomEvent<SalvaguardaAvulsa>(EVENTO_SALVAGUARDA_AVULSA, { detail: { ...pedido, atributo: "" } }),
+  );
+  chip.click();
 }
 
 // A ficha lateral avisa a aba de ações do atributo novo da CD das técnicas.

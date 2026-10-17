@@ -85,6 +85,7 @@ import {
   GATILHOS_REACAO,
   MAX_DANOS_EXTRAS,
   ehAcaoDeCombate,
+  inferirAlcance,
   lerDanosExtras,
   lerGatilho,
   maximoDeAcoes,
@@ -95,6 +96,7 @@ import {
   type GatilhoReacao,
   type ResultadoAlvo,
 } from "@/lib/combate";
+import { travaDaCondicaoNaAcao } from "@/lib/condicoes-mecanica";
 import { AcoesDoTurno, EVENTO_CD_TECNICAS } from "./acoes-do-turno";
 import { useEscolherAlvo } from "./escolher-alvo";
 import { useEscolherAlvosCombate } from "./escolher-alvos-combate";
@@ -129,15 +131,6 @@ import {
 // O modelo de Ação só guarda alcance como texto livre, então inferimos CC vs
 // distância por palavra-chave / metragem pra montar o contexto da rolagem.
 // Best-effort: o usuário pode trocar o chip de alcance no Rolador (etapa 3.3).
-function inferirAlcance(alcance: string | null): "corpo_a_corpo" | "distancia" {
-  if (!alcance) return "corpo_a_corpo";
-  const t = alcance.toLowerCase();
-  if (/corpo a corpo|adjacente|toque|melee/.test(t)) return "corpo_a_corpo";
-  if (/dist|arremess|tiro|proj|longo|alcance/.test(t)) return "distancia";
-  const num = t.match(/(\d+(?:[.,]\d+)?)\s*m/);
-  if (num) return parseFloat(num[1].replace(",", ".")) >= 3 ? "distancia" : "corpo_a_corpo";
-  return "corpo_a_corpo";
-}
 
 type Acao = {
   id: string;
@@ -166,6 +159,7 @@ type Acao = {
   grau: number;
   efeitos: unknown;
   aliado: boolean;
+  armaDeFogo?: boolean;
   duracao?: unknown;
   // Usada e ainda valendo, com os turnos que faltam.
   emCurso?: boolean;
@@ -274,6 +268,8 @@ type Resolve = {
   danar: (extras: Pick<EmpilharRolagemDetail, "aoConcluir" | "critico">) => void;
   // Tipo do dano principal.
   tipoDano: string;
+  // Ataque a 1,5 m (condições do alvo: Caído, Paralisado).
+  corpoACorpo: boolean;
 };
 
 type Props = {
@@ -353,6 +349,7 @@ type FormState = {
   grau: number;
   efeitos: EfeitoHabilidade[];
   aliado: boolean;
+  armaDeFogo: boolean;
   duracao: Duracao | null;
   // Ação de origem da forma alternativa ("" = ação separada).
   formaDe: string;
@@ -388,6 +385,7 @@ const FORM_VAZIO: FormState = {
   grau: 0,
   efeitos: [],
   aliado: false,
+  armaDeFogo: false,
   duracao: null,
   formaDe: "",
   origemForma: "",
@@ -418,6 +416,7 @@ const ACAO_BASE: Omit<Acao, "id"> = {
   grau: 0,
   efeitos: [],
   aliado: false,
+  armaDeFogo: false,
   duracao: null,
   pasta: null,
   formaDe: null,
@@ -469,6 +468,11 @@ export function AcoesTab({
   atributoCdTecnicas,
 }: Props) {
   const alvosDoCombate = useEscolherAlvosCombate(alvosCombate);
+  // Condições deste personagem no combate (travam ações: Incapacitado, Sonolento…).
+  const minhasCondicoes = useMemo(
+    () => alvosCombate.find((p) => p.voce)?.condicoes ?? [],
+    [alvosCombate],
+  );
   // Atributo da CD das técnicas, escolhido na ficha lateral.
   const [cdPadrao, setCdPadrao] = useState(atributoCdTecnicas ?? "");
   const [cdPadraoDoServidor, setCdPadraoDoServidor] = useState(atributoCdTecnicas);
@@ -576,7 +580,7 @@ export function AcoesTab({
     if ((gastas[tipo] ?? 0) >= maximoAcoes[tipo]) {
       return `Sem ação ${ACAO_COMBATE[tipo].nome.toLowerCase()} neste turno.`;
     }
-    return null;
+    return travaDaCondicaoNaAcao(minhasCondicoes, tipo, gastas);
   }
   // Penalidade de exaustão (−2 × nível) some no acerto (teste de d20). NÃO entra
   // no dano (não é d20) nem na CD da técnica (quem rola é o alvo). Otimista.
@@ -752,6 +756,7 @@ export function AcoesTab({
       grau: acao.grau,
       efeitos: lerEfeitos(acao.efeitos),
       aliado: acao.aliado,
+      armaDeFogo: !!acao.armaDeFogo,
       duracao: lerDuracao(acao.duracao),
       formaDe: origem?.id ?? "",
       origemForma: origem?.id ?? "",
@@ -817,6 +822,7 @@ export function AcoesTab({
       grau: form.tecnica ? form.grau : 0,
       efeitos: form.efeitos,
       aliado: form.aliado,
+      armaDeFogo: form.armaDeFogo,
       duracao: form.duracao,
       // Só vai quando o modal ofereceu a escolha.
       ...(form.origemForma ? { formaDe: form.formaDe || null } : {}),
@@ -889,7 +895,9 @@ export function AcoesTab({
       (resolve.ataque || resolve.salvaguarda || resolve.dano || resolve.condicao)
     ) {
       if (resolve.ataque) {
-        const ataques = await alvosDoCombate.escolherAtaques(`${acao.nome}: em quem?`, resolve.ataques);
+        const ataques = await alvosDoCombate.escolherAtaques(`${acao.nome}: em quem?`, resolve.ataques, {
+          corpoACorpo: resolve.corpoACorpo,
+        });
         if (ataques === null) return;
         alvosCombate = ataques.map((a) => a.alvo);
         modosAtaque = ataques.map((a) => a.modo);
@@ -932,7 +940,7 @@ export function AcoesTab({
 
     // Em aliado: escolher quem já confirma.
     let alvoId: string | undefined;
-    if (acao.aliado && instantaneos.length > 0) {
+    if (acao.aliado && (instantaneos.length > 0 || lerEfeitos(acao.efeitos).some((e) => e.tipo === "condicao_remover"))) {
       if (!alvo.temAliados) {
         mostrarErro(new Error("Nenhum aliado na mesa."));
         return;
@@ -1022,6 +1030,7 @@ export function AcoesTab({
               alvos: alvosCombate,
               modo: resolve?.ataque ? "ataque" : resolve?.salvaguarda ? "salvaguarda" : "direto",
               cd: resolve?.cd ?? null,
+              corpoACorpo: resolve?.corpoACorpo === true,
             },
           }),
         );
@@ -1488,6 +1497,7 @@ export function AcoesTab({
                     atacar: (extras) => empilharAcerto(golpePadrao, extras),
                     danar: (extras) => empilharDano(iDano, extras),
                     tipoDano: acao.tipoDano || danos[iDano]?.tiposDano[0] || "",
+                    corpoACorpo: (golpePadrao?.atq?.alcance ?? alcanceContexto) === "corpo_a_corpo",
                   };
                   return (
                     <div
@@ -2066,6 +2076,15 @@ export function AcoesTab({
                         {a}
                       </button>
                     ))}
+                    {/* Efeito de dano pode deixar a arma de fogo de fora (Letárgico). */}
+                    <button
+                      type="button"
+                      className={`sugestao chip-opcao ${form.armaDeFogo ? "ativo" : ""}`}
+                      aria-pressed={form.armaDeFogo}
+                      onClick={() => setF("armaDeFogo", !form.armaDeFogo)}
+                    >
+                      <i className="fas fa-gun" /> Arma de fogo
+                    </button>
                   </Sugestoes>
                 </div>
               </div>

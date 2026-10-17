@@ -13,6 +13,8 @@ import {
   type HabilidadeFonte,
 } from "@/lib/op-rpg";
 import { acabaSemPvTemp, lerConcentracao } from "@/lib/duracao";
+import { lerCondicoesAtivas, type CondicaoAtiva } from "@/lib/condicoes";
+import { fontesDasCondicoes, type CondicaoComMecanica } from "@/lib/condicoes-mecanica";
 import { acoesEmCurso, comAcoesEmCurso, type AcaoEmCurso } from "@/lib/turno";
 
 type HabilidadeServidor = HabilidadeFonte & {
@@ -43,6 +45,8 @@ export function agregadoDaFicha(dados: {
   recebidas?: HabilidadeFonte[];
   // Ações em curso: os efeitos que elas mantêm entram por cima.
   emCurso?: AcaoEmCurso[];
+  // Condições que ele tem no combate (lib/condicoes-mecanica.ts).
+  condicoes?: CondicaoComMecanica[];
 }): EfeitosAgregados {
   const travadas = habilidadesTravadas(dados.nos, dados.habilidades);
   const equipados = new Set(dados.itens.filter((i) => i.equipado).map((i) => i.id));
@@ -53,7 +57,12 @@ export function agregadoDaFicha(dados: {
   const slugs = new Set(dados.slugsPericiaCustom);
   return comAcoesEmCurso(
     agregarEfeitos(
-      [...ativas, ...fontesDeEfeitoDeItens(dados.itens), ...(dados.recebidas ?? [])],
+      [
+        ...ativas,
+        ...fontesDeEfeitoDeItens(dados.itens),
+        ...(dados.recebidas ?? []),
+        ...fontesDasCondicoes(dados.condicoes ?? []),
+      ],
       slugs,
       undefined,
       { nivel, atributos: atributosDe(atributos) },
@@ -225,7 +234,7 @@ export async function carregarAgregado(
   agg: EfeitosAgregados;
   itens: (ItemFonte & { penalidadeDes: number })[];
 }> {
-  const [habilidades, itens, nos, pericias, base, recebidas, emCurso] = await Promise.all([
+  const [habilidades, itens, nos, pericias, base, recebidas, emCurso, condicoes] = await Promise.all([
     prisma.habilidade.findMany({ where: { personagemId }, select: SELECT_HABILIDADE_FONTE }),
     prisma.item.findMany({ where: { personagemId }, select: SELECT_ITEM_FONTE }),
     prisma.arvoreNo.findMany({
@@ -236,6 +245,7 @@ export async function carregarAgregado(
     prisma.personagem.findUnique({ where: { id: personagemId }, select: SELECT_BASE_FORMULA }),
     carregarRecebidas(personagemId),
     carregarAcoesEmCurso(personagemId),
+    condicoesEmCombate(personagemId),
   ]);
   const habs = ligada
     ? habilidades.map((h) => (h.id === ligada.id ? { ...h, ligada: ligada.ligada } : h))
@@ -257,9 +267,32 @@ export async function carregarAgregado(
       },
       recebidas: recebidas.map(fonteRecebida),
       emCurso,
+      condicoes,
     }),
     itens,
   };
+}
+
+// Condições do personagem no combate aberto da mesa.
+export async function condicoesEmCombate(personagemId: string): Promise<CondicaoAtiva[]> {
+  const instancia = await prisma.instanciaCombate.findFirst({
+    where: { personagemId, combate: { encerradoEm: null, sessao: { encerradaEm: null } } },
+    select: { condicoesAtivas: true },
+  });
+  return lerCondicoesAtivas(instancia?.condicoesAtivas);
+}
+
+// Solta a concentração; a habilidade que ela segurava desliga.
+export async function soltarConcentracao(personagemId: string) {
+  const p = await prisma.personagem.findUnique({ where: { id: personagemId }, select: { concentracao: true } });
+  const c = lerConcentracao(p?.concentracao);
+  if (!c) return;
+  await prisma.$transaction([
+    ...(c.tipo === "habilidade"
+      ? [prisma.habilidade.updateMany({ where: { id: c.id, personagemId, ligada: true }, data: { ligada: false } })]
+      : []),
+    prisma.personagem.update({ where: { id: personagemId }, data: { concentracao: Prisma.DbNull } }),
+  ]);
 }
 
 export const SELECT_ACAO_QUE_DURA = {

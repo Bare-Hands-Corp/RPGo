@@ -12,6 +12,7 @@ import Swal from "sweetalert2";
 import { formatarResultadoRolagemHtml, rolarDados, type DadoRolado } from "@/lib/dice";
 import { EVENTO_PASSOS, type PassosDoRolador } from "@/lib/op-rpg";
 import { createClient } from "@/lib/supabase/client";
+import { canal } from "@/lib/supabase/canal";
 import {
   enviarMensagemTexto,
   limparMensagens,
@@ -74,7 +75,7 @@ export const PainelChat = forwardRef<PainelChatHandle, Props>(function PainelCha
   useEffect(() => {
     const supabase = createClient();
     const channel = supabase
-      .channel(`chat-${sessionId}`)
+      .channel(canal(`chat-${sessionId}`))
       .on(
         "postgres_changes",
         {

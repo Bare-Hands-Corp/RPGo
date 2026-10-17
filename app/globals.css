@@ -786,6 +786,14 @@ a {
   color: var(--danger);
 }
 
+.ataque-motivos {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--text-sec);
+}
+
 .ataque-alvos {
   display: flex;
   flex-wrap: wrap;
@@ -878,6 +886,16 @@ a {
 
 .condicao-chip-botao:hover {
   opacity: 1;
+}
+
+/* Ação da condição (Apagar, Tratar): rótulo em vez de ícone. */
+.condicao-chip-botao.com-texto {
+  margin-left: 2px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in oklch, currentColor 16%, transparent);
+  font-weight: 700;
+  opacity: 0.9;
 }
 
 /* Checkbox desenhada: a nativa não aceita estilo consistente. */

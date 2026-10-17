@@ -448,9 +448,11 @@ const ALVOS_MULTIPLICADOR_SLUGS = new Set([
   "hp-max",
   "pp-max",
 ]);
-const ALVOS_MULTIPLICADOR = ALVOS_AGREGAVEIS.filter((a) =>
-  ALVOS_MULTIPLICADOR_SLUGS.has(a.slug),
-);
+// Dano: todo, corpo a corpo ou à distância (o de técnica e comum fica de fora).
+const ALVOS_MULTIPLICADOR = [
+  ...ALVOS_AGREGAVEIS.filter((a) => ALVOS_MULTIPLICADOR_SLUGS.has(a.slug)),
+  ...ALVOS_DANO.filter((a) => a.slug === "dano" || a.slug === "dano-cc" || a.slug === "dano-distancia"),
+];
 
 // Alvos da proficiência: perícia e salvaguarda.
 const ALVOS_PROFICIENCIA = ALVOS_AGREGAVEIS.filter(
@@ -1091,6 +1093,23 @@ function renderCorpo(
             onChange={(v) => onPatch({ fator: v } as Partial<EfeitoHabilidade>)}
             step={0.1}
           />
+          {e.alvo.startsWith("dano") && (
+            <div style={{ gridColumn: "1 / -1" }}>
+              <label>Arma de fogo</label>
+              <Segmentos
+                rotulo="Arma de fogo"
+                valor={e.armaDeFogo ?? "todas"}
+                opcoes={[
+                  { valor: "todas", rotulo: "Vale" },
+                  { valor: "exceto", rotulo: "Fica de fora" },
+                  { valor: "so", rotulo: "Só nela" },
+                ]}
+                onChange={(v) =>
+                  onPatch({ armaDeFogo: v === "todas" ? undefined : v } as Partial<EfeitoHabilidade>)
+                }
+              />
+            </div>
+          )}
         </>
       );
     case "substituir_atributo":

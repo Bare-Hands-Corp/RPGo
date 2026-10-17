@@ -99,6 +99,8 @@ import {
 } from "@/lib/op-rpg";
 import { anunciarMensagem, empilharD20 } from "@/lib/empilhar-rolagem";
 import { perfilDe, type BlocoFicha, type PerfilFicha } from "@/lib/subficha";
+import { metrosPorRodada } from "@/lib/navio";
+import { BlocoNavio, type NavioDaFicha } from "./bloco-navio";
 
 type Personagem = {
   id: string;
@@ -279,6 +281,7 @@ export function PerfilSidebar({
   camadasQueAbrem,
   tiposDosAtaques,
   acoes,
+  navio,
 }: {
   personagem: Personagem;
   // Perfil da ficha: blocos à mostra e nome do deslocamento (lib/subficha.ts).
@@ -296,6 +299,8 @@ export function PerfilSidebar({
   tiposDosAtaques: string[];
   // Ações da ficha: as em curso trazem o "a cada turno" e os efeitos que mantêm.
   acoes: AcaoQueDura[];
+  // Navio: estado pelo dano e comandante.
+  navio?: NavioDaFicha | null;
 }) {
   // useOptimistic do personagem inteiro: o EditFichaModal e qualquer outro
   // editor podem aplicar patches via `aplicarOtimista` pra refletir mudanças
@@ -1304,6 +1309,15 @@ export function PerfilSidebar({
 
       {/* Andar e nadar em cima; os outros deslocamentos embaixo, menores, e apagados
           quando o personagem não tem. */}
+      {navio && (
+        <BlocoNavio
+          navioId={p.id}
+          navio={navio}
+          pvAtual={p.hpAtual}
+          pvMax={hpMaxEfetivo}
+          velocidade={deslocEfetivo}
+        />
+      )}
       <div className="movimentos-bloco">
         <div className={`recurso-dupla${movimentos.length === 1 ? " sozinha" : ""}`}>
           {movimentos.slice(0, 2).map((m) => (
@@ -1314,6 +1328,8 @@ export function PerfilSidebar({
               <span className="recurso-nome">{m.nome}</span>
               <span className={`stat-values ${m.reduzido ? "valor-exausto" : ""}`}>
                 {m.valor.toLocaleString("pt-BR")} {unidadeMov}
+                {/* Navio: 1,5 m por rodada a cada 2 nós. */}
+                {unidadeMov === "nós" && ` · ${metrosPorRodada(m.valor).toLocaleString("pt-BR")} m/rodada`}
                 {m.deEfeito && <i className="fas fa-link prof-fonte" />}
                 {m.reduzido && (
                   <MarcaExausto titulo={`Reduzido por exaustão (de ${deslocBruto} m)`} />

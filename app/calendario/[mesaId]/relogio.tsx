@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useOptimistic, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import Swal from "sweetalert2";
 import { createClient } from "@/lib/supabase/client";
+import { canal } from "@/lib/supabase/canal";
 import { useRefreshAgrupado } from "@/lib/use-refresh-agrupado";
 import type { Resultado } from "@/lib/acoes";
 import { type CalendarioConfig, dataParaDias, diasMaximos } from "@/lib/calendario/engine";
@@ -112,7 +113,7 @@ export function RelogioMesa({
   useEffect(() => {
     const supabase = createClient();
     const channel = supabase
-      .channel(`relogio-${mesaId}`)
+      .channel(canal(`relogio-${mesaId}`))
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "calendarios", filter: `mesa_id=eq.${mesaId}` },

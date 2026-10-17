@@ -17,6 +17,8 @@ type FichaComDono = {
   userId: string;
   mesaId: string | null;
   donoMesaId: string | null;
+  // Ficha da mesa só do narrador (navio inimigo).
+  doNarrador?: boolean;
   mesa: { userId: string } | null;
   dono: { id: string; mesaId: string | null; mesa: { userId: string } | null } | null;
   mesaDona: { userId: string } | null;
@@ -28,7 +30,11 @@ type ComMesa = {
   dono: { mesaId: string | null } | null;
 };
 
+// Fichas de jogador: nem subficha de personagem nem ficha da mesa.
+export const SO_PRINCIPAIS = { donoPersonagemId: null, donoMesaId: null } as const;
+
 // Mesa em que a ficha joga: a dela, a do dono ou a mesa dona.
+// (a subficha guarda a do dono em `mesaId`; o resto cobre linha antiga).
 export function mesaEfetiva(p: ComMesa): string | null {
   return p.mesaId ?? p.dono?.mesaId ?? p.donoMesaId ?? null;
 }
@@ -49,8 +55,9 @@ export async function acessoAFicha(
   const isNarrador = narrador === userId;
   if (p.donoMesaId) {
     if (isNarrador) return { isDono: false, isNarrador };
+    if (p.doNarrador) return null;
     const membro = await prisma.personagem.findFirst({
-      where: { mesaId: p.donoMesaId, userId },
+      where: { mesaId: p.donoMesaId, userId, ...SO_PRINCIPAIS },
       select: { id: true },
     });
     return membro ? { isDono: false, isNarrador: false } : null;
@@ -69,7 +76,9 @@ export function mesmoGrupo(id: string): Prisma.PersonagemWhereInput {
       { subfichas: { some: { id } } },
     ],
   };
+  // Navio inimigo do narrador não joga com ninguém.
   return {
+    doNarrador: false,
     OR: [
       { mesa: mesaDe },
       { dono: { mesa: mesaDe } },
@@ -91,7 +100,7 @@ export function fichasDoGrupo(p: {
 }): Prisma.PersonagemWhereInput {
   const mesaId = mesaEfetiva(p);
   if (mesaId) {
-    return { OR: [{ mesaId }, { dono: { mesaId } }, { donoMesaId: mesaId }] };
+    return { doNarrador: false, OR: [{ mesaId }, { dono: { mesaId } }, { donoMesaId: mesaId }] };
   }
   const raiz = p.donoPersonagemId ?? p.id;
   return { OR: [{ id: raiz }, { donoPersonagemId: raiz }] };

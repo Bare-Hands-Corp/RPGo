@@ -31,6 +31,7 @@ import {
   recebidasDaMesa,
 } from "@/lib/efeitos-servidor";
 import { acoesEmCurso, type AcaoQueDura } from "@/lib/turno";
+import { SO_PRINCIPAIS } from "@/lib/acesso-ficha";
 import type { Prisma } from "@prisma/client";
 import type { Dado } from "@/lib/dice";
 
@@ -157,7 +158,7 @@ async function requireNarradorMesa(mesaId: string) {
 
 async function obterPersonagensMesaParaTeste(mesaId: string): Promise<PersonagemTeste[]> {
   return prisma.personagem.findMany({
-    where: { mesaId },
+    where: { mesaId, ...SO_PRINCIPAIS },
     orderBy: { nome: "asc" },
     select: SELECT_PERSONAGEM_TESTE,
   });
@@ -398,7 +399,7 @@ export async function aggregatePericiasForMesa(mesaId: string) {
 
 export async function aggregateSalvaguardasForMesa(mesaId: string) {
   await requireNarradorMesa(mesaId);
-  const quantidadeJogadores = await prisma.personagem.count({ where: { mesaId } });
+  const quantidadeJogadores = await prisma.personagem.count({ where: { mesaId, ...SO_PRINCIPAIS } });
   return ATRIBUTOS.map((atributo) => ({
     chave: `salvaguarda:${atributo.slug}`,
     atributo: atributo.slug,
@@ -492,13 +493,14 @@ export async function atualizarMesa(
 export async function removerPersonagemDaMesa(mesaId: string, personagemId: string) {
   await requireNarradorMesa(mesaId);
   const personagem = await prisma.personagem.findFirst({
-    where: { id: personagemId, mesaId },
+    where: { id: personagemId, mesaId, ...SO_PRINCIPAIS },
     select: { id: true, nome: true },
   });
   if (!personagem) throw new Error("Personagem não encontrado nesta mesa.");
 
-  await prisma.personagem.update({
-    where: { id: personagem.id },
+  // As subfichas saem junto.
+  await prisma.personagem.updateMany({
+    where: { OR: [{ id: personagem.id }, { donoPersonagemId: personagem.id }] },
     data: { mesaId: null },
   });
 

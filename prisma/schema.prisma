@@ -108,6 +108,10 @@ model Personagem {
   molde   Boolean @default(false)
   // Molde de que esta ficha é cópia (Personagem.id, sem FK).
   moldeId String? @map("molde_id")
+  // Navio (perfil veiculo): montagem do livro e comandante (lib/navio.ts).
+  navio   Json?
+  // Ficha da mesa que só o narrador vê (navio inimigo).
+  doNarrador Boolean @default(false) @map("do_narrador")
 
   nome          String
   fotoUrl       String? @map("foto_url")
@@ -396,6 +400,8 @@ model Acao {
   emCurso         Boolean @default(false) @map("em_curso")
   // Turnos que faltam enquanto em curso (duração em turnos/minutos); null = não conta.
   turnosRestantes Int?    @map("turnos_restantes")
+  // Ataque com arma de fogo (efeito de dano pode deixar de fora ou valer só nela).
+  armaDeFogo      Boolean @default(false) @map("arma_de_fogo")
 
   @@map("acoes")
 }
@@ -1002,6 +1008,8 @@ model InstanciaCombate {
 
   // [{ nome: string, duracaoRodadas: number }]
   condicoesAtivas Json @default("[]") @map("condicoes_ativas")
+  // Navio no combate: velocidade atual, rumo e âncora (lib/navio.ts).
+  estadoNavio     Json? @map("estado_navio")
   ppGasto         Int  @default(0) @map("pp_gasto")
   // Ações já usadas no turno: { padrao, bonus, power, react } (lib/combate.ts).
   // Zera quando a vez do participante começa.

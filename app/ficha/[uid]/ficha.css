@@ -2706,6 +2706,33 @@
   margin-top: 12px;
 }
 
+.subficha-linha {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.subficha-linha .seg {
+  flex: 1;
+  min-width: 220px;
+}
+
+.subficha-velocidade {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 0;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.subficha-velocidade small {
+  font-weight: 400;
+  color: var(--text-sec);
+}
+
 .opcoes-grade {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
@@ -8568,4 +8595,65 @@ form > .turno-campo,
   background: none;
   color: var(--sidebar-text-sec);
   font-size: 0.65rem;
+}
+
+/* Navio: estado pelo dano e comandante (bloco-navio.tsx). */
+.bloco-navio {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-surface);
+  font-size: 0.85rem;
+}
+
+.bloco-navio-estado {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.bloco-navio-selo {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--success) 16%, transparent);
+  color: var(--success);
+  font-weight: 700;
+}
+
+.bloco-navio-selo.danificado {
+  background: color-mix(in oklch, var(--warning) 16%, transparent);
+  color: var(--warning);
+}
+
+.bloco-navio-comandante > span {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.75rem;
+  color: var(--text-sec);
+}
+
+/* Turno do navio na faixa do combate (painel-navio.tsx). */
+.painel-navio {
+  flex-wrap: wrap;
+}
+
+.painel-navio-estado {
+  font-size: 0.85rem;
+}
+
+.painel-navio-ancora {
+  color: var(--warning);
+  font-weight: 700;
+}
+
+.painel-navio-grupo {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
 }

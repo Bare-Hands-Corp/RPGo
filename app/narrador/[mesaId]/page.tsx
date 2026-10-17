@@ -32,9 +32,12 @@ export default async function NarradorPage({ params }: Params) {
       where: { id: mesaId },
       include: {
         personagens: {
+          // Molde fica guardado: não joga.
+          where: { molde: false },
           orderBy: { nome: "asc" },
           // Fontes de efeito pra calcular CR/iniciativa/percepção igual à ficha.
           include: {
+            dono: { select: { nome: true } },
             itens: true,
             habilidades: true,
             periciasCustom: { select: { slug: true } },
@@ -77,6 +80,12 @@ export default async function NarradorPage({ params }: Params) {
     redirect("/dashboard");
   }
 
+  // `de`: de quem é a subficha (a da mesa é da própria mesa); null = jogador.
+  const fichas = mesa.personagens.map((p) => ({
+    ...resumirPersonagem(p, recebidas.get(p.id)),
+    de: p.dono?.nome ?? (p.donoMesaId ? (p.doNarrador ? "Narrador" : mesa.nome) : null),
+  }));
+
   return (
     <NarradorShell
       mesa={{
@@ -85,7 +94,12 @@ export default async function NarradorPage({ params }: Params) {
         codigoAcesso: mesa.codigoAcesso,
         bannerUrl: mesa.bannerUrl,
         tiposDano: tiposDano.map((t) => t.nome),
-        personagens: mesa.personagens.map((p) => resumirPersonagem(p, recebidas.get(p.id))),
+        // Visão geral e pedidos de teste: os jogadores. Combate: também as subfichas.
+        personagens: fichas.filter((f) => f.de === null),
+        fichasDoCombate: fichas,
+        navios: mesa.personagens
+          .filter((p) => p.doNarrador)
+          .map((p) => ({ id: p.id, nome: p.nome, hpAtual: p.hpAtual, hpMax: p.hpMax })),
       }}
       userId={user.id}
       condicoes={condicoes}

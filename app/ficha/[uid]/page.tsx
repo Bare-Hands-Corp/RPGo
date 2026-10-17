@@ -15,7 +15,14 @@ import {
   maximoDoRecurso,
 } from "@/lib/op-rpg";
 import { juntarTipos, tiposDoDano, tiposDosEfeitos } from "@/lib/dano";
-import { SELECT_ACAO_QUE_DURA, carregarRecebidas, fonteRecebida } from "@/lib/efeitos-servidor";
+import {
+  SELECT_ACAO_QUE_DURA,
+  carregarRecebidas,
+  condicoesEmCombate,
+  fonteRecebida,
+} from "@/lib/efeitos-servidor";
+import { fontesDasCondicoes } from "@/lib/condicoes-mecanica";
+import { lerNavio } from "@/lib/navio";
 import { habilidadesTravadas } from "@/lib/arvore";
 import { INCLUDE_ACESSO, acessoAFicha, fichasDoGrupo, sessaoDoChat } from "@/lib/acesso-ficha";
 import { resumirSubficha } from "@/lib/resumo-personagem";
@@ -45,7 +52,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
   const [{ uid }, { aba }] = await Promise.all([params, searchParams]);
 
   // Auth, personagem e efeitos de aliados (Postgres) são independentes — paralelo.
-  const [user, carregado, recebidas] = await Promise.all([
+  const [user, carregado, recebidas, condicoes] = await Promise.all([
     usuarioDaRequest(),
     prisma.personagem.findUnique({
       where: { id: uid },
@@ -68,6 +75,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
       },
     }),
     carregarRecebidas(uid),
+    condicoesEmCombate(uid),
   ]);
   if (!user) redirect("/login");
   if (!carregado) notFound();
@@ -135,6 +143,8 @@ export default async function FichaPage({ params, searchParams }: Params) {
         ...habilidadesAtivas,
         ...fontesDeEfeitoDeItens(personagem.itens),
         ...recebidas.map(fonteRecebida),
+        // Condições do combate (Cego, Envenenado…) valem como efeito.
+        ...fontesDasCondicoes(condicoes),
       ],
       slugsPericiaCustom,
       undefined,
@@ -218,7 +228,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
           where: {
             OR: [
               { donoPersonagemId: personagem.id },
-              ...(personagem.mesaId ? [{ donoMesaId: personagem.mesaId }] : []),
+              ...(personagem.mesaId ? [{ donoMesaId: personagem.mesaId, doNarrador: false }] : []),
             ],
           },
           include: {
@@ -248,7 +258,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
 
   // Roster da Tripulação: só os membros da mesa. `de` diz de quem é a subficha.
   const tripulantes = personagem.mesaId
-    ? grupo.filter((g) => g.mesaId === personagem.mesaId)
+    ? grupo.filter((g) => g.mesaId === personagem.mesaId && !g.dono && !g.mesaDona)
     : [];
   const alvos = grupo.map((g) => ({
     id: g.id,
@@ -298,6 +308,15 @@ export default async function FichaPage({ params, searchParams }: Params) {
       )}
       <CatalogoTiposProvider tipos={catalogoTipos}>
       <PerfilSidebar
+        navio={
+          perfil.slug === "veiculo"
+            ? {
+                comandanteId: lerNavio(personagem.navio)?.comandanteId ?? null,
+                doNarrador: personagem.doNarrador,
+                tripulantes: tripulantes.map((t) => ({ id: t.id, nome: t.nome })),
+              }
+            : null
+        }
         personagem={personagem}
         perfil={perfil.slug}
         dono={

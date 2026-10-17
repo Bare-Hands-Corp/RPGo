@@ -9,10 +9,20 @@ import type { CombateVisto, ModoResolucao, ParticipanteVisto } from "@/lib/comba
 import {
   BotaoFinalizarTurno,
   EVENTO_ROLAR_CONCENTRACAO,
+  rolarPericiaAvulsa,
   rolarSalvaguardaAvulsa,
   type RolarConcentracaoDetail,
 } from "./acoes-do-turno";
-import { reagirEmCombate, responderConcentracao, tentarSairDaCondicao } from "./actions";
+import {
+  moverComCondicao,
+  reagirEmCombate,
+  responderConcentracao,
+  responderSalvaguarda,
+  tentarSairDaCondicao,
+  usarAcaoDeCondicao,
+} from "./actions";
+import { BotoesDaCondicao } from "@/components/tipos-dano/botoes-da-condicao";
+import { PainelNavio } from "./painel-navio";
 import Swal from "sweetalert2";
 import { ChipCondicao } from "@/components/tipos-dano/condicoes";
 
@@ -38,6 +48,17 @@ function Barra({ tipo, atual, max }: { tipo: "pv" | "pp"; atual: number; max: nu
 }
 
 const nomeDe = (p: ParticipanteVisto) => (p.voce ? "Você" : p.nome);
+
+function avisarSeErro(r: { ok: boolean; erro?: string }) {
+  if (r.ok) return;
+  void Swal.fire({
+    icon: "error",
+    title: "Erro",
+    text: r.erro,
+    background: "var(--bg-card)",
+    color: "var(--text-main)",
+  });
+}
 
 const NOME_ATRIBUTO: Record<string, string> = {
   forca: "Força",
@@ -235,6 +256,22 @@ export function IniciativaJogador({
                     <i className="fas fa-dice-d20" />
                   </button>
                 )}
+                <BotoesDaCondicao
+                  condicao={c}
+                  onAcao={(indice, acao) => {
+                    if (acao.faz === "teste" && acao.teste) {
+                      rolarPericiaAvulsa({
+                        pericia: acao.teste.pericia,
+                        rotulo: `${acao.nome}: ${c.nome} (CD ${acao.teste.cd})`,
+                        aoConcluir: (lance) =>
+                          void usarAcaoDeCondicao(personagemId, c.id, indice, { total: lance.total }).then(avisarSeErro),
+                      });
+                      return;
+                    }
+                    void usarAcaoDeCondicao(personagemId, c.id, indice).then(avisarSeErro);
+                  }}
+                  onMover={() => void moverComCondicao(personagemId, c.id).then(avisarSeErro)}
+                />
               </ChipCondicao>
             ))}
           </span>
@@ -272,19 +309,40 @@ export function IniciativaJogador({
         </div>
       ))}
 
+      {combate.voce?.navio && (
+        <PainelNavio
+          key={combate.voce.navio.velocidade}
+          navioId={personagemId}
+          voce={combate.voce}
+          participantes={participantes}
+        />
+      )}
+
       {(combate.voce?.salvaguardas ?? []).map((s) => (
-        <div key={s.resolucaoId} className="iniciativa-pedido">
+        <div key={`${s.resolucaoId}-${s.pelo?.instanciaId ?? ""}`} className="iniciativa-pedido">
           <span>
-            <i className="fas fa-shield-halved" /> <strong>Salvaguarda de {NOME_ATRIBUTO[s.atributo] ?? s.atributo}</strong>{" "}
+            <i className="fas fa-shield-halved" />{" "}
+            <strong>
+              {s.pelo ? `Estrutura de ${s.pelo.nome}` : `Salvaguarda de ${NOME_ATRIBUTO[s.atributo] ?? s.atributo}`}
+            </strong>{" "}
             (CD {s.cd}) contra {s.nome} de {s.de}
           </span>
           <button
             type="button"
             className="turno-finalizar compacto"
-            onClick={() =>
-              // O chip da aba Perícias sabe o bônus e responde ao combate.
-              document.querySelector<HTMLButtonElement>(`[data-salvaguarda="${s.atributo}"]`)?.click()
-            }
+            onClick={() => {
+              const responder = (lance: { total: number; natural: number | null }) =>
+                void responderSalvaguarda(personagemId, s.resolucaoId, lance, s.pelo?.instanciaId).then(avisarSeErro);
+              // Salvaguarda de estrutura: a VON do comandante, com o bônus da ficha dele.
+              if (s.pelo) {
+                rolarSalvaguardaAvulsa({ atributo: "vontade", rotulo: `Estrutura de ${s.pelo.nome} (CD ${s.cd})`, aoConcluir: responder });
+                return;
+              }
+              // O chip da aba Perícias sabe o bônus e responde ao combate; sem a aba, rola puro.
+              const chip = document.querySelector<HTMLButtonElement>(`[data-salvaguarda="${s.atributo}"]`);
+              if (chip) chip.click();
+              else rolarSalvaguardaAvulsa({ atributo: s.atributo, rotulo: `Salvaguarda (CD ${s.cd})`, aoConcluir: responder });
+            }}
           >
             <i className="fas fa-dice-d20" /> Rolar
           </button>

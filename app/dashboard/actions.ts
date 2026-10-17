@@ -62,8 +62,9 @@ export async function entrarEmMesa(input: { codigoAcesso: string; personagemId: 
   if (!mesa) throw new Error("Mesa não encontrada para esse código.");
   if (!personagem) throw new Error("Personagem não encontrado.");
 
-  await prisma.personagem.update({
-    where: { id: personagem.id },
+  // As subfichas vão junto.
+  await prisma.personagem.updateMany({
+    where: { OR: [{ id: personagem.id }, { donoPersonagemId: personagem.id }] },
     data: { mesaId: mesa.id },
   });
 

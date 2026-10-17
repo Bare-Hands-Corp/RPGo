@@ -948,6 +948,8 @@ export type TipoEfeito =
   | "valor_igual"
   | "livre";
 
+export type FiltroArmaDeFogo = "exceto" | "so";
+
 // Dano: dado no máximo, dado a partir de um número ou dano total. Ataque:
 // crítico ou d20 a partir de um número.
 export type GatilhoExplosao = "maximo" | "valor" | "total" | "critico";
@@ -984,7 +986,9 @@ type EfeitoCru =
   // Recebe o dobro do tipo de dano (depois da resistência).
   | { tipo: "vulnerabilidade"; tipoDano: string }
   | { tipo: "deslocamento"; tipoMov: string; valor: number }
-  | { tipo: "multiplicador"; alvo: string; fator: number }
+  // Em dano ("dano", "dano-cc", "dano-distancia"), `armaDeFogo` deixa a
+  // arma de fogo de fora ("exceto") ou só vale nela ("so").
+  | { tipo: "multiplicador"; alvo: string; fator: number; armaDeFogo?: FiltroArmaDeFogo }
   // Faz um cálculo derivado (CR, iniciativa, salvaguarda, perícia, ataque) usar
   // outro atributo no lugar do padrão; `seMaior` só troca quando é melhor.
   | { tipo: "substituir_atributo"; alvo: string; atributo: Atributo; seMaior?: boolean }
@@ -1858,9 +1862,13 @@ function normalizarCampos(tipo: TipoEfeito, obj: Record<string, unknown>): Efeit
       if (ATRIBUTOS_SET.has(alvo) && !ATRIBUTOS_SET.has(de)) return null;
       return { tipo, alvo, de, ...(obj.metade ? { metade: true } : {}) };
     }
-    case "multiplicador":
+    case "multiplicador": {
       if (!str(obj.alvo)) return null;
-      return { tipo, alvo: str(obj.alvo), fator: num(obj.fator) };
+      // Campo vazio não multiplica.
+      const fator = obj.fator === "" || obj.fator == null ? 1 : num(obj.fator);
+      const fogo = obj.armaDeFogo === "exceto" || obj.armaDeFogo === "so" ? obj.armaDeFogo : null;
+      return { tipo, alvo: str(obj.alvo), fator, ...(fogo && ALVOS_DANO_SET.has(str(obj.alvo)) ? { armaDeFogo: fogo } : {}) };
+    }
     case "substituir_atributo": {
       const alvo = str(obj.alvo);
       const atributo = str(obj.atributo);
@@ -2297,6 +2305,25 @@ export const ALVOS_DADO_EXTRA: { slug: string; nome: string; grupo: string }[] =
 export function extraNoDano(em: string | undefined): boolean {
   const alvo = (em ?? "").trim().toLowerCase();
   return !alvo || ALVOS_DANO_SET.has(alvo);
+}
+
+// Fator no dano de um ataque pelo alcance e por ser arma de fogo (produto dos
+// que valem). Agregado de render antigo pode não ter a lista.
+export function fatorDeDano(
+  agg: Pick<EfeitosAgregados, "multiplicadoresDano">,
+  ataque: { corpoACorpo: boolean; armaDeFogo: boolean },
+): { fator: number; fontes: string[] } {
+  let fator = 1;
+  const fontes: string[] = [];
+  for (const m of agg.multiplicadoresDano ?? []) {
+    if (m.em === "dano-cc" && !ataque.corpoACorpo) continue;
+    if (m.em === "dano-distancia" && ataque.corpoACorpo) continue;
+    if (m.armaDeFogo === "exceto" && ataque.armaDeFogo) continue;
+    if (m.armaDeFogo === "so" && !ataque.armaDeFogo) continue;
+    fator *= m.fator;
+    if (!fontes.includes(m.fonte)) fontes.push(m.fonte);
+  }
+  return { fator, fontes };
 }
 
 // Nome do efeito no card; Dano Extra numa jogada de d20 vira "Dado Extra".
@@ -2847,6 +2874,9 @@ export type EfeitosAgregados = {
   imunidades: Partial<Record<string, DefesaAgregada>>;
   vulnerabilidades: Partial<Record<string, DefesaAgregada>>;
   condicoesImunes: Partial<Record<string, DefesaAgregada>>;
+  // Multiplicadores no dano causado (Letárgico: metade, menos arma de fogo).
+  // O servidor aplica ao descontar o dano do combate (fatorDeDano).
+  multiplicadoresDano: { em: string; fator: number; armaDeFogo?: FiltroArmaDeFogo; fonte: string }[];
 };
 
 function vazio(): EfeitosAgregados {
@@ -2925,6 +2955,7 @@ function vazio(): EfeitosAgregados {
     imunidades: {},
     vulnerabilidades: {},
     condicoesImunes: {},
+    multiplicadoresDano: [],
   };
 }
 
@@ -3898,7 +3929,17 @@ export function agregarEfeitos(
         out.sentidos[key] = atual;
       } else if (e.tipo === "multiplicador") {
         const key = e.alvo.trim().toLowerCase();
-        if (!key || !e.fator || e.fator === 1) continue;
+        // Fator 0 zera (Agarrado, Impedido); negativo não vale.
+        if (!key || !Number.isFinite(e.fator) || e.fator < 0 || e.fator === 1) continue;
+        if (ALVOS_DANO_SET.has(key)) {
+          out.multiplicadoresDano.push({
+            em: key,
+            fator: e.fator,
+            ...(e.armaDeFogo ? { armaDeFogo: e.armaDeFogo } : {}),
+            fonte: h.nome,
+          });
+          continue;
+        }
         const atual = out.multiplicadores[key] ?? { fator: 1, fontes: [] };
         // Vários multiplicadores compõem por produto.
         atual.fator *= e.fator;
@@ -5011,7 +5052,10 @@ export function resumoEfeito(
       return `${nome(e.alvo)} = ${e.metade ? "metade de " : ""}${nome(e.de)}`;
     }
     case "multiplicador":
-      return `${e.alvo} ×${e.fator}`;
+      return (
+        `${rotuloAlvo(e.alvo)} ×${String(e.fator).replace(".", ",")}` +
+        (e.armaDeFogo === "exceto" ? " (menos arma de fogo)" : e.armaDeFogo === "so" ? " (só arma de fogo)" : "")
+      );
     case "substituir_atributo": {
       const sigla = ATRIBUTOS.find((a) => a.slug === e.atributo)?.sigla ?? e.atributo;
       return `${rotuloAlvo(e.alvo)} → ${sigla}${e.seMaior ? " se maior" : ""}`;

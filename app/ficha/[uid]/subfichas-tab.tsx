@@ -4,7 +4,23 @@ import { useOptimistic, useState, useTransition } from "react";
 import Link from "next/link";
 import Swal from "sweetalert2";
 import { ehTemporario, exigir, idTemporario, type Resultado } from "@/lib/acoes";
-import { MADEIRAS_NAVIO, TAMANHOS_NAVIO, presetDeNavio, statsMadeira } from "@/lib/navio";
+import {
+  CANHOES_NAVIO,
+  FORTIFICACOES_NAVIO,
+  LEMES_NAVIO,
+  MADEIRAS_NAVIO,
+  MOTORES_NAVIO,
+  MASTROS_NAVIO,
+  TAMANHOS_NAVIO,
+  VELAS_NAVIO,
+  metrosPorRodada,
+  montagemPadrao,
+  presetDeNavio,
+  statsMadeira,
+  statsTamanho,
+  velocidadeDoNavio,
+  type MontagemNavio,
+} from "@/lib/navio";
 import type { SubfichaCard } from "@/lib/resumo-personagem";
 import {
   ABAS_DE_SUBFICHA,
@@ -42,7 +58,7 @@ export type DadosSubficha = {
   perfil: PerfilFicha;
   molde: boolean;
   hpMax: number;
-  navio: { tamanho: string; madeira: string } | null;
+  navio: MontagemNavio | null;
   abas: AbaFicha[];
 };
 
@@ -59,7 +75,7 @@ function reduzir(fichas: SubfichaCard[], m: Mudanca): SubfichaCard[] {
 
 // Card provisório, até o servidor devolver a ficha criada.
 function fichaProvisoria(d: DadosSubficha, daMesa: boolean): SubfichaCard {
-  const preset = d.navio ? presetDeNavio(d.navio.tamanho, d.navio.madeira) : null;
+  const preset = d.navio ? presetDeNavio(d.navio) : null;
   const casco = d.navio ? statsMadeira(d.navio.madeira) : null;
   const hpMax = preset?.hpMax ?? d.hpMax;
   return {
@@ -73,7 +89,7 @@ function fichaProvisoria(d: DadosSubficha, daMesa: boolean): SubfichaCard {
     ppAtual: 0,
     ppMax: 0,
     exaustao: 0,
-    cr: casco?.cr ?? 10,
+    cr: (casco?.cr ?? 10) + (FORTIFICACOES_NAVIO.find((f) => f.slug === d.navio?.fortificacao)?.cr ?? 0),
     iniciativa: 0,
     percepcaoPassiva: 10,
     destreza: 10,
@@ -83,10 +99,8 @@ function fichaProvisoria(d: DadosSubficha, daMesa: boolean): SubfichaCard {
     molde: d.molde,
     moldeId: null,
     daMesa,
-    deslocamento: 0,
-    recursos: preset
-      ? [{ id: idTemporario(), nome: preset.recurso.nome, valorAtual: 0, valorMax: preset.recurso.valorMax }]
-      : [],
+    deslocamento: preset?.deslocamento ?? 0,
+    recursos: [],
   };
 }
 
@@ -514,12 +528,18 @@ export function ModalSubficha({
   const [hpMax, setHpMax] = useState(10);
   // Subficha da mesa já nasce como navio do livro.
   const [doLivro, setDoLivro] = useState(daMesa);
-  const [tamanho, setTamanho] = useState("pequeno");
-  const [madeira, setMadeira] = useState("cedro");
+  const [montagem, setMontagem] = useState<MontagemNavio>(() => montagemPadrao("pequeno"));
   const [abas, setAbas] = useState<AbaFicha[]>(inicial?.abas ?? perfilDe(perfil).abas);
 
   const veiculo = perfil === "veiculo";
-  const navio = !inicial && veiculo && doLivro ? { tamanho, madeira } : null;
+  const navio = !inicial && veiculo && doLivro ? montagem : null;
+  const tamanhoNavio = statsTamanho(montagem.tamanho);
+  const velocidade = velocidadeDoNavio(montagem);
+  const mudarNavio = (patch: Partial<MontagemNavio>) => setMontagem((m) => ({ ...m, ...patch }));
+  // Outro tamanho começa do modelo do livro daquele tamanho.
+  function trocarTamanho(slug: string) {
+    setMontagem(montagemPadrao(slug));
+  }
   // Cópia e subficha da mesa não viram molde.
   const podeSerMolde = !daMesa && !inicial?.moldeId;
 
@@ -618,9 +638,9 @@ export function ModalSubficha({
                     <button
                       type="button"
                       key={t.slug}
-                      className={`opcao-card${tamanho === t.slug ? " ativo" : ""}`}
-                      aria-pressed={tamanho === t.slug}
-                      onClick={() => setTamanho(t.slug)}
+                      className={`opcao-card${montagem.tamanho === t.slug ? " ativo" : ""}`}
+                      aria-pressed={montagem.tamanho === t.slug}
+                      onClick={() => trocarTamanho(t.slug)}
                     >
                       <strong>{t.nome}</strong>
                       <span>{t.pvMax} PV</span>
@@ -636,9 +656,9 @@ export function ModalSubficha({
                     <button
                       type="button"
                       key={m.slug}
-                      className={`opcao-card${madeira === m.slug ? " ativo" : ""}`}
-                      aria-pressed={madeira === m.slug}
-                      onClick={() => setMadeira(m.slug)}
+                      className={`opcao-card${montagem.madeira === m.slug ? " ativo" : ""}`}
+                      aria-pressed={montagem.madeira === m.slug}
+                      onClick={() => mudarNavio({ madeira: m.slug })}
                     >
                       <strong>{m.nome}</strong>
                       <span>CR {m.cr}</span>
@@ -647,6 +667,104 @@ export function ModalSubficha({
                   ))}
                 </div>
               </div>
+              <div className="subficha-campo">
+                <label>Mastros</label>
+                <div className="subficha-linha">
+                  <CampoPasso
+                    valor={montagem.mastros}
+                    onChange={(n) => mudarNavio({ mastros: n })}
+                    rotulo="Mastros"
+                    min={1}
+                    max={tamanhoNavio.mastrosMax}
+                  />
+                  <Segmentos
+                    rotulo="Tipo de mastro"
+                    valor={montagem.mastro}
+                    opcoes={MASTROS_NAVIO.map((x) => ({ valor: x.slug, rotulo: x.nome }))}
+                    onChange={(v) => mudarNavio({ mastro: v })}
+                  />
+                </div>
+              </div>
+              <div className="subficha-campo">
+                <label>Velas</label>
+                <div className="opcoes-grade">
+                  {VELAS_NAVIO.map((v) => (
+                    <button
+                      type="button"
+                      key={v.slug}
+                      className={`opcao-card${montagem.vela === v.slug ? " ativo" : ""}`}
+                      aria-pressed={montagem.vela === v.slug}
+                      onClick={() => mudarNavio({ vela: v.slug })}
+                    >
+                      <strong>{v.nome}</strong>
+                      <span>+{v.nos[montagem.mastro]} nós por mastro</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="subficha-campo">
+                <label>Canhões</label>
+                <CampoPasso
+                  valor={montagem.canhoes}
+                  onChange={(n) => mudarNavio({ canhoes: n })}
+                  rotulo="Canhões"
+                  max={tamanhoNavio.canhoesMax}
+                />
+                <div className="opcoes-grade" style={{ marginTop: 6 }}>
+                  {CANHOES_NAVIO.map((c) => (
+                    <button
+                      type="button"
+                      key={c.slug}
+                      className={`opcao-card${montagem.canhao === c.slug ? " ativo" : ""}`}
+                      aria-pressed={montagem.canhao === c.slug}
+                      onClick={() => mudarNavio({ canhao: c.slug })}
+                    >
+                      <strong>{c.nome}</strong>
+                      <span>+{c.bonus} · {c.alcance} m</span>
+                      <span>{c.dano === 1 ? "Dano da munição" : c.dano > 1 ? "Dobro da munição" : "Metade da munição"}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="subficha-campo">
+                <label>Fortificação</label>
+                <Segmentos
+                  rotulo="Fortificação"
+                  valor={montagem.fortificacao}
+                  opcoes={FORTIFICACOES_NAVIO.map((f) => ({
+                    valor: f.slug,
+                    rotulo: f.nome,
+                    ...(f.cr ? { sub: `+${f.cr} CR` } : {}),
+                  }))}
+                  onChange={(v) => mudarNavio({ fortificacao: v })}
+                />
+              </div>
+              <div className="subficha-campo">
+                <label>Motor</label>
+                <Segmentos
+                  rotulo="Motor"
+                  valor={montagem.motor}
+                  opcoes={MOTORES_NAVIO.map((x) => ({
+                    valor: x.slug,
+                    rotulo: x.nome,
+                    ...(x.nos ? { sub: `+${x.nos} nós` } : {}),
+                  }))}
+                  onChange={(v) => mudarNavio({ motor: v })}
+                />
+              </div>
+              <div className="subficha-campo">
+                <label>Leme</label>
+                <Segmentos
+                  rotulo="Leme"
+                  valor={montagem.leme}
+                  opcoes={LEMES_NAVIO.map((x) => ({ valor: x.slug, rotulo: x.nome }))}
+                  onChange={(v) => mudarNavio({ leme: v })}
+                />
+              </div>
+              <p className="subficha-velocidade">
+                <i className="fas fa-wind" /> {velocidade.nos} nós · {metrosPorRodada(velocidade.nos).toLocaleString("pt-BR")} m por
+                rodada <small>(velas +{velocidade.velas}, peso {velocidade.peso})</small>
+              </p>
             </>
           )}
 

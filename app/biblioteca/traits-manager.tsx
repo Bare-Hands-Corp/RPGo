@@ -22,6 +22,9 @@ import { BarraFiltros, casaBusca } from "@/app/ficha/[uid]/barra-filtros";
 import { IconePicker } from "@/components/icone-picker";
 import { estiloAplicado } from "@/lib/estilos-cor";
 import { CATALOGO_PADRAO, caraDoLivro } from "@/lib/tipos-dano";
+import { CONDICOES_DO_LIVRO } from "@/lib/condicoes";
+import { MECANICA_VAZIA, linhasDaMecanica, mecanicaDoLivro } from "@/lib/condicoes-mecanica";
+import { MecanicaCondicaoEditor } from "./mecanica-condicao";
 
 function draftDeTemplate(t: TemplateSerializado): TemplatePayload {
   const { id: _id, criadoEm: _criadoEm, ...payload } = t;
@@ -360,6 +363,9 @@ export function TraitsManager({ templatesIniciais }: Props) {
       ...f.efeitosExtras.map((e) => textoEfeitoExtra(e)),
     ];
     const condicoes = f.efeitos.filter((e): e is CondicaoEfeito => e.tipo === "condicao");
+    // Condição: o que ela faz, em linhas curtas.
+    const mecanica = t.categoria === "condicao" ? (f.mecanica ?? mecanicaDoLivro(t.nome)) : null;
+    if (mecanica) badges.push(...linhasDaMecanica(mecanica));
     return (
       <div className="bestiario-ficha-view">
         <div className="bestiario-ficha-toolbar">
@@ -563,15 +569,28 @@ export function TraitsManager({ templatesIniciais }: Props) {
                 />
               </label>
             ) : ehCondicao ? (
-              <label>
-                Descrição da condição (o que ela faz — vira tooltip na ficha da criatura)
-                <textarea
-                  className="bestiario-textarea-descricao"
-                  value={draft.textoTemplate}
-                  onChange={(e) => campo("textoTemplate", e.target.value)}
-                  placeholder="Ex: não pode se mover nem usar reações até o fim do próximo turno."
+              <>
+                <label>
+                  Descrição
+                  <textarea
+                    className="bestiario-textarea-descricao"
+                    value={draft.textoTemplate}
+                    onChange={(e) => campo("textoTemplate", e.target.value)}
+                    placeholder="Ex: não pode se mover nem usar reações até o fim do próximo turno."
+                  />
+                </label>
+                <MecanicaCondicaoEditor
+                  mecanica={draft.formula.mecanica ?? mecanicaDoLivro(draft.nome) ?? MECANICA_VAZIA}
+                  condicoes={[
+                    ...new Set([
+                      ...templates.filter((t) => t.categoria === "condicao").map((t) => t.nome),
+                      ...CONDICOES_DO_LIVRO,
+                      "Queimadura",
+                    ]),
+                  ].filter((nome) => nome !== draft.nome)}
+                  onChange={(m) => formulaCampo("mecanica", m)}
                 />
-              </label>
+              </>
             ) : (
               <>
                 {draft.categoria === "reacao" && (
