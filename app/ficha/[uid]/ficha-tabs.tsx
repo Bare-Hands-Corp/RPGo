@@ -7,12 +7,16 @@ import { ArvoresTab, type Arvore, type ArvoreCopiavel } from "./arvores-tab";
 import { HabilidadesTab } from "./habilidades-tab";
 import { InventarioTab } from "./inventario-tab";
 import { ObjetivosTab, type Objetivo } from "./objetivos-tab";
+import { PacotesContext } from "./pacotes";
 import { PericiasTab } from "./pericias-tab";
-import { TripulacaoTab } from "./tripulacao-tab";
+import { SubfichasTab } from "./subfichas-tab";
+import { TripulacaoTab, type Tripulante } from "./tripulacao-tab";
 import { CalendarioView } from "@/app/calendario/[mesaId]/calendario-view";
 import { CalendarioRealtime } from "@/app/calendario/[mesaId]/realtime-refresher";
 import type { CalendarioCarregado } from "@/lib/calendario/carregar";
 import type { Atributo, EfeitosAgregados } from "@/lib/op-rpg";
+import type { SubfichaCard } from "@/lib/resumo-personagem";
+import { ABAS, type AbaFicha } from "@/lib/subficha";
 
 type Acao = React.ComponentProps<typeof AcoesTab>["acoes"][number];
 type Item = React.ComponentProps<typeof InventarioTab>["itens"][number];
@@ -22,12 +26,12 @@ type RecursoRef = React.ComponentProps<typeof AcoesTab>["recursos"][number] & {
 };
 type Habilidade = React.ComponentProps<typeof HabilidadesTab>["habilidades"][number];
 type PericiaCustom = React.ComponentProps<typeof PericiasTab>["periciasCustom"][number];
-type Tripulante = React.ComponentProps<typeof TripulacaoTab>["tripulantes"][number];
-type Navio = React.ComponentProps<typeof TripulacaoTab>["navio"];
 
 type Props = {
   personagemId: string;
   personagemNome: string;
+  /** Abas que a ficha mostra (lib/subficha.ts). */
+  abas: AbaFicha[];
   /** `?aba=` da URL. */
   abaInicial: string | null;
   mesaId: string | null;
@@ -50,40 +54,23 @@ type Props = {
   objetivos: Objetivo[];
   isNarradorDaMesa: boolean;
   tripulantes: Tripulante[];
+  /** Quem pode receber um efeito de aliado: a mesa e as subfichas. */
+  alvos: Tripulante[];
+  subfichas: SubfichaCard[];
   // O personagem no combate ativo da mesa; null = fora de combate.
   turno: CombateVisto["voce"];
   // Quem está no combate, pra escolher alvo.
   alvosCombate: CombateVisto["participantes"];
   atributoCdTecnicas: string | null;
-  navio: Navio;
   arvores: Arvore[];
   arvoresCopiaveis: ArvoreCopiavel[];
   habilidadesTravadas: string[];
 };
 
-type TabId =
-  | "combate"
-  | "habilidades"
-  | "arvores"
-  | "pericias"
-  | "objetivos"
-  | "inventario"
-  | "tripulacao"
-  | "calendario";
-
-const TABS_BASE: { id: TabId; label: string; icone: string }[] = [
-  { id: "combate", label: "Combate", icone: "fa-fist-raised" },
-  { id: "habilidades", label: "Habilidades", icone: "fa-star" },
-  { id: "arvores", label: "Árvores", icone: "fa-sitemap" },
-  { id: "pericias", label: "Perícias", icone: "fa-dice-d20" },
-  { id: "objetivos", label: "Objetivos", icone: "fa-scroll" },
-  { id: "inventario", label: "Inventário", icone: "fa-sack-dollar" },
-  { id: "tripulacao", label: "Tripulação", icone: "fa-users" },
-];
-
 export function FichaTabs({
   personagemId,
   personagemNome,
+  abas,
   abaInicial,
   mesaId,
   nivel,
@@ -105,27 +92,28 @@ export function FichaTabs({
   objetivos,
   isNarradorDaMesa,
   tripulantes,
+  alvos,
+  subfichas,
   turno,
   alvosCombate,
   atributoCdTecnicas,
-  navio,
   arvores,
   arvoresCopiaveis,
   habilidadesTravadas,
 }: Props) {
-  const temCalendario = !!(mesaId && calendario);
-  const [ativa, setAtivaEstado] = useState<TabId>(() => {
-    const valida =
-      TABS_BASE.some((t) => t.id === abaInicial) ||
-      (abaInicial === "calendario" && temCalendario);
-    return valida ? (abaInicial as TabId) : "combate";
-  });
+  const tabs = ABAS.filter((a) => abas.includes(a.id));
+  const primeira = tabs[0]?.id ?? "combate";
+  const [escolhida, setAtivaEstado] = useState<AbaFicha>(
+    () => tabs.find((t) => t.id === abaInicial)?.id ?? primeira,
+  );
+  // Aba que saiu da ficha (subficha que mudou de abas) cai na primeira.
+  const ativa = abas.includes(escolhida) ? escolhida : primeira;
 
-  function setAtiva(id: TabId) {
+  function setAtiva(id: AbaFicha) {
     setAtivaEstado(id);
     // replaceState: não refaz o RSC nem enche o histórico.
     const url = new URL(window.location.href);
-    if (id === "combate") url.searchParams.delete("aba");
+    if (id === primeira) url.searchParams.delete("aba");
     else url.searchParams.set("aba", id);
     window.history.replaceState(null, "", url);
   }
@@ -154,10 +142,10 @@ export function FichaTabs({
     [objetivos, personagemId, personagemNome],
   );
 
-  const tabs = [...TABS_BASE];
-  if (temCalendario) {
-    tabs.push({ id: "calendario", label: "Calendário", icone: "fa-calendar-days" });
-  }
+  const fichaDoPacote = useMemo(
+    () => ({ personagemId, habilidades, acoes, arvores, recursos }),
+    [personagemId, habilidades, acoes, arvores, recursos],
+  );
 
   function navegarPorSeta(e: React.KeyboardEvent, indice: number) {
     const passo =
@@ -178,6 +166,7 @@ export function FichaTabs({
   }
 
   return (
+    <PacotesContext.Provider value={fichaDoPacote}>
     <main className="ficha-main">
       {/* Realtime do calendário fica sempre ativo enquanto a ficha está aberta,
           pra que mudanças cheguem mesmo quando outra aba estiver visível. */}
@@ -225,7 +214,7 @@ export function FichaTabs({
           habilidades={habilidades}
           ppAtual={ppAtual}
           ppMax={ppMax}
-          tripulantes={tripulantes}
+          tripulantes={alvos}
           turno={turno}
           alvosCombate={alvosCombate}
           atributoCdTecnicas={atributoCdTecnicas}
@@ -247,7 +236,7 @@ export function FichaTabs({
           periciasCustom={periciasCustom}
           travadas={habilidadesTravadas}
           itens={itens}
-          tripulantes={tripulantes}
+          tripulantes={alvos}
           efeitosAgregados={efeitosAgregados}
           grausTecnicas={grausTecnicas}
         />
@@ -268,7 +257,7 @@ export function FichaTabs({
           proficienciasRaw={proficienciasRaw}
           periciasCustom={periciasCustom}
           efeitosAgregados={efeitosAgregados}
-          salvaguardasPedidas={turno?.salvaguardas ?? []}
+          salvaguardasPedidas={(turno?.salvaguardas ?? []).filter((s) => !s.pelo)}
         />
       </div>
 
@@ -325,27 +314,43 @@ export function FichaTabs({
           periciasCustom={periciasCustom}
           acoes={acoes}
           habilidades={habilidades}
-          tripulantes={tripulantes}
+          tripulantes={alvos}
           grausTecnicas={grausTecnicas}
         />
       </div>
 
-      <div
-        hidden={ativa !== "tripulacao"}
-        role="tabpanel"
-        id="painel-tripulacao"
-        aria-labelledby="tab-tripulacao"
-      >
-        <TripulacaoTab
-          personagemId={personagemId}
-          mesaId={mesaId}
-          isNarradorDaMesa={isNarradorDaMesa}
-          tripulantes={tripulantes}
-          navio={navio}
-        />
-      </div>
+      {abas.includes("subfichas") && (
+        <div
+          hidden={ativa !== "subfichas"}
+          role="tabpanel"
+          id="painel-subfichas"
+          aria-labelledby="tab-subfichas"
+        >
+          <SubfichasTab
+            personagemId={personagemId}
+            subfichas={subfichas.filter((s) => !s.daMesa)}
+          />
+        </div>
+      )}
 
-      {mesaId && calendario && (
+      {abas.includes("tripulacao") && (
+        <div
+          hidden={ativa !== "tripulacao"}
+          role="tabpanel"
+          id="painel-tripulacao"
+          aria-labelledby="tab-tripulacao"
+        >
+          <TripulacaoTab
+            personagemId={personagemId}
+            mesaId={mesaId}
+            isNarradorDaMesa={isNarradorDaMesa}
+            tripulantes={tripulantes}
+            embarcacoes={subfichas.filter((s) => s.daMesa)}
+          />
+        </div>
+      )}
+
+      {mesaId && calendario && abas.includes("calendario") && (
         <div
           hidden={ativa !== "calendario"}
           role="tabpanel"
@@ -365,5 +370,6 @@ export function FichaTabs({
         </div>
       )}
     </main>
+    </PacotesContext.Provider>
   );
 }

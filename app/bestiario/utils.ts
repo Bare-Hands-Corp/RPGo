@@ -3,6 +3,7 @@ import { EFEITO_COR_PADRAO, normalizarEfeitoCor } from "@/lib/estilos-cor";
 import { extraNoDano, lerEfeitos, nomeDoEfeito, resumoEfeito, type EfeitoHabilidade } from "@/lib/op-rpg";
 import { lerDanoPorTurno, textoDanoPorTurno } from "@/lib/condicoes";
 import { lerGatilho } from "@/lib/combate";
+import { lerMecanica } from "@/lib/condicoes-mecanica";
 import type {
   AtributoSalvaguarda,
   CaracteristicasPayload,
@@ -378,7 +379,7 @@ export function serializarCriatura(
 // ─── Biblioteca de traits ─────────────────────────────────────────────────
 
 function formulaVazia(): TemplateFormula {
-  return { efeitos: [], efeitosExtras: [], origem: null, usos: null, recarga: null, cor: "", cor2: "", efeito: EFEITO_COR_PADRAO, icone: "", alcance: "", custo: "", tecnica: false, grau: 0, custoLendario: 1, gatilho: "qualquer" };
+  return { efeitos: [], efeitosExtras: [], origem: null, usos: null, recarga: null, cor: "", cor2: "", efeito: EFEITO_COR_PADRAO, icone: "", alcance: "", custo: "", tecnica: false, grau: 0, custoLendario: 1, gatilho: "qualquer", mecanica: null };
 }
 
 export function criarTemplateVazio(): TemplatePayload {
@@ -464,6 +465,7 @@ export function serializarTemplate(template: TraitTemplate): TemplateSerializado
       grau: f.tecnica === true ? comoGrau(f.grau) : 0,
       custoLendario: comoCustoLendario(f.custoLendario),
       gatilho: lerGatilho(f.gatilho),
+      mecanica: template.categoria === "condicao" ? lerMecanica(f.mecanica) : null,
     },
     tagsProve: template.tagsProve,
     tagsConsome: template.tagsConsome,

@@ -545,8 +545,11 @@ export function PainelRolador({
   const quantidade = Number(quantidadeTexto || 1);
   const vazio = dados.length === 0 && modificador === 0;
   const quantidadeValida = Math.max(1, Math.trunc(quantidade || 0));
-  // Multiataque ligado rola o ataque várias vezes de uma vez.
-  const vezesMulti = chips.find((c) => c.tipo === "multi_ataque" && chipLigado(c))?.valor ?? 1;
+  // Multiataque ligado rola o ataque várias vezes de uma vez (com mais de um chip, o maior).
+  const vezesMulti = Math.max(
+    1,
+    ...chips.filter((c) => c.tipo === "multi_ataque" && chipLigado(c)).map((c) => c.valor ?? 1),
+  );
   const repeticoes = Math.max(quantidadeValida, vezesMulti);
   const loteAtivo = repeticoes > 1;
 
@@ -765,8 +768,12 @@ export function PainelRolador({
     const ehDano = contexto?.tipo === "dano";
     const explosoes = ligados.flatMap((c) => (c.tipo === "explosao" && c.explosao ? [c.explosao] : []));
     const ligado = (t: ChipContexto["tipo"]) => ligados.some((c) => c.tipo === t);
-    const valorChip = (t: ChipContexto["tipo"]) =>
-      chips.find((c) => c.tipo === t)?.valor;
+    // Valor do tipo entre os chips ligados; com mais de um (o que vale sempre e o
+    // de uso limitado), `melhor` escolhe.
+    const valorChip = (t: ChipContexto["tipo"], melhor: (...ns: number[]) => number = Math.max) => {
+      const valores = ligados.flatMap((c) => (c.tipo === t && c.valor != null ? [c.valor] : []));
+      return valores.length ? melhor(...valores) : undefined;
+    };
     const somaLigados = (t: ChipContexto["tipo"]) =>
       ligados.filter((c) => c.tipo === t).reduce((soma, c) => soma + (c.valor ?? 0), 0);
     // Dano extra e dados extras dos chips ligados (dados iguais ao 1º dado do dano).
@@ -826,10 +833,10 @@ export function PainelRolador({
     const opc: OpcoesContextuais = {
       vantagem: ligado("vantagem") || vantManual,
       desvantagem: ligado("desvantagem") || desvManual,
-      floorD20: ligado("floor_d20") ? valorChip("floor_d20") ?? 0 : 0,
-      critRange: ligado("crit_range") ? valorChip("crit_range") ?? 20 : 20,
+      floorD20: valorChip("floor_d20") ?? 0,
+      critRange: valorChip("crit_range", Math.min) ?? 20,
       danoMinFloor,
-      melhorDe: ligado("melhor_de") ? valorChip("melhor_de") ?? 1 : 1,
+      melhorDe: valorChip("melhor_de") ?? 1,
       danoMaximo: ligado("dano_maximo"),
       pisosDado: ligados.flatMap((c) => (c.tipo === "piso_dado" && c.piso ? [c.piso] : [])),
       explosoesDado: explosoes.flatMap((x) =>
@@ -857,7 +864,7 @@ export function PainelRolador({
     };
     const rolar = (i = 0) => montarDadosContextuais(dadosUsar, modUsar, opcDe(i));
     // Multiataque ou repetições: o maior dos dois.
-    const vezes = Math.max(quantidadeValida, ligado("multi_ataque") ? valorChip("multi_ataque") ?? 1 : 1);
+    const vezes = Math.max(quantidadeValida, valorChip("multi_ataque") ?? 1);
 
     // Anota as fontes dos efeitos ligados (exceto reroll, que vira interação).
     // Escapa nomes — vão pra string HTML renderizada no chat.
@@ -910,7 +917,7 @@ export function PainelRolador({
         poderoso: ligado("ataque_poderoso"),
       };
     }
-    const rerolls = ligado("reroll") ? valorChip("reroll") ?? 0 : 0;
+    const rerolls = valorChip("reroll") ?? 0;
 
     if (rerolls > 0) {
       gastarMunicao(1);
@@ -1313,6 +1320,7 @@ export function PainelRolador({
                   </button>
                   <span>
                     <i className={`fas ${ICONE_CHIP[c.tipo]}`} /> {c.rotulo} ×{n}
+                    {c.usos && <span className="rolador-chip-usos">{c.usos}</span>}
                   </span>
                   <button
                     type="button"
@@ -1341,6 +1349,7 @@ export function PainelRolador({
               >
                 <i className={`fas ${ICONE_CHIP[c.tipo]}`} />
                 {c.rotulo}
+                {c.usos && <span className="rolador-chip-usos">{c.usos}</span>}
               </button>
             );
           })}

@@ -3,8 +3,18 @@
 // (app/ficha/[uid]/page.tsx + perfil-sidebar.tsx) — se mudar lá, mude aqui,
 // senão o narrador vê um número e o jogador outro.
 
-import type { Arvore, ArvoreNo, Habilidade, Item, Personagem, PericiaCustom } from "@prisma/client";
+import type {
+  Arvore,
+  ArvoreNo,
+  Habilidade,
+  Item,
+  Personagem,
+  PericiaCustom,
+  Recurso,
+} from "@prisma/client";
+import { pvComSinal } from "./dano";
 import { agregadoDaFicha, penalidadeDesDasArmaduras } from "./efeitos-servidor";
+import { lerAbas, type AbaFicha } from "./subficha";
 import { acoesEmCurso, type AcaoQueDura } from "./turno";
 import {
   ATRIBUTOS,
@@ -13,11 +23,14 @@ import {
   atributosEfetivos,
   bonusTesteAmplo,
   comValoresIguais,
+  contextoDasFormulas,
   crBase,
   deslocamentoEfetivo,
   exaustaoQueConta,
+  fontesDeEfeitoDeItens,
   iniciativa,
   lerProficiencias,
+  maximoDoRecurso,
   modoDosEfeitos,
   modosDeDeslocamento,
   penalidadeD20Exaustao,
@@ -40,6 +53,7 @@ export type ResumoPersonagem = {
   nome: string;
   nivel: number;
   fotoUrl: string | null;
+  // PV com sinal: abaixo de 0 são os PV negativos.
   hpAtual: number;
   hpTemp: number;
   hpMax: number;
@@ -50,6 +64,8 @@ export type ResumoPersonagem = {
   iniciativa: number;
   percepcaoPassiva: number;
   destreza: number;
+  // Soma das reduções que valem sempre e pra todo dano.
+  reducaoDano: number;
 };
 
 // `recebidas`: habilidades de aliados ligadas neste personagem.
@@ -87,15 +103,16 @@ export function resumirPersonagem(
   );
 
   // "Valor igual" parte dos valores já calculados; vale o maior.
-  const modos = modosDeDeslocamento(ef);
+  const modos = modosDeDeslocamento(ef, p.nado);
   const multDesloc = ef.multiplicadores["deslocamento"];
   const deslocSemMult = Math.max(
     0,
     p.deslocamento + ef.bonusDeslocamento.valor,
     ef.valoresFixos["deslocamento"]?.valor ?? 0,
   );
-  const deslocBruto = multDesloc ? Math.floor(deslocSemMult * multDesloc.fator) : deslocSemMult;
-  const nadar = modos["nadar"];
+  const deslocBruto = multDesloc
+    ? Math.floor(deslocSemMult * multDesloc.fator * 2) / 2
+    : deslocSemMult;
   const valores = comValoresIguais(
     {
       ...modos,
@@ -103,7 +120,7 @@ export function resumirPersonagem(
         ATRIBUTOS.map((a) => [a.slug, { valor: efetivos[a.slug], fontes: [] as string[] }]),
       ),
       deslocamento: { valor: deslocamentoEfetivo(deslocBruto, 0, exaustao), fontes: [] },
-      nadar: nadar && nadar.valor >= p.nado ? nadar : { valor: p.nado, fontes: [] },
+      nadar: modos.nadar ?? { valor: p.nado, fontes: [] },
       cr: { valor: crPropria, fontes: [] },
     },
     ef.valoresIguais ?? [],
@@ -148,7 +165,7 @@ export function resumirPersonagem(
     nome: p.nome,
     nivel: p.nivel,
     fotoUrl: p.fotoUrl,
-    hpAtual: p.hpAtual,
+    hpAtual: pvComSinal(p.hpAtual, p.pvNegativos),
     hpTemp: p.hpTemp,
     hpMax: pools.hpMax,
     ppAtual: p.ppAtual,
@@ -158,5 +175,44 @@ export function resumirPersonagem(
     iniciativa: ini,
     percepcaoPassiva: percepcao,
     destreza: p.destreza,
+    reducaoDano: ef.reducoesDano
+      .filter((r) => r.passiva && !r.quando && !r.tipos)
+      .reduce((soma, r) => soma + r.valor, 0),
+  };
+}
+
+// Card de uma subficha na ficha do dono (ou da mesa, na Tripulação).
+export type SubfichaCard = ResumoPersonagem & {
+  perfil: string;
+  abas: AbaFicha[] | null;
+  molde: boolean;
+  moldeId: string | null;
+  daMesa: boolean;
+  deslocamento: number;
+  recursos: { id: string; nome: string; valorAtual: number; valorMax: number }[];
+};
+
+export function resumirSubficha(
+  p: PersonagemComFontes & { recursos: Recurso[] },
+  recebidas: HabilidadeFonte[] = [],
+): SubfichaCard {
+  const ctx = contextoDasFormulas([...p.habilidades, ...fontesDeEfeitoDeItens(p.itens)], {
+    nivel: p.nivel,
+    atributos: p,
+  });
+  return {
+    ...resumirPersonagem(p, recebidas),
+    perfil: p.perfil,
+    abas: lerAbas(p.abas),
+    molde: p.molde,
+    moldeId: p.moldeId,
+    daMesa: !!p.donoMesaId,
+    deslocamento: p.deslocamento,
+    recursos: p.recursos.map((r) => ({
+      id: r.id,
+      nome: r.nome,
+      valorAtual: r.valorAtual,
+      valorMax: maximoDoRecurso(r, ctx),
+    })),
   };
 }

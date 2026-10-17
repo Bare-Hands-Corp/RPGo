@@ -394,3 +394,33 @@
 .biblioteca-dono[open] > summary {
   margin-bottom: 8px;
 }
+
+/* ─── Mecânica da condição (mecanica-condicao.tsx) ─────────── */
+.mecanica-condicao {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mecanica-acao {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+
+.mecanica-acao-topo,
+.mecanica-acao-teste {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mecanica-acao-topo input,
+.mecanica-acao-teste select {
+  flex: 1;
+  min-width: 0;
+}

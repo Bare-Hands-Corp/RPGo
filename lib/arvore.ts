@@ -267,9 +267,13 @@ export function bloqueiosDevolver(
   return bloqueios;
 }
 
-/** Habilidade ligada a vários nós fica liberada se qualquer um estiver comprado. */
+/**
+ * Habilidade ligada a vários nós fica liberada se qualquer um estiver comprado.
+ * A forma alternativa trava junto da habilidade de origem.
+ */
 export function habilidadesTravadas(
   nos: Pick<NoArvore, "habilidadeId" | "rankAtual">[],
+  habilidades: { id: string; formaDe?: string | null }[] = [],
 ): Set<string> {
   const travadas = new Set<string>();
   const liberadas = new Set<string>();
@@ -279,6 +283,15 @@ export function habilidadesTravadas(
     else travadas.add(n.habilidadeId);
   }
   for (const id of liberadas) travadas.delete(id);
+  const existentes = new Set(habilidades.map((h) => h.id));
+  const formas = habilidades.filter(
+    (h) =>
+      h.formaDe &&
+      existentes.has(h.formaDe) &&
+      travadas.has(h.formaDe) &&
+      !liberadas.has(h.id),
+  );
+  for (const h of formas) travadas.add(h.id);
   return travadas;
 }
 

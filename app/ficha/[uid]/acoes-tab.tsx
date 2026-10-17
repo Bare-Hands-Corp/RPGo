@@ -17,7 +17,9 @@ import {
 import { BarraFiltros, casaBusca, pastasDe } from "./barra-filtros";
 import { useConfirmarUso } from "./usar-modal";
 import { doModelo, type ModeloView } from "@/lib/pastas";
+import { agruparFormas } from "@/lib/formas";
 import { BotaoGuardar, BotaoPastas } from "./pastas";
+import { BotaoPacotes, EVENTO_IMPORTADO, type Importado } from "./pacotes";
 import { useRefreshAgrupado } from "@/lib/use-refresh-agrupado";
 import {
   ATRIBUTOS,
@@ -83,6 +85,7 @@ import {
   GATILHOS_REACAO,
   MAX_DANOS_EXTRAS,
   ehAcaoDeCombate,
+  inferirAlcance,
   lerDanosExtras,
   lerGatilho,
   maximoDeAcoes,
@@ -93,6 +96,7 @@ import {
   type GatilhoReacao,
   type ResultadoAlvo,
 } from "@/lib/combate";
+import { travaDaCondicaoNaAcao } from "@/lib/condicoes-mecanica";
 import { AcoesDoTurno, EVENTO_CD_TECNICAS } from "./acoes-do-turno";
 import { useEscolherAlvo } from "./escolher-alvo";
 import { useEscolherAlvosCombate } from "./escolher-alvos-combate";
@@ -127,15 +131,6 @@ import {
 // O modelo de Ação só guarda alcance como texto livre, então inferimos CC vs
 // distância por palavra-chave / metragem pra montar o contexto da rolagem.
 // Best-effort: o usuário pode trocar o chip de alcance no Rolador (etapa 3.3).
-function inferirAlcance(alcance: string | null): "corpo_a_corpo" | "distancia" {
-  if (!alcance) return "corpo_a_corpo";
-  const t = alcance.toLowerCase();
-  if (/corpo a corpo|adjacente|toque|melee/.test(t)) return "corpo_a_corpo";
-  if (/dist|arremess|tiro|proj|longo|alcance/.test(t)) return "distancia";
-  const num = t.match(/(\d+(?:[.,]\d+)?)\s*m/);
-  if (num) return parseFloat(num[1].replace(",", ".")) >= 3 ? "distancia" : "corpo_a_corpo";
-  return "corpo_a_corpo";
-}
 
 type Acao = {
   id: string;
@@ -164,6 +159,7 @@ type Acao = {
   grau: number;
   efeitos: unknown;
   aliado: boolean;
+  armaDeFogo?: boolean;
   duracao?: unknown;
   // Usada e ainda valendo, com os turnos que faltam.
   emCurso?: boolean;
@@ -272,6 +268,8 @@ type Resolve = {
   danar: (extras: Pick<EmpilharRolagemDetail, "aoConcluir" | "critico">) => void;
   // Tipo do dano principal.
   tipoDano: string;
+  // Ataque a 1,5 m (condições do alvo: Caído, Paralisado).
+  corpoACorpo: boolean;
 };
 
 type Props = {
@@ -351,6 +349,7 @@ type FormState = {
   grau: number;
   efeitos: EfeitoHabilidade[];
   aliado: boolean;
+  armaDeFogo: boolean;
   duracao: Duracao | null;
   // Ação de origem da forma alternativa ("" = ação separada).
   formaDe: string;
@@ -386,6 +385,7 @@ const FORM_VAZIO: FormState = {
   grau: 0,
   efeitos: [],
   aliado: false,
+  armaDeFogo: false,
   duracao: null,
   formaDe: "",
   origemForma: "",
@@ -416,6 +416,7 @@ const ACAO_BASE: Omit<Acao, "id"> = {
   grau: 0,
   efeitos: [],
   aliado: false,
+  armaDeFogo: false,
   duracao: null,
   pasta: null,
   formaDe: null,
@@ -467,6 +468,11 @@ export function AcoesTab({
   atributoCdTecnicas,
 }: Props) {
   const alvosDoCombate = useEscolherAlvosCombate(alvosCombate);
+  // Condições deste personagem no combate (travam ações: Incapacitado, Sonolento…).
+  const minhasCondicoes = useMemo(
+    () => alvosCombate.find((p) => p.voce)?.condicoes ?? [],
+    [alvosCombate],
+  );
   // Atributo da CD das técnicas, escolhido na ficha lateral.
   const [cdPadrao, setCdPadrao] = useState(atributoCdTecnicas ?? "");
   const [cdPadraoDoServidor, setCdPadraoDoServidor] = useState(atributoCdTecnicas);
@@ -574,7 +580,7 @@ export function AcoesTab({
     if ((gastas[tipo] ?? 0) >= maximoAcoes[tipo]) {
       return `Sem ação ${ACAO_COMBATE[tipo].nome.toLowerCase()} neste turno.`;
     }
-    return null;
+    return travaDaCondicaoNaAcao(minhasCondicoes, tipo, gastas);
   }
   // Penalidade de exaustão (−2 × nível) some no acerto (teste de d20). NÃO entra
   // no dano (não é d20) nem na CD da técnica (quem rola é o alvo). Otimista.
@@ -695,18 +701,7 @@ export function AcoesTab({
 
   // Formas alternativas ficam dentro do card da ação de origem.
   const acoesPorId = new Map(acoesOtimistas.map((a) => [a.id, a]));
-  function origemDe(acao: Acao): Acao | undefined {
-    let origem = acao.formaDe && acao.formaDe !== acao.id ? acoesPorId.get(acao.formaDe) : undefined;
-    for (let i = 0; i < 5 && origem?.formaDe && acoesPorId.has(origem.formaDe); i++) {
-      origem = acoesPorId.get(origem.formaDe);
-    }
-    return origem?.id === acao.id ? undefined : origem;
-  }
-  const formasDe = new Map<string, Acao[]>();
-  for (const a of acoesOtimistas) {
-    const origem = origemDe(a);
-    if (origem) formasDe.set(origem.id, [...(formasDe.get(origem.id) ?? []), a]);
-  }
+  const { origemDe, grupoDe } = agruparFormas(acoesOtimistas);
 
   function abrirNova() {
     setForm(FORM_VAZIO);
@@ -761,6 +756,7 @@ export function AcoesTab({
       grau: acao.grau,
       efeitos: lerEfeitos(acao.efeitos),
       aliado: acao.aliado,
+      armaDeFogo: !!acao.armaDeFogo,
       duracao: lerDuracao(acao.duracao),
       formaDe: origem?.id ?? "",
       origemForma: origem?.id ?? "",
@@ -826,6 +822,7 @@ export function AcoesTab({
       grau: form.tecnica ? form.grau : 0,
       efeitos: form.efeitos,
       aliado: form.aliado,
+      armaDeFogo: form.armaDeFogo,
       duracao: form.duracao,
       // Só vai quando o modal ofereceu a escolha.
       ...(form.origemForma ? { formaDe: form.formaDe || null } : {}),
@@ -898,7 +895,9 @@ export function AcoesTab({
       (resolve.ataque || resolve.salvaguarda || resolve.dano || resolve.condicao)
     ) {
       if (resolve.ataque) {
-        const ataques = await alvosDoCombate.escolherAtaques(`${acao.nome}: em quem?`, resolve.ataques);
+        const ataques = await alvosDoCombate.escolherAtaques(`${acao.nome}: em quem?`, resolve.ataques, {
+          corpoACorpo: resolve.corpoACorpo,
+        });
         if (ataques === null) return;
         alvosCombate = ataques.map((a) => a.alvo);
         modosAtaque = ataques.map((a) => a.modo);
@@ -941,7 +940,7 @@ export function AcoesTab({
 
     // Em aliado: escolher quem já confirma.
     let alvoId: string | undefined;
-    if (acao.aliado && instantaneos.length > 0) {
+    if (acao.aliado && (instantaneos.length > 0 || lerEfeitos(acao.efeitos).some((e) => e.tipo === "condicao_remover"))) {
       if (!alvo.temAliados) {
         mostrarErro(new Error("Nenhum aliado na mesa."));
         return;
@@ -1031,6 +1030,7 @@ export function AcoesTab({
               alvos: alvosCombate,
               modo: resolve?.ataque ? "ataque" : resolve?.salvaguarda ? "salvaguarda" : "direto",
               cd: resolve?.cd ?? null,
+              corpoACorpo: resolve?.corpoACorpo === true,
             },
           }),
         );
@@ -1073,6 +1073,17 @@ export function AcoesTab({
     });
   }
 
+  // Importadas por código: aparecem na hora; quem importou grava.
+  useEffect(() => {
+    function ouvir(e: Event) {
+      for (const a of (e as CustomEvent<Importado>).detail?.acoes ?? []) {
+        aplicarPatch({ kind: "create", acao: { ...ACAO_BASE, ...a.input, id: a.id } as Acao });
+      }
+    }
+    window.addEventListener(EVENTO_IMPORTADO, ouvir);
+    return () => window.removeEventListener(EVENTO_IMPORTADO, ouvir);
+  }, [aplicarPatch]);
+
   // Contador do bônus progressivo: muda na hora e grava os efeitos.
   function mudarEfeitos(acao: Acao, efeitos: EfeitoHabilidade[]) {
     startTransition(async () => {
@@ -1087,11 +1098,11 @@ export function AcoesTab({
   useContagemDoRolador(acoesOtimistas, mudarEfeitos);
 
   // Põe na pasta (etiqueta + cópia guardada) ou tira a etiqueta.
-  function guardarEmPasta(acao: Acao, pasta: string | null) {
+  function guardarEmPasta(acao: Acao, pasta: string | null, exclusiva?: boolean) {
     startTransition(async () => {
       aplicarPatch({ kind: "update", id: acao.id, patch: { pasta } });
       try {
-        if (pasta) exigir(await guardarNaPasta(personagemId, "acao", acao.id, pasta));
+        if (pasta) exigir(await guardarNaPasta(personagemId, "acao", acao.id, pasta, exclusiva));
         else exigir(await atualizarAcao(personagemId, acao.id, { pasta: null }));
       } catch (err) {
         mostrarErro(err);
@@ -1135,9 +1146,7 @@ export function AcoesTab({
     (!pastaAtiva || a.pasta === pastaAtiva) &&
     casaBusca(busca, [a.nome, a.descricao, a.tag, a.pasta, a.dano, a.tipoDano, a.tecnica ? "técnica" : null]);
   // Um card por ação de origem; aparece se ela ou uma forma dela casar.
-  const visiveis = acoesOtimistas.filter(
-    (a) => !origemDe(a) && [a, ...(formasDe.get(a.id) ?? [])].some(casaFiltros),
-  );
+  const visiveis = acoesOtimistas.filter((a) => !origemDe(a) && grupoDe(a).some(casaFiltros));
   const filtrando = filtro !== "todas" || !!pastaAtiva || busca.trim() !== "";
 
   return (
@@ -1148,7 +1157,8 @@ export function AcoesTab({
       <div className="tab-topo">
         <h1>Ações de Combate</h1>
         <div className="tab-topo-botoes">
-          <BotaoPastas tipo="acao" onAdicionar={adicionarDasPastas} />
+          <BotaoPacotes />
+          <BotaoPastas tipo="acao" personagemId={personagemId} onAdicionar={adicionarDasPastas} />
           <button
             type="button"
             className="btn-rect primary"
@@ -1198,7 +1208,7 @@ export function AcoesTab({
             {lista.length > 0 ? (
               <div className="action-grid">
                 {lista.map((origem) => {
-                  const formas = [origem, ...(formasDe.get(origem.id) ?? [])];
+                  const formas = grupoDe(origem);
                   // A forma escolhida; filtrando, a primeira que casa.
                   const acao =
                     formas.find((f) => f.id === formaAtiva[origem.id]) ??
@@ -1487,6 +1497,7 @@ export function AcoesTab({
                     atacar: (extras) => empilharAcerto(golpePadrao, extras),
                     danar: (extras) => empilharDano(iDano, extras),
                     tipoDano: acao.tipoDano || danos[iDano]?.tiposDano[0] || "",
+                    corpoACorpo: (golpePadrao?.atq?.alcance ?? alcanceContexto) === "corpo_a_corpo",
                   };
                   return (
                     <div
@@ -1507,9 +1518,10 @@ export function AcoesTab({
                       </button>
                       <BotaoGuardar
                         origem={{ nome: acao.nome, pasta: acao.pasta ?? null }}
+                        personagemId={personagemId}
                         pastasDaFicha={nomesDasPastas}
                         sugestoes={[...habsDerivadas.map((h) => h.nome), ...(acao.tag ? [acao.tag] : [])]}
-                        onGuardar={(p) => guardarEmPasta(acao, p)}
+                        onGuardar={(p, exclusiva) => guardarEmPasta(acao, p, exclusiva)}
                       />
                       <button
                         type="button"
@@ -2064,6 +2076,15 @@ export function AcoesTab({
                         {a}
                       </button>
                     ))}
+                    {/* Efeito de dano pode deixar a arma de fogo de fora (Letárgico). */}
+                    <button
+                      type="button"
+                      className={`sugestao chip-opcao ${form.armaDeFogo ? "ativo" : ""}`}
+                      aria-pressed={form.armaDeFogo}
+                      onClick={() => setF("armaDeFogo", !form.armaDeFogo)}
+                    >
+                      <i className="fas fa-gun" /> Arma de fogo
+                    </button>
                   </Sugestoes>
                 </div>
               </div>

@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { usuarioDaRequest } from "@/lib/supabase/server";
 import type { TemplatePayload } from "./types";
 import { serializarTemplate } from "./utils";
+import { lerMecanica } from "@/lib/condicoes-mecanica";
 import { mesmoTipo } from "@/lib/dano";
 import { CATALOGO_PADRAO, MAX_TIPOS_CATALOGO } from "@/lib/tipos-dano";
 import { CATEGORIA_TIPO_DANO, renomearTipoDano } from "@/lib/tipos-dano-servidor";
@@ -24,7 +25,11 @@ function normalizarPayload(payload: TemplatePayload) {
     nome: payload.nome.trim(),
     categoria: payload.categoria,
     textoTemplate: payload.textoTemplate,
-    formulaParametros: payload.formula,
+    // A mecânica da condição passa pela mesma leitura da ficha.
+    formulaParametros: {
+      ...payload.formula,
+      mecanica: payload.categoria === "condicao" ? lerMecanica(payload.formula.mecanica) : null,
+    },
     tagsProve: payload.tagsProve,
     tagsConsome: payload.tagsConsome,
     tagsReageA: payload.tagsReageA,

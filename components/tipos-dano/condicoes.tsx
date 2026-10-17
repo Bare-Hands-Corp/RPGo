@@ -5,6 +5,7 @@ import {
   CATALOGO_CONDICOES_PADRAO,
   condicaoNoCatalogo,
   corDaCondicao,
+  RODADAS_MAX,
   textoRodadas,
   type CondicaoCatalogo,
 } from "@/lib/condicoes";
@@ -60,13 +61,16 @@ export function ChipCondicao({
   children?: React.ReactNode;
 }) {
   const cara = useEstiloCondicao()(nome);
-  const dica = [cara.descricao, origem ? `De ${origem}` : "", rodadas ? `Falta ${textoRodadas(rodadas)}` : ""]
+  const falta = rodadas ? (rodadas >= RODADAS_MAX ? "Até tirar" : `Falta ${textoRodadas(rodadas)}`) : "";
+  const dica = [cara.descricao, origem ? `De ${origem}` : "", falta]
     .filter(Boolean)
     .join(" · ");
   return (
     <span className={`condicao-chip ${cara.className}`} style={cara.style} title={dica || undefined}>
       <span className="fx-texto">{nome}</span>
-      {rodadas != null && <span className="condicao-chip-rodadas">{rodadas}</span>}
+      {rodadas != null && (
+        <span className="condicao-chip-rodadas">{rodadas >= RODADAS_MAX ? "∞" : rodadas}</span>
+      )}
       {children}
     </span>
   );

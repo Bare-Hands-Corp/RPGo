@@ -5,6 +5,7 @@ import Swal from "sweetalert2";
 import { patchPersonagem } from "./actions";
 import { exigir } from "@/lib/acoes";
 import { tetoAtributo, type Atributo, type EfeitosAgregados } from "@/lib/op-rpg";
+import { perfilDe, type PerfilFicha } from "@/lib/subficha";
 
 type Atributos = {
   hpMax: number;
@@ -24,6 +25,8 @@ type Props = {
   personagemId: string;
   inicial: Atributos;
   nivel: number;
+  // Perfil da ficha: o veículo só tem vida e velocidade.
+  perfil?: PerfilFicha;
   bonusTetoAtributo: EfeitosAgregados["bonusTetoAtributo"];
   onOtimista?: (patch: Atributos) => void;
 };
@@ -32,9 +35,12 @@ export function EditFichaModal({
   personagemId,
   inicial,
   nivel,
+  perfil: perfilSlug = "personagem",
   bonusTetoAtributo,
   onOtimista,
 }: Props) {
+  const perfil = perfilDe(perfilSlug);
+  const mostra = (bloco: "pp" | "descanso" | "atributos") => !perfil.semBlocos.includes(bloco);
   const [aberto, setAberto] = useState(false);
   const [valores, setValores] = useState<Atributos>(inicial);
   const [pending, startTransition] = useTransition();
@@ -89,7 +95,7 @@ export function EditFichaModal({
             <button type="button" className="modal-close" onClick={() => !pending && setAberto(false)} aria-label="Fechar">
               <i className="fas fa-times" />
             </button>
-            <h2>Editar Atributos</h2>
+            <h2>{mostra("atributos") ? "Editar Atributos" : "Editar Ficha"}</h2>
 
             <form onSubmit={salvar}>
               <div style={{ display: "flex", gap: 10 }}>
@@ -101,6 +107,7 @@ export function EditFichaModal({
                     onChange={(e) => set("hpMax", e.target.value)}
                   />
                 </div>
+                {mostra("pp") && (
                 <div style={{ flex: 1 }}>
                   <label>PP Máximo</label>
                   <input
@@ -109,6 +116,8 @@ export function EditFichaModal({
                     onChange={(e) => set("ppMax", e.target.value)}
                   />
                 </div>
+                )}
+                {mostra("descanso") && (
                 <div style={{ flex: 1 }}>
                   <label>Dado de Vida</label>
                   <select
@@ -121,14 +130,21 @@ export function EditFichaModal({
                     <option value="d12">d12</option>
                   </select>
                 </div>
+                )}
                 <div style={{ flex: 1 }}>
-                  <label>Desloc. (m)</label>
+                  <label>
+                    {perfilSlug === "veiculo"
+                      ? `${perfil.deslocamento.rotulo} (${perfil.deslocamento.unidade})`
+                      : "Desloc. (m)"}
+                  </label>
                   <input
                     type="number"
+                    step="0.5"
                     value={valores.deslocamento}
                     onChange={(e) => set("deslocamento", e.target.value)}
                   />
                 </div>
+                {perfilSlug !== "veiculo" && (
                 <div style={{ flex: 1 }}>
                   <label>Nado (m)</label>
                   <input
@@ -138,8 +154,11 @@ export function EditFichaModal({
                     onChange={(e) => set("nado", e.target.value)}
                   />
                 </div>
+                )}
               </div>
 
+              {mostra("atributos") && (
+                <>
               <label style={{ marginTop: 15, borderBottom: "1px solid var(--border)", paddingBottom: 5 }}>
                 Atributos
               </label>
@@ -185,6 +204,8 @@ export function EditFichaModal({
                   );
                 })}
               </div>
+                </>
+              )}
 
               <div className="modal-actions">
                 <button

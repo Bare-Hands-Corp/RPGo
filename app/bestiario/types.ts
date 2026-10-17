@@ -2,6 +2,7 @@ import type { EfeitoCor } from "@/lib/estilos-cor";
 import type { EfeitoHabilidade } from "@/lib/op-rpg";
 import type { DanoPorTurno } from "@/lib/condicoes";
 import type { GatilhoReacao } from "@/lib/combate";
+import type { MecanicaCondicao } from "@/lib/condicoes-mecanica";
 
 // Categorias possíveis de um TraitInstance — mesmos blocos do statblock do
 // manual, mais "condicao": não é algo que uma criatura "tem" como as outras,
@@ -323,6 +324,8 @@ export type TemplateFormula = {
   grau: number;
   custoLendario: number;
   gatilho: GatilhoReacao;
+  // Só da condição: o que ela faz no jogo; null = a do livro pelo nome.
+  mecanica: MecanicaCondicao | null;
 };
 
 export type TemplatePayload = {

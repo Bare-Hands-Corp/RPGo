@@ -23,6 +23,7 @@ import { VisaoGeral } from "./visao-geral";
 import { EditarMesaModal } from "./editar-mesa-modal";
 import { CatalogoCondicoesProvider } from "@/components/tipos-dano/condicoes";
 import type { CondicaoCatalogo } from "@/lib/condicoes";
+import { NaviosDoNarrador, type NavioDoNarrador } from "./navios-do-narrador";
 
 type Mesa = {
   id: string;
@@ -32,6 +33,9 @@ type Mesa = {
   // Catálogo de tipos de dano do narrador (Biblioteca do bestiário).
   tiposDano: string[];
   personagens: ResumoPersonagem[];
+  // Quem pode entrar no combate: jogadores e subfichas (`de` = de quem é).
+  fichasDoCombate: (ResumoPersonagem & { de: string | null })[];
+  navios: NavioDoNarrador[];
 };
 
 type Props = {
@@ -179,15 +183,16 @@ export function NarradorShell({
             />
           ) : aba === "sessao" ? (
             <section className="narrador-sessao-embed">
+              <NaviosDoNarrador mesaId={mesa.id} navios={mesa.navios} />
               <CatalogoCondicoesProvider condicoes={condicoes}>
               <SessaoPainel
                 mesaId={mesa.id}
                 tiposDano={mesa.tiposDano}
                 sessaoInicial={sessaoInicial}
                 criaturas={criaturas}
-                personagensMesa={mesa.personagens.map((p) => ({
+                personagensMesa={mesa.fichasDoCombate.map((p) => ({
                   id: p.id,
-                  nome: p.nome,
+                  nome: p.de ? `${p.nome} (${p.de})` : p.nome,
                   hpAtual: p.hpAtual,
                   hpMax: p.hpMax,
                   destreza: p.destreza,

@@ -13,6 +13,7 @@ import {
   ALVOS_VALOR_FIXO,
   ALVOS_VALOR_IGUAL,
   ATRIBUTOS,
+  DEFESAS_IGNORADAS,
   EVENTO_PASSOS,
   GRUPOS_PRESET,
   META_EFEITOS,
@@ -21,11 +22,14 @@ import {
   alvoDeRolagem,
   comoDura,
   comPassosProgressivos,
+  defesasIgnoradas,
+  dependeDosUsos,
   extraNoDano,
   formatarMod,
   formulaResolvidaTexto,
   lerEfeitos,
   nomeDoEfeito,
+  podeSerSempreAtivo,
   alvoDaCura,
   progressivoNaFicha,
   resolverFormula,
@@ -85,6 +89,7 @@ export function EfeitosEditor({
   recursos,
   pergunta,
   presets,
+  sempreAtivo,
 }: {
   efeitos: EfeitoHabilidade[];
   onChange: (efeitos: EfeitoHabilidade[]) => void;
@@ -93,6 +98,11 @@ export function EfeitosEditor({
   pergunta: string;
   /** Presets oferecidos (id); ausente = todos. */
   presets?: string[];
+  /**
+   * Oferece "Sempre ativo": em todo efeito que fica valendo (habilidade de Usar
+   * ou de ligar) ou só nos que gastam uso (passiva com usos limitados).
+   */
+  sempreAtivo?: "todos" | "gastam";
 }) {
   const [pickerAberto, setPickerAberto] = useState(false);
   // O "a cada turno" é editado junto da duração: não entra na lista.
@@ -159,6 +169,7 @@ export function EfeitosEditor({
           key={i}
           efeito={efeitos[i]}
           recursos={recursos}
+          sempreAtivo={sempreAtivo}
           aberto={aberto === i}
           onAlternar={() => setAberto(aberto === i ? null : i)}
           onPatch={(p) => patch(i, p)}
@@ -194,12 +205,20 @@ export function ChipEfeito({
   efeito,
   grau,
   dura,
+  comUsos = false,
 }: {
   efeito: EfeitoHabilidade;
   grau?: number;
   dura?: DuraEfeito;
+  // A fonte é passiva com usos limitados: marca o efeito que gasta 1 uso.
+  comUsos?: boolean;
 }) {
   const meta = META_EFEITOS[efeito.tipo];
+  const periciasCustom = useContext(AlvosCustomContext);
+  const gastaUso =
+    comUsos &&
+    !efeito.sempreAtivo &&
+    dependeDosUsos(efeito, new Set(periciasCustom.map((a) => a.slug)));
   const nomesRecurso = useContext(NomesRecursoContext);
   const formula = useContext(FormulaContext);
   const naAcao = useContext(EfeitoDeAcaoContext) ? resumoNaAcao(efeito) : null;
@@ -219,6 +238,8 @@ export function ChipEfeito({
       <i className={`fas ${meta.icone}`} />
       <span className="efeito-chip-label">{nomeDoEfeito(efeito)}</span>
       <span className="efeito-chip-resumo">{resumo}</span>
+      {efeito.sempreAtivo && <i className="fas fa-infinity" title="Sempre ativo" />}
+      {gastaUso && <i className="fas fa-bolt-lightning" title="Gasta 1 uso" />}
       {dura && (
         <span className="efeito-chip-dura">
           <i className={`fas ${dura === "mantem" ? "fa-hourglass-half" : "fa-clock-rotate-left"}`} />{" "}
@@ -427,9 +448,11 @@ const ALVOS_MULTIPLICADOR_SLUGS = new Set([
   "hp-max",
   "pp-max",
 ]);
-const ALVOS_MULTIPLICADOR = ALVOS_AGREGAVEIS.filter((a) =>
-  ALVOS_MULTIPLICADOR_SLUGS.has(a.slug),
-);
+// Dano: todo, corpo a corpo ou à distância (o de técnica e comum fica de fora).
+const ALVOS_MULTIPLICADOR = [
+  ...ALVOS_AGREGAVEIS.filter((a) => ALVOS_MULTIPLICADOR_SLUGS.has(a.slug)),
+  ...ALVOS_DANO.filter((a) => a.slug === "dano" || a.slug === "dano-cc" || a.slug === "dano-distancia"),
+];
 
 // Alvos da proficiência: perícia e salvaguarda.
 const ALVOS_PROFICIENCIA = ALVOS_AGREGAVEIS.filter(
@@ -462,6 +485,7 @@ function SelectAlvo({
 function EditorEfeito({
   efeito,
   recursos,
+  sempreAtivo,
   aberto,
   onAlternar,
   onPatch,
@@ -472,6 +496,7 @@ function EditorEfeito({
 }: {
   efeito: EfeitoHabilidade;
   recursos: RecursoMinimo[];
+  sempreAtivo?: "todos" | "gastam";
   aberto: boolean;
   onAlternar: () => void;
   onPatch: (patch: Partial<EfeitoHabilidade>) => void;
@@ -486,8 +511,13 @@ function EditorEfeito({
   const nomesRecurso = useContext(NomesRecursoContext);
   const formula = useContext(FormulaContext);
   const daAcao = useContext(EfeitoDeAcaoContext);
+  // Na passiva com usos, este efeito só vale gastando 1 uso (chip desligado no Rolador).
+  const gastaUso =
+    sempreAtivo === "gastam" &&
+    !efeito.sempreAtivo &&
+    dependeDosUsos(efeito, new Set(periciasCustom.map((a) => a.slug)));
   // Efeito sem parâmetro não tem corpo.
-  const corpo = renderCorpo(efeito, recursos, onPatch, periciasCustom, daAcao);
+  const corpo = renderCorpo(efeito, recursos, onPatch, periciasCustom, daAcao, gastaUso);
   // Em ação com duração: repete a cada turno ou fica valendo.
   const como = useContext(EfeitosDuramContext) ? comoDura(efeito) : null;
   const dura = como ? duraQueCabe(como, efeito.dura) : undefined;
@@ -499,6 +529,9 @@ function EditorEfeito({
       (dura ? ` · ${TEXTO_DURA[dura]}` : "")
     : "falta preencher";
   const nome = nomeDoEfeito(efeito);
+  // Quem já está marcado segue mostrando, pra dar pra desmarcar.
+  const ofereceSempre =
+    !!efeito.sempreAtivo || gastaUso || (sempreAtivo === "todos" && podeSerSempreAtivo(efeito));
   return (
     <div className={`efeito-editor${aberto ? " aberto" : ""}`}>
       <div className="efeito-editor-topo">
@@ -513,6 +546,8 @@ function EditorEfeito({
           {resumo && (
             <span className={`efeito-editor-resumo${completo ? "" : " falta"}`}>{resumo}</span>
           )}
+          {efeito.sempreAtivo && <i className="fas fa-infinity efeito-sempre" title="Sempre ativo" />}
+          {gastaUso && <i className="fas fa-bolt-lightning efeito-sempre" title="Gasta 1 uso" />}
           <i className="fas fa-chevron-down efeito-editor-seta" />
         </button>
         <span className="efeito-editor-acoes">
@@ -536,10 +571,19 @@ function EditorEfeito({
           </button>
         </span>
       </div>
-      {aberto && (corpo || como) && (
+      {aberto && (corpo || ofereceSempre || como) && (
         <div className="efeito-editor-corpo">
           {corpo}
           {como && <CampoDura como={como} valor={dura} onPatch={onPatch} />}
+          {ofereceSempre && (
+            <div style={{ gridColumn: "1 / -1" }}>
+              <Alternar
+                rotulo="Sempre ativo"
+                ligado={!!efeito.sempreAtivo}
+                onChange={(v) => onPatch({ sempreAtivo: v || undefined })}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -685,6 +729,55 @@ function FiltroDanoCampos({
   );
 }
 
+// Defesas que o ataque ignora: as do livro em chips e outras por escrito.
+function DefesasIgnoradasCampo({
+  valor,
+  onChange,
+}: {
+  valor: string;
+  onChange: (defesas: string) => void;
+}) {
+  const todas = defesasIgnoradas(valor);
+  const marcadas = DEFESAS_IGNORADAS.filter((d) => todas.includes(d));
+  const [outras, setOutras] = useState(() =>
+    todas.filter((d) => !DEFESAS_IGNORADAS.includes(d)).join(", "),
+  );
+  const montar = (lista: string[], extras: string) =>
+    onChange([...lista, extras.trim()].filter(Boolean).join(", "));
+  return (
+    <div className="chips-campo" style={{ gridColumn: "1 / -1" }}>
+      <label>Defesa</label>
+      <Sugestoes limite={DEFESAS_IGNORADAS.length}>
+        {DEFESAS_IGNORADAS.map((d) => {
+          const ativo = marcadas.includes(d);
+          return (
+            <button
+              type="button"
+              key={d}
+              className={`sugestao chip-opcao${ativo ? " ativo" : ""}`}
+              aria-pressed={ativo}
+              onClick={() => montar(ativo ? marcadas.filter((x) => x !== d) : [...marcadas, d], outras)}
+            >
+              {d}
+            </button>
+          );
+        })}
+      </Sugestoes>
+      <input
+        type="text"
+        value={outras}
+        maxLength={80}
+        aria-label="Outra defesa"
+        placeholder="Outra"
+        onChange={(ev) => {
+          setOutras(ev.target.value);
+          montar(marcadas, ev.target.value);
+        }}
+      />
+    </div>
+  );
+}
+
 // Até quando dura o PV temporário que o efeito dá.
 function CampoDuracaoPv({
   valor,
@@ -712,6 +805,8 @@ function renderCorpo(
   onPatch: (p: Partial<EfeitoHabilidade>) => void,
   periciasCustom: AlvoEntry[],
   daAcao: boolean,
+  // Gasta 1 uso a cada rolagem: nasce desligado, então "Sempre soma" não se aplica.
+  gastaUso = false,
 ): React.ReactNode {
   const slugsCustom = new Set(periciasCustom.map((a) => a.slug));
   switch (e.tipo) {
@@ -940,7 +1035,7 @@ function renderCorpo(
           <CampoNum
             label="Quanto (m)"
             valor={e.valor}
-            min={-99}
+            step={0.5}
             onChange={(v) => onPatch({ valor: v } as Partial<EfeitoHabilidade>)}
           />
         </>
@@ -998,6 +1093,23 @@ function renderCorpo(
             onChange={(v) => onPatch({ fator: v } as Partial<EfeitoHabilidade>)}
             step={0.1}
           />
+          {e.alvo.startsWith("dano") && (
+            <div style={{ gridColumn: "1 / -1" }}>
+              <label>Arma de fogo</label>
+              <Segmentos
+                rotulo="Arma de fogo"
+                valor={e.armaDeFogo ?? "todas"}
+                opcoes={[
+                  { valor: "todas", rotulo: "Vale" },
+                  { valor: "exceto", rotulo: "Fica de fora" },
+                  { valor: "so", rotulo: "Só nela" },
+                ]}
+                onChange={(v) =>
+                  onPatch({ armaDeFogo: v === "todas" ? undefined : v } as Partial<EfeitoHabilidade>)
+                }
+              />
+            </div>
+          )}
         </>
       );
     case "substituir_atributo":
@@ -1308,24 +1420,29 @@ function renderCorpo(
     }
     case "ignora":
       return (
-        <div style={{ gridColumn: "1 / -1" }}>
-          <label>O que ignora</label>
-          <input
-            type="text"
-            value={e.alvo}
-            onChange={(ev) =>
-              onPatch({ alvo: ev.target.value } as Partial<EfeitoHabilidade>)
-            }
-            placeholder="resistência, imunidade, reação, cobertura…"
-            list="ignora-comuns"
+        <>
+          <DefesasIgnoradasCampo
+            valor={e.alvo}
+            onChange={(v) => onPatch({ alvo: v } as Partial<EfeitoHabilidade>)}
           />
-          <datalist id="ignora-comuns">
-            <option value="resistência" />
-            <option value="imunidade" />
-            <option value="reação" />
-            <option value="cobertura" />
-          </datalist>
-        </div>
+          {!daAcao && (
+            <SelectLista
+              label="Onde"
+              valor={e.em ?? "ataque"}
+              opcoes={ALVOS_ATAQUE}
+              onChange={(v) => onPatch({ em: v === "ataque" ? undefined : v } as Partial<EfeitoHabilidade>)}
+            />
+          )}
+          <FiltroDanoCampos graus={e.graus} tipos={e.tipos} onPatch={onPatch} aberto={!!e.quando}>
+            <Campo
+              label="Quando"
+              valor={e.quando ?? ""}
+              onChange={(v) => onPatch({ quando: v || undefined } as Partial<EfeitoHabilidade>)}
+              placeholder="contra usuário de Akuma no Mi…"
+              title="Preenchido, fica desligado no Rolador até você ligar"
+            />
+          </FiltroDanoCampos>
+        </>
       );
     case "trocar_dano":
       return (
@@ -1493,7 +1610,7 @@ function renderCorpo(
               } as Partial<EfeitoHabilidade>)
             }
           />
-          {e.em !== "cura" && <CheckSempre sempre={!!e.sempre} onPatch={onPatch} />}
+          {e.em !== "cura" && !gastaUso && <CheckSempre sempre={!!e.sempre} onPatch={onPatch} />}
           {extraNoDano(e.em) && (
             <FiltroDanoCampos graus={e.graus} tipos={e.tipos} onPatch={onPatch} />
           )}
@@ -1515,7 +1632,7 @@ function renderCorpo(
             opcoes={ALVOS_DANO}
             onChange={(v) => onPatch({ em: v === "dano" ? undefined : v } as Partial<EfeitoHabilidade>)}
           />
-          <CheckSempre sempre={!!e.sempre} onPatch={onPatch} />
+          {!gastaUso && <CheckSempre sempre={!!e.sempre} onPatch={onPatch} />}
           <FiltroDanoCampos graus={e.graus} tipos={e.tipos} onPatch={onPatch} />
         </>
       );
@@ -1579,7 +1696,7 @@ function renderCorpo(
               onPatch({ apartir: Number(v) || undefined } as Partial<EfeitoHabilidade>)
             }
           />
-          <CheckSempre sempre={!!e.sempre} onPatch={onPatch} rotulo="Sempre vale" />
+          {!gastaUso && <CheckSempre sempre={!!e.sempre} onPatch={onPatch} rotulo="Sempre vale" />}
           <FiltroDanoCampos graus={e.graus} tipos={e.tipos} onPatch={onPatch} />
         </>
       );
@@ -1934,7 +2051,8 @@ function Campo({
 
 // Número ou fórmula ("PROF/2+1", "3*NIVEL"): número puro vira `valor`.
 function patchDeFormula(texto: string): Partial<EfeitoHabilidade> {
-  const t = texto.trim();
+  // "1,5" é número, não fórmula.
+  const t = texto.trim().replace(/^(-?\d+),(\d+)$/, "$1.$2");
   if (t === "" || Number.isFinite(Number(t))) {
     return { valor: Number(t) || 0, formula: undefined } as Partial<EfeitoHabilidade>;
   }

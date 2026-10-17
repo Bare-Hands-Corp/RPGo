@@ -11,7 +11,7 @@ import {
   textoTecnica,
 } from "@/app/bestiario/utils";
 import { parseFormulaDados, rolarDados } from "@/lib/dice";
-import { defesasDaCriatura, resolverDano, type ParteDano } from "@/lib/dano";
+import { defesasDaCriatura, pvComSinal, resolverDano, type ParteDano } from "@/lib/dano";
 import { tipoDominante } from "@/lib/estatisticas-combate";
 import { marcarVez, registrarDano } from "@/lib/estatisticas-servidor";
 import { CATEGORIAS_COMPONENTE } from "@/app/bestiario/types";
@@ -27,12 +27,22 @@ import {
   type ParticipanteVisto,
   type Resolucao,
 } from "@/lib/combate";
-import { modificador, type Atributo } from "@/lib/op-rpg";
+import { PERICIAS, modificador, type Atributo, type EfeitoHabilidade } from "@/lib/op-rpg";
 import { resumirPersonagem } from "@/lib/resumo-personagem";
-import { SELECT_ACAO_QUE_DURA, carregarRecebidas, fonteRecebida } from "@/lib/efeitos-servidor";
+import {
+  SELECT_ACAO_QUE_DURA,
+  carregarAgregado,
+  carregarRecebidas,
+  fonteRecebida,
+  soltarConcentracao,
+  soltarOQueDuravaComPvTemp,
+} from "@/lib/efeitos-servidor";
+import { mecanicaDa, travasDasCondicoes } from "@/lib/condicoes-mecanica";
+import { lerEstadoNavio, lerNavio, velocidadeComDano } from "@/lib/navio";
 import {
   MAX_CONDICOES,
   condicaoDoCatalogo,
+  condicaoNoCatalogo,
   lerCatalogoCondicoes,
   lerCondicoesAtivas,
   mesmaCondicao,
@@ -66,7 +76,7 @@ export async function carregarCombateDoJogador(
     prisma.criatura.findMany({ where: { id: { in: ids("criaturaId") } }, include: { componentes: true } }),
     prisma.personagem.findMany({
       where: { id: { in: ids("personagemId") } },
-      select: { id: true, fotoUrl: true, hpAtual: true, hpMax: true },
+      select: { id: true, fotoUrl: true, hpAtual: true, pvNegativos: true, hpMax: true, navio: true, deslocamento: true },
     }),
   ]);
   const criaturaDe = new Map(criaturas.map((c) => [c.id, serializarCriatura(c)]));
@@ -75,6 +85,12 @@ export async function carregarCombateDoJogador(
   const naOrdem = ordenarParticipantes(combate.participantes);
   const minha = naOrdem.find((p) => p.personagemId === personagemId);
   const resolucoes = lerResolucoes(combate.resolucoes);
+  // Navios que este personagem comanda: a salvaguarda de estrutura é dele.
+  const comandados = naOrdem.filter(
+    (p) => p.personagemId && lerNavio(personagemDe.get(p.personagemId)?.navio)?.comandanteId === personagemId,
+  );
+  const meuNavio = minha?.personagemId ? personagemDe.get(minha.personagemId) : undefined;
+  const montagem = lerNavio(meuNavio?.navio)?.montagem;
   const participantes = naOrdem.map((p): ParticipanteVisto => {
     const base = {
       id: p.id,
@@ -85,6 +101,7 @@ export async function carregarCombateDoJogador(
         nome: c.nome,
         rodadas: c.rodadas,
         sair: p.personagemId === personagemId ? c.salvaguarda : null,
+        ...(c.mecanica ? { mecanica: c.mecanica } : {}),
       })),
     };
     if (p.personagemId) {
@@ -94,7 +111,7 @@ export async function carregarCombateDoJogador(
         foto: pj?.fotoUrl || `https://api.dicebear.com/7.x/adventurer/svg?seed=${p.personagemId}`,
         tipo: "personagem",
         voce: p.personagemId === personagemId,
-        pv: pj ? { atual: pj.hpAtual, max: pj.hpMax } : null,
+        pv: pj ? { atual: pvComSinal(pj.hpAtual, pj.pvNegativos), max: pj.hpMax } : null,
         pp: null,
         cr: null,
         acoes: null,
@@ -167,7 +184,32 @@ export async function carregarCombateDoJogador(
                     },
                   ]
                 : [],
+            ).concat(
+              resolucoes.flatMap((r) =>
+                comandados.flatMap((navio) =>
+                  r.salvaguarda && r.alvos.some((a) => a.instanciaId === navio.id && a.resultado === null)
+                    ? [
+                        {
+                          resolucaoId: r.id,
+                          de: r.atacanteNome,
+                          nome: r.nome,
+                          // Salvaguarda de estrutura: VON do comandante.
+                          atributo: "vontade",
+                          cd: r.salvaguarda.cd,
+                          pelo: { instanciaId: navio.id, nome: navio.nomeExibicao },
+                        },
+                      ]
+                    : [],
+                ),
+              ),
             ),
+            navio:
+              meuNavio && montagem
+                ? (() => {
+                    const maxima = velocidadeComDano(meuNavio.deslocamento, meuNavio.hpAtual, meuNavio.hpMax);
+                    return { ...lerEstadoNavio(minha!.estadoNavio, maxima), maxima, tamanho: montagem.tamanho };
+                  })()
+                : null,
             reacoes: resolucoes.flatMap((r) => {
               const alvo = r.alvos.find((a) => a.instanciaId === minha.id && a.reacao === "pendente");
               return alvo
@@ -271,10 +313,11 @@ export async function avancarTurnoDoCombate(combateId: string): Promise<{ period
   // PV temporário que dura "até o início do próximo turno" de quem recebe a
   // vez acaba aqui, antes do dano de início de turno.
   if (proximo?.personagemId) {
-    await prisma.personagem.updateMany({
-      where: { id: proximo.personagemId, hpTempDuracao: "turno" },
+    const { count } = await prisma.personagem.updateMany({
+      where: { id: proximo.personagemId, hpTempDuracao: "turno", hpTemp: { gt: 0 } },
       data: { hpTemp: 0, hpTempDuracao: null },
     });
+    if (count > 0) await soltarOQueDuravaComPvTemp([proximo.personagemId]);
   } else if (proximo && proximo.pvTempDuracao === "turno") {
     proximo.pvTemp = 0;
     await prisma.instanciaCombate.update({ where: { id: proximo.id }, data: { pvTemp: 0, pvTempDuracao: null } });
@@ -450,24 +493,61 @@ export async function catalogoCondicoesDoNarrador(userId: string | null | undefi
   );
 }
 
+// Condições a que o participante é imune: as da ficha (efeito Imune a
+// Condição) ou as do bestiário.
+async function imunidadesDe(i: { personagemId: string | null; criaturaId: string | null }): Promise<string[]> {
+  if (i.personagemId) return Object.keys((await carregarAgregado(i.personagemId)).agg.condicoesImunes ?? {});
+  if (!i.criaturaId) return [];
+  const c = await prisma.criatura.findUnique({ where: { id: i.criaturaId }, select: { resistencias: true } });
+  return comoResistencias(c?.resistencias).condicaoImunidade;
+}
+
 // Põe condições em participantes do combate. Quem já tem a mesma condição
-// fica com a nova (a duração recomeça). `fonteId` é de quem a vez marca as
-// rodadas. Devolve o nome de quem recebeu.
+// fica com a nova (a duração recomeça); quem é imune não recebe. `fonteId` é
+// de quem a vez marca as rodadas. Devolve quem recebeu e quem foi imune
+// ("Zoro (Envenenado)"). Condição que tira a concentração já tira.
 export async function aplicarCondicoes(entrada: {
   combateId: string;
   instanciaIds: string[];
   condicoes: CondicaoAplicada[];
   fonteId: string | null;
   origem: string;
-}): Promise<string[]> {
-  if (entrada.condicoes.length === 0 || entrada.instanciaIds.length === 0) return [];
-  const instancias = await prisma.instanciaCombate.findMany({
-    where: { combateId: entrada.combateId, id: { in: [...new Set(entrada.instanciaIds)] } },
-    select: { id: true, nomeExibicao: true, condicoesAtivas: true },
-  });
+}): Promise<{ receberam: string[]; imunes: string[] }> {
+  if (entrada.condicoes.length === 0 || entrada.instanciaIds.length === 0) return { receberam: [], imunes: [] };
+  const [instancias, combate] = await Promise.all([
+    prisma.instanciaCombate.findMany({
+      where: { combateId: entrada.combateId, id: { in: [...new Set(entrada.instanciaIds)] } },
+      select: { id: true, nomeExibicao: true, condicoesAtivas: true, personagemId: true, criaturaId: true },
+    }),
+    prisma.combate.findUnique({
+      where: { id: entrada.combateId },
+      select: { sessao: { select: { mesa: { select: { userId: true } } } } },
+    }),
+  ]);
+  // O que cada condição faz vem do catálogo do narrador (a do livro fica pelo nome).
+  const catalogo = await catalogoCondicoesDoNarrador(combate?.sessao.mesa.userId);
+  const condicoes = entrada.condicoes.map((c) => comMecanicaDoCatalogo(c, catalogo));
+  const imunes: string[] = [];
+  const receberam: string[] = [];
+  const perdemConcentracao: string[] = [];
+  const cabem = new Map<string, CondicaoAplicada[]>();
+  for (const i of instancias) {
+    const imuneA = await imunidadesDe(i);
+    const lista = condicoes.filter((c) => !imuneA.some((x) => mesmaCondicao(x, c.nome)));
+    const barradas = condicoes.filter((c) => !lista.includes(c));
+    if (barradas.length > 0) imunes.push(`${i.nomeExibicao} (${barradas.map((c) => c.nome).join(", ")})`);
+    if (lista.length === 0) continue;
+    cabem.set(i.id, lista);
+    receberam.push(i.nomeExibicao);
+    if (i.personagemId && travasDasCondicoes(lista).semConcentracao) {
+      perdemConcentracao.push(i.personagemId);
+    }
+  }
   await prisma.$transaction(
-    instancias.map((i) => {
-      const novas: CondicaoAtiva[] = entrada.condicoes.map((c) => ({
+    instancias.flatMap((i) => {
+      const lista = cabem.get(i.id);
+      if (!lista) return [];
+      const novas: CondicaoAtiva[] = lista.map((c) => ({
         id: crypto.randomUUID(),
         nome: c.nome,
         rodadas: c.rodadas,
@@ -475,17 +555,62 @@ export async function aplicarCondicoes(entrada: {
         origem: entrada.origem,
         salvaguarda: c.salvaguarda,
         porTurno: c.porTurno ?? null,
+        ...(c.mecanica ? { mecanica: c.mecanica } : {}),
       }));
       const mantidas = lerCondicoesAtivas(i.condicoesAtivas).filter(
         (c) => !novas.some((n) => mesmaCondicao(n.nome, c.nome)),
       );
-      return prisma.instanciaCombate.update({
-        where: { id: i.id },
-        data: { condicoesAtivas: [...mantidas, ...novas].slice(-MAX_CONDICOES) as unknown as Prisma.InputJsonValue },
-      });
+      return [
+        prisma.instanciaCombate.update({
+          where: { id: i.id },
+          data: { condicoesAtivas: [...mantidas, ...novas].slice(-MAX_CONDICOES) as unknown as Prisma.InputJsonValue },
+        }),
+      ];
     }),
   );
-  return instancias.map((i) => i.nomeExibicao);
+  for (const id of perdemConcentracao) await soltarConcentracao(id);
+  return { receberam, imunes };
+}
+
+// A mecânica configurada no catálogo (se a condição não trouxer uma) e o dano
+// de início ou fim de turno dela como dano por turno.
+function comMecanicaDoCatalogo(c: CondicaoAplicada, catalogo: CondicaoCatalogo[]): CondicaoAplicada {
+  const mecanica = c.mecanica ?? condicaoNoCatalogo(catalogo, c.nome)?.mecanica ?? undefined;
+  const m = mecanicaDa({ nome: c.nome, mecanica });
+  const porTurno =
+    c.porTurno ??
+    (m?.dano && (m.dano.quando === "inicio" || m.dano.quando === "fim")
+      ? { formula: m.dano.formula, tipo: m.dano.tipo, quando: m.dano.quando }
+      : null);
+  return { ...c, porTurno, ...(mecanica ? { mecanica } : {}) };
+}
+
+// Efeito "Remove Condição" usado em combate: tira a condição de quem recebe
+// (o próprio ou o aliado) e avisa no chat.
+export async function removerCondicoesPorEfeito(personagemId: string, efeitos: EfeitoHabilidade[], origem: string) {
+  const nomes = efeitos.flatMap((e) => (e.tipo === "condicao_remover" && e.condicao.trim() ? [e.condicao.trim()] : []));
+  if (nomes.length === 0) return;
+  const instancia = await prisma.instanciaCombate.findFirst({
+    where: { personagemId, combate: { encerradoEm: null, sessao: { encerradaEm: null } } },
+    select: { id: true, nomeExibicao: true, condicoesAtivas: true, combate: { select: { sessao: { select: { mesaId: true } } } } },
+  });
+  if (!instancia) return;
+  const atuais = lerCondicoesAtivas(instancia.condicoesAtivas);
+  const saem = atuais.filter((c) => nomes.some((n) => mesmaCondicao(n, c.nome)));
+  if (saem.length === 0) return;
+  await prisma.instanciaCombate.update({
+    where: { id: instancia.id },
+    data: { condicoesAtivas: atuais.filter((c) => !saem.includes(c)) as unknown as Prisma.InputJsonValue },
+  });
+  await prisma.mensagem.create({
+    data: {
+      sessionId: instancia.combate.sessao.mesaId,
+      uid: "combate",
+      nome: instancia.nomeExibicao,
+      mensagem: `não está mais com ${[...new Set(saem.map((c) => c.nome))].join(", ")} (${origem}).`,
+      tipo: "texto",
+    },
+  });
 }
 
 // Tira uma condição de um participante; devolve a que saiu (ou null).
@@ -590,6 +715,26 @@ const INICIO_DO_ATRIBUTO: Record<string, string> = {
   presenca: "pre",
   vontade: "von",
 };
+
+// Bônus de perícia da criatura: o cadastrado no bestiário (pelo nome) ou o
+// modificador do atributo da perícia.
+export function bonusDePericiaDaCriatura(
+  criatura: { caracteristicas: unknown } & Record<Atributo, number>,
+  pericia: string,
+): number {
+  const p = PERICIAS.find((x) => x.slug === pericia);
+  if (!p) return 0;
+  const semAcento = (t: string) =>
+    t
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase();
+  const lista = (criatura.caracteristicas as { pericias?: { nome?: unknown; bonus?: unknown }[] } | null)?.pericias;
+  const cadastrada = Array.isArray(lista) ? lista.find((x) => semAcento(String(x?.nome ?? "")) === semAcento(p.nome)) : undefined;
+  if (cadastrada) return Number(cadastrada.bonus) || 0;
+  return modificador(criatura[p.atributo as Atributo]);
+}
 
 // Bônus de salvaguarda da criatura: o cadastrado no bestiário pra aquele
 // atributo ou, sem ele, o modificador do atributo.

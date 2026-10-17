@@ -113,11 +113,13 @@ export function ListaTextoInput({ value, onChange, placeholder, list }: ListaTex
 type EditavelComDeltaProps = {
   value: number;
   max?: number;
+  // Piso; sem ele, 0.
+  min?: number;
   onChange: (value: number) => void;
   className?: string;
 };
 
-export function EditavelComDelta({ value, max, onChange, className }: EditavelComDeltaProps) {
+export function EditavelComDelta({ value, max, min = 0, onChange, className }: EditavelComDeltaProps) {
   const [editando, setEditando] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -140,7 +142,7 @@ export function EditavelComDelta({ value, max, onChange, className }: EditavelCo
     }
 
     if (max != null && novo > max) novo = max;
-    if (novo < 0) novo = 0;
+    if (novo < min) novo = min;
     return novo;
   }
 

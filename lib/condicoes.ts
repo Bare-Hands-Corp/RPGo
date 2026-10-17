@@ -47,6 +47,8 @@ export type CondicaoCatalogo = {
   cor: string;
   cor2: string | null;
   efeito: EfeitoCor;
+  // Mecânica configurada na Biblioteca, crua (lib/condicoes-mecanica.ts); null = a do livro.
+  mecanica: unknown;
 };
 
 export const CATALOGO_CONDICOES_PADRAO: CondicaoCatalogo[] = CONDICOES_DO_LIVRO.map((nome) => ({
@@ -55,6 +57,7 @@ export const CATALOGO_CONDICOES_PADRAO: CondicaoCatalogo[] = CONDICOES_DO_LIVRO.
   cor: corDaCondicao(nome),
   cor2: null,
   efeito: EFEITO_COR_PADRAO,
+  mecanica: null,
 }));
 
 const semAcento = (t: string) =>
@@ -76,6 +79,7 @@ export function condicaoDoCatalogo(nome: string, descricao: string, estilo: Reco
     cor: corValida(estilo.cor) ?? corDaCondicao(nome.trim()),
     cor2: corValida(estilo.cor2),
     efeito: normalizarEfeitoCor(estilo.efeito),
+    mecanica: estilo.mecanica && typeof estilo.mecanica === "object" ? estilo.mecanica : null,
   };
 }
 
@@ -129,6 +133,11 @@ export type CondicaoAtiva = {
   // Dano que o afetado leva a cada turno dele enquanto durar (sangramento,
   // veneno): rolado e descontado sozinho quando a vez dele começa ou acaba.
   porTurno?: DanoPorTurno | null;
+  // O que ela faz (lib/condicoes-mecanica.ts), copiado do catálogo quando foi
+  // aplicada; cru, lido por `mecanicaDa`. Ausente = a do livro pelo nome.
+  mecanica?: unknown;
+  // Turno ("rodada:turno") em que o dano de gatilho já caiu.
+  disparou?: string;
 };
 
 export type DanoPorTurno = { formula: string; tipo: string; quando: "inicio" | "fim" };
@@ -147,7 +156,7 @@ export function textoDanoPorTurno(d: DanoPorTurno): string {
 }
 
 // O que uma ação aplica em quem ela pega.
-export type CondicaoAplicada = Pick<CondicaoAtiva, "nome" | "rodadas" | "salvaguarda" | "porTurno">;
+export type CondicaoAplicada = Pick<CondicaoAtiva, "nome" | "rodadas" | "salvaguarda" | "porTurno" | "mecanica">;
 
 export const MAX_CONDICOES = 12;
 
@@ -174,18 +183,26 @@ export function lerCondicoesAtivas(raw: unknown): CondicaoAtiva[] {
               ? { atributo: String(salv.atributo ?? ""), cd: Math.trunc(Number(salv.cd)) }
               : null,
           porTurno: lerDanoPorTurno(o.porTurno),
+          ...(o.mecanica && typeof o.mecanica === "object" ? { mecanica: o.mecanica } : {}),
+          ...(typeof o.disparou === "string" ? { disparou: o.disparou } : {}),
         },
       ];
     })
     .slice(0, MAX_CONDICOES);
 }
 
+// Só os nomes das condições valendo.
+export function nomesDasCondicoes(raw: unknown): string[] {
+  return lerCondicoesAtivas(raw).map((c) => c.nome);
+}
+
 export function lerCondicoesAplicadas(raw: unknown): CondicaoAplicada[] {
-  return lerCondicoesAtivas(raw).map(({ nome, rodadas, salvaguarda, porTurno }) => ({
+  return lerCondicoesAtivas(raw).map(({ nome, rodadas, salvaguarda, porTurno, mecanica }) => ({
     nome,
     rodadas,
     salvaguarda,
     porTurno,
+    ...(mecanica ? { mecanica } : {}),
   }));
 }
 

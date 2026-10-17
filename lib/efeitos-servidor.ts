@@ -1,6 +1,8 @@
 // Agregado de efeitos no servidor, com os mesmos filtros da página da ficha.
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { mesmoGrupo } from "@/lib/acesso-ficha";
 import { habilidadesTravadas } from "@/lib/arvore";
 import {
   agregarEfeitos,
@@ -10,10 +12,16 @@ import {
   type EfeitosAgregados,
   type HabilidadeFonte,
 } from "@/lib/op-rpg";
-import { lerConcentracao } from "@/lib/duracao";
+import { acabaSemPvTemp, lerConcentracao } from "@/lib/duracao";
+import { lerCondicoesAtivas, type CondicaoAtiva } from "@/lib/condicoes";
+import { fontesDasCondicoes, type CondicaoComMecanica } from "@/lib/condicoes-mecanica";
 import { acoesEmCurso, comAcoesEmCurso, type AcaoEmCurso } from "@/lib/turno";
 
-type HabilidadeServidor = HabilidadeFonte & { id: string; itemId: string | null };
+type HabilidadeServidor = HabilidadeFonte & {
+  id: string;
+  itemId: string | null;
+  formaDe?: string | null;
+};
 
 type ItemFonte = {
   id: string;
@@ -37,8 +45,10 @@ export function agregadoDaFicha(dados: {
   recebidas?: HabilidadeFonte[];
   // Ações em curso: os efeitos que elas mantêm entram por cima.
   emCurso?: AcaoEmCurso[];
+  // Condições que ele tem no combate (lib/condicoes-mecanica.ts).
+  condicoes?: CondicaoComMecanica[];
 }): EfeitosAgregados {
-  const travadas = habilidadesTravadas(dados.nos);
+  const travadas = habilidadesTravadas(dados.nos, dados.habilidades);
   const equipados = new Set(dados.itens.filter((i) => i.equipado).map((i) => i.id));
   const ativas = dados.habilidades.filter(
     (h) => !travadas.has(h.id) && (!h.itemId || equipados.has(h.itemId)),
@@ -47,7 +57,12 @@ export function agregadoDaFicha(dados: {
   const slugs = new Set(dados.slugsPericiaCustom);
   return comAcoesEmCurso(
     agregarEfeitos(
-      [...ativas, ...fontesDeEfeitoDeItens(dados.itens), ...(dados.recebidas ?? [])],
+      [
+        ...ativas,
+        ...fontesDeEfeitoDeItens(dados.itens),
+        ...(dados.recebidas ?? []),
+        ...fontesDasCondicoes(dados.condicoes ?? []),
+      ],
       slugs,
       undefined,
       { nivel, atributos: atributosDe(atributos) },
@@ -75,6 +90,7 @@ export const SELECT_HABILIDADE_FONTE = {
   efeitos: true,
   ligada: true,
   itemId: true,
+  formaDe: true,
   alternavel: true,
   aliado: true,
   usos: true,
@@ -116,14 +132,14 @@ export const SELECT_RECEBIDA = {
   personagem: { select: { nome: true } },
 } as const;
 
-// Filtro das habilidades de aliados da mesma mesa ligadas em `personagemId`.
+// Filtro das habilidades de aliados (mesma mesa ou mesmo dono) ligadas em `personagemId`.
 export function ondeRecebidas(personagemId: string) {
   return {
     alvoPersonagemId: personagemId,
     ligada: true,
     aliado: true,
     personagemId: { not: personagemId },
-    personagem: { mesa: { personagens: { some: { id: personagemId } } } },
+    personagem: mesmoGrupo(personagemId),
   };
 }
 
@@ -133,22 +149,27 @@ export function fonteRecebida(h: HabilidadeRecebida): HabilidadeFonte {
 
 // Tira as que estão travadas no dono: item desequipado ou talento não comprado.
 async function semTravadasNoDono<
-  T extends { id: string; itemId: string | null; personagemId: string },
+  T extends { id: string; itemId: string | null; personagemId: string; formaDe: string | null },
 >(habs: T[]): Promise<T[]> {
   if (habs.length === 0) return habs;
   const donos = [...new Set(habs.map((h) => h.personagemId))];
-  const [equipados, nos] = await Promise.all([
+  // A forma alternativa trava junto da habilidade de origem.
+  const origens = [...new Set(habs.flatMap((h) => (h.formaDe ? [h.formaDe] : [])))];
+  const [equipados, nos, existentes] = await Promise.all([
     prisma.item.findMany({
       where: { personagemId: { in: donos }, equipado: true },
       select: { id: true },
     }),
     prisma.arvoreNo.findMany({
-      where: { habilidadeId: { in: habs.map((h) => h.id) } },
+      where: { habilidadeId: { in: [...habs.map((h) => h.id), ...origens] } },
       select: { habilidadeId: true, rankAtual: true },
     }),
+    origens.length > 0
+      ? prisma.habilidade.findMany({ where: { id: { in: origens } }, select: { id: true } })
+      : [],
   ]);
   const ids = new Set(equipados.map((i) => i.id));
-  const travadas = habilidadesTravadas(nos);
+  const travadas = habilidadesTravadas(nos, [...habs, ...existentes]);
   return habs.filter((h) => !travadas.has(h.id) && (!h.itemId || ids.has(h.itemId)));
 }
 
@@ -158,7 +179,7 @@ export async function carregarRecebidas(personagemId: string): Promise<Habilidad
     return await semTravadasNoDono(
       await prisma.habilidade.findMany({
         where: ondeRecebidas(personagemId),
-        select: { ...SELECT_RECEBIDA, itemId: true, personagemId: true },
+        select: { ...SELECT_RECEBIDA, itemId: true, personagemId: true, formaDe: true },
         orderBy: { criadoEm: "asc" },
       }),
     );
@@ -178,8 +199,20 @@ export async function recebidasDaMesa(
   try {
     const habs = await semTravadasNoDono(
       await prisma.habilidade.findMany({
-        where: { alvoPersonagemId: { in: ids }, ligada: true, aliado: true, personagem: { mesaId } },
-        select: { ...SELECT_RECEBIDA, itemId: true, personagemId: true, alvoPersonagemId: true },
+        where: {
+          alvoPersonagemId: { in: ids },
+          ligada: true,
+          aliado: true,
+          // Membro da mesa, subficha de um membro ou subficha da mesa.
+          personagem: { OR: [{ mesaId }, { dono: { mesaId } }, { donoMesaId: mesaId }] },
+        },
+        select: {
+          ...SELECT_RECEBIDA,
+          itemId: true,
+          personagemId: true,
+          alvoPersonagemId: true,
+          formaDe: true,
+        },
         orderBy: { criadoEm: "asc" },
       }),
     );
@@ -201,7 +234,7 @@ export async function carregarAgregado(
   agg: EfeitosAgregados;
   itens: (ItemFonte & { penalidadeDes: number })[];
 }> {
-  const [habilidades, itens, nos, pericias, base, recebidas, emCurso] = await Promise.all([
+  const [habilidades, itens, nos, pericias, base, recebidas, emCurso, condicoes] = await Promise.all([
     prisma.habilidade.findMany({ where: { personagemId }, select: SELECT_HABILIDADE_FONTE }),
     prisma.item.findMany({ where: { personagemId }, select: SELECT_ITEM_FONTE }),
     prisma.arvoreNo.findMany({
@@ -212,6 +245,7 @@ export async function carregarAgregado(
     prisma.personagem.findUnique({ where: { id: personagemId }, select: SELECT_BASE_FORMULA }),
     carregarRecebidas(personagemId),
     carregarAcoesEmCurso(personagemId),
+    condicoesEmCombate(personagemId),
   ]);
   const habs = ligada
     ? habilidades.map((h) => (h.id === ligada.id ? { ...h, ligada: ligada.ligada } : h))
@@ -233,9 +267,32 @@ export async function carregarAgregado(
       },
       recebidas: recebidas.map(fonteRecebida),
       emCurso,
+      condicoes,
     }),
     itens,
   };
+}
+
+// Condições do personagem no combate aberto da mesa.
+export async function condicoesEmCombate(personagemId: string): Promise<CondicaoAtiva[]> {
+  const instancia = await prisma.instanciaCombate.findFirst({
+    where: { personagemId, combate: { encerradoEm: null, sessao: { encerradaEm: null } } },
+    select: { condicoesAtivas: true },
+  });
+  return lerCondicoesAtivas(instancia?.condicoesAtivas);
+}
+
+// Solta a concentração; a habilidade que ela segurava desliga.
+export async function soltarConcentracao(personagemId: string) {
+  const p = await prisma.personagem.findUnique({ where: { id: personagemId }, select: { concentracao: true } });
+  const c = lerConcentracao(p?.concentracao);
+  if (!c) return;
+  await prisma.$transaction([
+    ...(c.tipo === "habilidade"
+      ? [prisma.habilidade.updateMany({ where: { id: c.id, personagemId, ligada: true }, data: { ligada: false } })]
+      : []),
+    prisma.personagem.update({ where: { id: personagemId }, data: { concentracao: Prisma.DbNull } }),
+  ]);
 }
 
 export const SELECT_ACAO_QUE_DURA = {
@@ -264,6 +321,71 @@ export async function carregarAcoesEmCurso(personagemId: string): Promise<AcaoEm
     select: SELECT_ACAO_QUE_DURA,
   });
   return acoesEmCurso(acoes, personagem?.concentracao);
+}
+
+// O que acaba quando o PV temporário zera: as habilidades ligadas e as ações em
+// curso que duram enquanto ele durar e a concentração que dependia de uma delas
+// (ou de técnica assim).
+export async function acabaComOPvTemp(personagemId: string, concentracaoRaw: unknown) {
+  const concentracao = lerConcentracao(concentracaoRaw);
+  const [ligadas, emCurso, tecnica] = await Promise.all([
+    prisma.habilidade.findMany({
+      where: { personagemId, ligada: true },
+      select: { id: true, nome: true, duracao: true },
+    }),
+    prisma.acao.findMany({
+      where: { personagemId, emCurso: true },
+      select: { id: true, nome: true, duracao: true },
+    }),
+    concentracao?.tipo === "acao"
+      ? prisma.acao.findFirst({
+          where: { id: concentracao.id, personagemId },
+          select: { duracao: true },
+        })
+      : null,
+  ]);
+  const habilidades = ligadas.filter((h) => acabaSemPvTemp(h.duracao));
+  const acoes = emCurso.filter((a) => acabaSemPvTemp(a.duracao));
+  return {
+    habilidades,
+    acoes,
+    soltaConcentracao:
+      !!concentracao &&
+      (habilidades.some((h) => h.id === concentracao.id) || acabaSemPvTemp(tecnica?.duracao)),
+    ops: [
+      ...habilidades.map((h) =>
+        prisma.habilidade.update({
+          where: { id: h.id, personagemId },
+          data: { ligada: false, turnosRestantes: null },
+        }),
+      ),
+      ...acoes.map((a) =>
+        prisma.acao.update({
+          where: { id: a.id, personagemId },
+          data: { emCurso: false, turnosRestantes: null },
+        }),
+      ),
+    ],
+  };
+}
+
+// PV temporário que o combate zerou sozinho (acabou a duração): o que durava
+// enquanto ele durasse acaba junto.
+export async function soltarOQueDuravaComPvTemp(personagemIds: string[]) {
+  const personagens = await prisma.personagem.findMany({
+    where: { id: { in: personagemIds } },
+    select: { id: true, concentracao: true },
+  });
+  for (const p of personagens) {
+    const fim = await acabaComOPvTemp(p.id, p.concentracao);
+    const ops = [
+      ...fim.ops,
+      ...(fim.soltaConcentracao
+        ? [prisma.personagem.update({ where: { id: p.id }, data: { concentracao: Prisma.DbNull } })]
+        : []),
+    ];
+    if (ops.length > 0) await prisma.$transaction(ops);
+  }
 }
 
 // Penalidade de DES das armaduras equipadas (0 ou negativa).

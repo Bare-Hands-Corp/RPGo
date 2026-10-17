@@ -302,6 +302,13 @@
   background: color-mix(in srgb, var(--primary) 14%, transparent);
   color: var(--primary);
 }
+/* Usos que sobram da habilidade que o chip gasta. */
+.rolador-chip-usos {
+  margin-left: 4px;
+  font-size: 0.64rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
 
 /* Banner de rerrolagem pendente (etapa 3.3) — aparece sob o resultado quando a
    rolagem ofereceu reroll; segura a persistência no chat até Manter. */

@@ -3,6 +3,7 @@
 import { useRefreshAgrupado } from "@/lib/use-refresh-agrupado";
 import { useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { canal } from "@/lib/supabase/canal";
 
 // Sessao/Combate/InstanciaCombate são realtime — jogadores acompanham
 // iniciativa e PV ao vivo. combateId é null até um combate existir; o efeito
@@ -14,7 +15,7 @@ export function SessaoRealtime({ mesaId, sessaoId, combateId }: { mesaId: string
 
   useEffect(() => {
     const supabase = createClient();
-    const channel = supabase.channel(`sessao-${mesaId}`).on(
+    const channel = supabase.channel(canal(`sessao-${mesaId}`)).on(
       "postgres_changes",
       { event: "*", schema: "public", table: "sessoes", filter: `mesa_id=eq.${mesaId}` },
       () => refresh(),

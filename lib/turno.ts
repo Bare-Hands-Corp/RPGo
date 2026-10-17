@@ -62,6 +62,8 @@ export type ResultadoTurno = {
   danos: number[];
   // O gasto da técnica em concentração zerou o recurso.
   concentracaoSemRecurso: boolean;
+  // A técnica em concentração durava enquanto houvesse PV temporário, e ele zerou.
+  concentracaoSemPvTemp: boolean;
   caiu: boolean;
   morreu: boolean;
 };
@@ -286,6 +288,8 @@ export function aplicarTurno(entrada: {
   defesas: DefesaDano[];
   duracoes: DuracaoEmCurso[];
   concentracao: ConcentracaoEmCurso | null;
+  // O que dura enquanto houver PV temporário: habilidades ligadas e a técnica em concentração.
+  enquantoPvTemp?: { habilidades: { id: string; nome: string }[]; tecnica?: string };
 }): ResultadoTurno {
   const e: EstadoTurno = {
     ...entrada.estado,
@@ -389,6 +393,22 @@ export function aplicarTurno(entrada: {
     }
   });
 
+  // PV temporário zerou neste turno: acaba o que durava enquanto ele durasse.
+  let concentracaoSemPvTemp = false;
+  if (entrada.estado.hpTemp > 0 && e.hpTemp <= 0) {
+    const fim = (fonte: string) => linhas.push({ fonte, texto: "acabou (sem PV temporário)", o: "fim" });
+    for (const h of entrada.enquantoPvTemp?.habilidades ?? []) {
+      if (desligar.has(h.id)) continue;
+      desligar.set(h.id, h.nome);
+      fim(h.nome);
+    }
+    const tecnica = entrada.enquantoPvTemp?.tecnica;
+    if (tecnica && !concentracaoSemRecurso) {
+      concentracaoSemPvTemp = true;
+      fim(tecnica);
+    }
+  }
+
   // Durações em turnos: menos um; em zero, acaba.
   const turnos: Record<string, number> = {};
   for (const d of entrada.duracoes) {
@@ -405,7 +425,7 @@ export function aplicarTurno(entrada: {
   let concentracaoTurnos: number | null = null;
   if (entrada.concentracao) {
     concentracaoTurnos = Math.max(0, entrada.concentracao.turnos - 1);
-    if (concentracaoTurnos === 0 && !concentracaoSemRecurso) {
+    if (concentracaoTurnos === 0 && !concentracaoSemRecurso && !concentracaoSemPvTemp) {
       linhas.push({ fonte: entrada.concentracao.nome, texto: "acabou", o: "fim" });
     }
   }
@@ -422,6 +442,7 @@ export function aplicarTurno(entrada: {
     concentracaoTurnos,
     danos,
     concentracaoSemRecurso,
+    concentracaoSemPvTemp,
     caiu,
     morreu,
   };

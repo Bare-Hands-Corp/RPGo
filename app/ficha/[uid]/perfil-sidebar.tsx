@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useOptimistic, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import Swal from "sweetalert2";
 import { BotaoVoltar } from "@/components/botao-voltar";
 import { EditableStat } from "./editable-stat";
@@ -34,12 +35,20 @@ import { exigir } from "@/lib/acoes";
 import { useRefreshAgrupado } from "@/lib/use-refresh-agrupado";
 import {
   EVENTO_CONCENTRACAO,
+  acabaSemPvTemp,
   anunciarConcentracao,
   lerConcentracao,
   textoTurnosRestantes,
   type Concentracao,
 } from "@/lib/duracao";
-import { defesasDoAgregado, estaMorto, lerTiposSalvos, negativosAtuais } from "@/lib/dano";
+import {
+  defesasDoAgregado,
+  estaMorto,
+  lerTiposSalvos,
+  negativosAtuais,
+  pvComSinal,
+  separarPv,
+} from "@/lib/dano";
 import {
   EVENTO_ACAO_EM_CURSO,
   acoesEmCurso,
@@ -89,6 +98,9 @@ import {
   type DefesaAgregada,
 } from "@/lib/op-rpg";
 import { anunciarMensagem, empilharD20 } from "@/lib/empilhar-rolagem";
+import { perfilDe, type BlocoFicha, type PerfilFicha } from "@/lib/subficha";
+import { metrosPorRodada } from "@/lib/navio";
+import { BlocoNavio, type NavioDaFicha } from "./bloco-navio";
 
 type Personagem = {
   id: string;
@@ -260,6 +272,8 @@ function porTeclado(acao: () => void) {
 
 export function PerfilSidebar({
   personagem: inicial,
+  perfil: perfilSlug = "personagem",
+  dono = null,
   habilidades,
   recebidas,
   slugsPericiaCustom,
@@ -267,8 +281,13 @@ export function PerfilSidebar({
   camadasQueAbrem,
   tiposDosAtaques,
   acoes,
+  navio,
 }: {
   personagem: Personagem;
+  // Perfil da ficha: blocos à mostra e nome do deslocamento (lib/subficha.ts).
+  perfil?: PerfilFicha;
+  // Subficha: de quem ela é (personagem, com link, ou mesa).
+  dono?: { nome: string; href: string | null } | null;
   // Habilidades cruas — a sidebar recomputa o agregado client-side pra refletir
   // o toggle `ligada` na hora (defesas/atributos/etc.), sem esperar o server.
   habilidades: HabSidebar[];
@@ -280,6 +299,8 @@ export function PerfilSidebar({
   tiposDosAtaques: string[];
   // Ações da ficha: as em curso trazem o "a cada turno" e os efeitos que mantêm.
   acoes: AcaoQueDura[];
+  // Navio: estado pelo dano e comandante.
+  navio?: NavioDaFicha | null;
 }) {
   // useOptimistic do personagem inteiro: o EditFichaModal e qualquer outro
   // editor podem aplicar patches via `aplicarOtimista` pra refletir mudanças
@@ -290,6 +311,8 @@ export function PerfilSidebar({
   // `rpgo:patch-personagem` com deltas, e a sidebar reflete sem precisar de
   // prop drilling. Reseta quando inicial muda (Server Component re-renderizou
   // com a verdade).
+  const perfil = perfilDe(perfilSlug);
+  const mostra = (bloco: BlocoFicha) => !perfil.semBlocos.includes(bloco);
   const [modalNivel, setModalNivel] = useState(false);
   const [modalVida, setModalVida] = useState<ModoVida | null>(null);
   // Âncora da faixa condensada.
@@ -467,6 +490,34 @@ export function PerfilSidebar({
         });
       }
     });
+  }
+
+  // O que dura enquanto houver PV temporário: habilidades ligadas e a técnica em concentração.
+  const enquantoPvTemp = {
+    habilidades: habilidades.filter(
+      (h) => (ligadaOverlay[h.id] ?? h.ligada) && acabaSemPvTemp(h.duracao),
+    ),
+    tecnica:
+      concentracaoAtual?.tipo === "acao"
+        ? acoes.find((a) => a.id === concentracaoAtual.id && acabaSemPvTemp(a.duracao))?.nome
+        : undefined,
+  };
+
+  // PV e PV temporário editados à mão. PV vem com sinal: abaixo de 0 vira PV negativo.
+  function aplicarVitais(patch: PatchPersonagem) {
+    // PV temporário zerado: o que durava enquanto ele durasse acaba junto.
+    if (patch.hpTemp !== undefined && patch.hpTemp <= 0 && p.hpTemp > 0) {
+      for (const h of enquantoPvTemp.habilidades) {
+        window.dispatchEvent(
+          new CustomEvent("rpgo:toggle-habilidade", { detail: { id: h.id, ligada: false } }),
+        );
+      }
+      if (enquantoPvTemp.tecnica) anunciarConcentracao(null);
+    }
+    if (patch.hpAtual === undefined) return aplicarOtimista(patch);
+    // A 0 PV fica incapacitado e perde a concentração.
+    if (patch.hpAtual <= 0 && concentracaoAtual) anunciarConcentracao(null);
+    aplicarOtimista({ ...patch, ...separarPv(patch.hpAtual) });
   }
 
   const emCurso = useMemo(
@@ -671,12 +722,14 @@ export function PerfilSidebar({
   const multDesloc = efeitosAgregados.multiplicadores["deslocamento"];
   const deslocFixo = efeitosAgregados.valoresFixos["deslocamento"];
   const deslocSemMult = Math.max(0, p.deslocamento + deslocBonus.valor, deslocFixo?.valor ?? 0);
-  const deslocBruto = multDesloc ? Math.floor(deslocSemMult * multDesloc.fator) : deslocSemMult;
+  // Com fator, arredonda pra baixo de meio em meio metro.
+  const deslocBruto = multDesloc
+    ? Math.floor(deslocSemMult * multDesloc.fator * 2) / 2
+    : deslocSemMult;
   const deslocProprio = deslocamentoEfetivo(deslocBruto, 0, exaustaoConta);
   // Nado: stat base de espécie (não reduzido pela exaustão). Um efeito que
   // concede nado (`deslocamento`/`nadar`) prevalece o maior contra o base.
-  const modosProprios = modosDeDeslocamento(efeitosAgregados);
-  const nadarProprio = modosProprios["nadar"];
+  const modosProprios = modosDeDeslocamento(efeitosAgregados, p.nado);
   // CR calculada aqui porque a faixa condensada também usa.
   const crAtrib = atributoDeCalculo("cr", "destreza", subs, atributosParaTeste);
   const crBonusFixo = caArmadura + efeitosAgregados.bonusCR.valor;
@@ -693,8 +746,7 @@ export function PerfilSidebar({
         ATRIBUTOS.map((a) => [a.slug, { valor: atributosEfetivos[a.slug], fontes: [] as string[] }]),
       ),
       deslocamento: { valor: deslocProprio, fontes: [] },
-      nadar:
-        nadarProprio && nadarProprio.valor >= p.nado ? nadarProprio : { valor: p.nado, fontes: [] },
+      nadar: modosProprios.nadar ?? { valor: p.nado, fontes: [] },
       cr: { valor: crPropria, fontes: [] },
     },
     efeitosAgregados.valoresIguais ?? [],
@@ -729,8 +781,8 @@ export function PerfilSidebar({
   const movimentos = [
     {
       tipo: "deslocamento",
-      nome: "Andar",
-      icone: "fa-person-running",
+      nome: perfil.deslocamento.rotulo,
+      icone: perfilSlug === "veiculo" ? perfil.deslocamento.icone : "fa-person-running",
       valor: deslocEfetivo,
       titulo: deslocTitulo,
       deEfeito: deslocBonus.fontes.length > 0 || !!multDesloc || !!deslocFixo || deslocIgual.length > 0,
@@ -757,7 +809,12 @@ export function PerfilSidebar({
         reduzido: false,
       };
     }),
-  ].filter((m) => m.valor > 0 || m.tipo === "deslocamento" || m.tipo === "nadar" || MODOS_FIXOS.includes(m.tipo));
+  ].filter((m) =>
+    perfilSlug === "veiculo"
+      ? m.tipo === "deslocamento"
+      : m.valor > 0 || m.tipo === "deslocamento" || m.tipo === "nadar" || MODOS_FIXOS.includes(m.tipo),
+  );
+  const unidadeMov = perfil.deslocamento.unidade;
 
   // A cada turno: efeitos que repetem e durações em turnos das ligadas.
   const porTurno = [...efeitosAgregados.porTurno, ...porTurnoDasAcoes(emCurso)];
@@ -835,6 +892,7 @@ export function PerfilSidebar({
       defesas: defesasDoAgregado(efeitosAgregados),
       duracoes: duracoesTurno,
       concentracao: tecnicaTurnos,
+      enquantoPvTemp,
     });
 
     const deltaPp = r.estado.ppAtual - p.ppAtual;
@@ -878,6 +936,7 @@ export function PerfilSidebar({
         r.estado.exaustao >= 6 ||
         r.concentracaoTurnos === 0 ||
         r.concentracaoSemRecurso ||
+        r.concentracaoSemPvTemp ||
         r.desligar.some((h) => h.id === c.id));
     if (perde) anunciarConcentracao(null);
     else if (c && r.concentracaoTurnos != null) anunciarConcentracao({ ...c, turnos: r.concentracaoTurnos });
@@ -951,15 +1010,16 @@ export function PerfilSidebar({
     <aside className="sidebar">
       <FaixaVitais
         personagemId={p.id}
-        hpAtual={p.hpAtual}
+        hpAtual={pvComSinal(p.hpAtual, p.pvNegativos)}
         hpTemp={p.hpTemp}
         hpMax={hpMaxEfetivo}
         ppAtual={p.ppAtual}
         ppMax={ppMaxEfetivo}
         cr={crTotal}
         exaustao={p.exaustao}
+        comPp={mostra("pp")}
         ancora={vitaisRef}
-        onOtimista={aplicarOtimista}
+        onOtimista={aplicarVitais}
         onDano={() => setModalVida("dano")}
       />
       <div className="sidebar-icons right">
@@ -979,14 +1039,31 @@ export function PerfilSidebar({
             presenca: p.presenca,
           }}
           nivel={p.nivel}
+          perfil={perfilSlug}
           bonusTetoAtributo={efeitosAgregados.bonusTetoAtributo}
           onOtimista={aplicarOtimista}
         />
       </div>
 
       <div className="profile-header">
-        <AvatarUploadModal personagemId={p.id} avatarAtual={avatarSrc} />
+        <AvatarUploadModal
+          personagemId={p.id}
+          avatarAtual={avatarSrc}
+          icone={dono && !p.fotoUrl ? perfil.icone : undefined}
+        />
         <h2 className="char-name">{p.nome || "Sem Nome"}</h2>
+        {dono &&
+          (dono.href ? (
+            <Link href={dono.href} className="char-dono">
+              <i className={`fas ${perfil.icone}`} /> de {dono.nome}
+            </Link>
+          ) : (
+            <span className="char-dono">
+              <i className={`fas ${perfil.icone}`} /> de {dono.nome}
+            </span>
+          ))}
+        {mostra("nivel") && (
+          <>
         <span className="char-level">
           Nível{" "}
           <EditableStat
@@ -1030,11 +1107,13 @@ export function PerfilSidebar({
         >
           <i className="fas fa-arrow-up" /> Subir de nível
         </button>
+          </>
+        )}
       </div>
 
       <hr />
 
-      <div className="bar-group bar-hp">
+      <div className="bar-group bar-hp" ref={mostra("pp") ? undefined : vitaisRef}>
         <div className="bar-label">
           <span>
             <i className="fas fa-heart" /> Vida
@@ -1043,7 +1122,7 @@ export function PerfilSidebar({
                 className={`vida-estado${morto ? " morto" : ""}`}
                 title={pvNegativos > 0 ? `PV negativos: ${pvNegativos} de ${hpMaxEfetivo}` : undefined}
               >
-                {morto ? "Morto" : pvNegativos > 0 ? `Incapacitado · −${pvNegativos}` : "Incapacitado"}
+                {morto ? "Morto" : "Incapacitado"}
               </span>
             )}
           </span>
@@ -1051,13 +1130,10 @@ export function PerfilSidebar({
             <EditableStat
               personagemId={p.id}
               campo="hpAtual"
-              valor={p.hpAtual}
+              valor={pvComSinal(p.hpAtual, p.pvNegativos)}
               max={hpMaxEfetivo}
-              onOtimista={(novo) => {
-                // A 0 PV fica incapacitado e perde a concentração.
-                if (novo <= 0 && concentracaoAtual) anunciarConcentracao(null);
-                aplicarOtimista({ hpAtual: novo, pvNegativos: 0 });
-              }}
+              min={-hpMaxEfetivo}
+              onOtimista={(novo) => aplicarVitais({ hpAtual: novo })}
             />
             {" / "}
             <span
@@ -1085,7 +1161,7 @@ export function PerfilSidebar({
                 personagemId={p.id}
                 campo="hpTemp"
                 valor={p.hpTemp}
-                onOtimista={(novo) => aplicarOtimista({ hpTemp: novo })}
+                onOtimista={(novo) => aplicarVitais({ hpTemp: novo })}
               />
             </span>
           </div>
@@ -1113,6 +1189,7 @@ export function PerfilSidebar({
         </div>
       </div>
 
+      {mostra("pp") && (
       <div className="bar-group bar-en" ref={vitaisRef}>
         <div className="bar-label">
           <span><i className="fas fa-bolt" /> Pontos de Poder</span>
@@ -1150,6 +1227,7 @@ export function PerfilSidebar({
           <div className="progress-fill" style={{ width: `${pct(p.ppAtual, ppMaxEfetivo)}%` }} />
         </div>
       </div>
+      )}
 
       {concentracaoAtual && (
         <div className="recurso-linha concentracao-linha">
@@ -1205,12 +1283,15 @@ export function PerfilSidebar({
         </div>
       )}
 
+      {mostra("exaustao") && (
       <ExaustaoControle
         personagemId={p.id}
         exaustao={p.exaustao}
         ignoradaPor={exaustaoConta === 0 ? efeitosAgregados.ignoraExaustao?.fontes : undefined}
       />
+      )}
 
+      {mostra("descanso") && (
       <DescansoControle
         personagemId={p.id}
         nivel={p.nivel}
@@ -1224,11 +1305,21 @@ export function PerfilSidebar({
           })
         }
       />
+      )}
 
       {/* Andar e nadar em cima; os outros deslocamentos embaixo, menores, e apagados
           quando o personagem não tem. */}
+      {navio && (
+        <BlocoNavio
+          navioId={p.id}
+          navio={navio}
+          pvAtual={p.hpAtual}
+          pvMax={hpMaxEfetivo}
+          velocidade={deslocEfetivo}
+        />
+      )}
       <div className="movimentos-bloco">
-        <div className="recurso-dupla">
+        <div className={`recurso-dupla${movimentos.length === 1 ? " sozinha" : ""}`}>
           {movimentos.slice(0, 2).map((m) => (
             <div key={m.tipo} className="recurso-linha" title={m.titulo}>
               <span className="recurso-icone">
@@ -1236,7 +1327,9 @@ export function PerfilSidebar({
               </span>
               <span className="recurso-nome">{m.nome}</span>
               <span className={`stat-values ${m.reduzido ? "valor-exausto" : ""}`}>
-                {m.valor.toLocaleString("pt-BR")} m
+                {m.valor.toLocaleString("pt-BR")} {unidadeMov}
+                {/* Navio: 1,5 m por rodada a cada 2 nós. */}
+                {unidadeMov === "nós" && ` · ${metrosPorRodada(m.valor).toLocaleString("pt-BR")} m/rodada`}
                 {m.deEfeito && <i className="fas fa-link prof-fonte" />}
                 {m.reduzido && (
                   <MarcaExausto titulo={`Reduzido por exaustão (de ${deslocBruto} m)`} />
@@ -1245,6 +1338,7 @@ export function PerfilSidebar({
             </div>
           ))}
         </div>
+        {movimentos.length > 2 && (
         <div className="movimentos" role="group" aria-label="Outros deslocamentos">
           {movimentos.slice(2).map((m) => (
             <div key={m.tipo} className={`movimento${m.valor > 0 ? "" : " sem"}`} title={m.titulo}>
@@ -1257,6 +1351,7 @@ export function PerfilSidebar({
             </div>
           ))}
         </div>
+        )}
       </div>
 
       <FormulaContext.Provider value={ctxTurno}>
@@ -1292,7 +1387,7 @@ export function PerfilSidebar({
             />
           );
         })()}
-        {(() => {
+        {mostra("testes") && (() => {
           const iniAtrib = atributoDeCalculo("iniciativa", "destreza", subs, atributosParaTeste);
           const iniDesReduz = iniAtrib.atributo === "destreza" && desReduz;
           const iniAmplo = bonusTesteAmplo(efeitosAgregados, "destreza");
@@ -1337,6 +1432,7 @@ export function PerfilSidebar({
             </div>
           );
         })()}
+        {mostra("testes") && (
         <div
           className="derivado-card"
           title={
@@ -1358,6 +1454,7 @@ export function PerfilSidebar({
           <div className="derivado-label">Perc. Pass.</div>
           <div className="derivado-value">{percepcaoPassiva}</div>
         </div>
+        )}
       </div>
 
       <div className="cd-tecnicas" title="Vale nas ações com salvaguarda que não escolhem uma CD própria">
@@ -1565,6 +1662,8 @@ export function PerfilSidebar({
         </>
       )}
 
+      {mostra("atributos") && (
+        <>
       <div className="bar-label" style={{ marginTop: 15, color: "var(--color-power)" }}>
         ATRIBUTOS
       </div>
@@ -1656,8 +1755,10 @@ export function PerfilSidebar({
           );
         })}
       </div>
+        </>
+      )}
 
-      <BotaoVoltar fallbackHref="/dashboard" className="btn-voltar-ficha">
+      <BotaoVoltar fallbackHref={dono?.href ?? "/dashboard"} className="btn-voltar-ficha">
         ← Voltar
       </BotaoVoltar>
 

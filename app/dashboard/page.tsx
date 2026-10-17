@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { usuarioDaRequest } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
+import { pvComSinal } from "@/lib/dano";
 import { CardPersonagem } from "./card-personagem";
 import { CardMesa } from "./card-mesa";
 import { BotaoNovaMesa } from "./nova-mesa";
@@ -18,7 +19,8 @@ export default async function DashboardPage() {
   // Duas queries em paralelo. Personagens inclui a mesa pro footer do card.
   const [personagens, mesas] = await Promise.all([
     prisma.personagem.findMany({
-      where: { userId: user.id },
+      // Subficha aparece na ficha do dono, não aqui.
+      where: { userId: user.id, donoPersonagemId: null, donoMesaId: null },
       include: { mesa: { select: { nome: true } } },
       orderBy: { nome: "asc" },
     }),
@@ -48,7 +50,10 @@ export default async function DashboardPage() {
       </div>
       <div id="listaPersonagens" className="cards-grid">
         {personagens.map((p) => (
-          <CardPersonagem key={p.id} personagem={p} />
+          <CardPersonagem
+            key={p.id}
+            personagem={{ ...p, hpAtual: pvComSinal(p.hpAtual, p.pvNegativos) }}
+          />
         ))}
         <Link href="/criacao-personagem" className="btn-criar-card">
           <div className="plus-icon">

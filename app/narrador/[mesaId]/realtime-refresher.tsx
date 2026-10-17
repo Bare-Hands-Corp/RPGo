@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { canal } from "@/lib/supabase/canal";
 import { useRefreshAgrupado } from "@/lib/use-refresh-agrupado";
 import { useRefreshOnFocus } from "@/lib/use-refresh-on-focus";
 
@@ -16,7 +17,7 @@ export function NarradorRealtime({ mesaId }: { mesaId: string }) {
   useEffect(() => {
     const supabase = createClient();
     const channel = supabase
-      .channel(`narrador-${mesaId}`)
+      .channel(canal(`narrador-${mesaId}`))
       .on(
         "postgres_changes",
         {

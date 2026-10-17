@@ -3479,3 +3479,36 @@ html.dark-mode .est-historico {
     display: none;
   }
 }
+
+/* Navios inimigos do narrador (navios-do-narrador.tsx). */
+.navios-narrador {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.navios-narrador-titulo {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-sec);
+}
+
+.navios-narrador-item {
+  display: inline-flex;
+  flex-direction: column;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-weight: 700;
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.navios-narrador-item small {
+  font-weight: 400;
+  color: var(--text-sec);
+}

@@ -38,7 +38,9 @@ import {
 } from "@/lib/op-rpg";
 import { SeletorUnico } from "./seletor-multiplo";
 import { doModelo, type ModeloView } from "@/lib/pastas";
+import { agruparFormas } from "@/lib/formas";
 import { BotaoGuardar, BotaoPastas } from "./pastas";
+import { BotaoPacotes, EVENTO_IMPORTADO, type Importado } from "./pacotes";
 import { BarraFiltros, casaBusca, pastasDe } from "./barra-filtros";
 import { useConfirmarUso, type ItemDeUso } from "./usar-modal";
 import { Segmentos } from "./campos-modal";
@@ -110,6 +112,8 @@ type Habilidade = {
   alvoPersonagemId: string | null;
   duracao?: unknown;
   turnosRestantes?: number | null;
+  // Habilidade de que esta é forma alternativa.
+  formaDe?: string | null;
 };
 
 // Item que pode conceder habilidade.
@@ -197,6 +201,7 @@ const HABILIDADE_BASE: Omit<Habilidade, "id"> = {
   aliado: false,
   alvoPersonagemId: null,
   duracao: null,
+  formaDe: null,
 };
 
 export function HabilidadesTab({
@@ -221,6 +226,10 @@ export function HabilidadesTab({
   const alvosCustom = useMemo(() => alvosPericiaCustom(periciasCustom), [periciasCustom]);
   const [modalAberto, setModalAberto] = useState(false);
   const [edit, setEdit] = useState<Habilidade | null>(null);
+  // Habilidade que a nova copia.
+  const [copiaDe, setCopiaDe] = useState<Habilidade | null>(null);
+  // Forma à mostra em cada card (id da habilidade de origem → id da forma).
+  const [formaAtiva, setFormaAtiva] = useState<Record<string, string>>({});
   const [filtro, setFiltro] = useState<Filtro>("todas");
   const [busca, setBusca] = useState("");
   const [pastaFiltro, setPastaFiltro] = useState<string | null>(null);
@@ -281,7 +290,14 @@ export function HabilidadesTab({
   );
   const filtrando = filtro !== "todas" || !!pastaAtiva || busca.trim() !== "";
 
-  const favoritas = filtradas.filter((h) => h.favorita);
+  // Formas alternativas ficam dentro do card da habilidade de origem.
+  const { origemDe, grupoDe } = agruparFormas(otimistas);
+  const casam = new Set(filtradas.map((h) => h.id));
+  // Um card por habilidade de origem; aparece se ela ou uma forma dela casar.
+  const visiveis = otimistas.filter(
+    (h) => !origemDe(h) && grupoDe(h).some((f) => casam.has(f.id)),
+  );
+  const favoritas = visiveis.filter((h) => h.favorita);
 
   // Turnos que faltam, contados pelo Passar turno antes do servidor responder.
   const [turnosOverlay, setTurnosOverlay] = useState<Record<string, number>>({});
@@ -309,11 +325,20 @@ export function HabilidadesTab({
 
   function abrirNova() {
     setEdit(null);
+    setCopiaDe(null);
     setModalAberto(true);
   }
 
   function abrirEdit(h: Habilidade) {
     setEdit(h);
+    setCopiaDe(null);
+    setModalAberto(true);
+  }
+
+  // Duplicar: abre uma habilidade nova já preenchida; no modal dá pra virar forma alternativa.
+  function abrirCopia(h: Habilidade) {
+    setEdit(null);
+    setCopiaDe(h);
     setModalAberto(true);
   }
 
@@ -496,12 +521,15 @@ export function HabilidadesTab({
   }
 
   // Põe na pasta (etiqueta + cópia guardada) ou tira a etiqueta.
-  function guardarEmPasta(h: Habilidade, pasta: string | null) {
+  function guardarEmPasta(h: Habilidade, pasta: string | null, exclusiva?: boolean) {
     startTransition(async () => {
       aplicar({ kind: "update", id: h.id, patch: { pasta } });
       try {
-        if (pasta) exigir(await guardarNaPasta(personagemId, "habilidade", h.id, pasta));
-        else exigir(await atualizarHabilidade(personagemId, h.id, { pasta: null }));
+        if (pasta) {
+          exigir(await guardarNaPasta(personagemId, "habilidade", h.id, pasta, exclusiva));
+        } else {
+          exigir(await atualizarHabilidade(personagemId, h.id, { pasta: null }));
+        }
       } catch (err) {
         mostrarErro(err);
       }
@@ -556,6 +584,10 @@ export function HabilidadesTab({
       );
     }
     if (ligar) {
+      // Ligar uma forma desliga as outras do mesmo card.
+      for (const f of grupoDe(origemDe(h) ?? h)) {
+        if (f.id !== h.id && f.ligada && ehAlternavel(f)) acionar(f, false);
+      }
       window.dispatchEvent(
         new CustomEvent("rpgo:toggle-habilidade", {
           detail: { id: h.id, ligada: true },
@@ -625,6 +657,25 @@ export function HabilidadesTab({
     });
   }
 
+  // Importadas por código: aparecem na hora; quem importou grava.
+  useEffect(() => {
+    function ouvir(e: Event) {
+      for (const h of (e as CustomEvent<Importado>).detail?.habilidades ?? []) {
+        aplicar({
+          kind: "create",
+          habilidade: {
+            ...HABILIDADE_BASE,
+            ...h.input,
+            usosAtual: (h.input.usos as number | null | undefined) ?? null,
+            id: h.id,
+          } as Habilidade,
+        });
+      }
+    }
+    window.addEventListener(EVENTO_IMPORTADO, ouvir);
+    return () => window.removeEventListener(EVENTO_IMPORTADO, ouvir);
+  }, [aplicar]);
+
   function salvarForm(dados: HabilidadeFormDados) {
     const editandoId = edit?.id ?? null;
     setModalAberto(false);
@@ -656,6 +707,49 @@ export function HabilidadesTab({
     });
   }
 
+  // Card da habilidade de origem, com a forma escolhida à mostra.
+  function card(origem: Habilidade, chave: string) {
+    const formas = grupoDe(origem);
+    // A forma escolhida; senão a ligada ou a primeira, entre as que casam com o filtro.
+    const candidatas = filtrando ? formas.filter((f) => casam.has(f.id)) : formas;
+    const h =
+      formas.find((f) => f.id === formaAtiva[origem.id]) ??
+      candidatas.find((f) => f.ligada && ehAlternavel(f)) ??
+      candidatas[0] ??
+      origem;
+    return (
+      <CardHabilidade
+        key={chave}
+        pastasDaFicha={nomesDasPastas}
+        onEfeitos={(efeitos) => mudarEfeitos(h, efeitos)}
+        personagemId={personagemId}
+        onPasta={(p, exclusiva) => guardarEmPasta(h, p, exclusiva)}
+        onFiltrarPasta={setPastaFiltro}
+        habilidade={h}
+        formas={formas.map((f) => ({
+          id: f.id,
+          nome: f.nome,
+          ligada: f.ligada && ehAlternavel(f),
+        }))}
+        onForma={(id) => setFormaAtiva((s) => ({ ...s, [origem.id]: id }))}
+        travada={travadasSet.has(h.id)}
+        itemOrigem={h.itemId ? itemPorId.get(h.itemId) : undefined}
+        recursoNomePorId={recursoNomePorId}
+        atributos={atributos}
+        nivel={nivel}
+        nomeDoAlvo={nomeDoTripulante(h.alvoPersonagemId)}
+        turnosRestantes={turnosDe(h)}
+        onEdit={() => abrirEdit(h)}
+        onCopia={() => abrirCopia(h)}
+        onApagar={() => apagar(h.id, h.nome)}
+        onUsar={() => acionar(h, null)}
+        onAlternar={() => acionar(h, !h.ligada)}
+        favorita={origem.favorita}
+        onFavorita={() => toggleFavorita(origem)}
+      />
+    );
+  }
+
   return (
     <AlvosCustomContext.Provider value={alvosCustom}>
       <NomesRecursoContext.Provider value={recursoNomePorId}>
@@ -671,8 +765,10 @@ export function HabilidadesTab({
         >
           <h1>Habilidades</h1>
           <div className="tab-topo-botoes">
+            <BotaoPacotes />
             <BotaoPastas
               tipo="habilidade"
+              personagemId={personagemId}
               onAdicionar={adicionarDasPastas}
             />
             <button
@@ -716,35 +812,12 @@ export function HabilidadesTab({
               <i className="fas fa-star" style={{ color: "var(--highlight)" }} />
               <h3>Destaques</h3>
             </div>
-            <div className="action-grid">
-              {favoritas.map((h) => (
-                <CardHabilidade
-                  key={`fav-${h.id}`}
-                  pastasDaFicha={nomesDasPastas}
-                  onEfeitos={(efeitos) => mudarEfeitos(h, efeitos)}
-                  onPasta={(p) => guardarEmPasta(h, p)}
-                  onFiltrarPasta={setPastaFiltro}
-                  habilidade={h}
-                  travada={travadasSet.has(h.id)}
-                  itemOrigem={h.itemId ? itemPorId.get(h.itemId) : undefined}
-                  recursoNomePorId={recursoNomePorId}
-                  atributos={atributos}
-                  nivel={nivel}
-                  nomeDoAlvo={nomeDoTripulante(h.alvoPersonagemId)}
-                  turnosRestantes={turnosDe(h)}
-                  onEdit={() => abrirEdit(h)}
-                  onApagar={() => apagar(h.id, h.nome)}
-                  onUsar={() => acionar(h, null)}
-                  onAlternar={() => acionar(h, !h.ligada)}
-                  onFavorita={() => toggleFavorita(h)}
-                />
-              ))}
-            </div>
+            <div className="action-grid">{favoritas.map((h) => card(h, `fav-${h.id}`))}</div>
           </section>
         )}
 
         {ORIGENS_HABILIDADE.map((origem) => {
-          const lista = filtradas.filter((h) => h.origem === origem.slug);
+          const lista = visiveis.filter((h) => h.origem === origem.slug);
           if (lista.length === 0) return null;
           return (
             <section key={origem.slug}>
@@ -755,35 +828,12 @@ export function HabilidadesTab({
                   ({lista.length})
                 </span>
               </div>
-              <div className="action-grid">
-                {lista.map((h) => (
-                  <CardHabilidade
-                    key={h.id}
-                    pastasDaFicha={nomesDasPastas}
-                    onEfeitos={(efeitos) => mudarEfeitos(h, efeitos)}
-                    onPasta={(p) => guardarEmPasta(h, p)}
-                    onFiltrarPasta={setPastaFiltro}
-                    habilidade={h}
-                    travada={travadasSet.has(h.id)}
-                    itemOrigem={h.itemId ? itemPorId.get(h.itemId) : undefined}
-                    recursoNomePorId={recursoNomePorId}
-                    atributos={atributos}
-                    nivel={nivel}
-                    nomeDoAlvo={nomeDoTripulante(h.alvoPersonagemId)}
-                    turnosRestantes={turnosDe(h)}
-                    onEdit={() => abrirEdit(h)}
-                    onApagar={() => apagar(h.id, h.nome)}
-                    onUsar={() => acionar(h, null)}
-                    onAlternar={() => acionar(h, !h.ligada)}
-                    onFavorita={() => toggleFavorita(h)}
-                  />
-                ))}
-              </div>
+              <div className="action-grid">{lista.map((h) => card(h, h.id))}</div>
             </section>
           );
         })}
 
-        {filtradas.length === 0 && (
+        {visiveis.length === 0 && (
           <p
             style={{
               color: "var(--text-sec)",
@@ -803,6 +853,10 @@ export function HabilidadesTab({
         {modalAberto && (
           <HabilidadeModal
             inicial={edit}
+            copiaDe={copiaDe}
+            origemForma={
+              copiaDe ? (origemDe(copiaDe) ?? copiaDe) : edit ? (origemDe(edit) ?? null) : null
+            }
             recursos={recursos}
             itens={itens}
             atributos={atributos}
@@ -819,11 +873,14 @@ export function HabilidadesTab({
 
 // ─── Card de habilidade ────────────────────────────────────────────────
 function CardHabilidade({
+  personagemId,
   pastasDaFicha,
   onEfeitos,
   onPasta,
   onFiltrarPasta,
   habilidade,
+  formas,
+  onForma,
   travada,
   itemOrigem,
   recursoNomePorId,
@@ -832,18 +889,25 @@ function CardHabilidade({
   nomeDoAlvo,
   turnosRestantes,
   onEdit,
+  onCopia,
   onApagar,
   onUsar,
   onAlternar,
+  favorita,
   onFavorita,
 }: {
+  personagemId: string;
   // Pastas que já existem na ficha.
   pastasDaFicha: string[];
   // Contador do bônus progressivo mudou.
   onEfeitos: (efeitos: EfeitoHabilidade[]) => void;
-  onPasta: (pasta: string | null) => void;
+  onPasta: (pasta: string | null, exclusiva?: boolean) => void;
   onFiltrarPasta: (pasta: string) => void;
+  // A forma à mostra.
   habilidade: Habilidade;
+  // A habilidade de origem e as formas dela.
+  formas: { id: string; nome: string; ligada: boolean }[];
+  onForma: (id: string) => void;
   travada: boolean;
   itemOrigem?: ItemRef;
   recursoNomePorId: Map<string, string>;
@@ -854,9 +918,12 @@ function CardHabilidade({
   // Ligada com duração em turnos: quanto falta.
   turnosRestantes?: number | null;
   onEdit: () => void;
+  onCopia: () => void;
   onApagar: () => void;
   onUsar: () => void;
   onAlternar: () => void;
+  // Destaque da habilidade de origem.
+  favorita: boolean;
   onFavorita: () => void;
 }) {
   const efeitos = lerEfeitos(habilidade.efeitos);
@@ -930,22 +997,32 @@ function CardHabilidade({
 
   return (
     <div
-      className={`action-card ${tipoClass}${ligadaAtiva ? " hab-card-ligada" : ""}${
+      className={`action-card com-copia ${tipoClass}${ligadaAtiva ? " hab-card-ligada" : ""}${
         bloqueada ? " hab-travada" : ""
       }${pendente ? " item-pendente" : ""}`}
       inert={pendente}
     >
       <button
         type="button"
-        className={`btn-favorito ${habilidade.favorita ? "ativo" : ""}`}
+        className={`btn-favorito ${favorita ? "ativo" : ""}`}
         title="Favoritar"
         onClick={onFavorita}
         style={{ position: "absolute", top: 12, left: 12 }}
       >
-        <i className={`fa-star ${habilidade.favorita ? "fas" : "far"}`} />
+        <i className={`fa-star ${favorita ? "fas" : "far"}`} />
+      </button>
+      <button
+        type="button"
+        className="btn-card-copia"
+        title="Duplicar"
+        aria-label={`Duplicar ${habilidade.nome}`}
+        onClick={onCopia}
+      >
+        <i className="fas fa-copy" />
       </button>
       <BotaoGuardar
         origem={{ nome: habilidade.nome, pasta: habilidade.pasta ?? null }}
+        personagemId={personagemId}
         pastasDaFicha={pastasDaFicha}
         sugestoes={[...(origemNome ? [origemNome] : []), ...tags]}
         onGuardar={onPasta}
@@ -971,6 +1048,23 @@ function CardHabilidade({
         <div className="card-title" style={{ paddingLeft: 26 }}>
           {habilidade.nome}
         </div>
+        {formas.length > 1 && (
+          <div className="acao-formas" role="group" aria-label="Formas">
+            {formas.map((f) => (
+              <button
+                type="button"
+                key={f.id}
+                className={`acao-forma${f.id === habilidade.id ? " ativo" : ""}${
+                  f.ligada ? " ligada" : ""
+                }`}
+                aria-pressed={f.id === habilidade.id}
+                onClick={() => onForma(f.id)}
+              >
+                {f.nome}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="acao-stats">
           {tipoMeta && (
             <span className="acao-stat" style={{ color: tipoMeta.cor }}>
@@ -1026,7 +1120,11 @@ function CardHabilidade({
         {chips.length > 0 && (
           <div className="efeito-chips">
             {chips.map((e, i) => (
-              <ChipEfeito key={i} efeito={e} />
+              <ChipEfeito
+                key={i}
+                efeito={e}
+                comUsos={habilidade.tipo === "passiva" && usosMax != null}
+              />
             ))}
           </div>
         )}
@@ -1128,10 +1226,13 @@ type HabilidadeFormDados = {
   alternavel: boolean;
   aliado: boolean;
   duracao: Duracao | null;
+  formaDe?: string | null;
 };
 
 function HabilidadeModal({
   inicial,
+  copiaDe,
+  origemForma,
   recursos,
   itens,
   atributos,
@@ -1140,6 +1241,10 @@ function HabilidadeModal({
   onSalvar,
 }: {
   inicial: Habilidade | null;
+  // Habilidade que a nova copia.
+  copiaDe: Habilidade | null;
+  // Habilidade de que esta pode ser forma alternativa.
+  origemForma: Habilidade | null;
   recursos: RecursoMinimo[];
   itens: ItemRef[];
   atributos: Record<Atributo, number>;
@@ -1147,40 +1252,45 @@ function HabilidadeModal({
   onCancelar: () => void;
   onSalvar: (d: HabilidadeFormDados) => void;
 }) {
-  const [nome, setNome] = useState(inicial?.nome ?? "");
+  // Campos começam da habilidade editada ou da copiada.
+  const base = inicial ?? copiaDe;
+  const [nome, setNome] = useState(
+    inicial?.nome ?? (copiaDe ? `${copiaDe.nome} (cópia)` : ""),
+  );
+  const [formaDe, setFormaDe] = useState(inicial && origemForma ? origemForma.id : "");
   const [origem, setOrigem] = useState<OrigemHabilidade>(
-    (inicial?.origem as OrigemHabilidade) ?? "livre",
+    (base?.origem as OrigemHabilidade) ?? "livre",
   );
   const [tipo, setTipo] = useState<TipoHabilidade>(
-    (inicial?.tipo as TipoHabilidade) ?? "passiva",
+    (base?.tipo as TipoHabilidade) ?? "passiva",
   );
-  const [descricao, setDescricao] = useState(inicial?.descricao ?? "");
+  const [descricao, setDescricao] = useState(base?.descricao ?? "");
   const [custoPp, setCustoPp] = useState(
-    inicial?.custoPpFormula ?? (inicial?.custoPp ? String(inicial.custoPp) : ""),
+    base?.custoPpFormula ?? (base?.custoPp ? String(base.custoPp) : ""),
   );
   const [custoRecursoId, setCustoRecursoId] = useState(
-    inicial?.custoRecursoId ?? "",
+    base?.custoRecursoId ?? "",
   );
   const [custoRecursoValor, setCustoRecursoValor] = useState(
-    inicial?.custoRecursoFormula ??
-      (inicial?.custoRecursoValor ? String(inicial.custoRecursoValor) : ""),
+    base?.custoRecursoFormula ??
+      (base?.custoRecursoValor ? String(base.custoRecursoValor) : ""),
   );
   const [usos, setUsos] = useState(
-    inicial?.usosFormula ?? (inicial?.usos != null ? String(inicial.usos) : ""),
+    base?.usosFormula ?? (base?.usos != null ? String(base.usos) : ""),
   );
-  const [alternavel, setAlternavel] = useState(inicial?.alternavel ?? false);
-  const [aliado, setAliado] = useState(inicial?.aliado ?? false);
-  const [duracao, setDuracao] = useState<Duracao | null>(lerDuracao(inicial?.duracao));
-  const [recarga, setRecarga] = useState(inicial?.recarga ?? "");
-  const [tags, setTags] = useState(inicial?.tags ?? "");
+  const [alternavel, setAlternavel] = useState(base?.alternavel ?? false);
+  const [aliado, setAliado] = useState(base?.aliado ?? false);
+  const [duracao, setDuracao] = useState<Duracao | null>(lerDuracao(base?.duracao));
+  const [recarga, setRecarga] = useState(base?.recarga ?? "");
+  const [tags, setTags] = useState(base?.tags ?? "");
   const [tagsEstilo, setTagsEstilo] = useState<MapaEstilosTag>(
-    lerEstilosTag(inicial?.tagsEstilo),
+    lerEstilosTag(base?.tagsEstilo),
   );
   const [efeitos, setEfeitos] = useState<EfeitoHabilidade[]>(
-    lerEfeitos(inicial?.efeitos),
+    lerEfeitos(base?.efeitos),
   );
-  const [itemId, setItemId] = useState(inicial?.itemId ?? "");
-  const [itemUsa, setItemUsa] = useState(inicial?.itemUsa ?? false);
+  const [itemId, setItemId] = useState(base?.itemId ?? "");
+  const [itemUsa, setItemUsa] = useState(base?.itemUsa ?? false);
   // Com efeito que fica valendo, a habilidade só pode ser de Liga e desliga.
   const temSustentado = temEfeitoSustentado(efeitos);
   const ligaDesliga = alternavel || temSustentado;
@@ -1215,7 +1325,7 @@ function HabilidadeModal({
       descricao,
       custoPp: pp.numero,
       custoPpFormula: pp.formula,
-      custoPa: inicial?.custoPa ?? 0,
+      custoPa: base?.custoPa ?? 0,
       custoRecursoId: custoRecursoId || null,
       custoRecursoValor: doRecurso.numero,
       custoRecursoFormula: doRecurso.formula,
@@ -1232,6 +1342,8 @@ function HabilidadeModal({
       alternavel: tipo !== "passiva" && alternavel,
       aliado: tipo !== "passiva" && aliado,
       duracao: tipo !== "passiva" ? duracao : null,
+      // Só vai quando o modal ofereceu a escolha.
+      ...(origemForma ? { formaDe: formaDe || null } : {}),
     });
   }
 
@@ -1351,6 +1463,21 @@ function HabilidadeModal({
             autoFocus
           />
 
+          {origemForma && (
+            <>
+              <label>Forma alternativa</label>
+              <Segmentos
+                rotulo="Forma alternativa"
+                valor={formaDe}
+                onChange={setFormaDe}
+                opcoes={[
+                  { valor: "", rotulo: "Não" },
+                  { valor: origemForma.id, rotulo: `De ${origemForma.nome}` },
+                ]}
+              />
+            </>
+          )}
+
           <label>Descrição</label>
           <textarea
             value={descricao}
@@ -1447,6 +1574,7 @@ function HabilidadeModal({
                 onChange={setEfeitos}
                 recursos={recursos}
                 pergunta="O que essa habilidade faz?"
+                sempreAtivo={tipo !== "passiva" ? "todos" : usos.trim() !== "" ? "gastam" : undefined}
               />
             </div>
           </details>

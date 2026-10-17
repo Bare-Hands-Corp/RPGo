@@ -320,6 +320,17 @@ export function negativosAtuais(hpAtual: number, pvNegativos: number | null | un
   return hpAtual > 0 ? 0 : Math.max(0, Math.trunc(Number(pvNegativos) || 0));
 }
 
+// PV como a ficha mostra: a 0 PV, os PV negativos aparecem com sinal.
+export function pvComSinal(hpAtual: number, pvNegativos: number | null | undefined): number {
+  return hpAtual > 0 ? hpAtual : 0 - negativosAtuais(hpAtual, pvNegativos);
+}
+
+// O caminho de volta: abaixo de 0 fica 0 PV e o resto vira PV negativo.
+export function separarPv(valor: number): { hpAtual: number; pvNegativos: number } {
+  const pv = Math.trunc(Number(valor) || 0);
+  return { hpAtual: Math.max(0, pv), pvNegativos: Math.max(0, -pv) };
+}
+
 export function estaMorto(hpAtual: number, pvNegativos: number | null | undefined, hpMax: number): boolean {
   return hpAtual <= 0 && hpMax > 0 && negativosAtuais(hpAtual, pvNegativos) >= hpMax;
 }

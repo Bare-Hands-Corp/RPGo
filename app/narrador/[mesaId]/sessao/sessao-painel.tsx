@@ -8,7 +8,9 @@ import { parseFormulaDados, rolarDados, type Dado, type ModoRolagem } from "@/li
 import { exigir } from "@/lib/acoes";
 import { empilharRolagem } from "@/lib/empilhar-rolagem";
 import {
+  acaoDeCondicaoDaCriatura,
   aplicarDanoDeCriatura,
+  moverCriaturaComCondicao,
   reagirComoCriatura,
   seguirSemReacao,
   resolverAtaqueDeCriatura,
@@ -18,6 +20,7 @@ import { useEscolherAlvosCombate } from "@/app/ficha/[uid]/escolher-alvos-combat
 import type { ComponentePayload } from "@/app/bestiario/types";
 import { ataquesPorTurno, ehAtaqueComum, extrasDeDano, type ExtraDeDano } from "@/app/bestiario/utils";
 import { textoDanoPorTurno } from "@/lib/condicoes";
+import { BotoesDaCondicao } from "@/components/tipos-dano/botoes-da-condicao";
 import {
   iniciarSessao,
   encerrarSessao,
@@ -56,6 +59,7 @@ import {
 
   CAMPOS_VISIVEIS,
   TIPOS_ACAO_COMBATE,
+  inferirAlcance,
   type AcoesGastas,
   type CampoVisivel,
   type OpcaoReacao,
@@ -827,7 +831,7 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
         pp: null,
         cr: null,
         acoes: null,
-        condicoes: [],
+        condicoes: p.condicoes.map((c) => ({ id: c.id, nome: c.nome, rodadas: c.rodadas, sair: null, mecanica: c.mecanica })),
       }),
     ),
   );
@@ -918,6 +922,10 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
       const ataques = await alvosDoCombate.escolherAtaques(
         `${rotulo}: em quem?${cabem > 1 ? ` (até ${cabem} ataques)` : ""}`,
         cabem,
+        {
+          corpoACorpo: inferirAlcance(item.alcance) === "corpo_a_corpo",
+          atacante: instanciaAberta.condicoes,
+        },
       );
       if (ataques === null) return;
       alvos = ataques.map((a) => a.alvo);
@@ -1051,6 +1059,22 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
               >
                 <i className="fas fa-dice-d20" />
               </button>
+            )}
+            {/* Ações da condição da criatura (Apagar, Tratar): o narrador aperta, o teste rola no servidor. */}
+            {p.criaturaId && (
+              <BotoesDaCondicao
+                condicao={c}
+                onAcao={async (indice) => {
+                  const r = await acaoDeCondicaoDaCriatura(mesaId, combate.id, p.id, c.id, indice);
+                  if (!r.ok) return avisarErro(r.erro);
+                  router.refresh();
+                }}
+                onMover={async () => {
+                  const r = await moverCriaturaComCondicao(mesaId, combate.id, p.id, c.id);
+                  if (!r.ok) return avisarErro(r.erro);
+                  router.refresh();
+                }}
+              />
             )}
             <button
               type="button"
@@ -1352,6 +1376,7 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
                       className="sessao-iniciativa-pv"
                       value={pvExibido}
                       max={pvMax || undefined}
+                      min={p.personagemId ? -pvMax : 0}
                       onChange={(novo) => {
                         setPvOverrides((atual) => ({ ...atual, [p.id]: novo }));
                         if (p.personagemId) void atualizarPvPersonagem(mesaId, p.personagemId, novo);

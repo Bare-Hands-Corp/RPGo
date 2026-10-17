@@ -23,6 +23,7 @@ import {
   textoTecnica,
 } from "@/app/bestiario/utils";
 import { ACAO_COMBATE, ACAO_DO_BLOCO } from "@/lib/combate";
+import { travaDaCondicaoNaAcao } from "@/lib/condicoes-mecanica";
 import { parseFormulaDados, type Dado } from "@/lib/dice";
 import { empilharRolagem } from "@/lib/empilhar-rolagem";
 import { formatarMod, modificador } from "@/lib/op-rpg";
@@ -146,6 +147,14 @@ export function FichaCombate({
       if (naVez) return "Ação lendária é no fim do turno de outro";
     }
     const tipo = ACAO_DO_BLOCO[item.categoria];
+    const pelaCondicao = tipo
+      ? travaDaCondicaoNaAcao(
+          instancia.condicoes,
+          tipo,
+          instancia.acoesGastas,
+        )
+      : null;
+    if (pelaCondicao) return pelaCondicao;
     const limite = tipo === "padrao" && ehAtaqueComum(item) ? ataques : 1;
     if (tipo && (instancia.acoesGastas[tipo] ?? 0) >= limite) {
       return limite > 1 ? `Já fez os ${limite} ataques do turno` : `${ACAO_COMBATE[tipo].nome} já usada neste turno`;

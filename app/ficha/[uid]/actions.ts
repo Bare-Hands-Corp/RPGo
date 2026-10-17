@@ -1,6 +1,6 @@
 "use server";
 
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -20,6 +20,8 @@ import {
   efeitoInstantaneo,
   extrasDeCura,
   efeitosDaTecnica,
+  agregarEfeitos,
+  fatorDeDano,
   lerEfeitos,
   maximoDoRecurso,
   modificador,
@@ -39,7 +41,7 @@ import {
   type TipoEfeito,
 } from "@/lib/op-rpg";
 import { faixaDaRolagem } from "@/lib/dice";
-import { SELECT_ACAO_QUE_DURA, carregarAgregado } from "@/lib/efeitos-servidor";
+import { SELECT_ACAO_QUE_DURA, acabaComOPvTemp, carregarAgregado } from "@/lib/efeitos-servidor";
 import {
   MAX_TIPOS_SALVOS,
   cdConcentracao,
@@ -50,9 +52,11 @@ import {
   mesmoTipo,
   negativosAtuais,
   resolverDano,
+  separarPv,
   type ParteDano,
 } from "@/lib/dano";
 import {
+  acabaSemPvTemp,
   duracaoPvTempNoBanco,
   lerConcentracao,
   lerDuracao,
@@ -79,7 +83,54 @@ import {
   type ModeloView,
   type TipoModelo,
 } from "@/lib/pastas";
-import { TAMANHOS_VALIDOS, MADEIRAS_VALIDAS, statsTamanho } from "@/lib/navio";
+import {
+  MAX_ARVORES_PACOTE,
+  MAX_ITENS_PACOTE,
+  MAX_NOME_PACOTE,
+  MAX_NOS_ARVORE,
+  MAX_PACOTES,
+  contarPacote,
+  lerCodigo,
+  lerPacote,
+  montarPacote,
+  nomeDoPacote,
+  novoCodigo,
+  planejarImportacao,
+  type PacoteView,
+} from "@/lib/pacote";
+import {
+  BOLAS_POR_CANHAO,
+  BOLA_DE_CHUMBO,
+  acaoDosCanhoes,
+  armaDosCanhoes,
+  DANO_ANCORA,
+  DANO_PRA_SOLTAR_ANCORA,
+  MANOBRA_GRAUS,
+  MANOBRA_NOS,
+  NOS_PRA_COLIDIR,
+  danoDeColisao,
+  lerEstadoNavio,
+  lerMontagem,
+  lerNavio,
+  metrosPorRodada,
+  presetDeNavio,
+  textoRumo,
+  velocidadeComDano,
+  type MontagemNavio,
+} from "@/lib/navio";
+import { INCLUDE_ACESSO, SO_PRINCIPAIS, acessoAFicha, mesmoGrupo, sessaoDoChat } from "@/lib/acesso-ficha";
+import {
+  MAX_COPIAS,
+  MAX_NOME_SUBFICHA,
+  MAX_SUBFICHAS,
+  MAX_SUBFICHAS_DA_MESA,
+  PERFIS_DE_SUBFICHA,
+  ehSubficha,
+  lerAbas,
+  nomesDasCopias,
+  perfilDe,
+} from "@/lib/subficha";
+import { carregarParaCopia, copiarFicha, opsDeCopia, semLinhas } from "@/lib/clonar-ficha";
 import {
   corValida,
   normalizarEfeitoCor,
@@ -134,6 +185,7 @@ import {
   resultadoDoAtaque,
   sofreDano,
   textoDaSalvaguarda,
+  type AcoesGastas,
   type AlvoResolucao,
   type OpcaoReacao,
   type ReacaoUsada,
@@ -141,7 +193,7 @@ import {
   type TipoAcaoCombate,
 } from "@/lib/combate";
 import { crComReacao, efeitosDaReacao, resumoDaReacao, type EfeitoDeReacao } from "@/lib/reacoes";
-import { lerResolucoes, ordenarParticipantes } from "@/lib/combate";
+import { inferirAlcance, lerResolucoes, ordenarParticipantes } from "@/lib/combate";
 import { tipoDominante } from "@/lib/estatisticas-combate";
 import {
   registrarAtaques,
@@ -155,15 +207,32 @@ import {
 import {
   aplicarCondicoes,
   avancarTurnoDoCombate,
+  bonusDePericiaDaCriatura,
   bonusDeSalvaguardaDaCriatura,
   tirarCondicao,
   crDoPersonagem,
   mudarResolucoes,
   participacaoEmCombate,
+  removerCondicoesPorEfeito,
   type DanoPeriodico,
 } from "@/lib/combate-servidor";
 import { defesasDaCriatura } from "@/lib/dano";
-import { lerRodadas, textoRodadas, type CondicaoAplicada } from "@/lib/condicoes";
+import {
+  RODADAS_MAX,
+  lerCondicoesAtivas,
+  lerRodadas,
+  textoRodadas,
+  type CondicaoAplicada,
+  type CondicaoAtiva,
+} from "@/lib/condicoes";
+import {
+  fontesDasCondicoes,
+  mecanicaDa,
+  modoDaSalvaguarda,
+  travaDaCondicaoNaAcao,
+  travasDasCondicoes,
+  viraCritico,
+} from "@/lib/condicoes-mecanica";
 import {
   CHAVE_LENDARIAS,
   comoResistencias,
@@ -173,26 +242,23 @@ import {
   serializarCriatura,
 } from "@/app/bestiario/utils";
 import { lerUsosAcoes } from "@/app/narrador/[mesaId]/sessao/utils";
-import { rolarDados } from "@/lib/dice";
+import { parseFormulaDados, rolarD20Contextual, rolarDados } from "@/lib/dice";
 
 // ─── Auth helper interno ───────────────────────────────────
-// Verifica sessão + acesso (dono OU narrador) e retorna o personagem com mesa.
-// Auth (Supabase) e personagem (Postgres) rodam em paralelo — checagem de
-// ownership é feita depois que as duas resolvem.
+// Verifica sessão + acesso (lib/acesso-ficha.ts) e retorna o personagem com a
+// mesa e o dono. Auth (Supabase) e personagem (Postgres) rodam em paralelo —
+// checagem de ownership é feita depois que as duas resolvem.
 async function autorizar(personagemId: string) {
   const [user, personagem] = await Promise.all([
     usuarioDaRequest(),
     prisma.personagem.findUnique({
       where: { id: personagemId },
-      include: { mesa: true },
+      include: INCLUDE_ACESSO,
     }),
   ]);
   if (!user) throw new ErroDeUso("Não autenticado.");
   if (!personagem) throw new ErroDeUso("Personagem não encontrado.");
-
-  const isDono = personagem.userId === user.id;
-  const isNarrador = personagem.mesa?.userId === user.id;
-  if (!isDono && !isNarrador) throw new ErroDeUso("Acesso negado.");
+  if (!(await acessoAFicha(personagem, user.id))) throw new ErroDeUso("Acesso negado.");
 
   return { user, personagem };
 }
@@ -217,7 +283,6 @@ const ALLOWED_PERSONAGEM = [
   "sabedoria",
   "vontade",
   "presenca",
-  "mesaId",
   "berries",
   "tipoDadoVida",
   "dadosVidaGastos",
@@ -247,22 +312,42 @@ export async function patchPersonagem(
       if (v && !ATRIBUTOS_VALIDOS.has(v as Atributo)) throw new ErroDeUso("Atributo inválido.");
       data.atributoCdTecnicas = v;
     }
-    // PV editado à mão zera os PV negativos.
-    if (data.hpAtual !== undefined) data.pvNegativos = 0;
+    // PV editado à mão: abaixo de 0 vira PV negativo; de 0 pra cima, os negativos zeram.
+    if (data.hpAtual !== undefined) Object.assign(data, separarPv(Number(data.hpAtual)));
+    // PV temporário mexido à mão dura até acabar.
+    if (data.hpTemp !== undefined) data.hpTempDuracao = null;
     // 0 PV ou exaustão 6 incapacitam: a concentração acaba.
     const incapacitou =
       (data.hpAtual !== undefined && Number(data.hpAtual) <= 0) ||
       (data.exaustao !== undefined && Number(data.exaustao) >= 6);
+    // PV temporário zerado à mão: acaba o que durava enquanto ele durasse.
+    const semPvTemp =
+      data.hpTemp !== undefined && Number(data.hpTemp) <= 0 && personagem.hpTemp > 0;
+    const fim = semPvTemp ? await acabaComOPvTemp(personagemId, personagem.concentracao) : null;
 
     await prisma.$transaction([
       prisma.personagem.update({
         where: { id: personagemId },
         data,
       }),
-      ...(incapacitou ? opsConcentracao(personagemId, personagem.concentracao, null) : []),
+      ...(fim?.ops ?? []),
+      ...(incapacitou || fim?.soltaConcentracao
+        ? opsConcentracao(personagemId, personagem.concentracao, null)
+        : []),
     ]);
-    revalidatePath(`/ficha/${personagemId}`);
+    revalidarFicha(personagem);
   });
+}
+
+// Revalida a ficha e quem mostra o card dela: o dono ou, se for da mesa, todo membro.
+function revalidarFicha(p: {
+  id: string;
+  donoPersonagemId: string | null;
+  donoMesaId: string | null;
+}) {
+  if (p.donoMesaId) return revalidatePath("/ficha/[uid]", "page");
+  revalidatePath(`/ficha/${p.id}`);
+  if (p.donoPersonagemId) revalidatePath(`/ficha/${p.donoPersonagemId}`);
 }
 
 // Campo que aceita fórmula sem dados ("PROF", "NIVEL/2"): só número vira null.
@@ -331,6 +416,7 @@ const ALLOWED_ACAO = [
   "grau",
   "efeitos",
   "aliado",
+  "armaDeFogo",
   "duracao",
   "tipoDano",
   "pasta",
@@ -409,24 +495,30 @@ function normalizarAcaoInput(input: AcaoInput) {
   }
   if (input.efeitos !== undefined) data.efeitos = normalizarEfeitosInput(input.efeitos);
   if (input.aliado !== undefined) data.aliado = Boolean(input.aliado);
+  if (input.armaDeFogo !== undefined) data.armaDeFogo = input.armaDeFogo === true;
   if (input.duracao !== undefined) data.duracao = lerDuracao(input.duracao) ?? Prisma.DbNull;
   if (input.formaDe !== undefined) data.formaDe = input.formaDe ? String(input.formaDe) : null;
   return data;
 }
 
-// Forma alternativa: a origem tem que ser outra ação do personagem, e nunca outra forma.
+// Forma alternativa: a origem tem que ser outra do personagem, e nunca outra forma.
 async function conferirForma(
+  tipo: TipoModelo,
   personagemId: string,
   data: Record<string, unknown>,
-  acaoId?: string,
+  proprioId?: string,
 ) {
   if (!data.formaDe) return;
-  const origem = await prisma.acao.findFirst({
+  const consulta = {
     where: { id: data.formaDe as string, personagemId },
     select: { id: true, formaDe: true },
-  });
+  };
+  const origem =
+    tipo === "acao"
+      ? await prisma.acao.findFirst(consulta)
+      : await prisma.habilidade.findFirst(consulta);
   const raiz = origem?.formaDe ?? origem?.id ?? null;
-  data.formaDe = raiz && raiz !== acaoId ? raiz : null;
+  data.formaDe = raiz && raiz !== proprioId ? raiz : null;
 }
 
 // Lista de ids: só strings não-vazias, sem repetição, com teto defensivo.
@@ -487,7 +579,7 @@ export async function criarAcao(personagemId: string, input: AcaoInput) {
     await autorizar(personagemId);
     const data = normalizarAcaoInput(input);
     if (data.nome === undefined) throw new ErroDeUso("Nome é obrigatório.");
-    await conferirForma(personagemId, data);
+    await conferirForma("acao", personagemId, data);
 
     await prisma.acao.create({ data: dadosDaAcao(personagemId, data) });
     revalidatePath(`/ficha/${personagemId}`);
@@ -502,7 +594,7 @@ export async function atualizarAcao(
   return executar("ficha", async () => {
     await autorizar(personagemId);
     const data = normalizarAcaoInput(patch);
-    await conferirForma(personagemId, data, acaoId);
+    await conferirForma("acao", personagemId, data, acaoId);
     // Editada sem nada que siga depois do uso: deixa de estar em curso.
     if (data.efeitos !== undefined && data.duracao !== undefined && data.aliado !== undefined) {
       const segue = ficaEmCurso({
@@ -543,7 +635,7 @@ export async function usarAcao(
     alvoId?: string;
     // Em combate: alvos (InstanciaCombate.id), como a ficha vai resolver a
     // ação neles e a CD que ela calculou.
-    combate?: { alvos?: string[]; modo?: string; cd?: number | null };
+    combate?: { alvos?: string[]; modo?: string; cd?: number | null; corpoACorpo?: boolean };
   },
 ) {
   return executar("ficha", async () => {
@@ -563,6 +655,13 @@ export async function usarAcao(
       if ((combate.gastas[tipoAcao] ?? 0) >= maximoDeAcoes(agg.acoesExtras)[tipoAcao]) {
         throw new ErroDeUso(`Sem ação ${ACAO_COMBATE[tipoAcao].nome.toLowerCase()} neste turno.`);
       }
+      // Incapacitado, Sonolento, Letárgico…
+      const pelaCondicao = travaDaCondicaoNaAcao(
+        combate.condicoes,
+        tipoAcao,
+        combate.gastas,
+      );
+      if (pelaCondicao) throw new ErroDeUso(pelaCondicao);
     }
     // Custo por fórmula vira número com o nível, os atributos e o grau.
     const acao = comCustosResolvidos(bruta, agg.ctxFormula, bruta.grau);
@@ -591,9 +690,13 @@ export async function usarAcao(
       custoPp = 0;
     }
     const recurso = await recursoDeCusto(personagemId, acao.custoRecursoId, acao.custoRecursoValor);
-    const efeitos = lerEfeitos(acao.efeitos).filter(efeitoInstantaneo);
+    const todosEfeitos = lerEfeitos(acao.efeitos);
+    const efeitos = todosEfeitos.filter(efeitoInstantaneo);
+    const removeCondicao = todosEfeitos.some((e) => e.tipo === "condicao_remover");
     const aliado =
-      acao.aliado && efeitos.length > 0 ? await aliadoDoUso(personagem, opcoes?.alvoId) : null;
+      acao.aliado && (efeitos.length > 0 || removeCondicao)
+        ? await aliadoDoUso(personagem, opcoes?.alvoId)
+        : null;
 
     const ops = await opsDoUso({
       personagemId,
@@ -645,6 +748,7 @@ export async function usarAcao(
       );
     }
     if (ops.length > 0) await prisma.$transaction(ops);
+    if (removeCondicao) await removerCondicoesPorEfeito(aliado?.personagem.id ?? personagemId, todosEfeitos, acao.nome);
     await estatisticasDoUso({
       personagemId,
       nome: acao.nome,
@@ -665,6 +769,13 @@ export async function usarAcao(
             alvos,
             modo: modoResolucao,
             cd: cdDaFicha,
+            corpoACorpo: opcoes?.combate?.corpoACorpo === true,
+            // A tag da ação ou uma arma De Fogo ligada nela.
+            armaDeFogo:
+              acao.armaDeFogo ||
+              (ids.size > 0 &&
+                (await prisma.item.count({ where: { id: { in: [...ids] }, personagemId, categoria: "fogo" } })) > 0),
+            ppGasto: acao.tecnica ? custoPp : 0,
           })
         : null;
     revalidatePath(`/ficha/${personagemId}`);
@@ -706,7 +817,7 @@ export async function finalizarTurno(personagemId: string) {
 async function descontarPeriodicos(mesaId: string, periodicos: DanoPeriodico[]) {
   for (const item of periodicos) {
     const [personagem, { agg }] = await Promise.all([
-      prisma.personagem.findUnique({ where: { id: item.personagemId }, include: { mesa: true } }),
+      prisma.personagem.findUnique({ where: { id: item.personagemId }, include: INCLUDE_ACESSO }),
       carregarAgregado(item.personagemId),
     ]);
     if (!personagem) continue;
@@ -1395,6 +1506,7 @@ const ALLOWED_HABILIDADE = [
   "pasta",
   "custoPpFormula",
   "custoRecursoFormula",
+  "formaDe",
 ] as const;
 
 type HabilidadeInput = Partial<
@@ -1485,6 +1597,7 @@ function normalizarHabilidadeInput(input: HabilidadeInput) {
   if (input.alternavel !== undefined) data.alternavel = Boolean(input.alternavel);
   if (input.aliado !== undefined) data.aliado = Boolean(input.aliado);
   if (input.duracao !== undefined) data.duracao = lerDuracao(input.duracao) ?? Prisma.DbNull;
+  if (input.formaDe !== undefined) data.formaDe = input.formaDe ? String(input.formaDe) : null;
   return data;
 }
 
@@ -1518,6 +1631,7 @@ function dadosDaHabilidade(personagemId: string, data: Record<string, unknown>) 
     aliado: (data.aliado as boolean) ?? false,
     usosFormula: (data.usosFormula as string | null) ?? null,
     duracao: (data.duracao as Prisma.InputJsonValue | typeof Prisma.DbNull) ?? Prisma.DbNull,
+    ...(data.formaDe ? { formaDe: data.formaDe as string } : {}),
   };
 }
 
@@ -1529,6 +1643,7 @@ export async function criarHabilidade(
     await autorizar(personagemId);
     const data = normalizarHabilidadeInput(input);
     if (data.nome === undefined) throw new ErroDeUso("Nome é obrigatório.");
+    await conferirForma("habilidade", personagemId, data);
 
     await prisma.habilidade.create({ data: dadosDaHabilidade(personagemId, data) });
     revalidatePath(`/ficha/${personagemId}`);
@@ -1543,6 +1658,7 @@ export async function atualizarHabilidade(
   return executar("ficha", async () => {
     await autorizar(personagemId);
     const data = normalizarHabilidadeInput(patch);
+    await conferirForma("habilidade", personagemId, data, habilidadeId);
     await prisma.habilidade.update({
       where: { id: habilidadeId, personagemId },
       data,
@@ -1632,16 +1748,15 @@ const SEM_DELTAS: Omit<DeltasInstantaneos, "recursos"> = {
   exaustao: 0,
 };
 
-// Aliado da mesma mesa (não o próprio), com o agregado dele pros máximos.
+// Aliado do mesmo grupo (não o próprio), com o agregado dele pros máximos.
 async function aliadoDoUso(personagem: PersonagemDoUso, alvoId: unknown): Promise<AliadoDoUso> {
   const id = typeof alvoId === "string" ? alvoId : "";
-  if (!personagem.mesaId) throw new ErroDeUso("Entre numa mesa pra usar em um aliado.");
   if (!id || id === personagem.id) throw new ErroDeUso("Escolha um aliado.");
   const [alvo, { agg }] = await Promise.all([
-    prisma.personagem.findFirst({ where: { id, mesaId: personagem.mesaId } }),
+    prisma.personagem.findFirst({ where: { id, molde: false, ...mesmoGrupo(personagem.id) } }),
     carregarAgregado(id),
   ]);
-  if (!alvo) throw new ErroDeUso("Esse aliado não está na mesa.");
+  if (!alvo) throw new ErroDeUso("Esse aliado não joga com você.");
   return { personagem: alvo, agg };
 }
 
@@ -1840,6 +1955,7 @@ async function aplicarUsoHabilidade(
   }
 
   if (ops.length > 0) await prisma.$transaction(ops);
+  await removerCondicoesPorEfeito(aliado?.personagem.id ?? personagemId, lerEfeitos(hab.efeitos), hab.nome);
   await estatisticasDoUso({
     personagemId,
     nome: hab.nome,
@@ -2008,105 +2124,330 @@ function atributosDoPersonagem(p: Record<Atributo, number>): Record<Atributo, nu
   };
 }
 
-// ─── Navio da tripulação ───────────────────────────────────
-// O navio é 1:1 com a Mesa. Como o caller chama da própria ficha, `autorizar`
-// (dono OU narrador) já cobre "qualquer membro edita": cada membro é dono do
-// seu personagem na mesa. Daí derivamos o mesaId — não confiamos no cliente.
-function navioSerializado(n: {
-  id: string;
-  nome: string;
-  tamanho: string;
-  madeira: string;
-  pvAtual: number;
-  velocidadeNos: number;
-  canhoes: number;
-  descricao: string;
-}) {
-  return {
-    id: n.id,
-    nome: n.nome,
-    tamanho: n.tamanho,
-    madeira: n.madeira,
-    pvAtual: n.pvAtual,
-    velocidadeNos: n.velocidadeNos,
-    canhoes: n.canhoes,
-    descricao: n.descricao,
-  };
+// ─── Subfichas ─────────────────────────────────────────────
+// Ficha com dono: de um personagem (lacaio, animal) ou da mesa (o navio da
+// tripulação). Subficha não tem subficha.
+
+type SubfichaInput = {
+  nome?: unknown;
+  perfil?: unknown;
+  molde?: unknown;
+  hpMax?: unknown;
+  // Vale pra mesa inteira (a ficha de quem cria precisa estar numa).
+  daMesa?: unknown;
+  // Navio do livro como ficha de partida (lib/navio.ts, MontagemNavio).
+  navio?: unknown;
+};
+
+function nomeDeSubficha(raw: unknown): string {
+  const nome = typeof raw === "string" ? raw.trim().slice(0, MAX_NOME_SUBFICHA) : "";
+  if (!nome) throw new ErroDeUso("Dê um nome pra subficha.");
+  return nome;
 }
 
-async function mesaDoPersonagem(personagemId: string) {
-  const { personagem } = await autorizar(personagemId);
-  if (!personagem.mesaId) {
-    throw new ErroDeUso("Entre em uma mesa para ter um navio.");
-  }
-  return personagem.mesaId;
+function perfilDeSubficha(raw: unknown): string {
+  if (!PERFIS_DE_SUBFICHA.some((p) => p.slug === raw)) throw new ErroDeUso("Perfil inválido.");
+  return raw as string;
 }
 
-export async function criarNavio(personagemId: string) {
+export async function criarSubficha(personagemId: string, input: SubfichaInput) {
   return executar("ficha", async () => {
-    const mesaId = await mesaDoPersonagem(personagemId);
-    // upsert idempotente — tolera double-click / race entre dois membros.
-    // Nasce com o PV cheio do tamanho default (mais útil que começar em 0).
-    const navio = await prisma.navio.upsert({
-      where: { mesaId },
-      update: {},
-      create: { mesaId, nome: "Novo Navio", pvAtual: statsTamanho("pequeno").pvMax },
-    });
+    const { personagem } = await autorizar(personagemId);
+    if (ehSubficha(personagem)) throw new ErroDeUso("Subficha não tem subficha.");
+
+    const daMesa = input.daMesa === true;
+    const mesa = daMesa ? personagem.mesa : null;
+    if (daMesa && !mesa) throw new ErroDeUso("Entre em uma mesa pra criar a ficha dela.");
+    const id = await novaSubficha(
+      mesa
+        ? { userId: mesa.userId, donoMesaId: mesa.id, mesaId: mesa.id, doNarrador: false }
+        : { userId: personagem.userId, donoPersonagemId: personagemId, mesaId: personagem.mesaId },
+      input,
+    );
     revalidatePath(`/ficha/${personagemId}`);
-    return navioSerializado(navio);
+    return { id };
   });
 }
 
-const ALLOWED_NAVIO = [
-  "nome",
-  "tamanho",
-  "madeira",
-  "pvAtual",
-  "velocidadeNos",
-  "canhoes",
-  "descricao",
-] as const;
+// Navio do narrador (inimigo): ficha da mesa que só ele vê.
+export async function criarNavioDoNarrador(mesaId: string, input: SubfichaInput) {
+  return executar("narrador", async () => {
+    const [user, mesa] = await Promise.all([
+      usuarioDaRequest(),
+      prisma.mesa.findUnique({ where: { id: mesaId }, select: { userId: true } }),
+    ]);
+    if (!user) throw new ErroDeUso("Não autenticado.");
+    if (!mesa || mesa.userId !== user.id) throw new ErroDeUso("Só o narrador da mesa cria navio inimigo.");
+    const id = await novaSubficha(
+      { userId: user.id, donoMesaId: mesaId, mesaId, doNarrador: true },
+      { ...input, perfil: "veiculo", molde: false },
+    );
+    revalidatePath(`/narrador/${mesaId}`);
+    return { id };
+  });
+}
 
-type NavioPatch = Partial<Record<(typeof ALLOWED_NAVIO)[number], unknown>>;
+// Cria a subficha (e, num navio do livro, as habilidades, os canhões e a montagem).
+async function novaSubficha(
+  dono: {
+    userId: string;
+    mesaId: string | null;
+    donoPersonagemId?: string;
+    donoMesaId?: string;
+    doNarrador?: boolean;
+  },
+  input: SubfichaInput,
+): Promise<string> {
+  const doDono = dono.donoMesaId
+    ? { donoMesaId: dono.donoMesaId, doNarrador: !!dono.doNarrador }
+    : { donoPersonagemId: dono.donoPersonagemId! };
+  const quantas = await prisma.personagem.count({ where: { ...doDono, moldeId: null } });
+  if (quantas >= (dono.donoMesaId ? MAX_SUBFICHAS_DA_MESA : MAX_SUBFICHAS)) {
+    throw new ErroDeUso("Limite de subfichas atingido.");
+  }
 
-export async function patchNavio(personagemId: string, patch: NavioPatch) {
+  const nome = nomeDeSubficha(input.nome);
+  const perfil = perfilDeSubficha(input.perfil);
+  const navio = perfil === "veiculo" && input.navio ? lerMontagem(input.navio) : null;
+  if (perfil === "veiculo" && input.navio && !navio) throw new ErroDeUso("Navio inválido.");
+  const preset = navio ? presetDeNavio(navio) : null;
+  const hpMax = preset?.hpMax ?? clamp(Math.trunc(Number(input.hpMax) || 0), 0, 99999);
+
+  const id = randomUUID();
+  await prisma.$transaction([
+    prisma.personagem.create({
+      data: {
+        id,
+        // A da mesa é do narrador; a de personagem, de quem é o dono.
+        userId: dono.userId,
+        ...doDono,
+        // Joga na mesa do dono.
+        mesaId: dono.mesaId,
+        nome,
+        perfil,
+        molde: !dono.donoMesaId && input.molde === true,
+        hpMax,
+        hpAtual: hpMax,
+        ...(navio ? { navio: { montagem: navio, comandanteId: null } } : {}),
+        // Veículo não tem atributo: 10 deixa todo modificador em zero.
+        ...(perfil === "veiculo"
+          ? {
+              forca: 10,
+              destreza: 10,
+              constituicao: 10,
+              sabedoria: 10,
+              vontade: 10,
+              presenca: 10,
+              deslocamento: preset?.deslocamento ?? 0,
+              nado: 0,
+            }
+          : {}),
+      },
+    }),
+    ...(preset
+      ? [
+          prisma.habilidade.createMany({
+            data: preset.habilidades.map((h, ordem) => ({
+              personagemId: id,
+              nome: h.nome,
+              tipo: "passiva",
+              descricao: h.descricao,
+              tags: h.tags,
+              ordem,
+              efeitos: h.efeitos,
+            })),
+          }),
+          ...opsDosCanhoes(id, navio!),
+        ]
+      : []),
+  ]);
+  return id;
+}
+
+// Canhões do navio: a arma (quantidade = canhões), a munição e a ação que dispara.
+function opsDosCanhoes(personagemId: string, m: MontagemNavio): Prisma.PrismaPromise<unknown>[] {
+  if (m.canhoes <= 0) return [];
+  const canhaoId = randomUUID();
+  const bolaId = randomUUID();
+  const arma = armaDosCanhoes(m);
+  return [
+    prisma.item.create({
+      data: {
+        id: bolaId,
+        personagemId,
+        nome: BOLA_DE_CHUMBO.nome,
+        tipo: "municao",
+        quantidade: m.canhoes * BOLAS_POR_CANHAO,
+        dano: `${BOLA_DE_CHUMBO.dano} ${BOLA_DE_CHUMBO.tipo.toLowerCase()}`,
+      },
+    }),
+    prisma.item.create({
+      data: {
+        id: canhaoId,
+        personagemId,
+        nome: arma.nome,
+        descricao: arma.descricao,
+        tipo: "arma",
+        quantidade: m.canhoes,
+        categoria: "fogo",
+        alcance: "distancia",
+        alcanceMetros: arma.alcanceMetros,
+        modificador: arma.modificador,
+        propriedades: ["municao"],
+        proficienteArma: false,
+        equipado: true,
+        municaoId: bolaId,
+        efeitos: arma.efeitos,
+      },
+    }),
+    prisma.acao.create({
+      data: {
+        personagemId,
+        ...acaoDosCanhoes(m),
+        armaIds: [canhaoId],
+        tipoDano: BOLA_DE_CHUMBO.tipo,
+        armaDeFogo: true,
+      },
+    }),
+  ];
+}
+
+// Quem comanda o navio (a salvaguarda de estrutura sai da VON dele): um
+// jogador da mesa do navio; null tira.
+export async function definirComandante(navioId: string, comandanteId: string | null) {
   return executar("ficha", async () => {
-    const mesaId = await mesaDoPersonagem(personagemId);
+    const { personagem } = await autorizar(navioId);
+    const navio = lerNavio(personagem.navio);
+    if (!navio) throw new ErroDeUso("Esta ficha não é de navio.");
+    if (comandanteId) {
+      const ok = await prisma.personagem.findFirst({
+        where: { id: comandanteId, mesaId: personagem.mesaId ?? "-", ...SO_PRINCIPAIS },
+        select: { id: true },
+      });
+      if (!ok) throw new ErroDeUso("Comandante não é jogador desta mesa.");
+    }
+    await prisma.personagem.update({
+      where: { id: navioId },
+      data: { navio: { ...navio, comandanteId: comandanteId || null } },
+    });
+    revalidarFicha(personagem);
+  });
+}
 
-    const data: Record<string, unknown> = {};
-    for (const key of ALLOWED_NAVIO) {
-      if (patch[key] !== undefined) data[key] = patch[key];
-    }
+// Subficha autorizada; `autorizar` já cobre dono, narrador e membro da mesa.
+async function autorizarSubficha(subfichaId: string) {
+  const acesso = await autorizar(subfichaId);
+  if (!ehSubficha(acesso.personagem)) throw new ErroDeUso("Esta ficha não é subficha.");
+  return acesso;
+}
 
-    if (typeof data.nome === "string") data.nome = data.nome.trim();
-    if (typeof data.descricao === "string") data.descricao = data.descricao.trim();
-    if (data.tamanho !== undefined && !TAMANHOS_VALIDOS.has(String(data.tamanho))) {
-      throw new ErroDeUso("Tamanho de navio inválido.");
-    }
-    if (data.madeira !== undefined && !MADEIRAS_VALIDAS.has(String(data.madeira))) {
-      throw new ErroDeUso("Madeira inválida.");
-    }
-    for (const num of ["pvAtual", "velocidadeNos", "canhoes"] as const) {
-      if (data[num] !== undefined) {
-        const n = Number(data[num]);
-        if (!Number.isFinite(n)) throw new ErroDeUso("Valor inválido.");
-        data[num] = Math.max(0, Math.trunc(n));
+export async function atualizarSubficha(
+  subfichaId: string,
+  patch: { nome?: unknown; perfil?: unknown; molde?: unknown; abas?: unknown },
+) {
+  return executar("ficha", async () => {
+    const { personagem } = await autorizarSubficha(subfichaId);
+
+    const data: Prisma.PersonagemUpdateInput = {};
+    if (patch.nome !== undefined) data.nome = nomeDeSubficha(patch.nome);
+    if (patch.perfil !== undefined) data.perfil = perfilDeSubficha(patch.perfil);
+    if (patch.molde !== undefined) {
+      // Só ficha de personagem que não é cópia vira molde.
+      if (patch.molde === true && (personagem.donoMesaId || personagem.moldeId)) {
+        throw new ErroDeUso("Esta subficha não pode ser molde.");
       }
+      data.molde = patch.molde === true;
     }
-
+    if (patch.abas !== undefined) {
+      const abas = lerAbas(patch.abas);
+      const padrao = perfilDe(data.perfil ?? personagem.perfil).abas;
+      // Iguais às do perfil, não guarda nada.
+      const iguais = !!abas && abas.length === padrao.length && abas.every((a) => padrao.includes(a));
+      data.abas = !abas || iguais ? Prisma.DbNull : abas;
+    }
     if (Object.keys(data).length === 0) return;
 
-    await prisma.navio.update({ where: { mesaId }, data });
-    revalidatePath(`/ficha/${personagemId}`);
+    await prisma.personagem.update({ where: { id: subfichaId }, data });
+    revalidarFicha(personagem);
   });
 }
 
-export async function deletarNavio(personagemId: string) {
+// Apaga as fichas e desliga as habilidades de aliado que estavam nelas.
+async function apagarFichas(where: Prisma.PersonagemWhereInput) {
+  const ids = (await prisma.personagem.findMany({ where, select: { id: true } })).map((p) => p.id);
+  if (ids.length === 0) return;
+  await prisma.$transaction([
+    prisma.habilidade.updateMany({
+      where: { alvoPersonagemId: { in: ids }, ligada: true },
+      data: { ligada: false },
+    }),
+    prisma.personagem.deleteMany({ where: { id: { in: ids } } }),
+  ]);
+}
+
+// Apaga a subficha; se for molde, as cópias somem junto.
+export async function apagarSubficha(subfichaId: string) {
   return executar("ficha", async () => {
-    const mesaId = await mesaDoPersonagem(personagemId);
-    // deleteMany tolera ausência (sem throw se já não existe).
-    await prisma.navio.deleteMany({ where: { mesaId } });
-    revalidatePath(`/ficha/${personagemId}`);
+    const { personagem } = await autorizarSubficha(subfichaId);
+    await apagarFichas({
+      OR: [
+        { id: subfichaId },
+        ...(personagem.molde && personagem.donoPersonagemId
+          ? [{ moldeId: subfichaId, donoPersonagemId: personagem.donoPersonagemId }]
+          : []),
+      ],
+    });
+    revalidarFicha(personagem);
+  });
+}
+
+// Cópias novas de um molde, cada uma com a ficha inteira dele.
+export async function invocarCopias(moldeId: string, quantidade: number) {
+  return executar("ficha", async () => {
+    const [{ personagem }, origem] = await Promise.all([
+      autorizarSubficha(moldeId),
+      carregarParaCopia(moldeId),
+    ]);
+    const donoPersonagemId = personagem.donoPersonagemId;
+    if (!personagem.molde || !donoPersonagemId || !origem) {
+      throw new ErroDeUso("Só um molde invoca cópias.");
+    }
+    const quantas = clamp(Math.trunc(Number(quantidade) || 0), 1, MAX_COPIAS);
+    const existentes = await prisma.personagem.findMany({
+      where: { moldeId, donoPersonagemId },
+      select: { nome: true },
+    });
+    if (existentes.length + quantas > MAX_COPIAS) {
+      throw new ErroDeUso(`Um molde tem até ${MAX_COPIAS} cópias.`);
+    }
+
+    const linhas = semLinhas();
+    const nomes = nomesDasCopias(
+      origem.nome,
+      existentes.map((c) => c.nome),
+      quantas,
+    );
+    const copias = nomes.map((nome) => ({
+      id: copiarFicha(origem, { nome, molde: false, moldeId }, linhas),
+      nome,
+    }));
+    await prisma.$transaction(opsDeCopia(linhas));
+    revalidarFicha(personagem);
+    return { copias };
+  });
+}
+
+// Dispensa (apaga) cópias de um molde; sem `ids`, todas.
+export async function dispensarCopias(moldeId: string, ids?: string[]) {
+  return executar("ficha", async () => {
+    const { personagem } = await autorizarSubficha(moldeId);
+    if (!personagem.donoPersonagemId) throw new ErroDeUso("Só um molde tem cópias.");
+    await apagarFichas({
+      moldeId,
+      donoPersonagemId: personagem.donoPersonagemId,
+      ...(Array.isArray(ids) ? { id: { in: ids.filter((i) => typeof i === "string") } } : {}),
+    });
+    revalidarFicha(personagem);
   });
 }
 
@@ -2943,29 +3284,12 @@ async function danoNoPersonagem(entrada: {
 
   // Habilidade que dura "enquanto tiver PV temporário" desliga quando ele acaba.
   const semTempAgora = r.hpTemp.antes > 0 && r.hpTemp.depois === 0;
-  const duraComPvTemp = (x: { duracao: unknown }) => lerDuracao(x.duracao)?.unidade === "pv_temp";
-  const acabaram = semTempAgora
-    ? (
-        await prisma.habilidade.findMany({
-          where: { personagemId, ligada: true },
-          select: { id: true, nome: true, duracao: true },
-        })
-      ).filter(duraComPvTemp)
-    : [];
-  // O mesmo pras ações em curso.
-  const acoesAcabaram = semTempAgora
-    ? (
-        await prisma.acao.findMany({
-          where: { personagemId, emCurso: true },
-          select: { id: true, nome: true, duracao: true },
-        })
-      ).filter(duraComPvTemp)
-    : [];
-  // A 0 PV (incapacitado), ou sem a habilidade que a segurava, a concentração acaba.
+  const fim = semTempAgora ? await acabaComOPvTemp(personagemId, personagem.concentracao) : null;
+  const acabaram = fim?.habilidades ?? [];
+  const acoesAcabaram = fim?.acoes ?? [];
+  // A 0 PV (incapacitado), ou sem o que a segurava, a concentração acaba.
   const concentracao = lerConcentracao(personagem.concentracao);
-  const perdeu =
-    !!concentracao &&
-    (r.hpAtual.depois <= 0 || acabaram.some((h) => h.id === concentracao.id));
+  const perdeu = !!concentracao && (r.hpAtual.depois <= 0 || !!fim?.soltaConcentracao);
   const cd = concentracao && !perdeu ? cdConcentracao(r.final) : null;
   const teste = concentracao && cd ? { nome: concentracao.nome, cd } : null;
 
@@ -2991,7 +3315,7 @@ async function danoNoPersonagem(entrada: {
   };
   const mensagem = prisma.mensagem.create({
     data: {
-      sessionId: personagem.mesaId || personagem.id,
+      sessionId: sessaoDoChat(personagem),
       uid: entrada.uid,
       nome: personagem.nome,
       mensagem: `recebeu ${r.final} de dano`,
@@ -3017,15 +3341,7 @@ async function danoNoPersonagem(entrada: {
           : {}),
       },
     }),
-    ...acabaram.map((h) =>
-      prisma.habilidade.update({ where: { id: h.id, personagemId }, data: { ligada: false } }),
-    ),
-    ...acoesAcabaram.map((a) =>
-      prisma.acao.update({
-        where: { id: a.id, personagemId },
-        data: { emCurso: false, turnosRestantes: null },
-      }),
-    ),
+    ...(fim?.ops ?? []),
     ...(perdeu ? opsConcentracao(personagemId, concentracao, null) : []),
   ]);
   revalidatePath(`/ficha/${personagemId}`);
@@ -3097,7 +3413,7 @@ export async function curarPv(personagemId: string, valor: unknown) {
       prisma.personagem.update({ where: { id: personagemId }, data: { hpAtual: depois } }),
       prisma.mensagem.create({
         data: {
-          sessionId: personagem.mesaId || personagem.id,
+          sessionId: sessaoDoChat(personagem),
           uid: user.id,
           nome: personagem.nome,
           mensagem: `recuperou ${depois - personagem.hpAtual} PV`,
@@ -3191,6 +3507,12 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
       defesas: defesasDoAgregado(agg),
       duracoes,
       concentracao: tecnica,
+      enquantoPvTemp: {
+        habilidades: ligadas.filter((h) => acabaSemPvTemp(h.duracao)),
+        ...(acaoConcentrada && acabaSemPvTemp(acaoConcentrada.duracao)
+          ? { tecnica: acaoConcentrada.nome }
+          : {}),
+      },
     });
 
     // Incapacitado, duração acabou, faltou recurso ou a habilidade que segurava desligou: a concentração acaba.
@@ -3200,6 +3522,7 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
         r.estado.exaustao >= 6 ||
         r.concentracaoTurnos === 0 ||
         r.concentracaoSemRecurso ||
+        r.concentracaoSemPvTemp ||
         r.desligar.some((h) => h.id === concentracao.id));
     const testes =
       concentracao && !perdeu
@@ -3249,7 +3572,7 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
     }
     const mensagem = prisma.mensagem.create({
       data: {
-        sessionId: personagem.mesaId || personagem.id,
+        sessionId: sessaoDoChat(personagem),
         uid: user.id,
         nome: personagem.nome,
         mensagem: "passou o turno",
@@ -3284,7 +3607,8 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
 
 /**
  * Curto recupera o que é "encontro" e "descansoCurto"; longo também o "descansoLongo", PV/PP cheios,
- * PV temporário zerado, exaustão −1 e metade dos Dados de Vida. Sustentada não é desligada.
+ * PV temporário zerado, exaustão −1 e metade dos Dados de Vida. Sustentada não é desligada,
+ * salvo a que durava enquanto houvesse PV temporário.
  */
 export async function descansar(personagemId: string, tipo: TipoDescanso) {
   return executar("ficha", async () => {
@@ -3379,6 +3703,14 @@ export async function descansar(personagemId: string, tipo: TipoDescanso) {
           },
         }),
       );
+      // Sem PV temporário, acaba o que durava enquanto ele durasse.
+      if (personagem.hpTemp > 0) {
+        const fim = await acabaComOPvTemp(personagemId, personagem.concentracao);
+        ops.push(...fim.ops);
+        if (fim.soltaConcentracao) {
+          ops.push(...opsConcentracao(personagemId, personagem.concentracao, null));
+        }
+      }
     } else {
       const ppNovo = somarAteOMaximo(personagem.ppAtual, extra.pp, maximos.ppMax);
       resumo.ppRestaurado = ppNovo - personagem.ppAtual;
@@ -3608,6 +3940,7 @@ function modeloView(m: {
   tipo: string;
   nome: string;
   dados: Prisma.JsonValue;
+  personagemId: string | null;
 }): ModeloView {
   return {
     id: m.id,
@@ -3618,6 +3951,7 @@ function modeloView(m: {
       m.dados && typeof m.dados === "object" && !Array.isArray(m.dados)
         ? (m.dados as Record<string, unknown>)
         : {},
+    personagemId: m.personagemId,
   };
 }
 
@@ -3627,24 +3961,43 @@ async function requireUser() {
   return user;
 }
 
-// Tudo que o usuário logado guardou.
-export async function listarPastas() {
+// Pastas que a ficha enxerga: as de todas as fichas e as só dela.
+function visiveisNa(personagemId: string) {
+  return [{ personagemId: null }, { personagemId }];
+}
+
+// De quem é a pasta: de um personagem (conferido) ou de todas as fichas do usuário.
+async function donoDaPasta(exclusivaDe: unknown) {
+  if (typeof exclusivaDe !== "string" || !exclusivaDe) {
+    return { user: await requireUser(), personagemId: null };
+  }
+  const { user } = await autorizar(exclusivaDe);
+  return { user, personagemId: exclusivaDe };
+}
+
+// O que o usuário logado guardou; com a ficha, entram as pastas só dela.
+export async function listarPastas(personagemId?: string) {
   return executar("pastas", async () => {
     const user = await requireUser();
     const modelos = await prisma.modelo.findMany({
-      where: { userId: user.id },
+      where: {
+        userId: user.id,
+        OR: personagemId ? visiveisNa(String(personagemId)) : [{ personagemId: null }],
+      },
       orderBy: [{ pasta: "asc" }, { criadoEm: "asc" }],
     });
     return { modelos: modelos.map(modeloView) };
   });
 }
 
-// Guarda uma habilidade ou ação da ficha numa pasta do usuário.
+// Guarda uma habilidade ou ação da ficha numa pasta. Pasta nova nasce só do
+// personagem se `exclusiva`; a que já existe segue como está.
 export async function guardarNaPasta(
   personagemId: string,
   tipo: TipoModelo,
   origemId: string,
   pasta: unknown,
+  exclusiva?: unknown,
 ) {
   return executar("pastas", async () => {
     const nomePasta = nomeDePasta(pasta);
@@ -3663,14 +4016,25 @@ export async function guardarNaPasta(
       origem as unknown as Record<string, unknown>,
       recursos,
     ) as Prisma.InputJsonObject;
-    // Guardar de novo com o mesmo nome atualiza a cópia.
-    const [existente, total] = await Promise.all([
-      prisma.modelo.findFirst({
-        where: { userId: user.id, pasta: nomePasta, tipo, nome: origem.nome },
-        select: { id: true },
+    const [naPasta, total] = await Promise.all([
+      prisma.modelo.findMany({
+        where: { userId: user.id, pasta: nomePasta, OR: visiveisNa(personagemId) },
+        select: { id: true, tipo: true, nome: true, personagemId: true },
       }),
       prisma.modelo.count({ where: { userId: user.id } }),
     ]);
+    const dono =
+      naPasta.length > 0
+        ? naPasta.some((m) => m.personagemId === null)
+          ? null
+          : personagemId
+        : exclusiva === true
+          ? personagemId
+          : null;
+    // Guardar de novo com o mesmo nome atualiza a cópia.
+    const existente = naPasta.find(
+      (m) => m.tipo === tipo && m.nome === origem.nome && m.personagemId === dono,
+    );
     if (!existente && total >= MAX_MODELOS) throw new ErroDeUso("Limite de itens guardados atingido.");
     const etiqueta =
       tipo === "acao"
@@ -3679,7 +4043,14 @@ export async function guardarNaPasta(
     const copia = existente
       ? prisma.modelo.update({ where: { id: existente.id }, data: { dados } })
       : prisma.modelo.create({
-          data: { userId: user.id, pasta: nomePasta, tipo, nome: origem.nome, dados },
+          data: {
+            userId: user.id,
+            pasta: nomePasta,
+            tipo,
+            nome: origem.nome,
+            dados,
+            personagemId: dono,
+          },
         });
     const [salvo] = await prisma.$transaction([copia, etiqueta]);
     revalidatePath(`/ficha/${personagemId}`);
@@ -3687,7 +4058,7 @@ export async function guardarNaPasta(
   });
 }
 
-// Cria na ficha as habilidades e ações escolhidas das pastas do usuário.
+// Cria na ficha as habilidades e ações escolhidas das pastas que ela enxerga.
 export async function adicionarDaPasta(personagemId: string, modeloIds: unknown) {
   return executar("pastas", async () => {
     const ids = (Array.isArray(modeloIds) ? modeloIds : [])
@@ -3698,7 +4069,9 @@ export async function adicionarDaPasta(personagemId: string, modeloIds: unknown)
       autorizar(personagemId),
       prisma.recurso.findMany({ where: { personagemId }, select: { id: true, nome: true } }),
     ]);
-    const modelos = await prisma.modelo.findMany({ where: { id: { in: ids }, userId: user.id } });
+    const modelos = await prisma.modelo.findMany({
+      where: { id: { in: ids }, userId: user.id, OR: visiveisNa(personagemId) },
+    });
     const ops: Prisma.PrismaPromise<unknown>[] = [];
     for (const id of ids) {
       const achado = modelos.find((m) => m.id === id);
@@ -3731,14 +4104,17 @@ export async function apagarModelo(modeloId: string) {
   });
 }
 
-// Apaga a pasta e tira a etiqueta dela das fichas do usuário (os itens ficam).
-export async function apagarPasta(pasta: unknown) {
+// Apaga a pasta e tira a etiqueta dela (os itens ficam): das fichas do usuário,
+// ou só do personagem em `exclusivaDe`.
+export async function apagarPasta(pasta: unknown, exclusivaDe?: unknown) {
   return executar("pastas", async () => {
-    const user = await requireUser();
+    const { user, personagemId } = await donoDaPasta(exclusivaDe);
     const nome = String(pasta ?? "");
-    const daFicha = { pasta: nome, personagem: { userId: user.id } };
+    const daFicha = personagemId
+      ? { pasta: nome, personagemId }
+      : { pasta: nome, personagem: { userId: user.id } };
     await prisma.$transaction([
-      prisma.modelo.deleteMany({ where: { pasta: nome, userId: user.id } }),
+      prisma.modelo.deleteMany({ where: { pasta: nome, userId: user.id, personagemId } }),
       prisma.habilidade.updateMany({ where: daFicha, data: { pasta: null } }),
       prisma.acao.updateMany({ where: daFicha, data: { pasta: null } }),
     ]);
@@ -3746,19 +4122,309 @@ export async function apagarPasta(pasta: unknown) {
   });
 }
 
-export async function renomearPasta(de: unknown, para: unknown) {
+export async function renomearPasta(de: unknown, para: unknown, exclusivaDe?: unknown) {
   return executar("pastas", async () => {
-    const user = await requireUser();
+    const { user, personagemId } = await donoDaPasta(exclusivaDe);
     const novo = nomeDePasta(para);
     if (!novo) throw new ErroDeUso("Dê um nome pra pasta.");
     const antigo = String(de ?? "");
-    const daFicha = { pasta: antigo, personagem: { userId: user.id } };
+    const daFicha = personagemId
+      ? { pasta: antigo, personagemId }
+      : { pasta: antigo, personagem: { userId: user.id } };
     await prisma.$transaction([
-      prisma.modelo.updateMany({ where: { pasta: antigo, userId: user.id }, data: { pasta: novo } }),
+      prisma.modelo.updateMany({
+        where: { pasta: antigo, userId: user.id, personagemId },
+        data: { pasta: novo },
+      }),
       prisma.habilidade.updateMany({ where: daFicha, data: { pasta: novo } }),
       prisma.acao.updateMany({ where: daFicha, data: { pasta: novo } }),
     ]);
     revalidatePath("/ficha/[uid]", "page");
+  });
+}
+
+// Deixa a pasta só do personagem, ou de volta em todas as fichas do usuário.
+export async function mudarDonoDaPasta(personagemId: string, pasta: unknown, exclusiva: unknown) {
+  return executar("pastas", async () => {
+    const { user } = await autorizar(personagemId);
+    const so = exclusiva === true;
+    await prisma.modelo.updateMany({
+      where: { userId: user.id, pasta: String(pasta ?? ""), personagemId: so ? null : personagemId },
+      data: { personagemId: so ? personagemId : null },
+    });
+  });
+}
+
+// ─── Pacotes ───────────────────────────────────────────────
+
+function pacoteView(p: {
+  id: string;
+  codigo: string;
+  nome: string;
+  dados: Prisma.JsonValue;
+}): PacoteView {
+  return { id: p.id, codigo: p.codigo, nome: p.nome, ...contarPacote(lerPacote(p.dados)) };
+}
+
+function idsUnicos(raw: unknown, max: number): string[] {
+  const ids = (Array.isArray(raw) ? raw : []).filter(
+    (id): id is string => typeof id === "string" && id !== "",
+  );
+  return [...new Set(ids)].slice(0, max);
+}
+
+// Códigos que o usuário logado gerou.
+export async function listarPacotes() {
+  return executar("pacotes", async () => {
+    const user = await requireUser();
+    const pacotes = await prisma.pacote.findMany({
+      where: { userId: user.id },
+      orderBy: { criadoEm: "desc" },
+    });
+    return { pacotes: pacotes.map(pacoteView) };
+  });
+}
+
+// Gera um código com as habilidades, ações e árvores escolhidas da ficha.
+export async function exportarPacote(
+  personagemId: string,
+  entrada: { nome?: unknown; habilidadeIds?: unknown; acaoIds?: unknown; arvoreIds?: unknown },
+) {
+  return executar("pacotes", async () => {
+    const habilidadeIds = idsUnicos(entrada?.habilidadeIds, MAX_ITENS_PACOTE);
+    const acaoIds = idsUnicos(entrada?.acaoIds, MAX_ITENS_PACOTE);
+    const arvoreIds = idsUnicos(entrada?.arvoreIds, MAX_ARVORES_PACOTE);
+    if (habilidadeIds.length + acaoIds.length + arvoreIds.length === 0) {
+      throw new ErroDeUso("Escolha o que exportar.");
+    }
+    const [{ user, personagem }, habilidades, acoes, arvores, recursos] = await Promise.all([
+      autorizar(personagemId),
+      // A forma alternativa vai junto da origem.
+      prisma.habilidade.findMany({
+        where: {
+          personagemId,
+          OR: [{ id: { in: habilidadeIds } }, { formaDe: { in: habilidadeIds } }],
+        },
+        orderBy: [{ ordem: "asc" }, { criadoEm: "asc" }],
+      }),
+      prisma.acao.findMany({
+        where: { personagemId, OR: [{ id: { in: acaoIds } }, { formaDe: { in: acaoIds } }] },
+        orderBy: { nome: "asc" },
+      }),
+      prisma.arvore.findMany({
+        where: { id: { in: arvoreIds }, personagemId },
+        orderBy: [{ ordem: "asc" }, { nome: "asc" }],
+        include: { camadas: true, ramos: true, nos: true },
+      }),
+      prisma.recurso.findMany({ where: { personagemId } }),
+    ]);
+    if (habilidades.length + acoes.length + arvores.length === 0) {
+      throw new ErroDeUso("Não encontrado. Pode ter sido apagado.");
+    }
+    const total = await prisma.pacote.count({ where: { userId: user.id } });
+    if (total >= MAX_PACOTES) throw new ErroDeUso("Limite de códigos atingido. Apague um antes.");
+    if (habilidades.length > MAX_ITENS_PACOTE) {
+      throw new ErroDeUso(`Um código leva até ${MAX_ITENS_PACOTE} habilidades.`);
+    }
+    if (acoes.length > MAX_ITENS_PACOTE) {
+      throw new ErroDeUso(`Um código leva até ${MAX_ITENS_PACOTE} ações.`);
+    }
+    if (arvores.some((a) => a.nos.length > MAX_NOS_ARVORE)) {
+      throw new ErroDeUso(`Um código leva árvores de até ${MAX_NOS_ARVORE} talentos.`);
+    }
+
+    const dados = montarPacote({ de: personagem.nome, habilidades, acoes, arvores, recursos });
+    const nome =
+      nomeDoPacote(entrada?.nome) || `Pacote de ${personagem.nome}`.slice(0, MAX_NOME_PACOTE);
+    // Código repetido: sorteia outro.
+    for (let tentativa = 0; ; tentativa++) {
+      try {
+        const pacote = await prisma.pacote.create({
+          data: {
+            codigo: novoCodigo((n) => randomInt(n)),
+            userId: user.id,
+            nome,
+            dados: dados as unknown as Prisma.InputJsonObject,
+          },
+        });
+        return { pacote: pacoteView(pacote) };
+      } catch (e) {
+        if (tentativa >= 4 || (e as { code?: unknown })?.code !== "P2002") throw e;
+      }
+    }
+  });
+}
+
+// Conteúdo de um código, pra conferir antes de importar.
+export async function verPacote(codigo: unknown) {
+  return executar("pacotes", async () => {
+    const limpo = lerCodigo(codigo);
+    if (!limpo) throw new ErroDeUso("Código inválido.");
+    const [, pacote] = await Promise.all([
+      requireUser(),
+      prisma.pacote.findUnique({ where: { codigo: limpo } }),
+    ]);
+    if (!pacote) throw new ErroDeUso("Código não encontrado.");
+    return { pacote: { codigo: pacote.codigo, nome: pacote.nome, dados: lerPacote(pacote.dados) } };
+  });
+}
+
+// Cria na ficha o que foi escolhido de um código.
+export async function importarPacote(personagemId: string, codigo: unknown, escolha: unknown) {
+  return executar("pacotes", async () => {
+    const limpo = lerCodigo(codigo);
+    if (!limpo) throw new ErroDeUso("Código inválido.");
+    const quer = (escolha && typeof escolha === "object" ? escolha : {}) as Record<string, unknown>;
+    const [, pacote, recursos, habilidades, arvoresNaFicha] = await Promise.all([
+      autorizar(personagemId),
+      prisma.pacote.findUnique({ where: { codigo: limpo } }),
+      prisma.recurso.findMany({ where: { personagemId }, select: { id: true, nome: true } }),
+      prisma.habilidade.findMany({ where: { personagemId }, select: { id: true, nome: true } }),
+      prisma.arvore.count({ where: { personagemId } }),
+    ]);
+    if (!pacote) throw new ErroDeUso("Código não encontrado.");
+    const plano = planejarImportacao(
+      lerPacote(pacote.dados),
+      {
+        habilidades: idsUnicos(quer.habilidades, MAX_ITENS_PACOTE),
+        acoes: idsUnicos(quer.acoes, MAX_ITENS_PACOTE),
+        arvores: idsUnicos(quer.arvores, MAX_ARVORES_PACOTE),
+      },
+      { recursos, habilidades },
+      randomUUID,
+    );
+    if (plano.habilidades.length + plano.acoes.length + plano.arvores.length === 0) {
+      throw new ErroDeUso("Escolha o que importar.");
+    }
+
+    const ops: Prisma.PrismaPromise<unknown>[] = [];
+    if (plano.recursos.length > 0) {
+      ops.push(
+        prisma.recurso.createMany({
+          data: plano.recursos.map((r, i) => {
+            const data = normalizarRecurso(
+              {
+                nome: r.nome,
+                valorMax: r.valorMax,
+                valorMaxFormula: r.valorMaxFormula,
+                cor: r.cor,
+                cor2: r.cor2,
+                efeito: r.efeito,
+                resetEm: r.resetEm,
+              },
+              false,
+            );
+            return {
+              id: r.id,
+              personagemId,
+              nome: data.nome as string,
+              valorAtual: (data.valorMax as number) ?? 0,
+              valorMax: (data.valorMax as number) ?? 0,
+              valorMaxFormula: (data.valorMaxFormula as string | null) ?? null,
+              ordem: recursos.length + i,
+              cor: (data.cor as string | null) ?? null,
+              cor2: (data.cor2 as string | null) ?? null,
+              efeito: (data.efeito as string) ?? "solido",
+              resetEm: (data.resetEm as string) ?? "manual",
+            };
+          }),
+        }),
+      );
+    }
+    if (plano.habilidades.length > 0) {
+      ops.push(
+        prisma.habilidade.createMany({
+          data: plano.habilidades.map((h) => ({
+            ...dadosDaHabilidade(personagemId, normalizarHabilidadeInput(h.input)),
+            id: h.id,
+          })),
+        }),
+      );
+    }
+    if (plano.acoes.length > 0) {
+      ops.push(
+        prisma.acao.createMany({
+          data: plano.acoes.map((a) => ({
+            ...dadosDaAcao(personagemId, normalizarAcaoInput(a.input)),
+            id: a.id,
+          })),
+        }),
+      );
+    }
+    plano.arvores.forEach((a, i) => {
+      const data = normalizarArvore(a);
+      ops.push(
+        prisma.arvore.create({
+          data: {
+            id: a.id,
+            personagemId,
+            nome: data.nome as string,
+            icone: data.icone as string,
+            cor: (data.cor as string | null) ?? null,
+            cor2: (data.cor2 as string | null) ?? null,
+            efeito: data.efeito as string,
+            ordem: arvoresNaFicha + i,
+            criterio: data.criterio as string,
+            recursoCustoId: a.recursoCustoId,
+            fundoUrl: (data.fundoUrl as string | null) ?? null,
+            camadas: {
+              create: a.camadas.map((c) => ({
+                id: c.id,
+                nome: c.nome.trim() || `Camada ${c.ordem + 1}`,
+                ordem: c.ordem,
+                limiar: c.limiar,
+              })),
+            },
+            ramos: {
+              create: a.ramos.map((r) => ({
+                id: r.id,
+                nome: r.nome.trim() || `Ramo ${r.ordem + 1}`,
+                ordem: r.ordem,
+              })),
+            },
+          },
+        }),
+      );
+      if (a.nos.length === 0) return;
+      ops.push(
+        prisma.arvoreNo.createMany({
+          data: a.nos.map((n) => {
+            const no = normalizarNo(n);
+            return {
+              id: n.id,
+              arvoreId: a.id,
+              camadaId: n.camadaId,
+              ramoId: n.ramoId,
+              coluna: no.coluna as number,
+              linha: no.linha as number,
+              nome: no.nome as string,
+              descricao: no.descricao as string,
+              icone: no.icone as string,
+              custo: no.custo as number,
+              maxRanks: no.maxRanks as number,
+              nivelMinimo: no.nivelMinimo as number,
+              habilidadeId: n.habilidadeId,
+              requisitos: no.requisitos as RequisitoNo[],
+              ordem: n.ordem,
+            };
+          }),
+        }),
+      );
+    });
+    await prisma.$transaction(ops);
+    revalidatePath(`/ficha/${personagemId}`);
+    return {
+      habilidades: plano.habilidades.length,
+      acoes: plano.acoes.length,
+      arvores: plano.arvores.map((a) => a.id),
+    };
+  });
+}
+
+export async function apagarPacote(pacoteId: string) {
+  return executar("pacotes", async () => {
+    const user = await requireUser();
+    await prisma.pacote.deleteMany({ where: { id: String(pacoteId), userId: user.id } });
   });
 }
 
@@ -3825,12 +4491,15 @@ async function criarResolucao(
     salvaguarda: Resolucao["salvaguarda"];
     condicoes: CondicaoAplicada[];
     alvos: string[];
+    corpoACorpo?: boolean;
+    armaDeFogo?: boolean;
+    ppGasto?: number;
   },
 ): Promise<string | null> {
   const { modo, salvaguarda } = entrada;
   const achadas = await prisma.instanciaCombate.findMany({
     where: { combateId: lado.combateId, id: { in: entrada.alvos } },
-    select: { id: true, nomeExibicao: true, personagemId: true, criaturaId: true },
+    select: { id: true, nomeExibicao: true, personagemId: true, criaturaId: true, condicoesAtivas: true },
   });
   if (achadas.length === 0) return null;
 
@@ -3850,11 +4519,24 @@ async function criarResolucao(
     let resultado: AlvoResolucao["resultado"] = null;
     const criatura = criaturas.find((c) => c.id === i.criaturaId);
     if (modo === "salvaguarda" && salvaguarda && criatura) {
-      const bonus = bonusDeSalvaguardaDaCriatura(criatura, salvaguarda.atributo);
-      const total = rolarDados([{ faces: 20, sinal: 1 }], bonus).total;
-      const salv = resultadoDaSalvaguarda({ total, natural: total - bonus }, salvaguarda.cd);
-      resultado = salv.resultado;
-      linhas.push(`${i.nomeExibicao} ${textoDaSalvaguarda(salv)}`);
+      // Condições da criatura: falha automática, vantagem ou desvantagem.
+      const pelaCondicao = modoDaSalvaguarda(lerCondicoesAtivas(i.condicoesAtivas), salvaguarda.atributo);
+      if (pelaCondicao.falha) {
+        resultado = "falha";
+        linhas.push(`${i.nomeExibicao} falhou na salvaguarda (${pelaCondicao.falha})`);
+      } else {
+        const bonus = bonusDeSalvaguardaDaCriatura(criatura, salvaguarda.atributo);
+        const natural = rolarD20Contextual({
+          vantagem: pelaCondicao.modo === "vantagem",
+          desvantagem: pelaCondicao.modo === "desvantagem",
+        }).mantido;
+        const salv = resultadoDaSalvaguarda({ total: natural + bonus, natural }, salvaguarda.cd);
+        resultado = salv.resultado;
+        linhas.push(
+          `${i.nomeExibicao} ${textoDaSalvaguarda(salv)}` +
+            (pelaCondicao.modo !== "normal" ? ` (com ${pelaCondicao.modo})` : ""),
+        );
+      }
     }
     return { instanciaId: i.id, nome: i.nomeExibicao, personagemId: i.personagemId, resultado, danoAplicado: false };
   });
@@ -3866,6 +4548,9 @@ async function criarResolucao(
     acaoId: entrada.acaoId,
     nome: entrada.nome,
     modo,
+    ...(entrada.corpoACorpo ? { corpoACorpo: true } : {}),
+    ...(entrada.armaDeFogo ? { armaDeFogo: true } : {}),
+    ...(entrada.ppGasto ? { ppGasto: entrada.ppGasto } : {}),
     etapa: modo === "ataque" ? "ataque" : entrada.temDano ? "dano" : "feito",
     salvaguarda: modo === "salvaguarda" ? salvaguarda : null,
     temDano: entrada.temDano,
@@ -3911,6 +4596,9 @@ async function abrirResolucao(entrada: {
   alvos: string[];
   modo: Resolucao["modo"];
   cd: number;
+  corpoACorpo?: boolean;
+  armaDeFogo?: boolean;
+  ppGasto?: number;
 }): Promise<string | null> {
   const { acao } = entrada;
   // Condições que a ação põe em quem ela pega (efeito "Aplica Condição").
@@ -3940,6 +4628,9 @@ async function abrirResolucao(entrada: {
       : null,
     condicoes,
     alvos: entrada.alvos,
+    corpoACorpo: entrada.corpoACorpo,
+    armaDeFogo: entrada.armaDeFogo,
+    ppGasto: entrada.ppGasto,
   });
 }
 
@@ -3962,13 +4653,14 @@ async function condicoesDaResolucao(combate: Pick<Lado, "combateId" | "mesaId">,
   });
   if (!feito) return;
   const { resolucao } = feito;
-  const nomes = await aplicarCondicoes({
+  const { receberam: nomes, imunes } = await aplicarCondicoes({
     combateId: combate.combateId,
     instanciaIds: feito.ids,
     condicoes: resolucao.condicoes,
     fonteId: resolucao.atacanteId,
     origem: `${resolucao.nome} de ${resolucao.atacanteNome}`,
   });
+  if (imunes.length > 0) await avisarCombate(combate.mesaId, resolucao.nome, `imune: ${imunes.join(", ")}.`);
   if (nomes.length === 0) return;
   await avisarCombate(
     combate.mesaId,
@@ -3985,84 +4677,112 @@ type Leva = { alvo: AlvoResolucao; fator: number; partes: ParteDano[]; reducao: 
 // depois de gravar a resolução (com a marca de "aplicado" já feita). A redução
 // de uma reação sai do dano antes das defesas do alvo.
 async function descontarDano(mesaId: string, combateId: string, resolucao: Resolucao, alvos: Leva[]) {
+  // Multiplicador no dano de quem atacou (Letárgico: metade, menos arma de fogo).
+  const doAtacante = alvos.length > 0 ? await fatorDoAtacante(resolucao) : { fator: 1, fontes: [] };
+  if (doAtacante.fator !== 1 && alvos.length > 0) {
+    await avisarCombate(mesaId, resolucao.atacanteNome, `dano ×${String(doAtacante.fator).replace(".", ",")} (${doAtacante.fontes.join(", ")}).`);
+  }
   for (const { alvo, fator, partes: roladas, reducao } of alvos) {
     let resta = reducao;
     const partes = roladas
       .map((p) => {
-        const valor = Math.floor(p.valor * fator);
+        const valor = Math.floor(p.valor * fator * doAtacante.fator);
         const menos = Math.min(resta, valor);
         resta -= menos;
         return { valor: valor - menos, tipo: p.tipo };
       })
       .filter((p) => p.valor > 0);
     if (partes.length === 0) {
-      if (reducao > 0) await avisarCombate(mesaId, alvo.nome, "não recebeu dano.");
+      if (reducao > 0 || doAtacante.fator < 1) await avisarCombate(mesaId, alvo.nome, "não recebeu dano.");
       continue;
     }
-
-    if (alvo.personagemId) {
-      const [personagem, { agg }] = await Promise.all([
-        prisma.personagem.findUnique({ where: { id: alvo.personagemId }, include: { mesa: true } }),
-        carregarAgregado(alvo.personagemId),
-      ]);
-      if (!personagem) continue;
-      const { teste } = await danoNoPersonagem({
-        personagem,
-        agg,
-        uid: UID_COMBATE,
-        partes,
-        fonte: { de: resolucao.atacanteId, acao: resolucao.nome },
-      });
-      if (teste) {
-        // O jogador recebe o pedido na faixa da iniciativa e rola quando puder.
-        await mudarResolucoes(combateId, (lista) => {
-          const a = lista
-            .find((r) => r.id === resolucao.id)
-            ?.alvos.find((x) => x.instanciaId === alvo.instanciaId && !x.concentracao);
-          if (a) a.concentracao = teste;
-        });
-      }
-      continue;
-    }
-
-    const instancia = await prisma.instanciaCombate.findUnique({
-      where: { id: alvo.instanciaId },
-      select: { criaturaId: true, pvAtual: true, pvMax: true, pvTemp: true },
-    });
-    if (!instancia?.criaturaId) continue;
-    const criatura = await prisma.criatura.findUnique({
-      where: { id: instancia.criaturaId },
-      select: { resistencias: true },
-    });
-    // O dano sai primeiro do PV temporário; o que sobrar, do PV.
-    const r = resolverDano(
-      partes,
-      defesasDaCriatura(comoResistencias(criatura?.resistencias)),
-      { hpAtual: instancia.pvAtual ?? 0, hpTemp: instancia.pvTemp, hpMax: instancia.pvMax ?? 0 },
-    );
-    await prisma.instanciaCombate.update({
-      where: { id: alvo.instanciaId },
-      data: {
-        pvAtual: r.hpAtual.depois,
-        pvTemp: r.hpTemp.depois,
-        ...(r.hpTemp.depois === 0 ? { pvTempDuracao: null } : {}),
-      },
-    });
-    await registrarDano(combateId, {
+    const { teste } = await danoNaInstancia({ mesaId, combateId }, alvo, partes, {
       de: resolucao.atacanteId,
-      para: alvo.instanciaId,
-      valor: r.final,
-      bruto: r.bruto,
-      tipo: tipoDominante(r.partes),
       acao: resolucao.nome,
-      caiu: r.hpAtual.antes > 0 && r.hpAtual.depois <= 0,
     });
-    await avisarCombate(
-      mesaId,
-      alvo.nome,
-      `recebeu ${r.final} de dano` + (r.absorvido > 0 ? ` (${r.absorvido} no PV temporário).` : "."),
-    );
+    if (teste) {
+      // O jogador recebe o pedido na faixa da iniciativa e rola quando puder.
+      await mudarResolucoes(combateId, (lista) => {
+        const a = lista
+          .find((r) => r.id === resolucao.id)
+          ?.alvos.find((x) => x.instanciaId === alvo.instanciaId && !x.concentracao);
+        if (a) a.concentracao = teste;
+      });
+    }
   }
+}
+
+// Dano em quem está no combate: o jogador pela ficha (defesas, PV temporário,
+// concentração); a criatura pelo bestiário. Devolve o teste de concentração
+// que o dano pediu ao jogador.
+async function danoNaInstancia(
+  lado: { mesaId: string; combateId: string },
+  alvo: { instanciaId: string; nome: string; personagemId: string | null },
+  partes: ParteDano[],
+  fonte: { de: string | null; acao: string },
+): Promise<{ teste: { nome: string; cd: number } | null }> {
+  if (alvo.personagemId) {
+    const [personagem, { agg }] = await Promise.all([
+      prisma.personagem.findUnique({ where: { id: alvo.personagemId }, include: INCLUDE_ACESSO }),
+      carregarAgregado(alvo.personagemId),
+    ]);
+    if (!personagem) return { teste: null };
+    const { teste } = await danoNoPersonagem({ personagem, agg, uid: UID_COMBATE, partes, fonte });
+    return { teste };
+  }
+
+  const instancia = await prisma.instanciaCombate.findUnique({
+    where: { id: alvo.instanciaId },
+    select: { criaturaId: true, pvAtual: true, pvMax: true, pvTemp: true },
+  });
+  if (!instancia?.criaturaId) return { teste: null };
+  const criatura = await prisma.criatura.findUnique({
+    where: { id: instancia.criaturaId },
+    select: { resistencias: true },
+  });
+  // O dano sai primeiro do PV temporário; o que sobrar, do PV.
+  const r = resolverDano(
+    partes,
+    defesasDaCriatura(comoResistencias(criatura?.resistencias)),
+    { hpAtual: instancia.pvAtual ?? 0, hpTemp: instancia.pvTemp, hpMax: instancia.pvMax ?? 0 },
+  );
+  await prisma.instanciaCombate.update({
+    where: { id: alvo.instanciaId },
+    data: {
+      pvAtual: r.hpAtual.depois,
+      pvTemp: r.hpTemp.depois,
+      ...(r.hpTemp.depois === 0 ? { pvTempDuracao: null } : {}),
+    },
+  });
+  await registrarDano(lado.combateId, {
+    de: fonte.de,
+    para: alvo.instanciaId,
+    valor: r.final,
+    bruto: r.bruto,
+    tipo: tipoDominante(r.partes),
+    acao: fonte.acao,
+    caiu: r.hpAtual.antes > 0 && r.hpAtual.depois <= 0,
+  });
+  await avisarCombate(
+    lado.mesaId,
+    alvo.nome,
+    `recebeu ${r.final} de dano` + (r.absorvido > 0 ? ` (${r.absorvido} no PV temporário).` : "."),
+  );
+  return { teste: null };
+}
+
+// Multiplicador no dano de quem atacou: o jogador pela ficha (que já soma as
+// condições); a criatura só pelas condições.
+async function fatorDoAtacante(resolucao: Resolucao): Promise<{ fator: number; fontes: string[] }> {
+  const instancia = await prisma.instanciaCombate.findUnique({
+    where: { id: resolucao.atacanteId },
+    select: { personagemId: true, condicoesAtivas: true },
+  });
+  if (!instancia) return { fator: 1, fontes: [] };
+  const agg = instancia.personagemId
+    ? (await carregarAgregado(instancia.personagemId)).agg
+    : agregarEfeitos(fontesDasCondicoes(lerCondicoesAtivas(instancia.condicoesAtivas)));
+  return fatorDeDano(agg, { corpoACorpo: !!resolucao.corpoACorpo, armaDeFogo: !!resolucao.armaDeFogo });
 }
 
 // Marca como aplicado o dano de quem já pode levar e devolve a lista pra
@@ -4101,7 +4821,7 @@ async function reacoesCabiveis(
   const [instancia, combate] = await Promise.all([
     prisma.instanciaCombate.findUnique({
       where: { id: alvo.instanciaId },
-      select: { acoesGastas: true, criaturaId: true, estadoRecargas: true },
+      select: { acoesGastas: true, criaturaId: true, estadoRecargas: true, condicoesAtivas: true },
     }),
     prisma.combate.findUnique({
       where: { id: combateId },
@@ -4110,6 +4830,8 @@ async function reacoesCabiveis(
   ]);
   if (!instancia || !combate) return [];
   if (ordenarParticipantes(combate.participantes)[combate.turnoAtual]?.id === alvo.instanciaId) return [];
+  // Incapacitado ou Sonolento não reage.
+  if (travasDasCondicoes(lerCondicoesAtivas(instancia.condicoesAtivas)).semReacao) return [];
   const gasta = lerAcoesGastas(instancia.acoesGastas).react ?? 0;
 
   if (!alvo.personagemId) {
@@ -4235,7 +4957,20 @@ async function resolverAtaque(lado: Lado, resolucaoId: string, lances: LanceDeAt
   for (const alvo of alvos) {
     if (!crs.has(alvo.instanciaId)) crs.set(alvo.instanciaId, await crDoAlvo(alvo));
   }
-  const resultados = rolados.map((lance, i) => resultadoDoAtaque(lance, crs.get(alvos[i].instanciaId) ?? 10));
+  // Acerto a 1,5 m em alvo indefeso (Paralisado, Inconsciente) é crítico.
+  const condicoesDosAlvos = new Map(
+    (
+      await prisma.instanciaCombate.findMany({
+        where: { id: { in: [...crs.keys()] } },
+        select: { id: true, condicoesAtivas: true },
+      })
+    ).map((i) => [i.id, lerCondicoesAtivas(i.condicoesAtivas)]),
+  );
+  const resultados = rolados.map((lance, i) => {
+    const r = resultadoDoAtaque(lance, crs.get(alvos[i].instanciaId) ?? 10);
+    const indefeso = viraCritico(condicoesDosAlvos.get(alvos[i].instanciaId) ?? [], !!aberta.corpoACorpo);
+    return r === "acerto" && indefeso ? "critico" : r;
+  });
 
   const gravou = await mudarResolucoes(lado.combateId, (lista) => {
     const r = lista.find((x) => x.id === resolucaoId && x.etapa === "ataque");
@@ -4270,10 +5005,227 @@ async function resolverAtaque(lado: Lado, resolucaoId: string, lances: LanceDeAt
       alvos.map((a, i) => `${a.nome} · ${TEXTO_RESULTADO[resultados[i]]}`).join("; ") +
       (resultados.includes("critico") ? "!" : "."),
   );
+  // Técnica que errou todos com quem está Empoderado: o PP volta.
+  if (aberta.ppGasto && resultados.every((r) => r === "erro")) await devolverPpDoErro(lado, aberta);
+  // Dano de condição no 1º ataque do turno (Queimado).
+  await danoDeGatilho(lado, lado.instanciaId, "ataque");
   // Quem foi acertado decide se reage; sem reação a escolher, as condições já entram.
   await janelasDeReacao(lado.combateId, resolucaoId);
   await condicoesDaResolucao(lado, resolucaoId);
   return { resultados };
+}
+
+// PP da técnica que errou todos volta pra quem está com condição que devolve.
+async function devolverPpDoErro(lado: Lado, resolucao: Resolucao) {
+  const instancia = await prisma.instanciaCombate.findUnique({
+    where: { id: lado.instanciaId },
+    select: { personagemId: true, nomeExibicao: true, condicoesAtivas: true },
+  });
+  const quem = instancia ? travasDasCondicoes(lerCondicoesAtivas(instancia.condicoesAtivas)).ppDeErroVolta : null;
+  if (!instancia?.personagemId || !quem || !resolucao.ppGasto) return;
+  await prisma.personagem.update({
+    where: { id: instancia.personagemId },
+    data: { ppAtual: { increment: resolucao.ppGasto } },
+  });
+  await avisarCombate(lado.mesaId, instancia.nomeExibicao, `recuperou ${resolucao.ppGasto} PP (${quem}).`);
+}
+
+// Dano de condição com gatilho (1º ataque do turno, ao se mover): uma vez por
+// turno de combate. `condicaoId` restringe a uma. Devolve quantas dispararam.
+async function danoDeGatilho(
+  lado: { mesaId: string; combateId: string },
+  instanciaId: string,
+  gatilho: "ataque" | "movimento",
+  condicaoId?: string,
+): Promise<number> {
+  const [instancia, combate] = await Promise.all([
+    prisma.instanciaCombate.findUnique({
+      where: { id: instanciaId },
+      select: { combateId: true, nomeExibicao: true, personagemId: true, condicoesAtivas: true },
+    }),
+    prisma.combate.findUnique({ where: { id: lado.combateId }, select: { rodadaAtual: true, turnoAtual: true } }),
+  ]);
+  if (!instancia || !combate || instancia.combateId !== lado.combateId) return 0;
+  const vez = `${combate.rodadaAtual}:${combate.turnoAtual}`;
+  const condicoes = lerCondicoesAtivas(instancia.condicoesAtivas);
+  const disparam = condicoes.filter(
+    (c) => (!condicaoId || c.id === condicaoId) && mecanicaDa(c)?.dano?.quando === gatilho && c.disparou !== vez,
+  );
+  if (disparam.length === 0) return 0;
+  await prisma.instanciaCombate.update({
+    where: { id: instanciaId },
+    data: {
+      condicoesAtivas: condicoes.map((c) =>
+        disparam.includes(c) ? { ...c, disparou: vez } : c,
+      ) as unknown as Prisma.InputJsonValue,
+    },
+  });
+  for (const c of disparam) {
+    const dano = mecanicaDa(c)!.dano!;
+    const f = parseFormulaDados(dano.formula);
+    const valor = f.dados.length > 0 ? rolarDados(f.dados, f.modificador).total : f.modificador;
+    if (!(valor > 0)) continue;
+    await avisarCombate(lado.mesaId, instancia.nomeExibicao, `sofre com ${c.nome}.`);
+    await danoNaInstancia(
+      lado,
+      { instanciaId, nome: instancia.nomeExibicao, personagemId: instancia.personagemId },
+      [{ valor, tipo: dano.tipo }],
+      { de: c.fonteId, acao: c.nome },
+    );
+  }
+  return disparam.length;
+}
+
+// Ação de uma condição (Apagar, Tratar): gasta a ação do turno e tira, troca
+// por outra ou testa pra tirar. `total`: o teste, já rolado.
+async function acaoDaCondicao(
+  lado: { mesaId: string; combateId: string },
+  quem: {
+    instanciaId: string;
+    nome: string;
+    naVez: boolean;
+    gastas: AcoesGastas;
+    maximo: Record<TipoAcaoCombate, number>;
+    condicoes: CondicaoAtiva[];
+  },
+  condicaoId: string,
+  indice: number,
+  total: number | null,
+) {
+  const condicao = quem.condicoes.find((c) => c.id === condicaoId);
+  const acao = condicao ? mecanicaDa(condicao)?.acoes?.[Math.trunc(Number(indice))] : undefined;
+  if (!condicao || !acao) throw new ErroDeUso("Essa ação não existe mais.");
+  if (acao.custo !== "livre") {
+    if (!quem.naVez) throw new ErroDeUso("Não é a sua vez.");
+    if ((quem.gastas[acao.custo] ?? 0) >= quem.maximo[acao.custo]) {
+      throw new ErroDeUso(`Sem ação ${ACAO_COMBATE[acao.custo].nome.toLowerCase()} neste turno.`);
+    }
+    const trava = travaDaCondicaoNaAcao(quem.condicoes, acao.custo, quem.gastas);
+    if (trava) throw new ErroDeUso(trava);
+  }
+  if (acao.faz === "teste" && total == null) throw new ErroDeUso("Role o teste.");
+
+  if (acao.custo !== "livre") {
+    await prisma.instanciaCombate.update({
+      where: { id: quem.instanciaId },
+      data: { acoesGastas: { ...quem.gastas, [acao.custo]: (quem.gastas[acao.custo] ?? 0) + 1 } },
+    });
+  }
+  const passou = acao.faz !== "teste" || (total ?? 0) >= (acao.teste?.cd ?? 10);
+  if (passou) await tirarCondicao(lado.combateId, quem.instanciaId, condicaoId);
+  if (passou && acao.faz === "trocar" && acao.condicao) {
+    await aplicarCondicoes({
+      combateId: lado.combateId,
+      instanciaIds: [quem.instanciaId],
+      condicoes: [{ nome: acao.condicao, rodadas: RODADAS_MAX, salvaguarda: null }],
+      fonteId: null,
+      origem: condicao.nome,
+    });
+  }
+  const teste = acao.faz === "teste" ? ` (${total} contra CD ${acao.teste?.cd})` : "";
+  await avisarCombate(
+    lado.mesaId,
+    quem.nome,
+    passou
+      ? `${acao.nome}${teste}: não está mais com ${condicao.nome}` +
+          (acao.faz === "trocar" ? `, agora com ${acao.condicao}.` : ".")
+      : `${acao.nome}${teste}: continua com ${condicao.nome}.`,
+  );
+}
+
+// O jogador usa uma ação da condição dele.
+export async function usarAcaoDeCondicao(
+  personagemId: string,
+  condicaoId: string,
+  indice: number,
+  teste?: { total: number },
+) {
+  return executar("ficha", async () => {
+    const combate = await minhaResolucao(personagemId);
+    const [{ agg }, instancia] = await Promise.all([
+      carregarAgregado(personagemId),
+      prisma.instanciaCombate.findUnique({ where: { id: combate.instanciaId }, select: { nomeExibicao: true } }),
+    ]);
+    await acaoDaCondicao(
+      combate,
+      {
+        instanciaId: combate.instanciaId,
+        nome: instancia?.nomeExibicao ?? "",
+        naVez: combate.naVez,
+        gastas: combate.gastas,
+        maximo: maximoDeAcoes(agg.acoesExtras),
+        condicoes: combate.condicoes,
+      },
+      condicaoId,
+      indice,
+      teste ? Math.trunc(Number(teste.total) || 0) : null,
+    );
+    revalidarCombate(combate, personagemId);
+  });
+}
+
+// O narrador usa a ação de uma condição numa criatura; o teste rola aqui.
+export async function acaoDeCondicaoDaCriatura(
+  mesaId: string,
+  combateId: string,
+  instanciaId: string,
+  condicaoId: string,
+  indice: number,
+) {
+  return executar("sessao", async () => {
+    const { lado, instancia, criaturaId } = await ladoDaCriatura(mesaId, combateId, instanciaId);
+    const [combate, criatura] = await Promise.all([
+      prisma.combate.findUniqueOrThrow({
+        where: { id: combateId },
+        select: { turnoAtual: true, participantes: { select: { id: true, iniciativa: true, ordem: true } } },
+      }),
+      prisma.criatura.findUnique({ where: { id: criaturaId } }),
+    ]);
+    const condicoes = lerCondicoesAtivas(instancia.condicoesAtivas);
+    const acao = mecanicaDa(condicoes.find((c) => c.id === condicaoId) ?? { nome: "" })?.acoes?.[indice];
+    let total: number | null = null;
+    if (acao?.faz === "teste" && acao.teste && criatura) {
+      const bonus = bonusDePericiaDaCriatura(criatura, acao.teste.pericia);
+      total = rolarD20Contextual().mantido + bonus;
+    }
+    await acaoDaCondicao(
+      lado,
+      {
+        instanciaId,
+        nome: instancia.nomeExibicao,
+        naVez: ordenarParticipantes(combate.participantes)[combate.turnoAtual]?.id === instanciaId,
+        gastas: lerAcoesGastas(instancia.acoesGastas),
+        maximo: maximoDeAcoes(),
+        condicoes,
+      },
+      condicaoId,
+      indice,
+      total,
+    );
+    revalidatePath(`/narrador/${mesaId}`);
+  });
+}
+
+// A criatura se moveu com uma condição que dói ao se mover.
+export async function moverCriaturaComCondicao(mesaId: string, combateId: string, instanciaId: string, condicaoId: string) {
+  return executar("sessao", async () => {
+    const { lado } = await ladoDaCriatura(mesaId, combateId, instanciaId);
+    if ((await danoDeGatilho(lado, instanciaId, "movimento", condicaoId)) === 0) {
+      throw new ErroDeUso("Esse dano já caiu neste turno.");
+    }
+    revalidatePath(`/narrador/${mesaId}`);
+  });
+}
+
+// O jogador se moveu com uma condição que dói ao se mover (Sangramento).
+export async function moverComCondicao(personagemId: string, condicaoId: string) {
+  return executar("ficha", async () => {
+    const combate = await minhaResolucao(personagemId);
+    if ((await danoDeGatilho(combate, combate.instanciaId, "movimento", condicaoId)) === 0) {
+      throw new ErroDeUso("Esse dano já caiu neste turno.");
+    }
+    revalidarCombate(combate, personagemId);
+  });
 }
 
 // Dano rolado de uma resolução, uma parte por tipo: passa pelas defesas de cada
@@ -4334,24 +5286,23 @@ export async function responderSalvaguarda(
   personagemId: string,
   resolucaoId: string,
   rolagem: { total: number; natural: number | null },
+  // Salvaguarda de estrutura: o navio (InstanciaCombate.id) que ele comanda.
+  pelo?: string,
 ) {
   return executar("ficha", async () => {
     const combate = await minhaResolucao(personagemId);
+    const quem = pelo ? await navioComandado(combate.combateId, pelo, personagemId) : { instanciaId: combate.instanciaId, personagemId };
     const total = Math.trunc(Number(rolagem?.total) || 0);
     const natural = rolagem?.natural == null ? null : Math.trunc(Number(rolagem.natural) || 0);
     const temDano = await mudarResolucoes(
       combate.combateId,
       (lista) => lista.find((x) => x.id === resolucaoId && x.salvaguarda)?.temDano === true,
     );
-    const reacoes = await reacoesCabiveis(
-      combate.combateId,
-      { instanciaId: combate.instanciaId, personagemId },
-      { modo: "salvaguarda", temDano },
-    );
+    const reacoes = await reacoesCabiveis(combate.combateId, quem, { modo: "salvaguarda", temDano });
 
     const feito = await mudarResolucoes(combate.combateId, (lista) => {
       const r = lista.find((x) => x.id === resolucaoId && x.salvaguarda);
-      const alvo = r?.alvos.find((a) => a.instanciaId === combate.instanciaId && a.resultado === null);
+      const alvo = r?.alvos.find((a) => a.instanciaId === quem.instanciaId && a.resultado === null);
       if (!r || !alvo) return null;
       const salv = resultadoDaSalvaguarda({ total, natural }, r.salvaguarda!.cd);
       alvo.resultado = salv.resultado;
@@ -4377,6 +5328,154 @@ export async function responderSalvaguarda(
     await condicoesDaResolucao(combate, resolucaoId);
     revalidarCombate(combate, personagemId);
     return { resultado: feito.alvo.resultado };
+  });
+}
+
+// O navio do combate que o personagem comanda (ficha de navio com ele de comandante).
+async function navioComandado(combateId: string, instanciaId: string, comandanteId: string) {
+  const instancia = await prisma.instanciaCombate.findFirst({
+    where: { id: instanciaId, combateId },
+    select: { personagemId: true },
+  });
+  const navio = instancia?.personagemId
+    ? await prisma.personagem.findUnique({ where: { id: instancia.personagemId }, select: { navio: true } })
+    : null;
+  if (!instancia?.personagemId || lerNavio(navio?.navio)?.comandanteId !== comandanteId) {
+    throw new ErroDeUso("Você não comanda esse navio.");
+  }
+  return { instanciaId, personagemId: instancia.personagemId };
+}
+
+// ─── Navio no combate ──────────────────────────────────────────────────────
+
+type Manobra = { tipo: "velocidade"; valor: number } | { tipo: "virar"; lado: number } | { tipo: "ancora"; baixar: boolean };
+
+// O navio na vez dele: a ficha, o estado no combate e a velocidade máxima com o dano.
+async function navioNaVez(navioId: string, acao: TipoAcaoCombate) {
+  const combate = await minhaResolucao(navioId);
+  const [navio, instancia] = await Promise.all([
+    prisma.personagem.findUnique({
+      where: { id: navioId },
+      select: { navio: true, deslocamento: true, hpAtual: true, hpMax: true, nome: true },
+    }),
+    prisma.instanciaCombate.findUnique({ where: { id: combate.instanciaId }, select: { estadoNavio: true } }),
+  ]);
+  const dados = lerNavio(navio?.navio);
+  if (!navio || !dados) throw new ErroDeUso("Esta ficha não é de navio.");
+  if (!combate.naVez) throw new ErroDeUso("Não é a vez do navio.");
+  if ((combate.gastas[acao] ?? 0) >= 1) {
+    throw new ErroDeUso(acao === "bonus" ? "O navio já manobrou neste turno." : "O navio já usou a ação de combate.");
+  }
+  const maxima = velocidadeComDano(navio.deslocamento, navio.hpAtual, navio.hpMax);
+  return { combate, navio, dados, maxima, estado: lerEstadoNavio(instancia?.estadoNavio, maxima) };
+}
+
+// Manobra do navio (cap. 14.5), gasta a ação de manobra do turno: muda a
+// velocidade até 6 nós (entre 2 e o máximo), vira até 45° ou sobe/baixa a
+// âncora. Mover com a âncora baixada dá 8d10 contundente no navio a cada 6
+// nós; a cada 80 de dano, d20 ≤ 5 solta a âncora.
+export async function manobrarNavio(navioId: string, manobra: Manobra) {
+  return executar("ficha", async () => {
+    const { combate, navio, maxima, estado } = await navioNaVez(navioId, "bonus");
+    let texto = "";
+    if (manobra?.tipo === "velocidade") {
+      const pedido = Math.min(maxima, Math.max(2, Math.trunc(Number(manobra.valor) || 0)));
+      const alvo = Math.min(estado.velocidade + MANOBRA_NOS, Math.max(estado.velocidade - MANOBRA_NOS, pedido));
+      if (estado.ancora) {
+        const f = parseFormulaDados(DANO_ANCORA);
+        const vezes = Math.max(1, Math.ceil(alvo / MANOBRA_NOS));
+        let dano = 0;
+        for (let i = 0; i < vezes; i++) dano += rolarDados(f.dados, f.modificador).total;
+        const antes = Math.floor(estado.danoAncora / DANO_PRA_SOLTAR_ANCORA);
+        estado.danoAncora += dano;
+        let soltou = false;
+        for (let i = antes; i < Math.floor(estado.danoAncora / DANO_PRA_SOLTAR_ANCORA); i++) {
+          if (1 + Math.floor(Math.random() * 20) <= 5) soltou = true;
+        }
+        await avisarCombate(combate.mesaId, navio.nome, `forçou a âncora (${vezes * 8}d10).`);
+        await danoNaInstancia(combate, { instanciaId: combate.instanciaId, nome: navio.nome, personagemId: navioId }, [
+          { valor: dano, tipo: "Contundente" },
+        ], { de: null, acao: "Âncora" });
+        if (soltou) {
+          estado.ancora = false;
+          estado.velocidade = alvo;
+          texto = `a âncora soltou: ${alvo} nós.`;
+        } else {
+          texto = "a âncora segura o navio.";
+        }
+      } else {
+        estado.velocidade = alvo;
+        texto = `${alvo > pedido || alvo < pedido ? "mudou pra " : ""}${alvo} nós (${metrosPorRodada(alvo).toLocaleString("pt-BR")} m por rodada).`;
+      }
+    } else if (manobra?.tipo === "virar") {
+      const lado = Number(manobra.lado) < 0 ? -1 : 1;
+      estado.rumo = (((estado.rumo + lado * MANOBRA_GRAUS) % 360) + 360) % 360;
+      texto = `virou a ${lado < 0 ? "bombordo" : "estibordo"}: rumo ${textoRumo(estado.rumo)}.`;
+    } else if (manobra?.tipo === "ancora") {
+      estado.ancora = manobra.baixar === true;
+      if (estado.ancora) estado.velocidade = 0;
+      texto = estado.ancora ? "baixou a âncora e parou." : "subiu a âncora.";
+    } else {
+      throw new ErroDeUso("Manobra inválida.");
+    }
+    await prisma.instanciaCombate.update({
+      where: { id: combate.instanciaId },
+      data: {
+        estadoNavio: estado,
+        acoesGastas: { ...combate.gastas, bonus: (combate.gastas.bonus ?? 0) + 1 },
+      },
+    });
+    await avisarCombate(combate.mesaId, navio.nome, texto);
+    revalidarCombate(combate, navioId);
+  });
+}
+
+// Colisão (cap. 14.5), gasta a ação de combate: só acima de 16 nós; o dano é
+// o da maior categoria, e quem tem mais CR leva metade (CR igual, os dois inteiro).
+export async function colidirNavio(navioId: string, alvoInstanciaId: string) {
+  return executar("ficha", async () => {
+    const { combate, navio, dados, estado } = await navioNaVez(navioId, "padrao");
+    if (estado.velocidade <= NOS_PRA_COLIDIR) throw new ErroDeUso(`Precisa de mais de ${NOS_PRA_COLIDIR} nós pra colidir.`);
+    const alvo = await prisma.instanciaCombate.findFirst({
+      where: { id: alvoInstanciaId, combateId: combate.combateId, NOT: { id: combate.instanciaId } },
+      select: { id: true, nomeExibicao: true, personagemId: true },
+    });
+    if (!alvo) throw new ErroDeUso("Alvo não está no combate.");
+    // Navio contra navio: a maior categoria dos dois; contra outra coisa, a do próprio.
+    const fichaDoAlvo = alvo.personagemId
+      ? await prisma.personagem.findUnique({ where: { id: alvo.personagemId }, select: { navio: true } })
+      : null;
+    const tamanhoAlvo = lerNavio(fichaDoAlvo?.navio)?.montagem.tamanho ?? dados.montagem.tamanho;
+    const formula = danoDeColisao(dados.montagem.tamanho, tamanhoAlvo);
+    const f = parseFormulaDados(formula);
+    const dano = rolarDados(f.dados, f.modificador).total;
+    const [crMeu, crAlvo] = await Promise.all([
+      crDoPersonagem(navioId),
+      crDoAlvo({ instanciaId: alvo.id, nome: alvo.nomeExibicao, personagemId: alvo.personagemId, resultado: null, danoAplicado: false }),
+    ]);
+    await prisma.instanciaCombate.update({
+      where: { id: combate.instanciaId },
+      data: { acoesGastas: { ...combate.gastas, padrao: (combate.gastas.padrao ?? 0) + 1 } },
+    });
+    await avisarCombate(
+      combate.mesaId,
+      navio.nome,
+      `colidiu com ${alvo.nomeExibicao} a ${estado.velocidade} nós: ${formula} = ${dano}.`,
+    );
+    const metade = (cr: number, outra: number) => (cr > outra ? Math.floor(dano / 2) : dano);
+    await danoNaInstancia(
+      combate,
+      { instanciaId: alvo.id, nome: alvo.nomeExibicao, personagemId: alvo.personagemId },
+      [{ valor: metade(crAlvo, crMeu), tipo: "Contundente" }],
+      { de: combate.instanciaId, acao: "Colisão" },
+    );
+    await danoNaInstancia(
+      combate,
+      { instanciaId: combate.instanciaId, nome: navio.nome, personagemId: navioId },
+      [{ valor: metade(crMeu, crAlvo), tipo: "Contundente" }],
+      { de: alvo.id, acao: "Colisão" },
+    );
+    revalidarCombate(combate, navioId);
   });
 }
 
@@ -4655,6 +5754,7 @@ async function ladoDaCriatura(mesaId: string, combateId: string, instanciaId: st
       acoesReveladas: true,
       autoRevelarAcoes: true,
       pvTemp: true,
+      condicoesAtivas: true,
     },
   });
   if (!instancia?.criaturaId) throw new ErroDeUso("Criatura não encontrada neste combate.");
@@ -4745,6 +5845,11 @@ export async function usarAcaoDeCriatura(
     // Usos e PP conferidos antes de gastar.
     const custo = await custoDaAcaoDeCriatura(emCombate, componenteId, forcar);
     const { acao, tipoAcao } = custo;
+    // Incapacitado, Sonolento, Letárgico… (o narrador pode forçar).
+    const pelaCondicao = tipoAcao
+      ? travaDaCondicaoNaAcao(lerCondicoesAtivas(instancia.condicoesAtivas), tipoAcao, lerAcoesGastas(instancia.acoesGastas))
+      : null;
+    if (pelaCondicao && !forcar) throw new ErroDeUso(pelaCondicao);
 
     const ataque = acao.efeitos.flatMap((e) => (e.tipo === "ataque" && e.bonus.trim() ? [e] : []))[0];
     const salv = acao.efeitos.flatMap((e) => (e.tipo === "salvaguarda" ? [e] : []))[0];
@@ -4797,6 +5902,7 @@ export async function usarAcaoDeCriatura(
               : null,
             condicoes,
             alvos,
+            corpoACorpo: inferirAlcance(acao.alcance) === "corpo_a_corpo",
           })
         : null;
 
