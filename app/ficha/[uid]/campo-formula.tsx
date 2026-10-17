@@ -2,6 +2,7 @@
 
 // Campo de fórmula: atalhos (siglas, dados, funções), autocompletar e prévia.
 
+import { Tooltip } from "@/components/tooltip";
 import { createContext, useContext, useId, useRef, useState } from "react";
 import {
   FUNCOES_FORMULA,
@@ -248,28 +249,28 @@ export function CampoFormula({
               </button>
             ))}
           {siglas.map((s) => (
-            <button
-              type="button"
-              key={s.sigla}
-              className="sugestao"
-              title={valores[s.sigla] ? `${s.nome}: ${valores[s.sigla]}` : s.nome}
-              onMouseDown={manterFoco}
-              onClick={() => atalho(s.sigla)}
-            >
-              {s.sigla}
-            </button>
+            <Tooltip key={s.sigla} titulo={s.nome} selo={valores[s.sigla] || undefined}>
+              <button
+                type="button"
+                className="sugestao"
+                onMouseDown={manterFoco}
+                onClick={() => atalho(s.sigla)}
+              >
+                {s.sigla}
+              </button>
+            </Tooltip>
           ))}
           {FUNCOES_FORMULA.map((f) => (
-            <button
-              type="button"
-              key={f.nome}
-              className="sugestao formula-funcao"
-              title={f.descricao}
-              onMouseDown={manterFoco}
-              onClick={() => (f.nome === "POR_NIVEL" ? abrirPorNivel() : atalho(f.modelo))}
-            >
-              {f.rotulo}
-            </button>
+            <Tooltip key={f.nome} titulo={f.rotulo} icone="fa-square-root-variable" texto={f.descricao}>
+              <button
+                type="button"
+                className="sugestao formula-funcao"
+                onMouseDown={manterFoco}
+                onClick={() => (f.nome === "POR_NIVEL" ? abrirPorNivel() : atalho(f.modelo))}
+              >
+                {f.rotulo}
+              </button>
+            </Tooltip>
           ))}
         </Sugestoes>
       )}

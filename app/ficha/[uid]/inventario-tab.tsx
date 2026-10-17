@@ -76,6 +76,7 @@ import {
 import { useEscolherAlvo } from "./escolher-alvo";
 import type { Tripulante } from "./tripulacao-tab";
 import { MarcaExausto } from "./marca-exausto";
+import { Tooltip } from "@/components/tooltip";
 import { TagChip, TagsEditor } from "./estilo-cor-picker";
 import {
   lerEstilosTag,
@@ -861,20 +862,26 @@ export function InventarioTab({
             <span>{pesoTotal.toFixed(1)}</span> /{" "}
             <EditableStat personagemId={personagemId} campo="cargaMaxima" valor={cargaMaxima} />
             {efeitosAgregados.bonusCarga.fontes.length > 0 && (
-              <span
-                title={`${formatarMod(efeitosAgregados.bonusCarga.valor)} de ${efeitosAgregados.bonusCarga.fontes.join(", ")}`}
+              <Tooltip
+                titulo="Carga"
+                icone="fa-scale-balanced"
+                texto={`${formatarMod(efeitosAgregados.bonusCarga.valor)} de ${efeitosAgregados.bonusCarga.fontes.join(", ")}`}
               >
-                {" "}
-                {efeitosAgregados.bonusCarga.valor > 0 ? "+" : ""}
-                {efeitosAgregados.bonusCarga.valor}
-                <i className="fas fa-link prof-fonte" />
-              </span>
+                <span>
+                  {" "}
+                  {efeitosAgregados.bonusCarga.valor > 0 ? "+" : ""}
+                  {efeitosAgregados.bonusCarga.valor}
+                  <i className="fas fa-link prof-fonte" />
+                </span>
+              </Tooltip>
             )}
             {multCarga && (
-              <span title={`×${multCarga.fator} de ${multCarga.fontes.join(", ")}`}>
-                {" "}×{multCarga.fator}
-                <i className="fas fa-link prof-fonte" />
-              </span>
+              <Tooltip titulo="Carga" icone="fa-scale-balanced" texto={`×${multCarga.fator} de ${multCarga.fontes.join(", ")}`}>
+                <span>
+                  {" "}×{multCarga.fator}
+                  <i className="fas fa-link prof-fonte" />
+                </span>
+              </Tooltip>
             )}
             {" "}PC
           </div>
@@ -1612,9 +1619,11 @@ function CardItem({
       {tracos.length > 0 && (
         <div className="item-tracos">
           {tracos.map((t) => (
-            <span key={t.icone} className="item-traco" title={t.titulo}>
-              <i className={`fas ${t.icone}`} /> {t.texto}
-            </span>
+            <Tooltip key={t.icone} titulo={t.texto} icone={t.icone} texto={t.titulo}>
+              <span className="item-traco">
+                <i className={`fas ${t.icone}`} /> {t.texto}
+              </span>
+            </Tooltip>
           ))}
         </div>
       )}

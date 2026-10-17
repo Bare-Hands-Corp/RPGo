@@ -10,6 +10,7 @@ import {
   type CondicaoCatalogo,
 } from "@/lib/condicoes";
 import { EFEITO_COR_PADRAO, estiloAplicado } from "@/lib/estilos-cor";
+import { Tooltip } from "@/components/tooltip";
 
 // Condições do narrador da mesa (Biblioteca); sem provider valem as do livro.
 const CatalogoCondicoesContext = createContext<CondicaoCatalogo[]>(CATALOGO_CONDICOES_PADRAO);
@@ -35,15 +36,16 @@ export function useEstiloCondicao() {
   const catalogo = useContext(CatalogoCondicoesContext);
   return (nome: string) => {
     const entrada = condicaoNoCatalogo(catalogo, nome);
+    const cor = entrada?.cor ?? corDaCondicao(nome);
     const { className, style } = estiloAplicado(
       {
-        cor: entrada?.cor ?? corDaCondicao(nome),
+        cor,
         cor2: entrada?.cor2 ?? null,
         efeito: entrada?.efeito ?? EFEITO_COR_PADRAO,
       },
       "chip",
     );
-    return { className, style, descricao: entrada?.descricao ?? "" };
+    return { className, style, cor, descricao: entrada?.descricao ?? "" };
   };
 }
 
@@ -62,16 +64,21 @@ export function ChipCondicao({
 }) {
   const cara = useEstiloCondicao()(nome);
   const falta = rodadas ? (rodadas >= RODADAS_MAX ? "Até tirar" : `Falta ${textoRodadas(rodadas)}`) : "";
-  const dica = [cara.descricao, origem ? `De ${origem}` : "", falta]
-    .filter(Boolean)
-    .join(" · ");
   return (
-    <span className={`condicao-chip ${cara.className}`} style={cara.style} title={dica || undefined}>
-      <span className="fx-texto">{nome}</span>
-      {rodadas != null && (
-        <span className="condicao-chip-rodadas">{rodadas >= RODADAS_MAX ? "∞" : rodadas}</span>
-      )}
-      {children}
-    </span>
+    <Tooltip
+      cor={cara.cor}
+      icone="fa-triangle-exclamation"
+      titulo={nome}
+      selo={falta || undefined}
+      texto={[cara.descricao, origem && `De ${origem}`]}
+    >
+      <span className={`condicao-chip ${cara.className}`} style={cara.style} tabIndex={0}>
+        <span className="fx-texto">{nome}</span>
+        {rodadas != null && (
+          <span className="condicao-chip-rodadas">{rodadas >= RODADAS_MAX ? "∞" : rodadas}</span>
+        )}
+        {children}
+      </span>
+    </Tooltip>
   );
 }

@@ -6,6 +6,7 @@ import Swal from "sweetalert2";
 import { BotaoVoltar } from "@/components/botao-voltar";
 import { EditableStat } from "./editable-stat";
 import { EditFichaModal } from "./edit-ficha-modal";
+import { Tooltip } from "@/components/tooltip";
 import { AvatarUploadModal } from "./avatar-upload-modal";
 import { RecursosSidebar, type Recurso } from "./recursos-sidebar";
 import { FormulaContext } from "./campo-formula";
@@ -772,7 +773,7 @@ export function PerfilSidebar({
       deslocReduzido ? `Reduzido por exaustão (de ${deslocBruto} m)` : null,
     ]
       .filter(Boolean)
-      .join(" · ") || undefined;
+      .join("\n") || undefined;
 
   const nadoEfetivo = valores.nadar.valor;
   const nadoFontes = valores.nadar.fontes;
@@ -1026,6 +1027,7 @@ export function PerfilSidebar({
         <EditFichaModal
           personagemId={p.id}
           inicial={{
+            nome: p.nome,
             hpMax: p.hpMax,
             ppMax: p.ppMax,
             tipoDadoVida: p.tipoDadoVida,
@@ -1118,12 +1120,16 @@ export function PerfilSidebar({
           <span>
             <i className="fas fa-heart" /> Vida
             {p.hpAtual <= 0 && (
-              <span
-                className={`vida-estado${morto ? " morto" : ""}`}
-                title={pvNegativos > 0 ? `PV negativos: ${pvNegativos} de ${hpMaxEfetivo}` : undefined}
+              <Tooltip
+                titulo={morto ? "Morto" : "Incapacitado"}
+                icone="fa-skull"
+                cor="var(--danger)"
+                texto={pvNegativos > 0 ? `PV negativos: ${pvNegativos} de ${hpMaxEfetivo}` : undefined}
               >
-                {morto ? "Morto" : "Incapacitado"}
-              </span>
+                <span className={`vida-estado${morto ? " morto" : ""}`}>
+                  {morto ? "Morto" : "Incapacitado"}
+                </span>
+              </Tooltip>
             )}
           </span>
           <div className="stat-values">
@@ -1136,25 +1142,22 @@ export function PerfilSidebar({
               onOtimista={(novo) => aplicarVitais({ hpAtual: novo })}
             />
             {" / "}
-            <span
-              title={
-                [
-                  efeitosAgregados.bonusHpMax.fontes.length
-                    ? `${formatarMod(efeitosAgregados.bonusHpMax.valor)} de ${efeitosAgregados.bonusHpMax.fontes.join(", ")}`
-                    : null,
-                  multHpMax
-                    ? `×${multHpMax.fator} de ${multHpMax.fontes.join(", ")}`
-                    : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ") || undefined
-              }
+            <Tooltip
+              titulo="PV Máximo"
+              icone="fa-heart"
+              texto={[
+                efeitosAgregados.bonusHpMax.fontes.length > 0 &&
+                  `${formatarMod(efeitosAgregados.bonusHpMax.valor)} de ${efeitosAgregados.bonusHpMax.fontes.join(", ")}`,
+                multHpMax && `×${multHpMax.fator} de ${multHpMax.fontes.join(", ")}`,
+              ]}
             >
-              {hpMaxEfetivo}
-              {(efeitosAgregados.bonusHpMax.fontes.length > 0 || multHpMax) && (
-                <i className="fas fa-link prof-fonte" />
-              )}
-            </span>
+              <span>
+                {hpMaxEfetivo}
+                {(efeitosAgregados.bonusHpMax.fontes.length > 0 || multHpMax) && (
+                  <i className="fas fa-link prof-fonte" />
+                )}
+              </span>
+            </Tooltip>
             <span className={`hp-temp ${p.hpTemp > 0 ? "ativo" : ""}`}>
               {" +"}
               <EditableStat
@@ -1202,25 +1205,22 @@ export function PerfilSidebar({
               onOtimista={(novo) => aplicarOtimista({ ppAtual: novo })}
             />{" "}
             /{" "}
-            <span
-              title={
-                [
-                  efeitosAgregados.bonusPpMax.fontes.length
-                    ? `${formatarMod(efeitosAgregados.bonusPpMax.valor)} de ${efeitosAgregados.bonusPpMax.fontes.join(", ")}`
-                    : null,
-                  multPpMax
-                    ? `×${multPpMax.fator} de ${multPpMax.fontes.join(", ")}`
-                    : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ") || undefined
-              }
+            <Tooltip
+              titulo="PP Máximo"
+              icone="fa-bolt"
+              texto={[
+                efeitosAgregados.bonusPpMax.fontes.length > 0 &&
+                  `${formatarMod(efeitosAgregados.bonusPpMax.valor)} de ${efeitosAgregados.bonusPpMax.fontes.join(", ")}`,
+                multPpMax && `×${multPpMax.fator} de ${multPpMax.fontes.join(", ")}`,
+              ]}
             >
-              {ppMaxEfetivo}
-              {(efeitosAgregados.bonusPpMax.fontes.length > 0 || multPpMax) && (
-                <i className="fas fa-link prof-fonte" />
-              )}
-            </span>
+              <span>
+                {ppMaxEfetivo}
+                {(efeitosAgregados.bonusPpMax.fontes.length > 0 || multPpMax) && (
+                  <i className="fas fa-link prof-fonte" />
+                )}
+              </span>
+            </Tooltip>
           </div>
         </div>
         <div className="progress-track">
@@ -1307,8 +1307,6 @@ export function PerfilSidebar({
       />
       )}
 
-      {/* Andar e nadar em cima; os outros deslocamentos embaixo, menores, e apagados
-          quando o personagem não tem. */}
       {navio && (
         <BlocoNavio
           navioId={p.id}
@@ -1318,40 +1316,26 @@ export function PerfilSidebar({
           velocidade={deslocEfetivo}
         />
       )}
-      <div className="movimentos-bloco">
-        <div className={`recurso-dupla${movimentos.length === 1 ? " sozinha" : ""}`}>
-          {movimentos.slice(0, 2).map((m) => (
-            <div key={m.tipo} className="recurso-linha" title={m.titulo}>
-              <span className="recurso-icone">
-                <i className={`fas ${m.icone}`} />
-              </span>
-              <span className="recurso-nome">{m.nome}</span>
-              <span className={`stat-values ${m.reduzido ? "valor-exausto" : ""}`}>
-                {m.valor.toLocaleString("pt-BR")} {unidadeMov}
-                {/* Navio: 1,5 m por rodada a cada 2 nós. */}
-                {unidadeMov === "nós" && ` · ${metrosPorRodada(m.valor).toLocaleString("pt-BR")} m/rodada`}
-                {m.deEfeito && <i className="fas fa-link prof-fonte" />}
-                {m.reduzido && (
-                  <MarcaExausto titulo={`Reduzido por exaustão (de ${deslocBruto} m)`} />
-                )}
-              </span>
-            </div>
-          ))}
-        </div>
-        {movimentos.length > 2 && (
-        <div className="movimentos" role="group" aria-label="Outros deslocamentos">
-          {movimentos.slice(2).map((m) => (
-            <div key={m.tipo} className={`movimento${m.valor > 0 ? "" : " sem"}`} title={m.titulo}>
+      {/* Todos os deslocamentos no mesmo tamanho; os que o personagem não tem
+          ficam apagados. As marcas (efeito, exaustão) vão nos cantos. */}
+      <div className={`movimentos${movimentos.length === 1 ? " sozinha" : ""}`} role="group" aria-label="Deslocamentos">
+        {movimentos.map((m) => (
+          <Tooltip key={m.tipo} titulo={m.nome} icone={m.icone} texto={m.titulo}>
+            <div className={`movimento${m.valor > 0 ? "" : " sem"}`}>
               <i className={`fas ${m.icone} movimento-icone`} />
-              <strong>{m.valor > 0 ? `${m.valor.toLocaleString("pt-BR")} m` : "—"}</strong>
+              <strong className={m.reduzido ? "valor-exausto" : undefined}>
+                {m.valor > 0 ? `${m.valor.toLocaleString("pt-BR")} ${unidadeMov}` : "—"}
+              </strong>
               <span className="movimento-nome">
                 {m.nome}
-                {m.deEfeito && <i className="fas fa-link prof-fonte" />}
+                {/* Navio: 1,5 m por rodada a cada 2 nós. */}
+                {unidadeMov === "nós" && ` · ${metrosPorRodada(m.valor).toLocaleString("pt-BR")} m/rodada`}
               </span>
+              {m.deEfeito && <i className="fas fa-link prof-fonte" />}
+              {m.reduzido && <i className="fas fa-bed exausto-marca" />}
             </div>
-          ))}
-        </div>
-        )}
+          </Tooltip>
+        ))}
       </div>
 
       <FormulaContext.Provider value={ctxTurno}>
@@ -1371,7 +1355,7 @@ export function PerfilSidebar({
               crIgual.length ? `Igual a outro valor por ${crIgual.join(", ")}` : null,
             ]
               .filter(Boolean)
-              .join(" · ") || undefined;
+              .join("\n") || undefined;
           return (
             <CrEditavel
               personagemId={p.id}
@@ -1412,11 +1396,11 @@ export function PerfilSidebar({
               penD20 ? `−${penD20} de exaustão` : null,
             ]
               .filter(Boolean)
-              .join(" · ");
+              .join("\n");
           return (
+            <Tooltip titulo="Iniciativa" icone="fa-dice-d20" texto={[titulo, "Clique para empilhar no Rolador"]}>
             <div
               className="derivado-card derivado-rolar"
-              title={`Empilhar Iniciativa no Rolador${titulo ? ` · ${titulo}` : ""}`}
               role="button"
               tabIndex={0}
               onClick={() => empilharD20(iniEf, "Iniciativa", { tipo: "iniciativa" })}
@@ -1427,33 +1411,28 @@ export function PerfilSidebar({
               <div className="derivado-label">Iniciativa</div>
               <div className={`derivado-value ${reduzido ? "valor-exausto" : ""}`}>
                 {formatarMod(iniEf)}
-                {penD20 > 0 && <MarcaExausto titulo={`−${penD20} de exaustão`} />}
+                {penD20 > 0 && <MarcaExausto />}
               </div>
             </div>
+            </Tooltip>
           );
         })()}
         {mostra("testes") && (
-        <div
-          className="derivado-card"
-          title={
-            [
-              efeitosAgregados.bonusPercepcaoPassiva.fontes.length
-                ? `${formatarMod(efeitosAgregados.bonusPercepcaoPassiva.valor)} de ${efeitosAgregados.bonusPercepcaoPassiva.fontes.join(", ")}`
-                : null,
-              modoPercepcao.vantagem.length
-                ? `+5 (vantagem) de ${modoPercepcao.vantagem.join(", ")}`
-                : null,
-              modoPercepcao.desvantagem.length
-                ? `−5 (desvantagem) de ${modoPercepcao.desvantagem.join(", ")}`
-                : null,
-            ]
-              .filter(Boolean)
-              .join(" · ") || undefined
-          }
+        <Tooltip
+          titulo="Percepção Passiva"
+          icone="fa-eye"
+          texto={[
+            efeitosAgregados.bonusPercepcaoPassiva.fontes.length > 0 &&
+              `${formatarMod(efeitosAgregados.bonusPercepcaoPassiva.valor)} de ${efeitosAgregados.bonusPercepcaoPassiva.fontes.join(", ")}`,
+            modoPercepcao.vantagem.length > 0 && `+5 (vantagem) de ${modoPercepcao.vantagem.join(", ")}`,
+            modoPercepcao.desvantagem.length > 0 && `−5 (desvantagem) de ${modoPercepcao.desvantagem.join(", ")}`,
+          ]}
         >
-          <div className="derivado-label">Perc. Pass.</div>
-          <div className="derivado-value">{percepcaoPassiva}</div>
-        </div>
+          <div className="derivado-card">
+            <div className="derivado-label">Perc. Pass.</div>
+            <div className="derivado-value">{percepcaoPassiva}</div>
+          </div>
+        </Tooltip>
         )}
       </div>
 
@@ -1511,10 +1490,10 @@ export function PerfilSidebar({
         ) {
           return null;
         }
-        const titulo = (fontes: string[], motivo?: string) =>
-          [fontes.length ? `de ${fontes.join(", ")}` : null, motivo]
-            .filter(Boolean)
-            .join(" · ") || undefined;
+        const titulo = (fontes: string[], motivo?: string) => [
+          fontes.length > 0 && `de ${fontes.join(", ")}`,
+          motivo,
+        ];
         const grupo = (icone: string, rotulo: string, linhas: Linha[], prefixo: string) =>
           linhas.length > 0 && (
             <div className={`defesa-grupo${prefixo === "vul" ? " fraqueza" : ""}`}>
@@ -1523,11 +1502,8 @@ export function PerfilSidebar({
               </span>
               <div className="defesa-valores">
                 {linhas.map(([nome, d, st]) => (
-                  <div
-                    key={`${prefixo}-${nome}`}
-                    className={`defesa-entrada${st.condicional ? " cond" : ""}`}
-                    title={titulo(d.fontes, undefined)}
-                  >
+                  <Tooltip key={`${prefixo}-${nome}`} titulo={rotulo} icone={icone} texto={titulo(d.fontes)}>
+                  <div className={`defesa-entrada${st.condicional ? " cond" : ""}`}>
                     <div className="defesa-pills">
                       {nome
                         .split(/\s*,\s*/)
@@ -1542,6 +1518,7 @@ export function PerfilSidebar({
                       <span className="defesa-cond-nota">{st.motivo}</span>
                     )}
                   </div>
+                  </Tooltip>
                 ))}
               </div>
             </div>
@@ -1565,11 +1542,13 @@ export function PerfilSidebar({
                     {reducoes.map((r, i) => {
                       const cond = !r.passiva || !!r.quando;
                       return (
-                        <div
+                        <Tooltip
                           key={`red-${i}`}
-                          className={`defesa-entrada${cond ? " cond" : ""}`}
-                          title={titulo([r.fonte], r.quando ? `quando: ${r.quando}` : undefined)}
+                          titulo="Redução de dano"
+                          icone="fa-shield-halved"
+                          texto={titulo([r.fonte], r.quando ? `quando: ${r.quando}` : undefined)}
                         >
+                        <div className={`defesa-entrada${cond ? " cond" : ""}`}>
                           <div className="defesa-pills">
                             <span className="defesa-chip">
                               −{r.valor}
@@ -1580,6 +1559,7 @@ export function PerfilSidebar({
                             <span className="defesa-cond-nota">enquanto {r.fonte} estiver ativa</span>
                           )}
                         </div>
+                        </Tooltip>
                       );
                     })}
                   </div>
@@ -1587,9 +1567,11 @@ export function PerfilSidebar({
               )}
               {critVis && (
                 <div className="defesa-grupo">
-                  <span className="defesa-rotulo" title={titulo(critImune.fontes, undefined)}>
-                    <i className="fas fa-burst" /> Imune a crítico
-                  </span>
+                  <Tooltip titulo="Imune a crítico" icone="fa-burst" texto={titulo(critImune.fontes)}>
+                    <span className="defesa-rotulo">
+                      <i className="fas fa-burst" /> Imune a crítico
+                    </span>
+                  </Tooltip>
                   {critSt.condicional && critSt.motivo && (
                     <span className="defesa-cond-nota">{critSt.motivo}</span>
                   )}
@@ -1616,18 +1598,21 @@ export function PerfilSidebar({
               <div className="defesa-grupo">
                 <div className="defesa-valores">
                   {sentidos.map(([nome, fv]) => (
-                    <div
+                    <Tooltip
                       key={`sen-${nome}`}
-                      className="defesa-entrada"
-                      title={fv.fontes.length ? `de ${fv.fontes.join(", ")}` : undefined}
+                      titulo={capitalizar(nome)}
+                      icone="fa-eye"
+                      texto={fv.fontes.length ? `de ${fv.fontes.join(", ")}` : undefined}
                     >
-                      <div className="defesa-pills">
-                        <span className="defesa-chip">
-                          <i className="fas fa-eye" /> {capitalizar(nome)}
-                          {fv.valor > 0 ? ` ${fv.valor} m` : ""}
-                        </span>
+                      <div className="defesa-entrada">
+                        <div className="defesa-pills">
+                          <span className="defesa-chip">
+                            <i className="fas fa-eye" /> {capitalizar(nome)}
+                            {fv.valor > 0 ? ` ${fv.valor} m` : ""}
+                          </span>
+                        </div>
                       </div>
-                    </div>
+                    </Tooltip>
                   ))}
                 </div>
               </div>
@@ -1713,12 +1698,11 @@ export function PerfilSidebar({
               : null,
           ]
             .filter(Boolean)
-            .join(" · ");
+            .join("\n");
           return (
+            <Tooltip key={label} titulo={`Teste de ${label}`} icone="fa-dice-d20" texto={[titulo, "Clique para empilhar no Rolador"]}>
             <div
               className="attr-card attr-rolar"
-              key={label}
-              title={`Empilhar Teste ${label} no Rolador${titulo ? ` · ${titulo}` : ""}`}
               role="button"
               tabIndex={0}
               onClick={() =>
@@ -1739,19 +1723,15 @@ export function PerfilSidebar({
                 {(bonus || fixoVale || amplo.fontes.length > 0 || subTeste.substituido) && (
                   <i className="fas fa-link prof-fonte" />
                 )}
-                {acimaDoTeto && (
-                  <i
-                    className="fas fa-triangle-exclamation attr-acima-teto"
-                    title={`Acima do teto de ${teto.valor}`}
-                  />
-                )}
+                {acimaDoTeto && <i className="fas fa-triangle-exclamation attr-acima-teto" />}
               </div>
               <div className={`attr-value ${penD20 > 0 || armaduraReduz ? "valor-exausto" : ""}`}>
                 {formatarMod(modEf)}
-                {penD20 > 0 && <MarcaExausto titulo={`−${penD20} de exaustão`} />}
+                {penD20 > 0 && <MarcaExausto />}
               </div>
               <div className="attr-base">{valor}</div>
             </div>
+            </Tooltip>
           );
         })}
       </div>

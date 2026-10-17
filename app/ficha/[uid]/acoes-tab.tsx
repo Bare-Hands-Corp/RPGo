@@ -41,6 +41,7 @@ import {
   exaustaoQueConta,
   extrasDeCura,
   formatarMod,
+  normalizarAlcance,
   formulaResolvidaTexto,
   lerEfeitos,
   lerNumeroOuFormula,
@@ -101,6 +102,8 @@ import { AcoesDoTurno, EVENTO_CD_TECNICAS } from "./acoes-do-turno";
 import { useEscolherAlvo } from "./escolher-alvo";
 import { useEscolherAlvosCombate } from "./escolher-alvos-combate";
 import type { Tripulante } from "./tripulacao-tab";
+import { DescricaoRecolhivel } from "./descricao-recolhivel";
+import { Tooltip } from "@/components/tooltip";
 import { MarcaExausto } from "./marca-exausto";
 import { TagChip } from "./estilo-cor-picker";
 import { normalizarEfeitoCor, type EstiloCor } from "@/lib/estilos-cor";
@@ -304,7 +307,7 @@ const SIGLA: Record<Atributo, string> = {
   presenca: "PRE",
 };
 
-const ALCANCES_RAPIDOS = ["Pessoal", "Toque", "1,5 m"];
+const ALCANCES_RAPIDOS = ["Pessoal", "1,5 m"];
 
 const OPCOES_ATRIBUTO: OpcaoSegmento<string>[] = [
   { valor: "", rotulo: "—", titulo: "Nenhum" },
@@ -748,7 +751,7 @@ export function AcoesTab({
       atributoCd: acao.atributoCd || "",
       dano: acao.dano || "",
       tipoDano: acao.tipoDano || "",
-      alcance: acao.alcance || "",
+      alcance: normalizarAlcance(acao.alcance || ""),
       armaIds: lerIds(acao.armaIds),
       itemId: acao.itemId || "",
       habilidadeIds: lerIds(acao.habilidadeIds),
@@ -1596,12 +1599,15 @@ export function AcoesTab({
                               grau={acao.tecnica && acao.grau > 0 ? acao.grau : undefined}
                             />
                             {usosMax != null && (
-                              <span
-                                className="acao-stat"
-                                title={acao.usosFormula ? `Máximo: ${acao.usosFormula}` : undefined}
+                              <Tooltip
+                                titulo="Usos"
+                                icone="fa-bolt-lightning"
+                                texto={acao.usosFormula ? `Máximo: ${acao.usosFormula}` : undefined}
                               >
-                                <i className="fas fa-bolt-lightning" /> {usosAtual}/{usosMax}
-                              </span>
+                                <span className="acao-stat">
+                                  <i className="fas fa-bolt-lightning" /> {usosAtual}/{usosMax}
+                                </span>
+                              </Tooltip>
                             )}
                             {usosMax != null && acao.recarga && (
                               <span className="acao-stat">
@@ -1619,18 +1625,21 @@ export function AcoesTab({
                             {golpes.length > 0
                               ? golpes.map(({ arma, atq, municao, semMunicao }) =>
                                   atq ? (
-                                    <button
+                                    <Tooltip
                                       key={arma.id}
+                                      titulo={`Ataque com ${arma.nome}`}
+                                      icone="fa-crosshairs"
+                                      texto={[
+                                        atq.fontes.length > 0 && `Inclui bônus de ${atq.fontes.join(", ")}`,
+                                        penD20 > 0 && `−${penD20} de exaustão`,
+                                        !!municao.item && textoMunicao(municao),
+                                        semMunicao ? textoMunicao(municao) : "Clique para empilhar no Rolador",
+                                      ]}
+                                    >
+                                    <button
                                       type="button"
                                       disabled={travada || semMunicao}
                                       className={`acao-stat acao-rolar ${esperaAcerto ? "esperando" : ""} ${penD20 > 0 || (atq.atributo === "destreza" && desReduz) ? "valor-exausto" : ""}`}
-                                      title={`${semMunicao ? textoMunicao(municao) : `Empilhar ataque com ${arma.nome}`}${
-                                        atq.fontes.length
-                                          ? ` · inclui bônus de ${atq.fontes.join(", ")}`
-                                          : ""
-                                      }${penD20 ? ` · −${penD20} de exaustão` : ""}${
-                                        municao.item && !semMunicao ? ` · ${textoMunicao(municao)}` : ""
-                                      }`}
                                       onClick={() => {
                                         const golpe = golpes.find((g) => g.arma.id === arma.id) ?? null;
                                         if (pendente && esperaAcerto) {
@@ -1645,20 +1654,26 @@ export function AcoesTab({
                                       <i className="fas fa-crosshairs" /> {arma.nome}{" "}
                                       <strong>{formatarMod(atq.bonus - penD20)}</strong>
                                       {atq.fontes.length > 0 && <i className="fas fa-link prof-fonte" />}
-                                      {penD20 > 0 && <MarcaExausto titulo={`−${penD20} de exaustão`} />}
+                                      {penD20 > 0 && <MarcaExausto />}
                                     </button>
+                                    </Tooltip>
                                   ) : null,
                                 )
                               : bonusAtq != null && (
+                                  <Tooltip
+                                    titulo="Acerto"
+                                    icone="fa-crosshairs"
+                                    texto={[
+                                      fontesAtaque.length > 0 && `Inclui bônus de ${fontesAtaque.join(", ")}`,
+                                      desReduzAtq && `−${Math.abs(penalidadeDesArmadura)} de DES (armadura)`,
+                                      penD20 > 0 && `−${penD20} de exaustão`,
+                                      "Clique para empilhar no Rolador",
+                                    ]}
+                                  >
                                   <button
                                     type="button"
                                     disabled={travada}
                                     className={`acao-stat acao-rolar ${esperaAcerto ? "esperando" : ""} ${penD20 > 0 || desReduzAtq ? "valor-exausto" : ""}`}
-                                    title={`Empilhar ataque no Rolador${
-                                      fontesAtaque.length
-                                        ? ` · inclui bônus de ${fontesAtaque.join(", ")}`
-                                        : ""
-                                    }${desReduzAtq ? ` · −${Math.abs(penalidadeDesArmadura)} de DES (armadura)` : ""}${penD20 ? ` · −${penD20} de exaustão` : ""}`}
                                     onClick={() => {
                                       if (pendente && esperaAcerto) pedirAtaque(pendente.id, acao, resolve);
                                       else empilharAcerto(null);
@@ -1667,14 +1682,13 @@ export function AcoesTab({
                                     <i className="fas fa-crosshairs" /> Acerto{" "}
                                     <strong>{formatarMod(bonusAtq - penD20)}</strong>
                                     {fontesAtaque.length > 0 && <i className="fas fa-link prof-fonte" />}
-                                    {penD20 > 0 && <MarcaExausto titulo={`−${penD20} de exaustão`} />}
+                                    {penD20 > 0 && <MarcaExausto />}
                                   </button>
+                                  </Tooltip>
                                 )}
                             {danos.map(({ rotulo, d }, i) => {
                               if (!d) return null;
-                              const titulo = d.partes
-                                .map((x) => `${x.rotulo}: ${x.texto}`)
-                                .join(" · ");
+                              const partes = d.partes.map((x) => `${x.rotulo}: ${x.texto}`);
                               const miolo = (
                                 <>
                                   <i className="fas fa-burst" />{" "}
@@ -1684,12 +1698,18 @@ export function AcoesTab({
                                   {d.partes.length > 1 && <i className="fas fa-link prof-fonte" />}
                                 </>
                               );
-                              return d.rolavel && !travada ? (
-                                <button
+                              const rolar = d.rolavel && !travada;
+                              return (
+                                <Tooltip
                                   key={`d${i}`}
+                                  titulo={rotulo ? `Dano: ${rotulo}` : "Dano"}
+                                  icone="fa-burst"
+                                  texto={[...partes, rolar && "Clique para empilhar no Rolador"]}
+                                >
+                                {rolar ? (
+                                <button
                                   type="button"
                                   className={`acao-stat acao-rolar${acertosPendentes.length > 0 ? " esperando" : ""}`}
-                                  title={`Empilhar dano no Rolador · ${titulo}`}
                                   onClick={() => {
                                     if (pendente && acertosPendentes.length > 0) {
                                       pedirDano(
@@ -1711,44 +1731,48 @@ export function AcoesTab({
                                 >
                                   {miolo}
                                 </button>
-                              ) : (
-                                <span key={`d${i}`} className="acao-stat" title={titulo || undefined}>
-                                  {miolo}
-                                </span>
+                                ) : (
+                                  <span className="acao-stat">{miolo}</span>
+                                )}
+                                </Tooltip>
                               );
                             })}
                             {danosExtras.map((e, i) => (
-                              <span key={`x${i}`} className="acao-stat" title="Rolado à parte, junto com o dano">
-                                <i className="fas fa-plus" /> {e.formula}
-                                {e.tipo ? ` ${e.tipo.toLowerCase()}` : ""}
-                              </span>
+                              <Tooltip key={`x${i}`} titulo="Dano extra" icone="fa-plus" texto="Rolado à parte, junto com o dano">
+                                <span className="acao-stat">
+                                  <i className="fas fa-plus" /> {e.formula}
+                                  {e.tipo ? ` ${e.tipo.toLowerCase()}` : ""}
+                                </span>
+                              </Tooltip>
                             ))}
                             {cd != null && atributoSalv && (
-                              <span
-                                className="acao-stat"
-                                title={
-                                  fontesCd.length
-                                    ? `${formatarMod(extraCd)} de ${fontesCd.join(", ")}`
-                                    : undefined
-                                }
+                              <Tooltip
+                                titulo="Salvaguarda"
+                                icone="fa-shield-alt"
+                                texto={fontesCd.length ? `${formatarMod(extraCd)} de ${fontesCd.join(", ")}` : undefined}
                               >
-                                <i className="fas fa-shield-alt" /> Salv {SIGLA[atributoSalv]} CD <strong>{cd}</strong>
-                                {fontesCd.length > 0 && <i className="fas fa-link prof-fonte" />}
-                              </span>
+                                <span className="acao-stat">
+                                  <i className="fas fa-shield-alt" /> Salv {SIGLA[atributoSalv]} CD <strong>{cd}</strong>
+                                  {fontesCd.length > 0 && <i className="fas fa-link prof-fonte" />}
+                                </span>
+                              </Tooltip>
                             )}
                             {(acao.alcance || alcancesAcao.length > 0) && (
-                              <span
-                                className="acao-stat"
-                                title={
+                              <Tooltip
+                                titulo="Alcance"
+                                icone="fa-ruler-horizontal"
+                                texto={
                                   alcancesAcao.length
                                     ? `de ${[...new Set(alcancesAcao.map((a) => a.fonte))].join(", ")}`
                                     : undefined
                                 }
                               >
-                                <i className="fas fa-ruler-horizontal" /> {alcanceVira ?? acao.alcance}
-                                {alcanceSoma !== 0 ? ` ${formatarMod(alcanceSoma)} m` : ""}
-                                {alcancesAcao.length > 0 && <i className="fas fa-link prof-fonte" />}
-                              </span>
+                                <span className="acao-stat">
+                                  <i className="fas fa-ruler-horizontal" /> {normalizarAlcance(alcanceVira ?? acao.alcance ?? "")}
+                                  {alcanceSoma !== 0 ? ` ${formatarMod(alcanceSoma)} m` : ""}
+                                  {alcancesAcao.length > 0 && <i className="fas fa-link prof-fonte" />}
+                                </span>
+                              </Tooltip>
                             )}
                           </div>
                         )}
@@ -1775,7 +1799,7 @@ export function AcoesTab({
                           travado={travada}
                           grau={acao.tecnica && acao.grau > 0 ? acao.grau : undefined}
                         />
-                        <div className="card-desc">{acao.descricao}</div>
+                        <DescricaoRecolhivel texto={acao.descricao} />
                       </div>
                       {(custos.length > 0 || podeUsar || acao.tag || acao.pasta || origens.length > 0 || armasDaAcao.length > 0) && (
                         <div className="card-tags">
@@ -1841,13 +1865,12 @@ export function AcoesTab({
                               {armasDaAcao.map((a, i) => (
                                 <span key={a.id}>
                                   {i > 0 && ", "}
-                                  <span
-                                    className={`acao-deriva-nome${a.equipado ? "" : " fora"}`}
-                                    title={a.equipado ? undefined : "Não equipada"}
-                                  >
-                                    {a.nome}
-                                    {a.danoBonus && a.equipado ? ` ${comSinal(a.danoBonus)}` : ""}
-                                  </span>
+                                  <Tooltip titulo={a.equipado ? undefined : a.nome} icone="fa-khanda" texto={a.equipado ? undefined : "Não equipada"}>
+                                    <span className={`acao-deriva-nome${a.equipado ? "" : " fora"}`}>
+                                      {a.nome}
+                                      {a.danoBonus && a.equipado ? ` ${comSinal(a.danoBonus)}` : ""}
+                                    </span>
+                                  </Tooltip>
                                 </span>
                               ))}
                             </span>

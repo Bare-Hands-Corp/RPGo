@@ -307,6 +307,11 @@ export async function patchPersonagem(
     for (const key of ALLOWED_PERSONAGEM) {
       if (patch[key] !== undefined) data[key] = patch[key];
     }
+    if (data.nome !== undefined) {
+      const nome = String(data.nome).trim().slice(0, 80);
+      if (!nome) throw new ErroDeUso("Nome é obrigatório.");
+      data.nome = nome;
+    }
     if (data.atributoCdTecnicas !== undefined) {
       const v = data.atributoCdTecnicas ? String(data.atributoCdTecnicas) : null;
       if (v && !ATRIBUTOS_VALIDOS.has(v as Atributo)) throw new ErroDeUso("Atributo inválido.");

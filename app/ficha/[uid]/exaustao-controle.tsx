@@ -1,5 +1,6 @@
 "use client";
 
+import { Tooltip } from "@/components/tooltip";
 import { useOptimistic, useTransition } from "react";
 import { patchPersonagem } from "./actions";
 import { exigir } from "@/lib/acoes";
@@ -40,11 +41,16 @@ export function ExaustaoControle({ personagemId, exaustao, ignoradaPor }: Props)
   }
 
   return (
+    <Tooltip
+      titulo={otimista > 0 && ignoradaPor?.length ? "Exaustão" : undefined}
+      icone="fa-bed"
+      cor="var(--warning)"
+      texto={otimista > 0 && ignoradaPor?.length ? `Ignorada por ${ignoradaPor.join(", ")}` : undefined}
+    >
     <div
       className={`recurso-linha exaustao-linha ${otimista > 0 ? "ativo" : ""}${
         otimista > 0 && ignoradaPor?.length ? " ignorada" : ""
       }`}
-      title={otimista > 0 && ignoradaPor?.length ? `Ignorada por ${ignoradaPor.join(", ")}` : undefined}
     >
       <span className="recurso-icone">
         <i className="fas fa-bed" />
@@ -78,5 +84,6 @@ export function ExaustaoControle({ personagemId, exaustao, ignoradaPor }: Props)
         </button>
       </div>
     </div>
+    </Tooltip>
   );
 }

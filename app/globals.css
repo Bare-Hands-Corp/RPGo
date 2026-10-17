@@ -971,3 +971,69 @@ input[type="checkbox"]:disabled {
   color: var(--text-main);
 }
 
+
+/* ─── Dica (tooltip) — components/tooltip.tsx ─────────────── */
+.dica {
+  position: fixed;
+  z-index: 1000;
+  width: max-content;
+  max-width: min(340px, calc(100vw - 16px));
+  transform: translateX(-50%);
+  padding: 10px 12px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--dica-cor, var(--primary));
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  pointer-events: none;
+  animation: dica-entra 0.12s ease-out;
+}
+
+.dica.acima {
+  transform: translate(-50%, -100%);
+}
+
+.dica-topo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dica-topo i {
+  color: var(--dica-cor, var(--primary));
+  font-size: 0.75rem;
+}
+
+.dica-topo strong {
+  font-size: 0.85rem;
+}
+
+.dica-selo {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-sec);
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.dica-texto {
+  margin: 0;
+  color: var(--text-sec);
+  white-space: pre-line;
+}
+
+.dica-topo + .dica-texto {
+  margin-top: 6px;
+}
+
+@keyframes dica-entra {
+  from {
+    opacity: 0;
+  }
+}

@@ -1,5 +1,6 @@
 "use client";
 
+import { Tooltip } from "@/components/tooltip";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Swal from "sweetalert2";
 import {
@@ -1275,13 +1276,14 @@ export function PainelRolador({
             if (c.tipo === "progressivo") {
               const n = passosDe(c);
               return (
-                <span
+                <Tooltip
                   key={c.chave}
-                  className={`rolador-chip rolador-chip-passos${on ? " on" : ""}`}
-                  title={[`${c.rotulo} — ${c.fontes.join(", ")}`, c.detalhe, `até ${c.max}`]
-                    .filter(Boolean)
-                    .join(" · ")}
+                  titulo={c.rotulo}
+                  icone={ICONE_CHIP[c.tipo]}
+                  selo={`até ${c.max}`}
+                  texto={[c.fontes.length > 0 && `de ${c.fontes.join(", ")}`, c.detalhe]}
                 >
+                <span className={`rolador-chip rolador-chip-passos${on ? " on" : ""}`}>
                   <button
                     type="button"
                     aria-label={`Menos ${c.rotulo}`}
@@ -1302,19 +1304,21 @@ export function PainelRolador({
                     <i className="fas fa-plus" />
                   </button>
                 </span>
+                </Tooltip>
               );
             }
             // Sob demanda e ligado: − e + empilham os usos na mesma rolagem.
             if (on && empilhavel(c)) {
               const n = vezesDe(c);
               return (
-                <span
+                <Tooltip
                   key={c.chave}
-                  className="rolador-chip rolador-chip-passos on"
-                  title={[`${c.rotulo} — ${c.fontes.join(", ")}`, c.detalhe, `até ${c.max}×`]
-                    .filter(Boolean)
-                    .join(" · ")}
+                  titulo={c.rotulo}
+                  icone={ICONE_CHIP[c.tipo]}
+                  selo={`até ${c.max}×`}
+                  texto={[c.fontes.length > 0 && `de ${c.fontes.join(", ")}`, c.detalhe]}
                 >
+                <span className="rolador-chip rolador-chip-passos on">
                   <button type="button" aria-label={`Menos ${c.rotulo}`} onClick={() => mudarVezes(c, -1)}>
                     <i className="fas fa-minus" />
                   </button>
@@ -1331,26 +1335,28 @@ export function PainelRolador({
                     <i className="fas fa-plus" />
                   </button>
                 </span>
+                </Tooltip>
               );
             }
             return (
-              <button
+              <Tooltip
                 key={c.chave}
-                type="button"
-                className={`rolador-chip${on ? " on" : ""}`}
-                aria-pressed={on}
-                title={[
-                  c.fontes.length ? `${c.rotulo} — ${c.fontes.join(", ")}` : c.rotulo,
-                  c.detalhe,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-                onClick={() => alternarChip(c.chave)}
+                titulo={c.rotulo}
+                icone={ICONE_CHIP[c.tipo]}
+                selo={on ? "ligado" : "desligado"}
+                texto={[c.fontes.length > 0 && `de ${c.fontes.join(", ")}`, c.detalhe]}
               >
-                <i className={`fas ${ICONE_CHIP[c.tipo]}`} />
-                {c.rotulo}
-                {c.usos && <span className="rolador-chip-usos">{c.usos}</span>}
-              </button>
+                <button
+                  type="button"
+                  className={`rolador-chip${on ? " on" : ""}`}
+                  aria-pressed={on}
+                  onClick={() => alternarChip(c.chave)}
+                >
+                  <i className={`fas ${ICONE_CHIP[c.tipo]}`} />
+                  {c.rotulo}
+                  {c.usos && <span className="rolador-chip-usos">{c.usos}</span>}
+                </button>
+              </Tooltip>
             );
           })}
         </div>

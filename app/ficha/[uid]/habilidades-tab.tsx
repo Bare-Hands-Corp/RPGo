@@ -36,6 +36,8 @@ import {
   type OrigemHabilidade,
   type TipoHabilidade,
 } from "@/lib/op-rpg";
+import { DescricaoRecolhivel } from "./descricao-recolhivel";
+import { Tooltip } from "@/components/tooltip";
 import { SeletorUnico } from "./seletor-multiplo";
 import { doModelo, type ModeloView } from "@/lib/pastas";
 import { agruparFormas } from "@/lib/formas";
@@ -1072,12 +1074,15 @@ function CardHabilidade({
             </span>
           )}
           {usosMax != null && (
-            <span
-              className="acao-stat"
-              title={habilidade.usosFormula ? `Máximo: ${habilidade.usosFormula}` : undefined}
+            <Tooltip
+              titulo="Usos"
+              icone="fa-bolt-lightning"
+              texto={habilidade.usosFormula ? `Máximo: ${habilidade.usosFormula}` : undefined}
             >
-              <i className="fas fa-bolt-lightning" /> {habilidade.usosAtual ?? usosMax}/{usosMax}
-            </span>
+              <span className="acao-stat">
+                <i className="fas fa-bolt-lightning" /> {habilidade.usosAtual ?? usosMax}/{usosMax}
+              </span>
+            </Tooltip>
           )}
           {habilidade.recarga && (
             <span className="acao-stat">
@@ -1087,15 +1092,18 @@ function CardHabilidade({
             </span>
           )}
           {textoDuracao(lerDuracao(habilidade.duracao)) && (
-            <span
-              className="acao-stat"
-              title={ligadaAtiva && turnosRestantes != null ? textoDuracao(lerDuracao(habilidade.duracao)) ?? undefined : undefined}
+            <Tooltip
+              titulo="Duração"
+              icone="fa-hourglass-half"
+              texto={ligadaAtiva && turnosRestantes != null ? (textoDuracao(lerDuracao(habilidade.duracao)) ?? undefined) : undefined}
             >
-              <i className="fas fa-hourglass-half" />{" "}
-              {ligadaAtiva && turnosRestantes != null
-                ? textoTurnosRestantes(turnosRestantes)
-                : textoDuracao(lerDuracao(habilidade.duracao))}
-            </span>
+              <span className="acao-stat">
+                <i className="fas fa-hourglass-half" />{" "}
+                {ligadaAtiva && turnosRestantes != null
+                  ? textoTurnosRestantes(turnosRestantes)
+                  : textoDuracao(lerDuracao(habilidade.duracao))}
+              </span>
+            </Tooltip>
           )}
           <StatsPorTurno efeitos={efeitos} />
           {habilidade.aliado && (
@@ -1129,9 +1137,7 @@ function CardHabilidade({
           </div>
         )}
         <PassosProgressivos efeitos={efeitos} onChange={onEfeitos} travado={bloqueada} />
-        {habilidade.descricao && (
-          <div className="card-desc">{habilidade.descricao}</div>
-        )}
+        <DescricaoRecolhivel texto={habilidade.descricao} />
       </div>
 
       {(custos.length > 0 ||

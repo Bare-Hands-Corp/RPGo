@@ -1,5 +1,6 @@
 "use client";
 
+import { Tooltip } from "@/components/tooltip";
 import {
   useCallback,
   useEffect,
@@ -532,14 +533,19 @@ export function ArvoresTab({
                   <strong>{recursoCusto.valorAtual}</strong>/{recursoCusto.valorMax}
                 </span>
               )}
-              <span
-                className="arvore-criterio"
-                title={`${criterioMeta?.nome}: ${criterioMeta?.dica}${
-                  ctx.criterio === "pontos" ? ` (${gastos} gasto(s) aqui)` : ""
-                }${ctx.criterio === "nivel" ? ` (nível ${nivel})` : ""}`}
+              <Tooltip
+                titulo={criterioMeta?.nome}
+                icone="fa-unlock-keyhole"
+                texto={[
+                  criterioMeta?.dica,
+                  ctx.criterio === "pontos" && `${gastos} gasto(s) aqui`,
+                  ctx.criterio === "nivel" && `Nível ${nivel}`,
+                ]}
               >
-                <i className="fas fa-unlock-keyhole" />
-              </span>
+                <span className="arvore-criterio" tabIndex={0}>
+                  <i className="fas fa-unlock-keyhole" />
+                </span>
+              </Tooltip>
               {!recursoCusto && arvore.recursoCustoId && (
                 <span className="arvore-metrica arvore-aviso">
                   <i className="fas fa-triangle-exclamation" /> recurso de custo
@@ -1863,7 +1869,15 @@ function NoCard({
     ? "disponivel"
     : "travado";
 
+  // Sem dica enquanto arrasta ou monta a árvore.
+  const comDica = !arrastando && !montando;
   return (
+    <Tooltip
+      titulo={comDica ? no.nome : undefined}
+      icone={no.icone}
+      selo={no.custo > 0 ? `Custa ${no.custo} por rank` : undefined}
+      texto={comDica ? (estado.bloqueios.length > 0 ? estado.bloqueios : no.descricao) : undefined}
+    >
     <article
       className={`arvore-no ${classe}${arrastando ? " arrastando" : ""}${
         selecionado ? " selecionado" : ""
@@ -1886,14 +1900,11 @@ function NoCard({
               }
             }
       }
-      title={
-        estado.bloqueios.length > 0 ? estado.bloqueios.join(" · ") : no.descricao
-      }
     >
       <span className="arvore-no-circulo">
         <i className={`fas ${no.icone}`} />
         {no.custo > 0 && (
-          <span className="arvore-no-selo" title={`Custa ${no.custo} por rank`}>
+          <span className="arvore-no-selo">
             {no.custo}
           </span>
         )}
@@ -1916,6 +1927,7 @@ function NoCard({
       </span>
       <span className="arvore-no-nome">{no.nome}</span>
     </article>
+    </Tooltip>
   );
 }
 

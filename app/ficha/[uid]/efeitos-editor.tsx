@@ -48,6 +48,7 @@ import {
   TipoDanoCampo,
   TiposDanoCampo,
 } from "./campos-modal";
+import { Tooltip } from "@/components/tooltip";
 import { casaBusca, normalizarBusca } from "./barra-filtros";
 import { CampoFormula, FormulaContext } from "./campo-formula";
 import { DURACOES_CONDICAO, RODADAS_PADRAO } from "@/lib/condicoes";
@@ -226,6 +227,13 @@ export function ChipEfeito({
   const resumo = naAcao ?? resumoEfeito(efeito, nome, formula ? { ...formula, grau } : undefined);
   const cru = naAcao ?? resumoEfeito(efeito, nome);
   return (
+    <Tooltip
+      titulo={nomeDoEfeito(efeito)}
+      icone={meta.icone}
+      cor={meta.cor}
+      selo={dura ? TEXTO_DURA[dura] : undefined}
+      texto={[resumo, cru !== resumo && `Fórmula: ${cru}`]}
+    >
     <span
       className="efeito-chip"
       style={{
@@ -233,7 +241,6 @@ export function ChipEfeito({
         color: meta.cor,
         borderColor: `color-mix(in oklch, ${meta.cor} 35%, transparent)`,
       }}
-      title={cru !== resumo ? cru : undefined}
     >
       <i className={`fas ${meta.icone}`} />
       <span className="efeito-chip-label">{nomeDoEfeito(efeito)}</span>
@@ -247,6 +254,7 @@ export function ChipEfeito({
         </span>
       )}
     </span>
+    </Tooltip>
   );
 }
 
@@ -260,9 +268,16 @@ export function StatsPorTurno({ efeitos, grau }: { efeitos: EfeitoHabilidade[]; 
     const resumo = resumoEfeito(e, nome, formula ? { ...formula, grau } : undefined);
     const cru = resumoEfeito(e, nome);
     return (
-      <span key={`turno-${i}`} className="acao-stat acao-por-turno" title={cru !== resumo ? cru : undefined}>
-        <i className="fas fa-clock-rotate-left" /> {resumo} por turno
-      </span>
+      <Tooltip
+        key={`turno-${i}`}
+        titulo="A cada turno"
+        icone="fa-clock-rotate-left"
+        texto={[`${resumo} por turno`, cru !== resumo && `Fórmula: ${cru}`]}
+      >
+        <span className="acao-stat acao-por-turno">
+          <i className="fas fa-clock-rotate-left" /> {resumo} por turno
+        </span>
+      </Tooltip>
     );
   });
 }
@@ -423,7 +438,6 @@ function PickerPreset({
                   type="button"
                   className="picker-preset-card"
                   onClick={() => onPick(p.id)}
-                  title={p.descricao}
                   style={{ borderLeftColor: COR_DO_PRESET.get(p.id) }}
                 >
                   <i className={`fas ${p.icone}`} style={{ color: COR_DO_PRESET.get(p.id) }} />
@@ -676,7 +690,7 @@ function CampoQuando({
 const GRAUS = [1, 2, 3, 4, 5, 6, 7];
 
 // Atalhos do alcance que troca o da ação.
-const ALCANCES_TROCADOS = ["Campo de visão", "Toque"];
+const ALCANCES_TROCADOS = ["Campo de visão", "1,5 m"];
 
 // Efeito de dano só em certos graus de técnica ou tipos de dano.
 function FiltroDanoCampos({

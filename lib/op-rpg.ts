@@ -382,6 +382,12 @@ export const ALCANCES_ARMA: {
   { slug: "distancia", nome: "À Distância", icone: "fa-crosshairs" },
 ];
 
+// Toque e 1,5 m são o mesmo alcance; o texto salvo antes como "Toque" passa a
+// mostrar (e salvar) "1,5 m".
+export function normalizarAlcance(alcance: string): string {
+  return alcance.trim().toLowerCase() === "toque" ? "1,5 m" : alcance;
+}
+
 export type PropriedadeArma =
   | "acuidade"
   | "arremesso"
@@ -3029,13 +3035,18 @@ export function curaFixa(valor: string): number | null {
 }
 
 // Curas que rolam no cliente ao usar, pelo índice do efeito: as com fórmula e,
-// com dado a mais na cura, também as de PV com valor fixo.
+// com dado a mais na cura, também as de PV com valor fixo. Bônus de PV
+// temporário com fórmula ("2d10+NIVEL") rola junto, pelo mesmo caminho.
 export function curasComFormula(
   efeitos: EfeitoHabilidade[],
   comDadoNaCura = false,
 ): { idx: number; valor: string; alvo: AlvoCura }[] {
   const out: { idx: number; valor: string; alvo: AlvoCura }[] = [];
   efeitos.forEach((e, idx) => {
+    if (e.tipo === "modificador" && e.formula && ehAlvoPvTemp(e.alvo)) {
+      out.push({ idx, valor: e.formula, alvo: "hp-temp" });
+      return;
+    }
     if (e.tipo !== "cura") return;
     const alvo = alvoDaCura(e);
     if (curaFixa(e.valor) === null || (comDadoNaCura && alvo === "hp")) {
@@ -3043,6 +3054,11 @@ export function curasComFormula(
     }
   });
   return out;
+}
+
+function ehAlvoPvTemp(alvo: string): boolean {
+  const a = alvo.trim().toLowerCase();
+  return a === "hp-temp" || a === "hptemp";
 }
 
 // Dados a mais que valem sempre na cura de PV ("+1d6"), já resolvidos.
@@ -3072,7 +3088,7 @@ export function computarDeltasInstantaneos(
   // uma habilidade sustentada: bônus de PV/PP máximo são revertíveis, então
   // vivem no agregado (bonusHpMax/bonusPpMax enquanto ligada) em vez de baterem
   // permanentemente no valor armazenado. cura/PV-temp/recurso seguem instantâneos.
-  // `rolagens`: total rolado de cada cura com fórmula, pelo índice do efeito.
+  // `rolagens`: total rolado de cada cura (ou PV temporário) com fórmula, pelo índice do efeito.
   // `ctx`: nível, atributos e grau da técnica pras fórmulas (ex: PV temporário
   // "2d10+CON" já rolado, ou "10*NIVEL" fixo).
   {
@@ -3122,7 +3138,8 @@ export function computarDeltasInstantaneos(
     } else if (e.tipo === "modificador") {
       const alvo = e.alvo.trim().toLowerCase();
       const v = Math.trunc(valorDe(e));
-      if (alvo === "hp-temp" || alvo === "hptemp") darTemp(v, e.duracaoPv);
+      // PV temporário com fórmula: vale o rolado (o fixo da fórmula só sem rolagem).
+      if (ehAlvoPvTemp(alvo)) darTemp(Math.trunc(rolagens[idx] ?? v), e.duracaoPv);
       else if (incluirMax && (alvo === "hp-max" || alvo === "hpmax")) d.hpMax += v;
       else if (incluirMax && (alvo === "pp-max" || alvo === "ppmax")) d.ppMax += v;
     } else if (e.tipo === "recurso_delta") {

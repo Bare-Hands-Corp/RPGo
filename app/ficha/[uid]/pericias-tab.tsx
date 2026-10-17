@@ -1,6 +1,7 @@
 "use client";
 
 import type { SalvaguardaPedida } from "@/lib/combate";
+import { Tooltip } from "@/components/tooltip";
 import { responderSalvaguarda } from "./actions";
 import { EVENTO_SALVAGUARDA_AVULSA, type SalvaguardaAvulsa } from "./acoes-do-turno";
 import { useEffect, useOptimistic, useRef, useState, useTransition } from "react";
@@ -374,7 +375,6 @@ export function PericiasTab({
               <label
                 key={a.slug}
                 className={`prof-row ${proficiente ? "prof-on" : ""}`}
-                title={tituloFontes || undefined}
               >
                 <input
                   type="checkbox"
@@ -382,11 +382,16 @@ export function PericiasTab({
                   disabled={!!profPorHab}
                   onChange={(e) => setSalvaguarda(a.slug, e.target.checked)}
                 />
+                <Tooltip
+                  titulo={`Salv. ${a.nome}`}
+                  icone="fa-dice-d20"
+                  texto={[tituloFontes, "Clique para empilhar no Rolador"]}
+                >
                 <button
                   type="button"
                   className={`prof-bonus prof-rolar ${exausto ? "valor-exausto" : ""}`}
                   data-salvaguarda={a.slug}
-                  title={`Empilhar Salv. ${a.nome} no Rolador`}
+                  aria-label={`Empilhar Salv. ${a.nome} no Rolador`}
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -420,12 +425,13 @@ export function PericiasTab({
                   }}
                 >
                   {formatarMod(bonus)}
-                  {penD20 > 0 && <MarcaExausto titulo={`−${penD20} de exaustão`} />}
+                  {penD20 > 0 && <MarcaExausto />}
                 </button>
+                </Tooltip>
                 <span className="prof-nome">
                   {a.nome}
                   {(profPorHab || bonusHab) && (
-                    <i className="fas fa-link prof-fonte" title={tituloFontes} />
+                    <i className="fas fa-link prof-fonte" />
                   )}
                 </span>
                 <OutrosInput
@@ -479,7 +485,6 @@ export function PericiasTab({
                     <label
                       key={p.slug}
                       className={`prof-row ${proficiente ? "prof-on" : ""}`}
-                      title={tituloFontes || undefined}
                     >
                       <input
                         type="checkbox"
@@ -487,11 +492,16 @@ export function PericiasTab({
                         disabled={!!profPorHab}
                         onChange={(e) => setPericia(p.slug, e.target.checked)}
                       />
+                      <Tooltip
+                        titulo={p.nome}
+                        icone="fa-dice-d20"
+                        texto={[tituloFontes, "Clique para empilhar no Rolador"]}
+                      >
                       <button
                         type="button"
                         className={`prof-bonus prof-rolar ${exausto ? "valor-exausto" : ""}`}
                         data-pericia={p.slug}
-                        title={`Empilhar ${p.nome} no Rolador`}
+                        aria-label={`Empilhar ${p.nome} no Rolador`}
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
@@ -510,12 +520,13 @@ export function PericiasTab({
                         }}
                       >
                         {formatarMod(bonus)}
-                        {penD20 > 0 && <MarcaExausto titulo={`−${penD20} de exaustão`} />}
+                        {penD20 > 0 && <MarcaExausto />}
                       </button>
+                      </Tooltip>
                       <span className="prof-nome">
                         {p.nome}
                         {(profPorHab || bonusHab) && (
-                          <i className="fas fa-link prof-fonte" title={tituloFontes} />
+                          <i className="fas fa-link prof-fonte" />
                         )}
                       </span>
                       {proficiente && (
@@ -587,7 +598,6 @@ export function PericiasTab({
                 <div
                   key={c.id}
                   className={`prof-row ${proficiente ? "prof-on" : ""} ${ehTemporario(c.id) ? "item-pendente" : ""}`}
-                  title={tituloFontes || undefined}
                   inert={ehTemporario(c.id)}
                 >
                   <input
@@ -596,17 +606,23 @@ export function PericiasTab({
                     disabled={!!profPorHab}
                     onChange={(e) => setProfCustom(c, e.target.checked)}
                   />
+                  <Tooltip
+                    titulo={c.nome}
+                    icone="fa-dice-d20"
+                    texto={[tituloFontes, "Clique para empilhar no Rolador"]}
+                  >
                   <button
                     type="button"
                     className={`prof-bonus prof-rolar ${exausto ? "valor-exausto" : ""}`}
-                    title={`Empilhar ${c.nome} no Rolador`}
+                    aria-label={`Empilhar ${c.nome} no Rolador`}
                     onClick={() =>
                       empilharD20(bonus, c.nome, { tipo: "pericia", pericia: c.slug, atributo: t.atributo })
                     }
                   >
                     {formatarMod(bonus)}
-                    {penD20 > 0 && <MarcaExausto titulo={`−${penD20} de exaustão`} />}
+                    {penD20 > 0 && <MarcaExausto />}
                   </button>
+                  </Tooltip>
                   <span className="prof-nome">
                     {c.nome}{" "}
                     <span className="pericia-custom-meta">
@@ -614,7 +630,7 @@ export function PericiasTab({
                       {c.origem ? ` · ${c.origem}` : ""})
                     </span>
                     {(profPorHab || bonusHab) && (
-                      <i className="fas fa-link prof-fonte" title={tituloFontes} />
+                      <i className="fas fa-link prof-fonte" />
                     )}
                   </span>
                   {proficiente && (

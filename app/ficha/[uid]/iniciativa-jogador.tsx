@@ -1,5 +1,6 @@
 "use client";
 
+import { Tooltip } from "@/components/tooltip";
 // Iniciativa do combate na ficha: quem está envolvido, em que ordem e de quem
 // é a vez. No desktop é uma faixa com todos; no celular, uma barra com a vez
 // atual que abre a lista. De criatura só aparece o que o narrador liberou.
@@ -166,10 +167,12 @@ export function IniciativaJogador({
                 <span className="iniciativa-item-texto">
                   <span className="iniciativa-nome">{nomeDe(p)}</span>
                   {p.condicoes.length > 0 && (
-                    <span className="iniciativa-meta iniciativa-condicoes" title={p.condicoes.map((c) => c.nome).join(", ")}>
-                      <i className="fas fa-triangle-exclamation" />
-                      {p.condicoes.length === 1 ? p.condicoes[0].nome : `${p.condicoes.length} condições`}
-                    </span>
+                    <Tooltip titulo="Condições" icone="fa-triangle-exclamation" texto={p.condicoes.map((c) => c.nome)}>
+                      <span className="iniciativa-meta iniciativa-condicoes">
+                        <i className="fas fa-triangle-exclamation" />
+                        {p.condicoes.length === 1 ? p.condicoes[0].nome : `${p.condicoes.length} condições`}
+                      </span>
+                    </Tooltip>
                   )}
                   {(p.pv || p.cr != null) && (
                     <span className="iniciativa-meta">

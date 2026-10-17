@@ -3371,13 +3371,17 @@ html.dark-mode .est-historico {
   flex-direction: column;
   gap: 1px;
   max-width: 220px;
-  padding: 8px 10px;
+  /* Mesmo visual da .dica global; só a posição segue o cursor no gráfico. */
+  padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-top: 3px solid var(--primary);
+  border-radius: 10px;
   background: var(--bg-card);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  line-height: 1.45;
   transform: translate(-50%, calc(-100% - 10px));
   pointer-events: none;
+  animation: dica-entra 0.12s ease-out;
 }
 
 .est-dica strong {
