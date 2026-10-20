@@ -1539,6 +1539,8 @@ function CardItem({
                   {
                     tipo: "ataque",
                     alcance: arma?.alcance ?? "corpo_a_corpo",
+                    // Atacar direto com a arma: o Multiataque vale.
+                    multiataque: true,
                     ...(municao?.item ? { municao: { id: municao.item.id, nome: municao.item.nome } } : {}),
                   },
                   arma?.efeitos,

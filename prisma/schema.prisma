@@ -413,6 +413,8 @@ model Acao {
   aliadoEmCursoId String? @map("aliado_em_curso_id")
   // Ataque com arma de fogo (efeito de dano pode deixar de fora ou valer só nela).
   armaDeFogo      Boolean @default(false) @map("arma_de_fogo")
+  // O Multiataque da ficha (Ataque Extra…) vale nesta ação; o jogador marca quais.
+  multiataque     Boolean @default(false)
 
   @@index([aliadoEmCursoId])
   @@map("acoes")

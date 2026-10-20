@@ -762,18 +762,36 @@ export function PerfilSidebar({
     (t) => !naoSaoModos.has(t),
   );
   const deslocReduzido = deslocIgual.length === 0 && deslocEfetivo !== deslocBruto;
-  const deslocTitulo =
-    [
-      deslocBonus.fontes.length
-        ? `${formatarMod(deslocBonus.valor)} de ${deslocBonus.fontes.join(", ")}`
+  const unidadeMov = perfil.deslocamento.unidade;
+  const metros = (v: number) => `${v.toLocaleString("pt-BR")} ${unidadeMov}`;
+  // Detalhe do deslocamento: a base e cada soma, substituição e multiplicador com a fonte.
+  const deslocTitulo = [
+    `Base: ${metros(p.deslocamento)}`,
+    deslocBonus.fontes.length ? `${formatarMod(deslocBonus.valor)} ${unidadeMov} de ${deslocBonus.fontes.join(", ")}` : null,
+    deslocFixo ? `Vira ${metros(deslocFixo.valor)} por ${deslocFixo.fontes.join(", ")} (vale o maior)` : null,
+    multDesloc ? `×${String(multDesloc.fator).replace(".", ",")} de ${multDesloc.fontes.join(", ")}` : null,
+    deslocIgual.length ? `Igual a outro valor por ${deslocIgual.join(", ")}` : null,
+    deslocReduzido ? `Exaustão: de ${metros(deslocBruto)} para ${metros(deslocEfetivo)}` : null,
+  ];
+  // Nadar, voar…: a base da espécie, o que vira o valor (vale o maior) e o que soma.
+  function tituloDoModo(tipo: string): (string | null)[] | undefined {
+    const extra = efeitosAgregados.deslocamentosExtra[tipo];
+    const fixo = efeitosAgregados.valoresFixos[tipo];
+    const bonus = efeitosAgregados.bonusMovimento?.[tipo];
+    const final = valores[tipo];
+    // "Valor igual" ganhou: as fontes são as dele.
+    const igual = !!final && final.fontes.join() !== (modosProprios[tipo]?.fontes.join() ?? "");
+    const linhas = [
+      tipo === "nadar" && p.nado > 0 ? `Base: ${metros(p.nado)}` : null,
+      extra ? `Vira ${metros(extra.valor)} por ${extra.fontes.join(", ")}` : null,
+      fixo ? `Vira ${metros(fixo.valor)} por ${fixo.fontes.join(", ")}` : null,
+      bonus && (modosProprios[tipo]?.valor ?? 0) > 0
+        ? `${formatarMod(bonus.valor)} ${unidadeMov} de ${bonus.fontes.join(", ")}`
         : null,
-      multDesloc ? `×${multDesloc.fator} de ${multDesloc.fontes.join(", ")}` : null,
-      deslocFixo ? `Vira ${deslocFixo.valor} m por ${deslocFixo.fontes.join(", ")}` : null,
-      deslocIgual.length ? `Igual a outro valor por ${deslocIgual.join(", ")}` : null,
-      deslocReduzido ? `Reduzido por exaustão (de ${deslocBruto} m)` : null,
-    ]
-      .filter(Boolean)
-      .join("\n") || undefined;
+      igual ? `Igual a outro valor por ${final.fontes.join(", ")}` : null,
+    ];
+    return linhas.some(Boolean) ? linhas : undefined;
+  }
 
   const nadoEfetivo = valores.nadar.valor;
   const nadoFontes = valores.nadar.fontes;
@@ -794,7 +812,7 @@ export function PerfilSidebar({
       nome: "Nadar",
       icone: "fa-person-swimming",
       valor: nadoEfetivo,
-      titulo: nadoFontes.length ? `de ${nadoFontes.join(", ")}` : undefined,
+      titulo: tituloDoModo("nadar"),
       deEfeito: nadoFontes.length > 0,
       reduzido: false,
     },
@@ -805,7 +823,7 @@ export function PerfilSidebar({
         nome: ROTULO_MOV[tipo] ?? capitalizar(tipo),
         icone: ICONE_MOV[tipo] ?? "fa-person-running",
         valor: fv?.valor ?? 0,
-        titulo: fv?.fontes.length ? `de ${fv.fontes.join(", ")}` : undefined,
+        titulo: tituloDoModo(tipo),
         deEfeito: !!fv?.fontes.length,
         reduzido: false,
       };
@@ -815,7 +833,6 @@ export function PerfilSidebar({
       ? m.tipo === "deslocamento"
       : m.valor > 0 || m.tipo === "deslocamento" || m.tipo === "nadar" || MODOS_FIXOS.includes(m.tipo),
   );
-  const unidadeMov = perfil.deslocamento.unidade;
 
   // A cada turno: efeitos que repetem e durações em turnos das ligadas.
   const porTurno = [...efeitosAgregados.porTurno, ...porTurnoDasAcoes(emCurso)];
@@ -834,8 +851,6 @@ export function PerfilSidebar({
   ];
   const tecnicaTurnos = concentracaoEmCurso(p.concentracao);
   // Bônus progressivo "por turno" das fontes que estão valendo.
-  const acaoConcentrada =
-    concentracaoAtual?.tipo === "acao" ? acoes.find((a) => a.id === concentracaoAtual.id) : undefined;
   const crescemNoTurno = [
     ...habilidades
       .filter((h) => h.tipo === "passiva" || (ligadaOverlay[h.id] ?? h.ligada))
@@ -847,9 +862,10 @@ export function PerfilSidebar({
     ...itensComOverlay
       .filter((i) => i.equipado)
       .map((i) => ({ habilidadeId: null, nome: i.nome, efeitos: i.efeitos })),
-    ...(acaoConcentrada
-      ? [{ habilidadeId: null, nome: acaoConcentrada.nome, efeitos: acaoConcentrada.efeitos }]
-      : []),
+    // Ações em curso e a da concentração.
+    ...acoes
+      .filter((a) => idsDeAcao.has(a.id))
+      .map((a) => ({ habilidadeId: null, nome: a.nome, efeitos: a.efeitos })),
   ].flatMap((x) => {
     const novo = crescerPorTurno(x.efeitos);
     return novo ? [{ habilidadeId: x.habilidadeId, nome: x.nome, novo }] : [];

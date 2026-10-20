@@ -93,7 +93,10 @@ export const ACAO_DO_BLOCO: Record<string, TipoAcaoCombate> = {
   reacao: "react",
 };
 
-export type AcoesGastas = Partial<Record<TipoAcaoCombate, number>>;
+// Ações gastas no turno. `ganhas`: as que uma técnica deu neste turno (somem com ele).
+export type AcoesGastas = Partial<Record<TipoAcaoCombate, number>> & {
+  ganhas?: Partial<Record<TipoAcaoCombate, number>>;
+};
 
 export function ehAcaoDeCombate(tipo: string): tipo is TipoAcaoCombate {
   return (TIPOS_ACAO_COMBATE as readonly string[]).includes(tipo);
@@ -103,19 +106,41 @@ export function ehAcaoDeCombate(tipo: string): tipo is TipoAcaoCombate {
 export function lerAcoesGastas(raw: unknown): AcoesGastas {
   const obj = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const out: AcoesGastas = {};
+  const ganhasRaw = obj.ganhas && typeof obj.ganhas === "object" ? (obj.ganhas as Record<string, unknown>) : {};
+  const ganhas: Partial<Record<TipoAcaoCombate, number>> = {};
   for (const tipo of TIPOS_ACAO_COMBATE) {
     const n = Math.trunc(Number(obj[tipo]) || 0);
     if (n > 0) out[tipo] = n;
+    const g = Math.min(10, Math.trunc(Number(ganhasRaw[tipo]) || 0));
+    if (g > 0) ganhas[tipo] = g;
   }
+  if (Object.keys(ganhas).length > 0) out.ganhas = ganhas;
   return out;
 }
 
-// Quantas ações de cada tipo cabem num turno: uma, mais as extras.
+// Soma as ações que a técnica deu neste turno às que já tinham sido ganhas.
+export function comAcoesGanhas(
+  gastas: AcoesGastas,
+  novas: Partial<Record<TipoAcaoCombate, number>>,
+): AcoesGastas {
+  if (Object.keys(novas).length === 0) return gastas;
+  const ganhas = { ...gastas.ganhas };
+  for (const tipo of TIPOS_ACAO_COMBATE) {
+    if (novas[tipo]) ganhas[tipo] = Math.min(10, (ganhas[tipo] ?? 0) + (novas[tipo] ?? 0));
+  }
+  return { ...gastas, ganhas };
+}
+
+// Quantas ações de cada tipo cabem num turno: uma, mais as extras da ficha e as
+// que uma técnica deu neste turno.
 export function maximoDeAcoes(
   extras: Partial<Record<TipoAcaoCombate, { valor: number }>> = {},
+  ganhas: Partial<Record<TipoAcaoCombate, number>> = {},
 ): Record<TipoAcaoCombate, number> {
   const max = {} as Record<TipoAcaoCombate, number>;
-  for (const tipo of TIPOS_ACAO_COMBATE) max[tipo] = 1 + Math.max(0, extras[tipo]?.valor ?? 0);
+  for (const tipo of TIPOS_ACAO_COMBATE) {
+    max[tipo] = 1 + Math.max(0, extras[tipo]?.valor ?? 0) + Math.max(0, ganhas[tipo] ?? 0);
+  }
   return max;
 }
 

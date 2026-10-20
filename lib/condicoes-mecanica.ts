@@ -235,7 +235,7 @@ export function travasDasCondicoes(condicoes: CondicaoComMecanica[]): {
 export function travaDaCondicaoNaAcao(
   condicoes: CondicaoComMecanica[],
   tipo: string,
-  gastas: Partial<Record<string, number>>,
+  gastas: { padrao?: number; bonus?: number; power?: number },
 ): string | null {
   const t = travasDasCondicoes(condicoes);
   if (t.incapacita && (tipo === "padrao" || tipo === "bonus" || tipo === "power" || tipo === "react")) {

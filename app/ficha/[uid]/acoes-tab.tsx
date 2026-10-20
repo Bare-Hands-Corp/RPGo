@@ -55,6 +55,7 @@ import {
   rolagensDoPedaco,
   type AlvoAcao,
   formulaResolvidaTexto,
+  acoesGanhasNoUso,
   lerEfeitos,
   lerNumeroOuFormula,
   maiorDado,
@@ -101,6 +102,7 @@ import {
   inferirAlcance,
   lerDanosExtras,
   lerGatilho,
+  comAcoesGanhas,
   maximoDeAcoes,
   textoGatilho,
   type AcoesGastas,
@@ -181,6 +183,7 @@ type Acao = {
   aliado: boolean;
   alvo?: string | null;
   armaDeFogo?: boolean;
+  multiataque?: boolean;
   duracao?: unknown;
   // Usada e ainda valendo, com os turnos que faltam.
   emCurso?: boolean;
@@ -382,6 +385,8 @@ type FormState = {
   efeitos: EfeitoHabilidade[];
   alvo: AlvoAcao;
   armaDeFogo: boolean;
+  // Recebe o Multiataque da ficha.
+  multiataque: boolean;
   duracao: Duracao | null;
   // Seção de dano aberta no modal mesmo sem dano escrito (não vai pro banco).
   comDano: boolean;
@@ -422,6 +427,7 @@ const FORM_VAZIO: FormState = {
   // Sem nada a resolver (ataque, salvaguarda, dano), não pede alvo nenhum.
   alvo: "inimigo",
   armaDeFogo: false,
+  multiataque: false,
   duracao: null,
   comDano: false,
   formaDe: "",
@@ -456,6 +462,7 @@ const ACAO_BASE: Omit<Acao, "id"> = {
   alvo: "nenhum",
   bonusAcerto: null,
   armaDeFogo: false,
+  multiataque: false,
   duracao: null,
   pasta: null,
   formaDe: null,
@@ -534,11 +541,12 @@ export function AcoesTab({
     setGastasDoServidor(turno?.gastas);
     setGastasLocal({});
   }
-  const maximoAcoes = maximoDeAcoes(efeitosAgregados.acoesExtras ?? {});
-  const gastas: AcoesGastas = {};
+  const gastas: AcoesGastas = { ganhas: {} };
   for (const tipo of ["padrao", "bonus", "power", "react"] as const) {
     gastas[tipo] = (turno?.gastas[tipo] ?? 0) + (gastasLocal[tipo] ?? 0);
+    gastas.ganhas![tipo] = (turno?.gastas.ganhas?.[tipo] ?? 0) + (gastasLocal.ganhas?.[tipo] ?? 0);
   }
+  const maximoAcoes = maximoDeAcoes(efeitosAgregados.acoesExtras ?? {}, gastas.ganhas);
   // A ficha lateral muda a CD das técnicas; os cards acompanham na hora.
   useEffect(() => {
     const ouvir = (e: Event) => setCdPadrao((e as CustomEvent<string>).detail ?? "");
@@ -833,6 +841,7 @@ export function AcoesTab({
       ),
       alvo: lerAlvoAcao(acao),
       armaDeFogo: !!acao.armaDeFogo,
+      multiataque: !!acao.multiataque,
       duracao: lerDuracao(acao.duracao),
       comDano: false,
       formaDe: origem?.id ?? "",
@@ -904,6 +913,8 @@ export function AcoesTab({
       // Cada efeito diz se vai pro aliado (`quem`).
       aliado: false,
       armaDeFogo: form.armaDeFogo,
+      // Sem acerto, não tem o que multiplicar.
+      multiataque: (form.armaIds.length > 0 || !!form.atributoAtaque) && form.multiataque,
       duracao: form.duracao,
       // Só vai quando o modal ofereceu a escolha.
       ...(form.origemForma ? { formaDe: form.formaDe || null } : {}),
@@ -1151,7 +1162,11 @@ export function AcoesTab({
       if (usosMax != null) {
         aplicarPatch({ kind: "update", id: acao.id, patch: { usosAtual: usosAtual - 1 } });
       }
-      if (tipoAcao) setGastasLocal((g) => ({ ...g, [tipoAcao]: (g[tipoAcao] ?? 0) + 1 }));
+      if (turno) {
+        setGastasLocal((g) =>
+          comAcoesGanhas(tipoAcao ? { ...g, [tipoAcao]: (g[tipoAcao] ?? 0) + 1 } : g, acoesGanhasNoUso(todosEfeitos)),
+        );
+      }
       try {
         const { resolucaoId } = exigir(
           await usarAcao(personagemId, acao.id, rolagens, {
@@ -1317,6 +1332,7 @@ export function AcoesTab({
           fontesExtras={{
             padrao: efeitosAgregados.acoesExtras?.padrao?.fontes,
             bonus: efeitosAgregados.acoesExtras?.bonus?.fontes,
+            power: efeitosAgregados.acoesExtras?.power?.fontes,
             react: efeitosAgregados.acoesExtras?.react?.fontes,
           }}
         />
@@ -1386,6 +1402,8 @@ export function AcoesTab({
                     .filter((h): h is HabilidadeRef => !!h);
                   // Efeitos da própria ação por cima da ficha (e da arma).
                   const aggAcao = efeitosDaTecnica(efeitosAgregados, acao);
+                  // O Multiataque da ficha só vale nas ações que o jogador marcou.
+                  const multiataque = !!acao.multiataque;
                   const aggDaArma = (arma: ItemArma) => efeitosDaTecnica(efeitosDa(arma), acao);
                   // Um acerto e um dano por arma equipada.
                   const golpes = armasEquipadas.map((arma) => {
@@ -1628,6 +1646,7 @@ export function AcoesTab({
                           tipo: "ataque",
                           alcance: golpe.atq.alcance,
                           tecnica: acao.tecnica,
+                          multiataque,
                           ...(golpe.municao.item
                             ? { municao: { id: golpe.municao.item.id, nome: golpe.municao.item.nome } }
                             : {}),
@@ -1639,7 +1658,7 @@ export function AcoesTab({
                       empilharD20(
                         bonusAtq - penD20,
                         `Atacar ${acao.nome}`,
-                        { tipo: "ataque", alcance: alcanceContexto, tecnica: acao.tecnica },
+                        { tipo: "ataque", alcance: alcanceContexto, tecnica: acao.tecnica, multiataque },
                         efeitosDoContexto(aggAcao),
                         extras,
                       );
@@ -1670,6 +1689,7 @@ export function AcoesTab({
                     tipo: "ataque",
                     alcance: golpePadrao?.atq?.alcance ?? alcanceContexto,
                     tecnica: acao.tecnica,
+                    multiataque,
                   });
                   const resolve: Resolve = {
                     ataque: !!golpePadrao || bonusAtq != null,
@@ -2331,6 +2351,25 @@ export function AcoesTab({
                     onChange={(v) => setF("bonusAcerto", v)}
                     placeholder="Ex: 2, PROF"
                   />
+                )}
+
+                {formTemAcerto && (
+                  <>
+                    <label>Recebe Multiataque</label>
+                    <Segmentos
+                      rotulo="Recebe Multiataque"
+                      valor={form.multiataque ? "sim" : "nao"}
+                      onChange={(v) => setF("multiataque", v === "sim")}
+                      opcoes={[
+                        { valor: "nao", rotulo: "Não" },
+                        { valor: "sim", rotulo: "Sim" },
+                      ]}
+                    />
+                    <p className="campo-dica">
+                      O Multiataque da ficha (Ataque Extra, itens…) vale nesta ação. Marque nas ações em que você
+                      ataca com ele, como Agredir.
+                    </p>
+                  </>
                 )}
               </SecaoModal>
 

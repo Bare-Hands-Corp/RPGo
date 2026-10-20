@@ -50,6 +50,7 @@ Thumbs.db
 .claude/skills/
 .claude/settings.local.json
 .claude/CLAUDE.md
+.claude/credenciais-teste.md
 
 # ─── Handoff entre sessões (artefato de sessão, não código) ─
 HANDOFF.md

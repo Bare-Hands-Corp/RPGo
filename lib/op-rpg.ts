@@ -6,6 +6,7 @@ import { faixaDaRolagem, parseFormulaDados, type Dado } from "./dice";
 import { avaliarFormula, formulaUsaGrau, formulaVariavel } from "./formula";
 import { cobre, lerCobertura } from "./dano";
 import { duraAlemDoUso, duracaoPvTempNoBanco, lerDuracaoPvTemp, type DuracaoPvTemp } from "./duracao";
+import type { TipoAcaoCombate } from "./combate";
 
 export function modificador(valor: number): number {
   return Math.floor((valor - 10) / 2);
@@ -1024,7 +1025,8 @@ type EfeitoCru =
   | { tipo: "imunidade"; tipoDano: string }
   // Recebe o dobro do tipo de dano (depois da resistência).
   | { tipo: "vulnerabilidade"; tipoDano: string }
-  | { tipo: "deslocamento"; tipoMov: string; valor: number }
+  // `modo` ausente: andar soma no base, os outros modos viram o valor (vale o maior).
+  | { tipo: "deslocamento"; tipoMov: string; valor: number; modo?: ModoDeslocamento }
   // Em dano ("dano", "dano-cc", "dano-distancia"), `armaDeFogo` deixa a
   // arma de fogo de fora ("exceto") ou só vale nela ("so").
   | { tipo: "multiplicador"; alvo: string; fator: number; armaDeFogo?: FiltroArmaDeFogo }
@@ -1044,9 +1046,9 @@ type EfeitoCru =
   // Sentido especial (visão no escuro, sentir presença, percepção sísmica…).
   // alcance opcional em metros — 0 = sem alcance explícito (passivo).
   | { tipo: "sentido"; sentido: string; alcance: number }
-  // Ação/ataque/reação adicional. quantidade default = 1.
-  // gatilho descreve quando se aplica (ex: "no turno", "1× por descanso").
-  | { tipo: "acao_extra"; acao: string; quantidade: number; gatilho?: string }
+  // Ação a mais no turno (Padrão, Bônus, Poderosa ou Reação). quantidade default = 1.
+  // gatilho descreve quando se aplica (ex: "1× por descanso"); com ele, é só descritivo.
+  | { tipo: "acao_extra"; acao: TipoAcaoCombate; quantidade: number; gatilho?: string }
   // Sucesso automático no tipo de jogada `alvo`.
   | { tipo: "sucesso_auto"; alvo: string; quando?: string }
   // Piso de dano: garante metade do dano MÁXIMO da fórmula rolada (arredonda
@@ -1506,7 +1508,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   {
     id: "multi_ataque",
     nome: "Multiataque",
-    descricao: "Ataca várias vezes de uma vez",
+    descricao: "Ataca várias vezes nas ações marcadas com \"Recebe Multiataque\"",
     icone: "fa-layer-group",
     cor: "var(--color-power)",
     grupo: "ativo",
@@ -1596,11 +1598,11 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   {
     id: "acao_extra",
     nome: "Ação Extra",
-    descricao: "1 ataque/ação/reação a mais por turno",
+    descricao: "Ação Padrão, Bônus, Poderosa ou Reação a mais por turno",
     icone: "fa-forward",
     cor: "var(--color-power)",
     grupo: "ativo",
-    criar: () => ({ tipo: "acao_extra", acao: "ataque", quantidade: 1 }),
+    criar: () => ({ tipo: "acao_extra", acao: "padrao", quantidade: 1 }),
   },
   {
     id: "sucesso_auto",
@@ -1981,9 +1983,14 @@ function normalizarCampos(tipo: TipoEfeito, obj: Record<string, unknown>): Efeit
     case "vulnerabilidade":
       if (!str(obj.tipoDano)) return null;
       return { tipo, tipoDano: str(obj.tipoDano) };
-    case "deslocamento":
-      if (!str(obj.tipoMov)) return null;
-      return { tipo, tipoMov: str(obj.tipoMov), valor: meioMetro(num(obj.valor)) };
+    case "deslocamento": {
+      const tipoMov = str(obj.tipoMov);
+      if (!tipoMov) return null;
+      const e = { tipo, tipoMov, valor: meioMetro(num(obj.valor)) };
+      // Só grava o modo quando foge do padrão do movimento.
+      const modo = obj.modo === "soma" || obj.modo === "vira" ? obj.modo : null;
+      return modo && modo !== modoDoDeslocamento(e) ? { ...e, modo } : e;
+    }
     case "valor_igual": {
       const alvo = str(obj.alvo).trim().toLowerCase();
       const de = str(obj.de).trim().toLowerCase();
@@ -2038,12 +2045,22 @@ function normalizarCampos(tipo: TipoEfeito, obj: Record<string, unknown>): Efeit
       return { tipo, sentido, alcance: Math.max(0, num(obj.alcance)) };
     }
     case "acao_extra": {
-      const acao = str(obj.acao);
-      if (!acao) return null;
       const qtd = Math.max(1, Math.trunc(num(obj.quantidade)) || 1);
-      const e: EfeitoHabilidade = { tipo, acao, quantidade: qtd };
-      if (str(obj.gatilho)) e.gatilho = str(obj.gatilho);
-      return e;
+      const gatilho = str(obj.gatilho);
+      const acao = ACAO_EXTRA_ANTIGA[str(obj.acao)] ?? str(obj.acao);
+      // Ataque extra antigo vira Multiataque; com condição, fica como texto.
+      if (acao === "ataque") {
+        return gatilho
+          ? { tipo: "livre", texto: `${qtd > 1 ? `${qtd} ataques` : "1 ataque"} a mais: ${gatilho}` }
+          : { tipo: "multi_ataque", vezes: qtd, soma: true };
+      }
+      // Movimento extra antigo era só descritivo: vira texto (o novo é o efeito Deslocamento).
+      if (acao === "movimento") {
+        return { tipo: "livre", texto: `Movimento extra${qtd > 1 ? ` ${qtd}×` : ""}${gatilho ? `: ${gatilho}` : ""}` };
+      }
+      const slug = ACOES_EXTRAS.find((a) => a.slug === acao)?.slug;
+      if (!slug) return null;
+      return { tipo, acao: slug, quantidade: qtd, ...(gatilho ? { gatilho } : {}) };
     }
     case "sucesso_auto": {
       if (!str(obj.alvo)) return null;
@@ -2281,6 +2298,33 @@ function normalizarCampos(tipo: TipoEfeito, obj: Record<string, unknown>): Efeit
     default:
       return null;
   }
+}
+
+// Ações que a Ação Extra dá (as mesmas do turno de combate).
+export const ACOES_EXTRAS: { slug: TipoAcaoCombate; nome: string }[] = [
+  { slug: "padrao", nome: "Padrão" },
+  { slug: "bonus", nome: "Bônus" },
+  { slug: "power", nome: "Poderosa" },
+  { slug: "react", nome: "Reação" },
+];
+
+// Ações que a Ação Extra de uma ação dá ao ser usada (valem só naquele turno).
+export function acoesGanhasNoUso(efeitos: EfeitoHabilidade[]): Partial<Record<TipoAcaoCombate, number>> {
+  const out: Partial<Record<TipoAcaoCombate, number>> = {};
+  for (const e of efeitos) {
+    if (e.tipo === "acao_extra") out[e.acao] = (out[e.acao] ?? 0) + e.quantidade;
+  }
+  return out;
+}
+
+// Valores gravados antes da Fase 2A.
+const ACAO_EXTRA_ANTIGA: Record<string, string> = { acao: "padrao", "acao bônus": "bonus", reacao: "react" };
+
+export type ModoDeslocamento = "soma" | "vira";
+
+// Andar soma no deslocamento base; nadar, voar… viram o valor (vale o maior).
+export function modoDoDeslocamento(e: { tipoMov: string; modo?: ModoDeslocamento }): ModoDeslocamento {
+  return e.modo ?? (e.tipoMov.trim().toLowerCase() === "caminhar" ? "soma" : "vira");
 }
 
 // Deslocamentos que um efeito mexe; "caminhar" é o deslocamento base.
@@ -2616,10 +2660,12 @@ export function rotuloAlvo(slug: string): string {
 // efeito daquele alvo se aplica.
 export type ContextoRolagem =
   // `municao`: item que o ataque gasta ao rolar.
+  // `multiataque`: ação que o jogador marcou pra receber o Multiataque da ficha.
   | {
       tipo: "ataque";
       alcance: "corpo_a_corpo" | "distancia";
       tecnica?: boolean;
+      multiataque?: boolean;
       municao?: { id: string; nome: string };
     }
   // `concentracao`: a salvaguarda de CON pra manter a concentração.
@@ -2936,11 +2982,12 @@ export type EfeitosAgregados = {
   // O que acontece a cada turno; `habilidadeId` = ligada que desliga se o gasto zerar.
   porTurno: PorTurno[];
   // Ações a mais por turno ("Ação Extra" sem condição), por tipo de ação.
-  acoesExtras: Partial<Record<"padrao" | "bonus" | "react", FonteValor>>;
+  acoesExtras: Partial<Record<TipoAcaoCombate, FonteValor>>;
   // Valor igual a outro (ou à metade dele): CR, deslocamentos e atributos.
   valoresIguais: ValorIgual[];
   // Multiataque por alvo de ataque: vale o maior total, mais os ataques a mais.
-  multiAtaques: (Gasto & { vezes: number; soma: boolean; alvo: string; fonte: string })[];
+  // `daAcao`: o Multiataque da própria ação, que vale nela mesmo sem a marca.
+  multiAtaques: (Gasto & { vezes: number; soma: boolean; alvo: string; fonte: string; daAcao?: boolean })[];
   // Explosões de dano e de ataque.
   explosoes: (Gasto & {
     gatilho: GatilhoExplosao;
@@ -3901,6 +3948,8 @@ export function agregarEfeitos(
     grau?: number;
     recursos?: RecursoFonte[];
     ppAtual?: number;
+    // Efeitos da própria ação que está rolando (efeitosDaTecnica).
+    daAcao?: boolean;
   },
 ): EfeitosAgregados {
   // Base de um render anterior pode não ter os campos mais novos.
@@ -4195,14 +4244,11 @@ export function agregarEfeitos(
         }
       } else if (e.tipo === "acao_extra") {
         // Com condição ("1× por descanso") fica descritivo: não vira ação de todo turno.
-        const tipoAcao = ({ acao: "padrao", "acao bônus": "bonus", reacao: "react" } as const)[
-          e.acao as "acao" | "acao bônus" | "reacao"
-        ];
-        if (tipoAcao && !e.gatilho) {
-          const atual = out.acoesExtras[tipoAcao] ?? { valor: 0, fontes: [] };
+        if (!e.gatilho) {
+          const atual = out.acoesExtras[e.acao] ?? { valor: 0, fontes: [] };
           atual.valor += e.quantidade;
           if (!atual.fontes.includes(h.nome)) atual.fontes.push(h.nome);
-          out.acoesExtras[tipoAcao] = atual;
+          out.acoesExtras[e.acao] = atual;
         }
       } else if (e.tipo === "por_turno") {
         out.porTurno.push({
@@ -4286,6 +4332,7 @@ export function agregarEfeitos(
           soma: !!e.soma,
           alvo: (e.alvo ?? "ataque").trim().toLowerCase() || "ataque",
           fonte: h.nome,
+          ...(ctx?.daAcao ? { daAcao: true } : {}),
           ...gasto,
         });
       } else if (e.tipo === "explosao") {
@@ -4320,10 +4367,18 @@ export function agregarEfeitos(
         out.valoresIguais.push({ alvo: e.alvo, de: e.de, metade: !!e.metade, fonte: h.nome });
       } else if (e.tipo === "deslocamento") {
         const tipo = e.tipoMov.trim().toLowerCase();
+        const soma = modoDoDeslocamento(e) === "soma";
         if (tipo && e.valor) {
-          if (tipo === "caminhar") {
+          if (tipo === "caminhar" && soma) {
             // Deslocamento terrestre é o base — soma como bônus.
             somarBucketSimples(out.bonusDeslocamento, e.valor, h.nome);
+          } else if (tipo === "caminhar") {
+            // Vira o valor: como o Valor Fixo, vale o maior.
+            const atual = out.valoresFixos.deslocamento;
+            if (!atual || e.valor > atual.valor) out.valoresFixos.deslocamento = { valor: e.valor, fontes: [h.nome] };
+          } else if (soma) {
+            // Soma em quem já tem o modo.
+            somarFonteValor(out.bonusMovimento, tipo, e.valor, h.nome);
           } else {
             // Voar/nadar/escalar/cavar: modo próprio, prevalece o maior.
             const atual = out.deslocamentosExtra[tipo] ?? { valor: 0, fontes: [] };
@@ -4354,6 +4409,7 @@ export function efeitosDaTecnica(
   if (proprios.length === 0) return base;
   return agregarEfeitos([{ nome: acao.nome, tipo: "passiva", efeitos: proprios }], new Set(), base, {
     grau: acao.grau,
+    daAcao: true,
   });
 }
 
@@ -4681,7 +4737,8 @@ export function chipsDoContexto(
       });
       // Multiataque: o maior total que casa, mais os ataques a mais. Com uso
       // limitado, um chip desligado por fonte, já somado aos que valem sempre.
-      const casados = multiAtaques.filter((m) => casaContexto(m.alvo, ctx));
+      // O da ficha só vale nas ações marcadas; o da própria ação, nela.
+      const casados = multiAtaques.filter((m) => (m.daAcao || ctx.multiataque) && casaContexto(m.alvo, ctx));
       const multis = casados.filter((m) => !m.gasta);
       const vezes =
         Math.max(1, ...multis.filter((m) => !m.soma).map((m) => m.vezes)) +
@@ -5205,8 +5262,11 @@ export function resumoEfeito(
     case "imunidade":
     case "vulnerabilidade":
       return e.tipoDano;
-    case "deslocamento":
-      return `${e.tipoMov} ${String(e.valor).replace(".", ",")}m`;
+    case "deslocamento": {
+      const nome = MOVIMENTOS.find((m) => m.slug === e.tipoMov)?.nome ?? e.tipoMov;
+      const metros = `${String(e.valor).replace(".", ",")}m`;
+      return modoDoDeslocamento(e) === "soma" ? `${nome} +${metros}` : `${nome} vira ${metros}`;
+    }
     case "valor_igual": {
       const nome = (slug: string) => ALVOS_VALOR_IGUAL.find((a) => a.slug === slug)?.nome ?? slug;
       return `${nome(e.alvo)} = ${e.metade ? "metade de " : ""}${nome(e.de)}`;
@@ -5232,8 +5292,10 @@ export function resumoEfeito(
       return `≤${e.minimo} ⇒ ${e.minimo} · ${rotuloAlvo(e.alvo ?? "qualquer")}`;
     case "sentido":
       return e.alcance > 0 ? `${e.sentido} ${e.alcance}m` : e.sentido;
-    case "acao_extra":
-      return e.quantidade > 1 ? `${e.quantidade}× ${e.acao}` : e.acao;
+    case "acao_extra": {
+      const nome = ACOES_EXTRAS.find((a) => a.slug === e.acao)?.nome ?? e.acao;
+      return `${e.quantidade > 1 ? `${e.quantidade}× ` : ""}${nome}${e.gatilho ? ` · ${e.gatilho}` : ""}`;
+    }
     case "sucesso_auto":
     case "falha_auto":
       return `${rotuloAlvo(e.alvo)}${quando(e.quando)}`;

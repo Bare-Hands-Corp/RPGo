@@ -12,6 +12,7 @@ import {
   ALVOS_SUBSTITUIVEIS,
   ALVOS_VALOR_FIXO,
   ALVOS_VALOR_IGUAL,
+  ACOES_EXTRAS,
   ATRIBUTOS,
   DEFESAS_IGNORADAS,
   EVENTO_PASSOS,
@@ -31,6 +32,7 @@ import {
   formatarMod,
   formulaResolvidaTexto,
   lerEfeitos,
+  modoDoDeslocamento,
   nomeDoEfeito,
   podeSerSempreAtivo,
   alvoDaCura,
@@ -1144,9 +1146,23 @@ function renderCorpo(
               label="Onde"
               valor={e.tipoMov}
               opcoes={MOVIMENTOS}
-              onChange={(v) => onPatch({ tipoMov: v } as Partial<EfeitoHabilidade>)}
+              // Troca de movimento volta pro modo padrão dele.
+              onChange={(v) => onPatch({ tipoMov: v, modo: undefined } as Partial<EfeitoHabilidade>)}
             />
           </div>
+          <SelectLista
+            label="Como"
+            valor={modoDoDeslocamento(e)}
+            opcoes={[
+              { slug: "soma", nome: "Soma" },
+              { slug: "vira", nome: "Vira" },
+            ]}
+            onChange={(v) =>
+              onPatch({
+                modo: v === modoDoDeslocamento({ tipoMov: e.tipoMov }) ? undefined : v,
+              } as Partial<EfeitoHabilidade>)
+            }
+          />
           <CampoNum
             label="Quanto (m)"
             valor={e.valor}
@@ -1402,13 +1418,7 @@ function renderCorpo(
             <SelectLista
               label="Onde"
               valor={e.acao}
-              opcoes={[
-                { slug: "ataque", nome: "Ataque" },
-                { slug: "acao", nome: "Ação" },
-                { slug: "acao bônus", nome: "Ação bônus" },
-                { slug: "reacao", nome: "Reação" },
-                { slug: "movimento", nome: "Movimento" },
-              ]}
+              opcoes={ACOES_EXTRAS}
               onChange={(v) => onPatch({ acao: v } as Partial<EfeitoHabilidade>)}
             />
           </div>
@@ -2079,8 +2089,16 @@ function renderCorpo(
                 ...ALVOS_DANO,
                 ...ALVOS_CONTEXTUAIS,
                 ...periciasCustom.map((a) => ({ ...a, grupo: "Perícia" })),
+                // Valores da ficha: valem enquanto a ação durar.
+                { slug: "hp-max", nome: "PV Máximo", grupo: "Ficha" },
+                { slug: "cr", nome: "Classe de Resistência", grupo: "Ficha" },
               ]}
-              onChange={(v) => onPatch({ em: v === "dano" ? undefined : v } as Partial<EfeitoHabilidade>)}
+              onChange={(v) =>
+                onPatch({
+                  em: v === "dano" ? undefined : v,
+                  ...(e.cresce === "rolagem" && progressivoNaFicha(v, slugsCustom) ? { cresce: undefined } : {}),
+                } as Partial<EfeitoHabilidade>)
+              }
             />
           ) : (
             <div>

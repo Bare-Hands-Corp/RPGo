@@ -32,6 +32,7 @@ import {
   modificador,
   lerProficiencias,
   motivoSemSobrecarga,
+  acoesGanhasNoUso,
   normalizarEfeito,
   poolsEfetivos,
   resolverFormula,
@@ -183,6 +184,7 @@ import {
   TEXTO_RESULTADO,
   ehAcaoDeCombate,
   gatilhoCabe,
+  comAcoesGanhas,
   lerAcoesGastas,
   lerDanosExtras,
   lerGatilho,
@@ -433,6 +435,7 @@ const ALLOWED_ACAO = [
   "alvo",
   "bonusAcerto",
   "armaDeFogo",
+  "multiataque",
   "duracao",
   "tipoDano",
   "pasta",
@@ -515,6 +518,7 @@ function normalizarAcaoInput(input: AcaoInput) {
   // Ação inteira "em aliado" é de antes do `quem` por efeito; só lido em ação antiga.
   if (input.aliado !== undefined) data.aliado = Boolean(input.aliado);
   if (input.armaDeFogo !== undefined) data.armaDeFogo = input.armaDeFogo === true;
+  if (input.multiataque !== undefined) data.multiataque = input.multiataque === true;
   if (input.duracao !== undefined) data.duracao = lerDuracao(input.duracao) ?? Prisma.DbNull;
   if (input.formaDe !== undefined) data.formaDe = input.formaDe ? String(input.formaDe) : null;
   return data;
@@ -591,6 +595,7 @@ function dadosDaAcao(personagemId: string, data: Record<string, unknown>) {
     aliado: (data.aliado as boolean) ?? false,
     alvo: (data.alvo as string) ?? "nenhum",
     armaDeFogo: (data.armaDeFogo as boolean) ?? false,
+    multiataque: (data.multiataque as boolean) ?? false,
     duracao: (data.duracao as Prisma.InputJsonValue | typeof Prisma.DbNull) ?? Prisma.DbNull,
     ...(data.formaDe ? { formaDe: data.formaDe as string } : {}),
   };
@@ -675,7 +680,7 @@ export async function usarAcao(
     if (combate && tipoAcao) {
       if (tipoAcao !== "react" && !combate.naVez) throw new ErroDeUso("Não é a sua vez.");
       if (tipoAcao === "react" && combate.naVez) throw new ErroDeUso("Reação é só fora da sua vez.");
-      if ((combate.gastas[tipoAcao] ?? 0) >= maximoDeAcoes(agg.acoesExtras)[tipoAcao]) {
+      if ((combate.gastas[tipoAcao] ?? 0) >= maximoDeAcoes(agg.acoesExtras, combate.gastas.ganhas)[tipoAcao]) {
         throw new ErroDeUso(`Sem ação ${ACAO_COMBATE[tipoAcao].nome.toLowerCase()} neste turno.`);
       }
       // Incapacitado, Sonolento, Letárgico…
@@ -805,11 +810,16 @@ export async function usarAcao(
         }),
       );
     }
-    if (combate && tipoAcao) {
+    // Ação Extra da técnica: as ações a mais valem neste turno (bolinhas a mais).
+    const ganhas = combate ? acoesGanhasNoUso(todosEfeitos) : {};
+    if (combate && (tipoAcao || Object.keys(ganhas).length > 0)) {
+      const gastas = tipoAcao
+        ? { ...combate.gastas, [tipoAcao]: (combate.gastas[tipoAcao] ?? 0) + 1 }
+        : combate.gastas;
       ops.push(
         prisma.instanciaCombate.update({
           where: { id: combate.instanciaId },
-          data: { acoesGastas: { ...combate.gastas, [tipoAcao]: (combate.gastas[tipoAcao] ?? 0) + 1 } },
+          data: { acoesGastas: comAcoesGanhas(gastas, ganhas) },
         }),
       );
     }
@@ -3622,7 +3632,8 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
     const crescem = [
       ...habsValendo.map((h) => ({ tabela: "habilidade" as const, ...h })),
       ...itensEquipados.map((i) => ({ tabela: "item" as const, ...i })),
-      ...(acaoConcentrada ? [{ tabela: "acao" as const, ...acaoConcentrada }] : []),
+      // Ações em curso e a da concentração (PV máx, CR… que crescem enquanto duram).
+      ...acoesValendo.filter((a) => idsDeAcao.has(a.id)).map((a) => ({ tabela: "acao" as const, ...a })),
     ].flatMap((x) => {
       const novo = crescerPorTurno(x.efeitos);
       return novo ? [{ tabela: x.tabela, id: x.id, nome: x.nome, novo }] : [];
@@ -3681,7 +3692,7 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
     // O que desliga neste turno (ou a técnica que perde a concentração) não cresce.
     const desligadas = new Set(r.desligar.map((h) => h.id));
     for (const x of crescem) {
-      if (x.tabela === "acao" ? perdeu : desligadas.has(x.id)) continue;
+      if (desligadas.has(x.id) || (perdeu && x.id === acaoConcentrada?.id)) continue;
       for (const texto of x.novo.textos) r.linhas.push({ fonte: x.nome, texto });
       const where = { id: x.id, personagemId };
       const data = { efeitos: x.novo.efeitos as unknown as Prisma.InputJsonValue };
@@ -5031,7 +5042,8 @@ async function reacoesCabiveis(
   if (ordenarParticipantes(combate.participantes)[combate.turnoAtual]?.id === alvo.instanciaId) return [];
   // Incapacitado ou Sonolento não reage.
   if (travasDasCondicoes(lerCondicoesAtivas(instancia.condicoesAtivas)).semReacao) return [];
-  const gasta = lerAcoesGastas(instancia.acoesGastas).react ?? 0;
+  const gastasDoAlvo = lerAcoesGastas(instancia.acoesGastas);
+  const gasta = gastasDoAlvo.react ?? 0;
 
   if (!alvo.personagemId) {
     if (!instancia.criaturaId || gasta >= 1) return [];
@@ -5060,7 +5072,7 @@ async function reacoesCabiveis(
   ).filter((a) => gatilhoCabe(lerGatilho(a.gatilho), acao) && a.usosAtual !== 0);
   if (reacoes.length === 0) return [];
   const { agg } = await carregarAgregado(alvo.personagemId);
-  if (gasta >= maximoDeAcoes(agg.acoesExtras).react) return [];
+  if (gasta >= maximoDeAcoes(agg.acoesExtras, gastasDoAlvo.ganhas).react) return [];
   return reacoes.map((a) => ({ id: a.id, nome: a.nome, efeito: resumoDaReacao(lerEfeitos(a.efeitos)) }));
 }
 
@@ -5352,7 +5364,7 @@ export async function usarAcaoDeCondicao(
         nome: instancia?.nomeExibicao ?? "",
         naVez: combate.naVez,
         gastas: combate.gastas,
-        maximo: maximoDeAcoes(agg.acoesExtras),
+        maximo: maximoDeAcoes(agg.acoesExtras, combate.gastas.ganhas),
         condicoes: combate.condicoes,
       },
       condicaoId,
