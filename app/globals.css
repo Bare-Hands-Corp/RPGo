@@ -807,6 +807,13 @@ a {
   color: var(--danger);
 }
 
+/* O efeito que vai pra quem for marcado, embaixo do título. */
+.ataque-detalhe {
+  margin: -4px 0 12px;
+  font-size: 0.85rem;
+  color: var(--text-sec);
+}
+
 .ataque-motivos {
   display: flex;
   align-items: center;

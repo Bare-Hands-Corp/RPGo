@@ -138,6 +138,11 @@ export type CondicaoAtiva = {
   mecanica?: unknown;
   // Turno ("rodada:turno") em que o dano de gatilho já caiu.
   disparou?: string;
+  // Some na primeira rolagem em que vale (vantagem ou desvantagem de uma técnica).
+  uso?: "proxima";
+  // Some no fim do próximo turno do afetado; guarda o turno ("rodada:turno")
+  // em que entrou, pra não acabar no fim do turno em que foi posta.
+  fimDoTurno?: string;
 };
 
 export type DanoPorTurno = { formula: string; tipo: string; quando: "inicio" | "fim" };
@@ -155,8 +160,13 @@ export function textoDanoPorTurno(d: DanoPorTurno): string {
   return `${d.formula}${d.tipo ? ` ${d.tipo}` : ""} no ${d.quando === "inicio" ? "início" : "fim"} de cada turno`;
 }
 
-// O que uma ação aplica em quem ela pega.
-export type CondicaoAplicada = Pick<CondicaoAtiva, "nome" | "rodadas" | "salvaguarda" | "porTurno" | "mecanica">;
+// O que uma ação aplica em quem ela pega. `ateOProximoTurno`: só até o fim do
+// próximo turno do afetado. `evita`: salvaguarda que o alvo rola pra não
+// receber (fora a da própria ação).
+export type CondicaoAplicada = Pick<CondicaoAtiva, "nome" | "rodadas" | "salvaguarda" | "porTurno" | "mecanica" | "uso"> & {
+  ateOProximoTurno?: boolean;
+  evita?: { atributo: string; cd: number } | null;
+};
 
 export const MAX_CONDICOES = 12;
 
@@ -185,11 +195,17 @@ export function lerCondicoesAtivas(raw: unknown): CondicaoAtiva[] {
           porTurno: lerDanoPorTurno(o.porTurno),
           ...(o.mecanica && typeof o.mecanica === "object" ? { mecanica: o.mecanica } : {}),
           ...(typeof o.disparou === "string" ? { disparou: o.disparou } : {}),
+          ...(o.uso === "proxima" ? { uso: "proxima" as const } : {}),
+          ...(typeof o.fimDoTurno === "string" ? { fimDoTurno: o.fimDoTurno } : {}),
         },
       ];
     })
     .slice(0, MAX_CONDICOES);
 }
+
+// Evento do Rolador: rolou com a vantagem ou desvantagem de uso único dessas
+// condições (ids); a ficha tira elas.
+export const EVENTO_GASTAR_CONDICAO = "rpgo:gastar-condicao";
 
 // Só os nomes das condições valendo.
 export function nomesDasCondicoes(raw: unknown): string[] {
@@ -197,13 +213,38 @@ export function nomesDasCondicoes(raw: unknown): string[] {
 }
 
 export function lerCondicoesAplicadas(raw: unknown): CondicaoAplicada[] {
-  return lerCondicoesAtivas(raw).map(({ nome, rodadas, salvaguarda, porTurno, mecanica }) => ({
-    nome,
-    rodadas,
-    salvaguarda,
-    porTurno,
-    ...(mecanica ? { mecanica } : {}),
-  }));
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((x): CondicaoAplicada[] => {
+    const lida = lerCondicoesAtivas([x])[0];
+    if (!lida) return [];
+    const { nome, rodadas, salvaguarda, porTurno, mecanica, uso } = lida;
+    const o = x as Record<string, unknown>;
+    const evita = o.evita as Record<string, unknown> | null | undefined;
+    return [
+      {
+        nome,
+        rodadas,
+        salvaguarda,
+        porTurno,
+        ...(mecanica ? { mecanica } : {}),
+        ...(uso ? { uso } : {}),
+        ...(o.ateOProximoTurno === true ? { ateOProximoTurno: true } : {}),
+        ...(evita && typeof evita === "object" && evita.atributo && Number(evita.cd) > 0
+          ? { evita: { atributo: String(evita.atributo), cd: Math.trunc(Number(evita.cd)) } }
+          : {}),
+      },
+    ];
+  });
+}
+
+// Fim do turno de quem está com elas: soltam as que duravam até o fim do
+// próximo turno dele (`turno` = o que está acabando, "rodada:turno").
+export function fimDoTurnoDoAfetado(
+  condicoes: CondicaoAtiva[],
+  turno: string,
+): { condicoes: CondicaoAtiva[]; acabaram: string[] } {
+  const acabaram = condicoes.filter((c) => c.fimDoTurno && c.fimDoTurno !== turno).map((c) => c.nome);
+  return { condicoes: condicoes.filter((c) => !c.fimDoTurno || c.fimDoTurno === turno), acabaram };
 }
 
 // Passa uma rodada pra quem a vez de `daVezId` marca: tira uma de cada

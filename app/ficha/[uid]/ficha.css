@@ -1040,6 +1040,46 @@
   color: var(--text-sec);
 }
 
+/* Seção que recolhe pelo título (tipos de ação, origens de habilidade). */
+.secao-recolhivel-topo {
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.secao-recolhivel-topo:disabled {
+  cursor: default;
+}
+
+.secao-recolhivel-topo:hover h3,
+.secao-recolhivel-topo:focus-visible h3 {
+  color: var(--text-main);
+}
+
+.secao-recolhivel-contagem {
+  color: var(--text-sec);
+  font-size: 0.85rem;
+}
+
+.secao-recolhivel-seta {
+  color: var(--text-sec);
+  font-size: 0.8rem;
+  transition: transform 0.15s;
+}
+
+.secao-recolhivel.recolhida .secao-recolhivel-seta {
+  transform: rotate(-90deg);
+}
+
+.secao-recolhivel-topo:disabled .secao-recolhivel-seta {
+  visibility: hidden;
+}
+
 /* ─── CARDS DE AÇÃO / ITEM ─────────────────────────────────── */
 .action-grid {
   display: grid;
@@ -8071,6 +8111,14 @@ form > .turno-campo,
 }
 
 /* O que vai aparecer no card, enquanto edita. */
+/* Dica do "Em quem" quando o efeito fica valendo no aliado. */
+.efeito-quem-dica {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-sec);
+  font-size: 0.78rem;
+}
+
 .efeito-editor-resumo {
   min-width: 0;
   overflow: hidden;

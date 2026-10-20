@@ -46,7 +46,12 @@ import {
   alvoDeCombate,
   lerAlvoAcao,
   efeitoNoAliado,
+  efeitoNoInimigo,
+  efeitosNoInimigo,
+  condicaoPedeSalvaguarda,
+  efeitosQueFicamNoAliado,
   nomeDoEfeito,
+  resumoEfeito,
   rolagensDoPedaco,
   type AlvoAcao,
   formulaResolvidaTexto,
@@ -110,6 +115,7 @@ import { useEscolherAlvo } from "./escolher-alvo";
 import { useEscolherAlvosCombate } from "./escolher-alvos-combate";
 import type { Tripulante } from "./tripulacao-tab";
 import { DescricaoRecolhivel } from "./descricao-recolhivel";
+import { SecaoRecolhivel } from "./secao-recolhivel";
 import { rascunho } from "./rascunho";
 import { Tooltip } from "@/components/tooltip";
 import { MarcaExausto } from "./marca-exausto";
@@ -125,6 +131,7 @@ import { danoComMunicao, municaoDaArma, textoMunicao } from "@/lib/municao";
 import { useGastoMunicao } from "./use-municao";
 import {
   anunciarConcentracao,
+  duraAlemDoUso,
   lerDuracao,
   pedeConcentracao,
   textoDuracao,
@@ -136,6 +143,7 @@ import {
   EVENTO_ACAO_EM_CURSO,
   anunciarAcaoEmCurso,
   ficaEmCurso,
+  turnosDaAcao,
   type AcaoEmCursoDetail,
 } from "@/lib/turno";
 
@@ -278,6 +286,8 @@ type Resolve = {
   cd: number | null;
   // Quantos ataques a rolagem de acerto faz (multiataque): um alvo pra cada.
   ataques: number;
+  // Chips de vantagem e desvantagem da ficha que já ligam no acerto ("Vantagem: Ajudar (condição)").
+  modosDaFicha: string[];
   atacar: (extras: Pick<EmpilharRolagemDetail, "aoConcluir" | "rolarAuto" | "modos">) => void;
   danar: (extras: Pick<EmpilharRolagemDetail, "aoConcluir" | "critico">) => void;
   // Tipo do dano principal.
@@ -478,6 +488,12 @@ function mostrarErro(err: unknown) {
   });
 }
 
+// "Vantagem (Qualquer d20 · próxima rolagem)": o efeito que vai pra outro, no "em quem?".
+function textoDoEfeito(e: EfeitoHabilidade): string {
+  const vale = e.vale === "proxima" ? "próxima rolagem" : e.vale === "turno" ? "próximo turno dele" : "";
+  return `${nomeDoEfeito(e)} (${[resumoEfeito(e), vale].filter(Boolean).join(" · ")})`;
+}
+
 export function AcoesTab({
   personagemId,
   acoes,
@@ -497,6 +513,8 @@ export function AcoesTab({
   atributoCdTecnicas,
 }: Props) {
   const alvosDoCombate = useEscolherAlvosCombate(alvosCombate);
+  // Os participantes (dentro de `usar`, `alvosCombate` são os alvos escolhidos).
+  const participantesDoCombate = alvosCombate;
   // Condições deste personagem no combate (travam ações: Incapacitado, Sonolento…).
   const minhasCondicoes = useMemo(
     () => alvosCombate.find((p) => p.voce)?.condicoes ?? [],
@@ -947,8 +965,16 @@ export function AcoesTab({
     // (multiataque escolhe o de cada um); vários de uma vez na salvaguarda e no
     // dano direto. Vale pra qualquer tipo de ação, inclusive a Livre.
     const alvoAcao = lerAlvoAcao(acao);
-    const escolheNoCombate = !!turno && !!resolve && alvoDeCombate(alvoAcao);
-    if (escolheNoCombate && !resolve.ataque && acao.atributoSalv && resolve.cd == null) {
+    // Desvantagem no inimigo também pede alvo: o do acerto ou da salvaguarda, se
+    // a ação tiver; sem eles, o usuário escolhe em quem ela cai.
+    const noInimigo = efeitosNoInimigo(acao).length > 0;
+    const condicaoDoCatalogo = lerEfeitos(acao.efeitos).some((e) => e.tipo === "condicao_aplicar");
+    const escolheNoCombate = !!turno && !!resolve && (alvoDeCombate(alvoAcao) || noInimigo);
+    if (
+      escolheNoCombate &&
+      resolve.cd == null &&
+      ((!resolve.ataque && acao.atributoSalv) || condicaoPedeSalvaguarda(acao))
+    ) {
       mostrarErro(new Error("Escolha a CD das suas técnicas na ficha lateral antes de usar esta ação."));
       return;
     }
@@ -958,13 +984,21 @@ export function AcoesTab({
     if (escolheNoCombate && (resolve.ataque || resolve.salvaguarda || resolve.dano || resolve.condicao)) {
       if (resolve.ataque) {
         const ataques = await alvosDoCombate.escolherAtaques(`${acao.nome}: em quem?`, resolve.ataques, {
+          daFicha: resolve.modosDaFicha,
           corpoACorpo: resolve.corpoACorpo,
         });
         if (ataques === null) return;
         alvosCombate = ataques.map((a) => a.alvo);
         modosAtaque = ataques.map((a) => a.modo);
       } else {
-        const escolhidos = await alvosDoCombate.escolher(`${acao.nome}: em quem?`);
+        // Sem acerto nem salvaguarda, o alvo é só de quem recebe a desvantagem.
+        const soDesvantagem = !resolve.salvaguarda && !resolve.dano && noInimigo && !condicaoDoCatalogo;
+        const escolhidos = await alvosDoCombate.escolher(
+          `${acao.nome}: ${soDesvantagem ? "em qual inimigo?" : "em quem?"}`,
+          noInimigo
+            ? { detalhe: `No alvo: ${efeitosNoInimigo(acao).map(textoDoEfeito).join(", ")}.` }
+            : undefined,
+        );
         if (escolhidos === null) return;
         alvosCombate = escolhidos;
       }
@@ -991,17 +1025,19 @@ export function AcoesTab({
     );
     const concentra = pedeConcentracao(acao.duracao);
     // Sem concentração, o que repete e o que se mantém seguem até ela acabar.
-    const segue = ficaEmCurso(acao);
+    // No combate, o que fica valendo no aliado vira condição nele e não prende a ação.
+    const segue = ficaEmCurso(acao, !!turno);
     const linhas = [
       sobrecarga ? `Sem PP: recebe <b>${acao.grau}</b> de exaustão.` : null,
       partes.length > 0 ? `Vai consumir: ${partes.join(", ")}.` : null,
       curas.length > 0 ? `Cura: <b>${curas.join(" + ")}</b>.` : null,
       concentra ? "Passa a concentrar nela." : null,
+      noInimigo && !turno ? "Fora do combate a desvantagem no inimigo não vai pra ninguém." : null,
       segue ? "Fica em curso até a duração acabar." : null,
     ].filter((l): l is string => !!l);
 
-    // Efeitos que vão pra aliado: cada um escolhe o seu (pelo índice na lista
-    // de efeitos). Escolher já confirma o uso.
+    // Efeitos que vão pra aliado: todos no mesmo, escolhido aqui (vai pelo
+    // índice na lista de efeitos). Escolher já confirma o uso.
     const todosEfeitos = lerEfeitos(acao.efeitos);
     const paraAliado = todosEfeitos.flatMap((e, i) => (efeitoNoAliado(e, acao) ? [{ e, i }] : []));
     const aliados: Record<number, string> = {};
@@ -1010,14 +1046,38 @@ export function AcoesTab({
         mostrarErro(new Error("Nenhum aliado na mesa."));
         return;
       }
-      for (const [n, { e, i }] of paraAliado.entries()) {
-        const escolhido = await alvo.escolher(
-          `${sobrecarga ? "Sobrecarga: " : ""}${acao.nome} · ${nomeDoEfeito(e)}: em quem?`,
-          n === 0 ? { detalhe: linhas.map((l) => l.replace(/<\/?b>/g, "")).join(" ") } : undefined,
-        );
-        if (!escolhido) return;
-        aliados[i] = escolhido;
+      const ficam = efeitosQueFicamNoAliado(acao).length > 0;
+      const detalhe = [
+        `No aliado: ${[...new Set(paraAliado.map(({ e }) => textoDoEfeito(e)))].join(", ")}.`,
+        ...linhas.map((l) => l.replace(/<\/?b>/g, "")),
+        ficam
+          ? turno
+            ? "No combate, vira uma condição nele."
+            : duraAlemDoUso(acao.duracao)
+              ? "Fica valendo nele enquanto a ação durar."
+              : "Fica valendo nele até o seu próximo turno."
+          : null,
+      ].filter((l): l is string => !!l);
+      const titulo = `${sobrecarga ? "Sobrecarga: " : ""}${acao.nome}: em qual aliado?`;
+      // No combate, o mesmo "em quem?" dos alvos, só com os personagens que estão nele.
+      let escolhido: string | null | undefined;
+      if (turno) {
+        const ids = await alvosDoCombate.escolher(titulo, {
+          detalhe: detalhe.join(" "),
+          um: true,
+          so: (p) => p.tipo === "personagem" && !p.voce,
+        });
+        if (ids === null) return;
+        escolhido = participantesDoCombate.find((p) => p.id === ids[0])?.personagemId;
+        if (!escolhido) {
+          mostrarErro(new Error("Escolha o aliado que recebe o efeito."));
+          return;
+        }
+      } else {
+        escolhido = await alvo.escolher(titulo, { detalhe: detalhe.join(" ") });
       }
+      if (!escolhido) return;
+      for (const { i } of paraAliado) aliados[i] = escolhido;
     } else {
       const ok = await uso.confirmar({
         titulo: sobrecarga ? "Usar com Sobrecarga" : "Usar",
@@ -1085,7 +1145,7 @@ export function AcoesTab({
       const turnos = turnosDaDuracao(lerDuracao(acao.duracao));
       anunciarConcentracao({ tipo: "acao", id: acao.id, nome: acao.nome, ...(turnos ? { turnos } : {}) });
     } else if (segue) {
-      anunciarAcaoEmCurso({ id: acao.id, emCurso: true, turnos: turnosDaDuracao(lerDuracao(acao.duracao)) });
+      anunciarAcaoEmCurso({ id: acao.id, emCurso: true, turnos: turnosDaAcao(acao.duracao) });
     }
     startTransition(async () => {
       if (usosMax != null) {
@@ -1278,11 +1338,15 @@ export function AcoesTab({
         const lista = visiveis.filter((a) => a.tipo === grupo.tipo);
         if (filtrando && lista.length === 0) return null;
         return (
-          <section key={grupo.tipo}>
-            <div className="section-header">
-              <i className={`fas ${grupo.icone}`} style={{ color: grupo.cor }} />
-              <h3>{grupo.titulo}</h3>
-            </div>
+          <SecaoRecolhivel
+            key={grupo.tipo}
+            chave={`acoes:${grupo.tipo}`}
+            icone={grupo.icone}
+            cor={grupo.cor}
+            titulo={grupo.titulo}
+            contagem={lista.length}
+            forcarAberta={filtrando}
+          >
             {lista.length > 0 ? (
               <div className="action-grid">
                 {lista.map((origem) => {
@@ -1306,10 +1370,11 @@ export function AcoesTab({
                     : 0;
                   const comAdicional = <T extends { bonus: number; fontes: string[] }>(atq: T): T =>
                     adicionalAcerto ? { ...atq, bonus: atq.bonus + adicionalAcerto, fontes: [...atq.fontes, "adicional da ação"] } : atq;
-                  // A CD da ação com salvaguarda é a das técnicas do personagem (ficha
-                  // lateral). O atributo gravado na ação é de antes disso e só vale
-                  // enquanto o personagem não escolheu o dele.
-                  const atributoCd = ((acao.atributoSalv ? cdPadrao || acao.atributoCd : "") || null) as Atributo | null;
+                  // A CD da ação com salvaguarda (ou com condição que pede uma) é a
+                  // das técnicas do personagem (ficha lateral). O atributo gravado na
+                  // ação é de antes disso e só vale enquanto o personagem não escolheu o dele.
+                  const pedeCd = !!acao.atributoSalv || condicaoPedeSalvaguarda(acao);
+                  const atributoCd = ((pedeCd ? cdPadrao || acao.atributoCd : "") || null) as Atributo | null;
                   // Armas ligadas à ação; só as equipadas desferem.
                   const armasDaAcao = lerIds(acao.armaIds)
                     .map((id) => armas.find((a) => a.id === id))
@@ -1600,19 +1665,24 @@ export function AcoesTab({
                     });
                   };
                   const iDano = danos.findIndex((x) => x.d?.rolavel);
+                  // Chips do acerto que a ficha já liga (multiataque, vantagem, desvantagem).
+                  const chipsDoAcerto = chipsDoContexto(efeitosDoContexto(golpePadrao ? aggDaArma(golpePadrao.arma) : aggAcao), {
+                    tipo: "ataque",
+                    alcance: golpePadrao?.atq?.alcance ?? alcanceContexto,
+                    tecnica: acao.tecnica,
+                  });
                   const resolve: Resolve = {
                     ataque: !!golpePadrao || bonusAtq != null,
                     salvaguarda: cd != null && !!atributoSalv,
                     dano: iDano >= 0,
-                    condicao: efeitosAcao.some((e) => e.tipo === "condicao_aplicar"),
+                    // Condição do catálogo ou efeito que fica valendo no inimigo.
+                    condicao: efeitosAcao.some((e) => e.tipo === "condicao_aplicar" || efeitoNoInimigo(e)),
                     cd,
                     // Multiataque ligado de saída: um alvo pra cada ataque.
-                    ataques:
-                      chipsDoContexto(efeitosDoContexto(golpePadrao ? aggDaArma(golpePadrao.arma) : aggAcao), {
-                        tipo: "ataque",
-                        alcance: golpePadrao?.atq?.alcance ?? alcanceContexto,
-                        tecnica: acao.tecnica,
-                      }).find((c) => c.tipo === "multi_ataque" && !c.opcional)?.valor ?? 1,
+                    ataques: chipsDoAcerto.find((c) => c.tipo === "multi_ataque" && !c.opcional)?.valor ?? 1,
+                    modosDaFicha: chipsDoAcerto
+                      .filter((c) => (c.tipo === "vantagem" || c.tipo === "desvantagem") && !c.opcional)
+                      .map((c) => `${c.rotulo}: ${c.fontes.join(", ")}`),
                     atacar: (extras) => empilharAcerto(golpePadrao, extras),
                     danar: (extras) => empilharDano(iDano, extras),
                     tipoDano: acao.tipoDano || danos[iDano]?.tiposDano[0] || "",
@@ -2009,7 +2079,7 @@ export function AcoesTab({
                 Nenhuma ação nessa categoria.
               </p>
             )}
-          </section>
+          </SecaoRecolhivel>
         );
       })}
 

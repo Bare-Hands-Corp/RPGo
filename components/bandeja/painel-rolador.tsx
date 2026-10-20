@@ -16,6 +16,7 @@ import {
 import { addPreset, getPresets, removePreset, type Preset } from "@/lib/presets";
 import { registrarRolagem } from "./actions";
 import { anunciarGastoMunicao } from "@/lib/municao";
+import { EVENTO_GASTAR_CONDICAO } from "@/lib/condicoes";
 import type { MensagemSerializada } from "@/lib/mensagens";
 import {
   EVENTO_EMPILHAR,
@@ -116,6 +117,9 @@ type RegraExplosao = NonNullable<ChipContexto["explosao"]>;
 
 // Habilidade de Usar que a rolagem gasta, e quantos usos empilhados.
 type Gasto = { id: string; vezes: number };
+
+// Gasto que é uma condição de uso único, não uma habilidade.
+const PREFIXO_CONDICAO = "condicao:";
 
 // Chip sob demanda que dá pra usar mais de uma vez na mesma rolagem.
 function empilhavel(c: ChipContexto): boolean {
@@ -804,6 +808,8 @@ export function PainelRolador({
     // gastam juntos: vale o maior empilhamento entre eles.
     const vezesPorHabilidade = new Map<string, number>();
     for (const c of ligados) {
+      // Vantagem ou desvantagem de uso único (de uma técnica): some ao rolar.
+      for (const id of c.consome ?? []) vezesPorHabilidade.set(`${PREFIXO_CONDICAO}${id}`, 1);
       if (!c.gasta || c.tipo === "reroll") continue;
       vezesPorHabilidade.set(c.gasta, Math.max(vezesPorHabilidade.get(c.gasta) ?? 1, vezesDe(c)));
     }
@@ -1086,10 +1092,16 @@ export function PainelRolador({
     setPendente(null);
   }
 
-  // Chip de dano sob demanda gasta a habilidade (a aba Habilidades debita).
+  // Chip de dano sob demanda gasta a habilidade (a aba Habilidades debita); o
+  // de uso único gasta a condição que o dava (a ficha tira).
   function gastarHabilidades(gastos: Gasto[]) {
+    const condicoes: string[] = [];
     for (const detail of gastos) {
-      window.dispatchEvent(new CustomEvent("rpgo:gastar-habilidade", { detail }));
+      if (detail.id.startsWith(PREFIXO_CONDICAO)) condicoes.push(detail.id.slice(PREFIXO_CONDICAO.length));
+      else window.dispatchEvent(new CustomEvent("rpgo:gastar-habilidade", { detail }));
+    }
+    if (condicoes.length > 0) {
+      window.dispatchEvent(new CustomEvent<string[]>(EVENTO_GASTAR_CONDICAO, { detail: condicoes }));
     }
   }
 

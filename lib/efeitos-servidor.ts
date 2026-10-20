@@ -6,6 +6,7 @@ import { mesmoGrupo } from "@/lib/acesso-ficha";
 import { habilidadesTravadas } from "@/lib/arvore";
 import {
   agregarEfeitos,
+  efeitosQueFicamNoAliado,
   fonteDeAliado,
   fontesDeEfeitoDeItens,
   type Atributo,
@@ -173,16 +174,44 @@ async function semTravadasNoDono<
   return habs.filter((h) => !travadas.has(h.id) && (!h.itemId || ids.has(h.itemId)));
 }
 
-// Recebidas de aliados; falha vira lista vazia (dado auxiliar, não derruba a ficha).
+// Ações de aliados em curso que deixaram efeitos valendo em quem está em
+// `alvoIds`. A de concentração vale enquanto o dono concentra nela.
+async function acoesRecebidas(
+  alvoIds: string[],
+  donos: Prisma.PersonagemWhereInput,
+): Promise<(HabilidadeRecebida & { alvoId: string })[]> {
+  const acoes = await prisma.acao.findMany({
+    where: { aliadoEmCursoId: { in: alvoIds }, personagem: donos },
+    select: {
+      ...SELECT_ACAO_QUE_DURA,
+      personagemId: true,
+      aliadoEmCursoId: true,
+      personagem: { select: { nome: true, concentracao: true } },
+    },
+  });
+  return acoes.flatMap((a) => {
+    const alvoId = a.aliadoEmCursoId;
+    if (!alvoId || alvoId === a.personagemId) return [];
+    if (acoesEmCurso([a], a.personagem.concentracao).length === 0) return [];
+    const efeitos = efeitosQueFicamNoAliado(a);
+    if (efeitos.length === 0) return [];
+    return [{ id: a.id, nome: a.nome, efeitos, personagem: { nome: a.personagem.nome }, alvoId }];
+  });
+}
+
+// Recebidas de aliados (habilidades ligadas e ações em curso); falha vira lista
+// vazia (dado auxiliar, não derruba a ficha).
 export async function carregarRecebidas(personagemId: string): Promise<HabilidadeRecebida[]> {
   try {
-    return await semTravadasNoDono(
-      await prisma.habilidade.findMany({
+    const [habilidades, acoes] = await Promise.all([
+      prisma.habilidade.findMany({
         where: ondeRecebidas(personagemId),
         select: { ...SELECT_RECEBIDA, itemId: true, personagemId: true, formaDe: true },
         orderBy: { criadoEm: "asc" },
       }),
-    );
+      acoesRecebidas([personagemId], mesmoGrupo(personagemId)),
+    ]);
+    return [...(await semTravadasNoDono(habilidades)), ...acoes];
   } catch (err) {
     console.error("[efeitos] habilidades recebidas", err);
     return [];
@@ -196,6 +225,8 @@ export async function recebidasDaMesa(
 ): Promise<Map<string, HabilidadeFonte[]>> {
   const out = new Map<string, HabilidadeFonte[]>();
   if (ids.length === 0) return out;
+  // Membro da mesa, subficha de um membro ou subficha da mesa.
+  const daMesa: Prisma.PersonagemWhereInput = { OR: [{ mesaId }, { dono: { mesaId } }, { donoMesaId: mesaId }] };
   try {
     const habs = await semTravadasNoDono(
       await prisma.habilidade.findMany({
@@ -203,8 +234,7 @@ export async function recebidasDaMesa(
           alvoPersonagemId: { in: ids },
           ligada: true,
           aliado: true,
-          // Membro da mesa, subficha de um membro ou subficha da mesa.
-          personagem: { OR: [{ mesaId }, { dono: { mesaId } }, { donoMesaId: mesaId }] },
+          personagem: daMesa,
         },
         select: {
           ...SELECT_RECEBIDA,
@@ -219,6 +249,9 @@ export async function recebidasDaMesa(
     for (const h of habs) {
       if (!h.alvoPersonagemId || h.alvoPersonagemId === h.personagemId) continue;
       out.set(h.alvoPersonagemId, [...(out.get(h.alvoPersonagemId) ?? []), fonteRecebida(h)]);
+    }
+    for (const a of await acoesRecebidas(ids, daMesa)) {
+      out.set(a.alvoId, [...(out.get(a.alvoId) ?? []), fonteRecebida(a)]);
     }
   } catch (err) {
     console.error("[efeitos] habilidades recebidas da mesa", err);

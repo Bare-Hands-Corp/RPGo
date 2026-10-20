@@ -12,6 +12,7 @@ import {
   agregarEfeitos,
   alvoDaCura,
   efeitosDuram,
+  efeitosQueFicamNoAliado,
   lerEfeitos,
   nomeDoPool,
   type EfeitoHabilidade,
@@ -115,16 +116,34 @@ export type AcaoEmCurso = {
   turnos: number | null;
 };
 
-// Efeitos que seguem depois do uso: o "a cada turno" e os marcados pra durar.
-export function efeitosQueSeguem(acao: Pick<AcaoQueDura, "efeitos" | "duracao" | "aliado">): EfeitoHabilidade[] {
-  if (!duraAlemDoUso(acao.duracao)) return [];
+// Efeitos que seguem depois do uso: o "a cada turno", os marcados pra durar e
+// os que ficam valendo no aliado (esses, até em ação instantânea). No combate
+// (`aliadoEmCondicao`), o do aliado vira condição nele e não prende a ação.
+export function efeitosQueSeguem(
+  acao: Pick<AcaoQueDura, "efeitos" | "duracao" | "aliado">,
+  aliadoEmCondicao = false,
+): EfeitoHabilidade[] {
+  const noAliado = aliadoEmCondicao ? [] : efeitosQueFicamNoAliado(acao);
+  if (!duraAlemDoUso(acao.duracao)) return noAliado;
   const dura = efeitosDuram(acao);
-  return lerEfeitos(acao.efeitos).filter((e) => e.tipo === "por_turno" || (dura && !!e.dura));
+  return [
+    ...lerEfeitos(acao.efeitos).filter((e) => e.tipo === "por_turno" || (dura && !!e.dura)),
+    ...noAliado,
+  ];
+}
+
+// Turnos que a ação em curso conta. Instantânea só fica em curso pelo que dá
+// ao aliado: vale até o próximo turno de quem usa.
+export function turnosDaAcao(duracao: unknown): number | null {
+  return turnosDaDuracao(lerDuracao(duracao)) ?? (duraAlemDoUso(duracao) ? null : 1);
 }
 
 // Sem concentração, a ação fica em curso ao usar quando tem efeito que segue.
-export function ficaEmCurso(acao: Pick<AcaoQueDura, "efeitos" | "duracao" | "aliado">): boolean {
-  return !pedeConcentracao(acao.duracao) && efeitosQueSeguem(acao).length > 0;
+export function ficaEmCurso(
+  acao: Pick<AcaoQueDura, "efeitos" | "duracao" | "aliado">,
+  aliadoEmCondicao = false,
+): boolean {
+  return !pedeConcentracao(acao.duracao) && efeitosQueSeguem(acao, aliadoEmCondicao).length > 0;
 }
 
 export function acoesEmCurso(acoes: AcaoQueDura[], concentracao: unknown): AcaoEmCurso[] {
@@ -141,7 +160,7 @@ export function acoesEmCurso(acoes: AcaoQueDura[], concentracao: unknown): AcaoE
         grau: a.grau ?? 0,
         efeitos,
         concentra,
-        turnos: concentra ? null : (a.turnosRestantes ?? turnosDaDuracao(lerDuracao(a.duracao))),
+        turnos: concentra ? null : (a.turnosRestantes ?? turnosDaAcao(a.duracao)),
       },
     ];
   });

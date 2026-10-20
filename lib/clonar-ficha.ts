@@ -114,7 +114,7 @@ export function copiarFicha(
       return h.aliado ? { ...linha, ligada: false } : linha;
     }),
   );
-  linhas.acoes.push(...acoes.map((a) => ({ ...religar(a, ["turnosRestantes"]), emCurso: false })));
+  linhas.acoes.push(...acoes.map((a) => ({ ...religar(a, ["turnosRestantes", "aliadoEmCursoId"]), emCurso: false })));
   linhas.pericias.push(...periciasCustom.map((p) => religar(p)));
   linhas.arvores.push(...arvores.map((a) => religar(a, ["camadas", "ramos", "nos"])));
   linhas.camadas.push(...camadas.map((c) => religar(c)));

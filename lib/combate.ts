@@ -19,6 +19,8 @@ export type ParticipanteVisto = {
   nome: string;
   foto: string | null;
   tipo: "personagem" | "criatura";
+  // Ficha do jogador (só em "personagem").
+  personagemId?: string;
   // É o personagem desta ficha.
   voce: boolean;
   iniciativa: number;
@@ -37,6 +39,10 @@ export type ParticipanteVisto = {
     rodadas: number;
     sair: { atributo: string; cd: number } | null;
     mecanica?: unknown;
+    // Some na próxima rolagem / no fim do próximo turno de quem está com ela.
+    uso?: "proxima";
+    fimDoTurno?: boolean;
+    origem?: string;
   }[];
 };
 

@@ -408,9 +408,13 @@ model Acao {
   emCurso         Boolean @default(false) @map("em_curso")
   // Turnos que faltam enquanto em curso (duração em turnos/minutos); null = não conta.
   turnosRestantes Int?    @map("turnos_restantes")
+  // Aliado (Personagem.id, sem FK) em que os efeitos que ficam valendo da última
+  // vez que foi usada valem, enquanto ela estiver em curso.
+  aliadoEmCursoId String? @map("aliado_em_curso_id")
   // Ataque com arma de fogo (efeito de dano pode deixar de fora ou valer só nela).
   armaDeFogo      Boolean @default(false) @map("arma_de_fogo")
 
+  @@index([aliadoEmCursoId])
   @@map("acoes")
 }
 

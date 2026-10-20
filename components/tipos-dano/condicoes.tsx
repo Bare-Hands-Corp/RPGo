@@ -10,6 +10,8 @@ import {
   type CondicaoCatalogo,
 } from "@/lib/condicoes";
 import { EFEITO_COR_PADRAO, estiloAplicado } from "@/lib/estilos-cor";
+import { lerMecanica } from "@/lib/condicoes-mecanica";
+import { nomeDoEfeito, resumoEfeito } from "@/lib/op-rpg";
 import { Tooltip } from "@/components/tooltip";
 
 // Condições do narrador da mesa (Biblioteca); sem provider valem as do livro.
@@ -51,26 +53,49 @@ export function useEstiloCondicao() {
 
 // Condição valendo em alguém: o nome com a cara dela e as rodadas que faltam.
 // `children` são os botões de quem pode mexer nela (tirar, repetir a salvaguarda).
+// Sem descrição na Biblioteca (a que uma técnica põe), o tooltip lista os
+// efeitos dela (`mecanica`) e quanto ela vale (`uso`, `fimDoTurno`).
 export function ChipCondicao({
   nome,
   rodadas,
   origem,
+  mecanica,
+  uso,
+  fimDoTurno,
   children,
 }: {
   nome: string;
   rodadas?: number;
   origem?: string;
+  mecanica?: unknown;
+  uso?: "proxima";
+  fimDoTurno?: boolean;
   children?: React.ReactNode;
 }) {
   const cara = useEstiloCondicao()(nome);
-  const falta = rodadas ? (rodadas >= RODADAS_MAX ? "Até tirar" : `Falta ${textoRodadas(rodadas)}`) : "";
+  const falta = uso
+    ? "Próxima rolagem"
+    : fimDoTurno
+      ? "Até o fim do turno dele"
+      : rodadas
+        ? rodadas >= RODADAS_MAX
+          ? "Até tirar"
+          : `Falta ${textoRodadas(rodadas)}`
+        : "";
+  const efeitos = cara.descricao ? [] : (lerMecanica(mecanica)?.efeitos ?? []);
   return (
     <Tooltip
       cor={cara.cor}
       icone="fa-triangle-exclamation"
       titulo={nome}
       selo={falta || undefined}
-      texto={[cara.descricao, origem && `De ${origem}`]}
+      texto={[
+        cara.descricao,
+        ...efeitos.map((e) => `${nomeDoEfeito(e)}: ${resumoEfeito(e)}`),
+        uso && "Some na primeira rolagem em que vale.",
+        fimDoTurno && "Acaba no fim do próximo turno de quem está com ela.",
+        origem && `De ${origem}`,
+      ]}
     >
       <span className={`condicao-chip ${cara.className}`} style={cara.style} tabIndex={0}>
         <span className="fx-texto">{nome}</span>

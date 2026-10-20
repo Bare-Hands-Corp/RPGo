@@ -21,7 +21,9 @@ import {
   PRESETS_EFEITO,
   alvoDeRolagem,
   comoDura,
+  escolheVale,
   podeIrProAliado,
+  podeIrProInimigo,
   comPassosProgressivos,
   defesasIgnoradas,
   dependeDosUsos,
@@ -39,6 +41,8 @@ import {
   type Atributo,
   type DuraEfeito,
   type EfeitoHabilidade,
+  type QuemEfeito,
+  type ValeEfeito,
   type PassosDoRolador,
 } from "@/lib/op-rpg";
 import {
@@ -73,6 +77,9 @@ export const EfeitoDeAcaoContext = createContext(false);
 
 // A ação dura mais que o uso: cada efeito escolhe se repete ou se mantém.
 export const EfeitosDuramContext = createContext(false);
+
+const TEXTO_QUEM: Record<QuemEfeito, string> = { aliado: "em aliado", inimigo: "no inimigo" };
+const TEXTO_VALE: Record<ValeEfeito, string> = { proxima: "próxima rolagem", turno: "próximo turno dele" };
 
 const TEXTO_DURA: Record<DuraEfeito, string> = {
   turno: "a cada turno",
@@ -233,7 +240,7 @@ export function ChipEfeito({
       icone={meta.icone}
       cor={meta.cor}
       selo={dura ? TEXTO_DURA[dura] : undefined}
-      texto={[resumo, cru !== resumo && `Fórmula: ${cru}`, efeito.quem === "aliado" && "Vai num aliado, escolhido no uso"]}
+      texto={[resumo, cru !== resumo && `Fórmula: ${cru}`, efeito.quem === "aliado" && "Vai num aliado, escolhido no uso", efeito.quem === "inimigo" && "Vai no inimigo que a ação pega"]}
     >
     <span
       className="efeito-chip"
@@ -246,6 +253,7 @@ export function ChipEfeito({
       <i className={`fas ${meta.icone}`} />
       <span className="efeito-chip-label">{nomeDoEfeito(efeito)}</span>
       {efeito.quem === "aliado" && <i className="fas fa-hand-holding-heart" aria-label="em aliado" />}
+      {efeito.quem === "inimigo" && <i className="fas fa-crosshairs" aria-label="no inimigo" />}
       <span className="efeito-chip-resumo">{resumo}</span>
       {efeito.sempreAtivo && <i className="fas fa-infinity" title="Sempre ativo" />}
       {gastaUso && <i className="fas fa-bolt-lightning" title="Gasta 1 uso" />}
@@ -534,8 +542,8 @@ function EditorEfeito({
     dependeDosUsos(efeito, new Set(periciasCustom.map((a) => a.slug)));
   // Efeito sem parâmetro não tem corpo.
   const corpo = renderCorpo(efeito, recursos, onPatch, periciasCustom, daAcao, gastaUso);
-  // Numa ação, o efeito na hora escolhe em quem vai (você ou um aliado).
-  const escolheQuem = daAcao && podeIrProAliado(efeito);
+  // Numa ação, o efeito escolhe em quem vai (você, um aliado ou o inimigo).
+  const escolheQuem = daAcao && (podeIrProAliado(efeito) || podeIrProInimigo(efeito));
   // Em ação com duração: repete a cada turno ou fica valendo (só em quem usa).
   const como = useContext(EfeitosDuramContext) && !efeito.quem ? comoDura(efeito) : null;
   const dura = como ? duraQueCabe(como, efeito.dura) : undefined;
@@ -545,7 +553,8 @@ function EditorEfeito({
     ? ((daAcao ? resumoNaAcao(efeito) : null) ??
         resumoEfeito(efeito, (id) => nomesRecurso.get(id), formula ?? undefined)) +
       (dura ? ` · ${TEXTO_DURA[dura]}` : "") +
-      (efeito.quem === "aliado" ? " · em aliado" : "")
+      (efeito.quem ? ` · ${TEXTO_QUEM[efeito.quem]}` : "") +
+      (efeito.quem && efeito.vale ? ` · ${TEXTO_VALE[efeito.vale]}` : "")
     : "falta preencher";
   const nome = nomeDoEfeito(efeito);
   // Quem já está marcado segue mostrando, pra dar pra desmarcar.
@@ -593,7 +602,9 @@ function EditorEfeito({
       {aberto && (corpo || ofereceSempre || como || escolheQuem) && (
         <div className="efeito-editor-corpo">
           {corpo}
-          {escolheQuem && <CampoQuem valor={efeito.quem} onPatch={onPatch} />}
+          {escolheQuem && (
+            <CampoQuem valor={efeito.quem} efeito={efeito} onPatch={onPatch} />
+          )}
           {como && <CampoDura como={como} valor={dura} onPatch={onPatch} />}
           {ofereceSempre && (
             <div style={{ gridColumn: "1 / -1" }}>
@@ -610,31 +621,72 @@ function EditorEfeito({
   );
 }
 
-// Numa ação: o efeito na hora vai em quem usa ou num aliado (escolhido no uso,
-// cada efeito o seu). No aliado, não repete nem fica valendo.
+// Numa ação: o efeito vai em quem usa, num aliado (escolhido no uso, o mesmo
+// pra todos os efeitos dela) ou, a desvantagem, no inimigo que ela pega. No
+// aliado, o na hora não repete; o que fica valendo vale nele. Vantagem e
+// desvantagem em outro escolhem quanto valem (`vale`).
 function CampoQuem({
   valor,
+  efeito,
   onPatch,
 }: {
-  valor: "aliado" | undefined;
+  valor: QuemEfeito | undefined;
+  efeito: EfeitoHabilidade;
   onPatch: (p: Partial<EfeitoHabilidade>) => void;
 }) {
+  const fica = comoDura(efeito) === "mantem";
+  const opcoes: { valor: QuemEfeito | "voce"; rotulo: string; titulo?: string }[] = [
+    { valor: "voce", rotulo: "Você" },
+    ...(podeIrProAliado(efeito)
+      ? [{ valor: "aliado" as const, rotulo: "Aliado", titulo: "Escolhe o aliado na hora de usar" }]
+      : []),
+    ...(podeIrProInimigo(efeito)
+      ? [{ valor: "inimigo" as const, rotulo: "Inimigo", titulo: "Vale em quem a ação atinge no combate" }]
+      : []),
+  ];
+  const comVale = !!valor && escolheVale(efeito);
   return (
     <div style={{ gridColumn: "1 / -1" }}>
       <label>Em quem</label>
       <Segmentos
         rotulo="Em quem"
         valor={valor ?? "voce"}
-        opcoes={[
-          { valor: "voce", rotulo: "Você" },
-          { valor: "aliado", rotulo: "Aliado", titulo: "Escolhe o aliado na hora de usar" },
-        ]}
+        opcoes={opcoes}
         onChange={(v) =>
           onPatch(
-            (v === "aliado" ? { quem: "aliado", dura: undefined } : { quem: undefined }) as Partial<EfeitoHabilidade>,
+            (v === "voce"
+              ? { quem: undefined, vale: undefined }
+              : { quem: v, dura: undefined }) as Partial<EfeitoHabilidade>,
           )
         }
       />
+      {comVale && (
+        <>
+          <label style={{ marginTop: 8 }}>Vale</label>
+          <Segmentos
+            rotulo="Vale"
+            valor={efeito.vale ?? "acao"}
+            opcoes={[
+              { valor: "proxima", rotulo: "Na próxima rolagem", titulo: "Some depois da primeira rolagem em que vale" },
+              { valor: "turno", rotulo: "No próximo turno dele", titulo: "Em todas as rolagens do próximo turno dele" },
+              { valor: "acao", rotulo: "Enquanto a ação durar" },
+            ]}
+            onChange={(v) => onPatch({ vale: v === "acao" ? undefined : v } as Partial<EfeitoHabilidade>)}
+          />
+        </>
+      )}
+      {valor && (fica || comVale) && (
+        <small className="efeito-quem-dica">
+          {valor === "inimigo"
+            ? "Vira uma condição com o nome da ação em quem ela pega no combate (acerto ou salvaguarda que falha; sem esses, você escolhe o alvo ao usar). Só no combate."
+            : "No combate, vira uma condição com o nome da ação no aliado; fora dele, vale enquanto a ação estiver em curso."}{" "}
+          {efeito.vale === "proxima"
+            ? "Some na primeira rolagem em que vale, ou no início do seu próximo turno."
+            : efeito.vale === "turno"
+              ? "Vale até o fim do próximo turno dele."
+              : "Dura o que a ação dura (instantânea: até o início do seu próximo turno), contado na sua vez."}
+        </small>
+      )}
     </div>
   );
 }
@@ -1052,9 +1104,23 @@ function renderCorpo(
             />
             O afetado pode repetir a salvaguarda pra sair antes
           </label>
-          {e.repete && (
+          <div style={{ gridColumn: "1 / -1" }}>
+            <label>Evita com salvaguarda de</label>
+            <Segmentos
+              rotulo="Salvaguarda que evita a condição"
+              valor={e.evita ?? ""}
+              opcoes={[
+                { valor: "", rotulo: "Nenhuma" },
+                ...ATRIBUTOS.map((a) => ({ valor: a.slug, rotulo: a.sigla, titulo: a.nome })),
+              ]}
+              onChange={(v) => onPatch({ evita: v || undefined } as Partial<EfeitoHabilidade>)}
+            />
+          </div>
+          {(e.evita || e.repete) && (
             <p className="campo-dica" style={{ gridColumn: "1 / -1" }}>
-              Ele rola a salvaguarda da ação contra a CD das suas técnicas (ficha lateral).
+              {e.evita
+                ? "Quem a ação pega rola essa salvaguarda contra a CD das suas técnicas (ficha lateral); passando, não recebe."
+                : "Ele rola a salvaguarda da ação contra a CD das suas técnicas (ficha lateral)."}
             </p>
           )}
         </>

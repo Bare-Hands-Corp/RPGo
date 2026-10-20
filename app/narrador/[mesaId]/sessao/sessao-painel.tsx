@@ -1045,6 +1045,9 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
             nome={c.nome}
             rodadas={c.rodadas}
             origem={[c.origem, c.porTurno ? textoDanoPorTurno(c.porTurno) : ""].filter(Boolean).join(" · ")}
+            mecanica={c.mecanica}
+            uso={c.uso}
+            fimDoTurno={!!c.fimDoTurno}
           >
             {c.salvaguarda && p.criaturaId && (
               <button

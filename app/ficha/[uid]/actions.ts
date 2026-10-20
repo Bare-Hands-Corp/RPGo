@@ -24,7 +24,9 @@ import {
   fatorDeDano,
   lerEfeitos,
   lerAlvoAcao,
+  comoDura,
   efeitoNoAliado,
+  efeitosNoInimigo,
   rolagensDoPedaco,
   maximoDoRecurso,
   modificador,
@@ -75,6 +77,7 @@ import {
   duracoesEmCurso,
   ficaEmCurso,
   porTurnoDasAcoes,
+  turnosDaAcao,
   validarRolagensTurno,
 } from "@/lib/turno";
 import { serializarMensagem } from "@/lib/mensagens";
@@ -212,6 +215,7 @@ import {
   avancarTurnoDoCombate,
   bonusDePericiaDaCriatura,
   bonusDeSalvaguardaDaCriatura,
+  gastarCondicoes,
   tirarCondicao,
   crDoPersonagem,
   mudarResolucoes,
@@ -229,9 +233,11 @@ import {
   type CondicaoAtiva,
 } from "@/lib/condicoes";
 import {
+  condicoesDosEfeitos,
   fontesDasCondicoes,
   mecanicaDa,
   modoDaSalvaguarda,
+  modoDoAtaque,
   travaDaCondicaoNaAcao,
   travasDasCondicoes,
   viraCritico,
@@ -696,6 +702,16 @@ export async function usarAcao(
       : [];
     const cdDaFicha = Number(opcoes?.combate?.cd) || 0;
     const modoResolucao = alvos.length > 0 ? modoDaResolucao(acao, opcoes?.combate?.modo, cdDaFicha) : null;
+    // Condição que se evita com salvaguarda precisa da CD: confere antes de gastar.
+    if (
+      modoResolucao &&
+      cdDaFicha <= 0 &&
+      lerEfeitos(acao.efeitos).some(
+        (e) => e.tipo === "condicao_aplicar" && e.evita && !(modoResolucao === "salvaguarda" && acao.atributoSalv === e.evita),
+      )
+    ) {
+      throw new ErroDeUso("Escolha a CD das suas técnicas na ficha lateral: a condição pede salvaguarda.");
+    }
     const ids = new Set([...normalizarIds(acao.armaIds), ...(acao.itemId ? [acao.itemId] : [])]);
     const armas = itens.filter((i) => ids.has(i.id));
     const aggAcao = efeitosDaTecnica(agg, acao);
@@ -726,6 +742,20 @@ export async function usarAcao(
         rolagens: rolagensDoPedaco(rolagens, posicoes),
       };
     };
+    // O que fica valendo no aliado (o mesmo pra todos). No combate vira condição
+    // nele, que conta na sua vez e por isso dura até ele jogar; fora, vale
+    // enquanto a ação estiver em curso.
+    const fica = destinos.filter((d) => d.quem !== null && comoDura(d.e) === "mantem");
+    const aliadoFica = fica[0]?.quem ?? null;
+    const instanciaDoAliado =
+      combate && aliadoFica
+        ? await prisma.instanciaCombate.findFirst({
+            where: { combateId: combate.combateId, personagemId: aliadoFica },
+            select: { id: true, nomeExibicao: true },
+          })
+        : null;
+    const aliadoEmCursoId = instanciaDoAliado ? null : aliadoFica;
+    const rodadasDaAcao = Math.min(RODADAS_MAX, turnosDaAcao(acao.duracao) ?? RODADAS_MAX);
     const removeDe = (quem: string | null) =>
       destinos.filter((d) => d.quem === quem && d.e.tipo === "condicao_remover").map((d) => d.e);
 
@@ -764,13 +794,14 @@ export async function usarAcao(
           nome: acao.nome,
           ...(turnos ? { turnos } : {}),
         }),
+        prisma.acao.update({ where: { id: acao.id, personagemId }, data: { aliadoEmCursoId } }),
       );
-    } else if (ficaEmCurso(acao)) {
+    } else if (ficaEmCurso(acao, !!instanciaDoAliado)) {
       // Fica em curso: o que repete e o que se mantém seguem até ela acabar.
       ops.push(
         prisma.acao.update({
           where: { id: acao.id, personagemId },
-          data: { emCurso: true, turnosRestantes: turnosDaDuracao(lerDuracao(acao.duracao)) },
+          data: { emCurso: true, turnosRestantes: turnosDaAcao(acao.duracao), aliadoEmCursoId },
         }),
       );
     }
@@ -783,6 +814,28 @@ export async function usarAcao(
       );
     }
     if (ops.length > 0) await prisma.$transaction(ops);
+    if (combate && instanciaDoAliado) {
+      const condicoes = condicoesDosEfeitos(
+        acao.nome,
+        fica.map((d) => d.e),
+        rodadasDaAcao,
+      );
+      const { receberam } = await aplicarCondicoes({
+        combateId: combate.combateId,
+        instanciaIds: [instanciaDoAliado.id],
+        condicoes,
+        fonteId: combate.instanciaId,
+        origem: `${acao.nome} de ${personagem.nome}`,
+      });
+      if (receberam.length > 0) {
+        await avisarCombate(
+          combate.mesaId,
+          instanciaDoAliado.nomeExibicao,
+          `ficou: ${condicoes.map((c) => c.nome).join(", ")} (${personagem.nome}).`,
+        );
+        revalidatePath(`/narrador/${combate.mesaId}`);
+      }
+    }
     await removerCondicoesPorEfeito(personagemId, removeDe(null), acao.nome);
     for (const id of aliados.keys()) await removerCondicoesPorEfeito(id, removeDe(id), acao.nome);
     await estatisticasDoUso({
@@ -825,11 +878,16 @@ export async function usarAcao(
 export async function encerrarAcao(personagemId: string, acaoId: string) {
   return executar("ficha", async () => {
     await autorizar(personagemId);
+    const acao = await prisma.acao.findFirst({
+      where: { id: acaoId, personagemId },
+      select: { aliadoEmCursoId: true },
+    });
     await prisma.acao.updateMany({
       where: { id: acaoId, personagemId },
-      data: { emCurso: false, turnosRestantes: null },
+      data: { emCurso: false, turnosRestantes: null, aliadoEmCursoId: null },
     });
     revalidatePath(`/ficha/${personagemId}`);
+    if (acao?.aliadoEmCursoId) revalidatePath(`/ficha/${acao.aliadoEmCursoId}`);
   });
 }
 
@@ -2100,7 +2158,22 @@ export async function alternarHabilidade(
   });
 }
 
-// Quem recebe desliga a habilidade que um aliado ligou nele.
+// O Rolador rolou com a vantagem ou desvantagem de uso único de uma técnica:
+// a condição que a dava some.
+export async function gastarCondicaoDaRolagem(personagemId: string, condicaoIds: string[]) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const ids = (Array.isArray(condicaoIds) ? condicaoIds : []).filter((x) => typeof x === "string").slice(0, 12);
+    const combate = await participacaoEmCombate(personagemId);
+    if (!combate || ids.length === 0) return;
+    await gastarCondicoes(combate.instanciaId, ids);
+    revalidatePath(`/ficha/${personagemId}`);
+    revalidatePath(`/narrador/${combate.mesaId}`);
+  });
+}
+
+// Quem recebe desliga a habilidade que um aliado ligou nele, ou tira de si o
+// que a ação de um aliado deixou valendo (a ação segue em curso no dono).
 export async function dispensarRecebida(personagemId: string, habilidadeId: string) {
   return executar("ficha", async () => {
     await autorizar(personagemId);
@@ -2108,7 +2181,20 @@ export async function dispensarRecebida(personagemId: string, habilidadeId: stri
       where: { id: habilidadeId, alvoPersonagemId: personagemId, ligada: true },
       select: { id: true, personagemId: true },
     });
-    if (!hab) throw new ErroDeUso("Esse efeito já não está em você.");
+    if (!hab) {
+      const acao = await prisma.acao.findFirst({
+        where: { id: habilidadeId, aliadoEmCursoId: personagemId },
+        select: { personagemId: true },
+      });
+      if (!acao) throw new ErroDeUso("Esse efeito já não está em você.");
+      await prisma.acao.update({
+        where: { id: habilidadeId, aliadoEmCursoId: personagemId },
+        data: { aliadoEmCursoId: null },
+      });
+      revalidatePath(`/ficha/${personagemId}`);
+      revalidatePath(`/ficha/${acao.personagemId}`);
+      return;
+    }
     await prisma.habilidade.update({
       where: { id: hab.id, alvoPersonagemId: personagemId },
       data: { ligada: false },
@@ -4530,7 +4616,8 @@ function modoDaResolucao(
   }
   if (comportaAtaque) throw new ErroDeUso("Sem como rolar o acerto: equipe a arma (e a munição) desta ação.");
   // Sem teste: dano direto, ou só a condição que a ação põe.
-  const poeCondicao = lerEfeitos(acao.efeitos).some((e) => e.tipo === "condicao_aplicar");
+  const poeCondicao =
+    lerEfeitos(acao.efeitos).some((e) => e.tipo === "condicao_aplicar") || efeitosNoInimigo(acao).length > 0;
   return acao.dano?.trim() || poeCondicao ? "direto" : null;
 }
 
@@ -4546,7 +4633,7 @@ async function criarResolucao(
   lado: Lado,
   entrada: {
     atacante: string;
-    acaoId: string;
+    acaoId: string | null;
     nome: string;
     modo: Resolucao["modo"];
     temDano: boolean;
@@ -4556,6 +4643,8 @@ async function criarResolucao(
     corpoACorpo?: boolean;
     armaDeFogo?: boolean;
     ppGasto?: number;
+    // Sem janela de reação (a salvaguarda que evita a condição de uma ação que já pegou).
+    semReacao?: boolean;
   },
 ): Promise<string | null> {
   const { modo, salvaguarda } = entrada;
@@ -4577,12 +4666,15 @@ async function criarResolucao(
         })
       : [];
   const linhas: string[] = [];
+  // Condições de uso único da criatura que valeram na salvaguarda.
+  const gastas = new Map<string, string[]>();
   const alvos: AlvoResolucao[] = instancias.map((i) => {
     let resultado: AlvoResolucao["resultado"] = null;
     const criatura = criaturas.find((c) => c.id === i.criaturaId);
     if (modo === "salvaguarda" && salvaguarda && criatura) {
       // Condições da criatura: falha automática, vantagem ou desvantagem.
       const pelaCondicao = modoDaSalvaguarda(lerCondicoesAtivas(i.condicoesAtivas), salvaguarda.atributo);
+      if (pelaCondicao.gastas.length > 0) gastas.set(i.id, pelaCondicao.gastas);
       if (pelaCondicao.falha) {
         resultado = "falha";
         linhas.push(`${i.nomeExibicao} falhou na salvaguarda (${pelaCondicao.falha})`);
@@ -4602,6 +4694,7 @@ async function criarResolucao(
     }
     return { instanciaId: i.id, nome: i.nomeExibicao, personagemId: i.personagemId, resultado, danoAplicado: false };
   });
+  for (const [id, ids] of gastas) await gastarCondicoes(id, ids);
 
   const resolucao: Resolucao = {
     id: crypto.randomUUID(),
@@ -4636,7 +4729,7 @@ async function criarResolucao(
   );
   // Quem já falhou (criatura) ou é pego sem teste decide se reage; sem reação
   // a escolher, já recebe as condições.
-  await janelasDeReacao(lado.combateId, resolucao.id);
+  if (!entrada.semReacao) await janelasDeReacao(lado.combateId, resolucao.id);
   await condicoesDaResolucao(lado, resolucao.id);
   return resolucao.id;
 }
@@ -4654,6 +4747,7 @@ async function abrirResolucao(entrada: {
     dano: string | null;
     armaIds: unknown;
     efeitos: unknown;
+    duracao: unknown;
   };
   alvos: string[];
   modo: Resolucao["modo"];
@@ -4667,14 +4761,30 @@ async function abrirResolucao(entrada: {
   const condicoes: CondicaoAplicada[] = lerEfeitos(acao.efeitos).flatMap((e) => {
     if (e.tipo !== "condicao_aplicar") return [];
     const cd = entrada.cd > 0 ? entrada.cd : (e.cd ?? 0);
+    // Salvaguarda que evita a condição, contra a CD das técnicas. Se é a mesma
+    // da ação, vale o resultado dela (não rola duas vezes).
+    const evita = e.evita && !(entrada.modo === "salvaguarda" && acao.atributoSalv === e.evita) ? e.evita : null;
+    if (evita && cd <= 0) {
+      throw new ErroDeUso("Escolha a CD das suas técnicas na ficha lateral: a condição pede salvaguarda.");
+    }
     return [
       {
         nome: e.condicao,
         rodadas: lerRodadas(e.rodadas),
-        salvaguarda: e.repete && acao.atributoSalv && cd > 0 ? { atributo: acao.atributoSalv, cd } : null,
+        salvaguarda: e.repete && (evita ?? acao.atributoSalv) && cd > 0 ? { atributo: (evita ?? acao.atributoSalv)!, cd } : null,
+        ...(evita ? { evita: { atributo: evita, cd } } : {}),
       },
     ];
   });
+  // O que fica valendo no inimigo (desvantagem) vira condição com o nome da
+  // ação, pelo "Vale" de cada efeito.
+  condicoes.push(
+    ...condicoesDosEfeitos(
+      acao.nome,
+      efeitosNoInimigo(acao),
+      Math.min(RODADAS_MAX, turnosDaAcao(acao.duracao) ?? RODADAS_MAX),
+    ),
+  );
   return criarResolucao(entrada.combate, {
     atacante: entrada.atacante,
     acaoId: acao.id,
@@ -4715,10 +4825,32 @@ async function condicoesDaResolucao(combate: Pick<Lado, "combateId" | "mesaId">,
   });
   if (!feito) return;
   const { resolucao } = feito;
+  // Condição com salvaguarda própria: quem foi pego rola pra evitar (uma
+  // resolução por atributo, contra a CD das técnicas de quem usou).
+  const comSalv = resolucao.condicoes.filter((c) => c.evita);
+  for (const atributo of new Set(comSalv.map((c) => c.evita!.atributo))) {
+    const doAtributo = comSalv.filter((c) => c.evita!.atributo === atributo);
+    await criarResolucao(
+      { instanciaId: resolucao.atacanteId, combateId: combate.combateId, mesaId: combate.mesaId },
+      {
+        atacante: resolucao.atacanteNome,
+        acaoId: resolucao.acaoId,
+        nome: `${resolucao.nome}: ${doAtributo.map((c) => c.nome).join(", ")}`,
+        modo: "salvaguarda",
+        temDano: false,
+        salvaguarda: { atributo, cd: doAtributo[0].evita!.cd, emSucesso: "nada" },
+        condicoes: doAtributo.map((c) => ({ ...c, evita: null })),
+        alvos: feito.ids,
+        semReacao: true,
+      },
+    );
+  }
+  const diretas = resolucao.condicoes.filter((c) => !c.evita);
+  if (diretas.length === 0) return;
   const { receberam: nomes, imunes } = await aplicarCondicoes({
     combateId: combate.combateId,
     instanciaIds: feito.ids,
-    condicoes: resolucao.condicoes,
+    condicoes: diretas,
     fonteId: resolucao.atacanteId,
     origem: `${resolucao.nome} de ${resolucao.atacanteNome}`,
   });
@@ -4728,7 +4860,12 @@ async function condicoesDaResolucao(combate: Pick<Lado, "combateId" | "mesaId">,
     combate.mesaId,
     nomes.join(", "),
     (nomes.length > 1 ? "ficaram: " : "ficou: ") +
-      resolucao.condicoes.map((c) => `${c.nome} (${textoRodadas(c.rodadas)})`).join(", ") +
+      diretas
+        .map(
+          (c) =>
+            `${c.nome} (${c.uso ? "próxima rolagem" : c.ateOProximoTurno ? "até o fim do próximo turno" : textoRodadas(c.rodadas)})`,
+        )
+        .join(", ") +
       ".",
   );
 }
@@ -5997,6 +6134,12 @@ export async function resolverAtaqueDeCriatura(
       critico: l?.critico === true || (l?.natural != null && Number(l.natural) >= margem),
     }));
     const saida = await resolverAtaque(lado, resolucaoId, comMargem);
+    // Vantagem ou desvantagem de uso único na criatura (de uma técnica) já valeu.
+    const atacante = await prisma.instanciaCombate.findUnique({
+      where: { id: instanciaId },
+      select: { condicoesAtivas: true },
+    });
+    await gastarCondicoes(instanciaId, modoDoAtaque([], lerCondicoesAtivas(atacante?.condicoesAtivas)).gastas);
     revalidatePath(`/narrador/${mesaId}`);
     return saida;
   });

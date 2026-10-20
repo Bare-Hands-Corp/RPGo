@@ -43,6 +43,7 @@ import {
   MAX_CONDICOES,
   condicaoDoCatalogo,
   condicaoNoCatalogo,
+  fimDoTurnoDoAfetado,
   lerCatalogoCondicoes,
   lerCondicoesAtivas,
   mesmaCondicao,
@@ -102,6 +103,9 @@ export async function carregarCombateDoJogador(
         rodadas: c.rodadas,
         sair: p.personagemId === personagemId ? c.salvaguarda : null,
         ...(c.mecanica ? { mecanica: c.mecanica } : {}),
+        ...(c.uso ? { uso: c.uso } : {}),
+        ...(c.fimDoTurno ? { fimDoTurno: true } : {}),
+        ...(c.origem ? { origem: c.origem } : {}),
       })),
     };
     if (p.personagemId) {
@@ -110,6 +114,7 @@ export async function carregarCombateDoJogador(
         ...base,
         foto: pj?.fotoUrl || `https://api.dicebear.com/7.x/adventurer/svg?seed=${p.personagemId}`,
         tipo: "personagem",
+        personagemId: p.personagemId,
         voce: p.personagemId === personagemId,
         pv: pj ? { atual: pvComSinal(pj.hpAtual, pj.pvNegativos), max: pj.hpMax } : null,
         pp: null,
@@ -385,13 +390,18 @@ export async function avancarTurnoDoCombate(combateId: string): Promise<{ period
     }
   }
 
-  // A vez de quem aplicou uma condição voltou: uma rodada a menos nela.
+  // A vez de quem aplicou uma condição voltou: uma rodada a menos nela. O
+  // turno de quem passa a vez acabou: soltam as que iam até o fim dele.
   const presentes = new Set(naOrdem.map((p) => p.id));
+  const turnoQueAcaba = `${combate.rodadaAtual}:${combate.turnoAtual}`;
   const condicoesNovas = proximo
     ? naOrdem.flatMap((p) => {
-        const atuais = lerCondicoesAtivas(p.condicoesAtivas);
+        const lidas = lerCondicoesAtivas(p.condicoesAtivas);
+        const atuais = p.id === anterior?.id ? fimDoTurnoDoAfetado(lidas, turnoQueAcaba).condicoes : lidas;
         const { condicoes, acabaram } = passarRodada(atuais, p.id, proximo.id, presentes);
-        return acabaram.length > 0 || condicoes.some((c, i) => c.rodadas !== atuais[i]?.rodadas)
+        return atuais.length !== lidas.length ||
+          acabaram.length > 0 ||
+          condicoes.some((c, i) => c.rodadas !== atuais[i]?.rodadas)
           ? [{ id: p.id, condicoes }]
           : [];
       })
@@ -521,9 +531,12 @@ export async function aplicarCondicoes(entrada: {
     }),
     prisma.combate.findUnique({
       where: { id: entrada.combateId },
-      select: { sessao: { select: { mesa: { select: { userId: true } } } } },
+      select: { rodadaAtual: true, turnoAtual: true, sessao: { select: { mesa: { select: { userId: true } } } } },
     }),
   ]);
+  // O turno em que entraram: a que dura até o fim do próximo turno do afetado
+  // não acaba no fim deste.
+  const turnoAgora = `${combate?.rodadaAtual ?? 0}:${combate?.turnoAtual ?? 0}`;
   // O que cada condição faz vem do catálogo do narrador (a do livro fica pelo nome).
   const catalogo = await catalogoCondicoesDoNarrador(combate?.sessao.mesa.userId);
   const condicoes = entrada.condicoes.map((c) => comMecanicaDoCatalogo(c, catalogo));
@@ -556,6 +569,8 @@ export async function aplicarCondicoes(entrada: {
         salvaguarda: c.salvaguarda,
         porTurno: c.porTurno ?? null,
         ...(c.mecanica ? { mecanica: c.mecanica } : {}),
+        ...(c.uso ? { uso: c.uso } : {}),
+        ...(c.ateOProximoTurno ? { fimDoTurno: turnoAgora } : {}),
       }));
       const mantidas = lerCondicoesAtivas(i.condicoesAtivas).filter(
         (c) => !novas.some((n) => mesmaCondicao(n.nome, c.nome)),
@@ -610,6 +625,23 @@ export async function removerCondicoesPorEfeito(personagemId: string, efeitos: E
       mensagem: `não está mais com ${[...new Set(saem.map((c) => c.nome))].join(", ")} (${origem}).`,
       tipo: "texto",
     },
+  });
+}
+
+// Tira de um participante as condições de uso único que já valeram numa rolagem.
+export async function gastarCondicoes(instanciaId: string, ids: string[]) {
+  if (ids.length === 0) return;
+  const instancia = await prisma.instanciaCombate.findUnique({
+    where: { id: instanciaId },
+    select: { condicoesAtivas: true },
+  });
+  if (!instancia) return;
+  const atuais = lerCondicoesAtivas(instancia.condicoesAtivas);
+  const restam = atuais.filter((c) => !(c.uso === "proxima" && ids.includes(c.id)));
+  if (restam.length === atuais.length) return;
+  await prisma.instanciaCombate.update({
+    where: { id: instanciaId },
+    data: { condicoesAtivas: restam as unknown as Prisma.InputJsonValue },
   });
 }
 

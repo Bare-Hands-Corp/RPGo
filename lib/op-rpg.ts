@@ -980,9 +980,20 @@ export type GatilhoProgressivo = "turno" | "rolagem";
 export type DuraEfeito = "turno" | "mantem";
 
 // `sempreAtivo`: vale sempre, mesmo em habilidade de Usar, desligada ou com usos limitados.
-// `quem`: numa ação, o efeito na hora vai pra um aliado escolhido no uso (cada
-// efeito escolhe o seu); ausente = quem usa.
-export type EfeitoHabilidade = EfeitoCru & { sempreAtivo?: boolean; dura?: DuraEfeito; quem?: "aliado" };
+// `quem`: numa ação, o efeito vai pro aliado escolhido no uso (o na hora acontece
+// nele; o que fica valendo vale nele enquanto a ação durar) ou pro inimigo que
+// ela pega (fica valendo nele, como condição, enquanto a ação durar); ausente =
+// quem usa.
+// `vale`: vantagem ou desvantagem no aliado ou no inimigo só na próxima
+// rolagem dele ou durante o próximo turno dele; ausente = enquanto a ação durar.
+export type QuemEfeito = "aliado" | "inimigo";
+export type ValeEfeito = "proxima" | "turno";
+export type EfeitoHabilidade = EfeitoCru & {
+  sempreAtivo?: boolean;
+  dura?: DuraEfeito;
+  quem?: QuemEfeito;
+  vale?: ValeEfeito;
+};
 
 type EfeitoCru =
   // `formula` (ex: "PROF/2+1", "3*NIVEL") vale no lugar de `valor` quando existe.
@@ -998,7 +1009,17 @@ type EfeitoCru =
   // `rodadas`: quanto dura no combate (1, 3 ou 10 = um minuto; ausente = 1).
   // `repete`: o afetado pode repetir a salvaguarda pra sair antes. `duracao`
   // é o texto livre de antes das rodadas, só descritivo.
-  | { tipo: "condicao_aplicar"; condicao: string; cd?: number; duracao?: string; rodadas?: number; repete?: boolean }
+  // `evita`: salvaguarda (atributo) que o alvo rola contra a CD das técnicas
+  // pra não receber; ausente = sem salvaguarda própria.
+  | {
+      tipo: "condicao_aplicar";
+      condicao: string;
+      cd?: number;
+      duracao?: string;
+      rodadas?: number;
+      repete?: boolean;
+      evita?: Atributo;
+    }
   | { tipo: "resistencia"; tipoDano: string }
   | { tipo: "imunidade"; tipoDano: string }
   // Recebe o dobro do tipo de dano (depois da resistência).
@@ -1815,21 +1836,60 @@ export function normalizarEfeito(
     ...e,
     ...(obj.sempreAtivo === true && podeSerSempreAtivo(e) ? { sempreAtivo: true } : {}),
     ...(obj.quem === "aliado" && podeIrProAliado(e) ? { quem: "aliado" as const } : {}),
+    ...(obj.quem === "inimigo" && podeIrProInimigo(e) ? { quem: "inimigo" as const } : {}),
+    ...((obj.quem === "aliado" || obj.quem === "inimigo") &&
+    escolheVale(e) &&
+    (obj.vale === "proxima" || obj.vale === "turno")
+      ? { vale: obj.vale }
+      : {}),
   };
 }
 
-// Efeito na hora que dá pra mandar pra um aliado: o que mexe nos pools dele
-// (cura, PV temporário, PP, exaustão) ou tira condição dele. Recurso próprio
-// (PC, PN…) é de quem usa e fica nele.
+// Efeito que dá pra mandar pra um aliado: o que mexe nos pools dele (cura, PV
+// temporário, PP, exaustão), tira condição dele ou fica valendo nele
+// (vantagem, bônus…) enquanto a ação durar. Recurso próprio (PC, PN…) é de
+// quem usa e fica nele.
 export function podeIrProAliado(e: EfeitoHabilidade): boolean {
   if (e.tipo === "recurso_delta") return e.recurso === "pp" || e.recurso === "exaustao";
-  return e.tipo === "condicao_remover" || efeitoInstantaneo(e);
+  return e.tipo === "condicao_remover" || efeitoInstantaneo(e) || comoDura(e) === "mantem";
+}
+
+// Efeito que dá pra pôr no inimigo que a ação pega: só a desvantagem. Dano e
+// condição já vão nele pelos campos da ação e pelo Aplica Condição.
+export function podeIrProInimigo(e: EfeitoHabilidade): boolean {
+  return e.tipo === "desvantagem";
+}
+
+// Vantagem e desvantagem em outro podem valer só na próxima rolagem ou no
+// próximo turno dele.
+export function escolheVale(e: EfeitoHabilidade): boolean {
+  return e.tipo === "vantagem" || e.tipo === "desvantagem";
+}
+
+export function efeitoNoInimigo(e: EfeitoHabilidade): boolean {
+  return e.quem === "inimigo" && podeIrProInimigo(e);
+}
+
+// A ação põe condição que se evita ou se repete com salvaguarda: usa a CD das técnicas.
+export function condicaoPedeSalvaguarda(acao: { efeitos: unknown }): boolean {
+  return lerEfeitos(acao.efeitos).some((e) => e.tipo === "condicao_aplicar" && (!!e.evita || !!e.repete));
+}
+
+// Efeitos da ação que valem no inimigo que ela pega.
+export function efeitosNoInimigo(acao: { efeitos: unknown }): EfeitoHabilidade[] {
+  return lerEfeitos(acao.efeitos).filter(efeitoNoInimigo);
+}
+
+// Efeitos da ação que ficam valendo no aliado escolhido no uso, enquanto ela
+// estiver em curso (ação instantânea: até o próximo turno de quem usa).
+export function efeitosQueFicamNoAliado(acao: { efeitos: unknown; aliado?: boolean }): EfeitoHabilidade[] {
+  return lerEfeitos(acao.efeitos).filter((e) => comoDura(e) === "mantem" && efeitoNoAliado(e, acao));
 }
 
 // O efeito vai pra um aliado? Ação de antes do "Em quem" (aliado na ação
-// inteira) manda todos os que podem.
+// inteira) manda todos os que podem e não escolheram outro destino.
 export function efeitoNoAliado(e: EfeitoHabilidade, acao: { aliado?: boolean }): boolean {
-  return podeIrProAliado(e) && (e.quem === "aliado" || !!acao.aliado);
+  return podeIrProAliado(e) && (e.quem === "aliado" || (!e.quem && !!acao.aliado));
 }
 
 // As rolagens da ficha vêm pelo índice na lista de efeitos na hora; num pedaço
@@ -1913,6 +1973,7 @@ function normalizarCampos(tipo: TipoEfeito, obj: Record<string, unknown>): Efeit
       const rodadas = Math.trunc(num(obj.rodadas));
       if (rodadas > 0) e.rodadas = Math.min(100, rodadas);
       if (obj.repete === true) e.repete = true;
+      if (ATRIBUTOS_SET.has(str(obj.evita))) e.evita = str(obj.evita) as Atributo;
       return e;
     }
     case "resistencia":
@@ -2704,11 +2765,13 @@ type FonteProficiencia = FonteLista & { dobrada: boolean };
 // "cru" no agregado com alvo + fonte; quem rola decide se casa com o contexto
 // atual (ataque CC, perícia X…). Diferente de crit_range/floor_d20 (globais) e
 // reroll (por gatilho), que já têm bucket próprio.
+// `consome`: a condição de uso único que o chip gasta ao rolar.
 export type EfeitoContextual = Gasto & {
   tipo: "vantagem" | "desvantagem" | "sucesso_auto" | "falha_auto";
   alvo: string;
   fonte: string;
   quando?: string;
+  consome?: string;
 };
 
 // Uso limitado de quem dá o efeito: o chip nasce desligado e gasta 1 uso ao
@@ -3657,6 +3720,8 @@ export type HabilidadeFonte = {
   custoPp?: number;
   custoRecursoId?: string | null;
   custoRecursoValor?: number;
+  // Condição de uso único de onde vêm os efeitos: rolar com eles a gasta.
+  consome?: string;
 };
 
 // Recurso do personagem, pro custo dos chips sob demanda (ex.: Dados Brutais).
@@ -4048,7 +4113,14 @@ export function agregarEfeitos(
       ) {
         const alvo = e.alvo.trim().toLowerCase();
         if (alvo && !semUsos) {
-          out.contextuais.push({ tipo: e.tipo, alvo, fonte: h.nome, quando: e.quando, ...gasto });
+          out.contextuais.push({
+            tipo: e.tipo,
+            alvo,
+            fonte: h.nome,
+            quando: e.quando,
+            ...gasto,
+            ...(h.consome ? { consome: h.consome } : {}),
+          });
         }
       } else if (e.tipo === "dano_min") {
         if (semUsos) continue;
@@ -4272,10 +4344,12 @@ export function efeitosDaTecnica(
   base: EfeitosAgregados,
   acao: { nome: string; efeitos: unknown; grau: number; duracao?: unknown; aliado?: boolean },
 ): EfeitosAgregados {
-  // O que fica valendo na ficha entra por lá (ação em curso), não na rolagem dela.
+  // O que fica valendo na ficha entra por lá (ação em curso), não na rolagem
+  // dela; o que vai pro aliado ou pro inimigo vale nele.
   const dura = efeitosDuram(acao);
   const proprios = lerEfeitos(acao.efeitos).filter(
-    (e) => !efeitoInstantaneo(e) && !(dura && e.dura === "mantem"),
+    (e) =>
+      !efeitoInstantaneo(e) && !(dura && e.dura === "mantem") && !efeitoNoAliado(e, acao) && !efeitoNoInimigo(e),
   );
   if (proprios.length === 0) return base;
   return agregarEfeitos([{ nome: acao.nome, tipo: "passiva", efeitos: proprios }], new Set(), base, {
@@ -4351,6 +4425,8 @@ export type ChipContexto = {
   // Habilidade que o chip gasta ao rolar, e o saldo de usos dela ("2/3").
   gasta?: string;
   usos?: string;
+  // Condições de uso único (de uma técnica) que somem ao rolar com o chip.
+  consome?: string[];
   // Explosão: quando dispara e quantas vezes.
   explosao?: { gatilho: GatilhoExplosao; valor: number; limite: number };
   // Teto da contagem: passos do bônus progressivo, ou usos empilháveis do chip sob demanda.
@@ -4486,11 +4562,13 @@ export function chipsDoContexto(
       const casados = agg.contextuais.filter((c) => c.tipo === tipo && casaContexto(c.alvo, ctx));
       const sempre = casados.filter((c) => !c.quando?.trim() && !c.gasta);
       if (sempre.length) {
+        const consome = dedup(sempre.flatMap((c) => (c.consome ? [c.consome] : [])));
         chips.push({
           chave: tipo,
           tipo,
           rotulo: ROTULO_CONTEXTUAL[tipo],
           fontes: dedup(sempre.map((c) => c.fonte)),
+          ...(consome.length ? { consome } : {}),
         });
       }
       casados
@@ -4503,6 +4581,7 @@ export function chipsDoContexto(
             fontes: [c.fonte],
             opcional: true,
             ...gastoDoChip(c),
+            ...(c.consome ? { consome: [c.consome] } : {}),
             detalhe: juntarDetalhes(
               c.quando?.trim() ? `quando: ${c.quando.trim()}` : undefined,
               detalheDoGasto(c),
@@ -5119,7 +5198,8 @@ export function resumoEfeito(
     case "condicao_aplicar":
       return (
         (e.cd ? `${e.condicao} (CD ${e.cd})` : e.condicao) +
-        ` · ${e.rodadas === 10 ? "1 minuto" : `${e.rodadas ?? 1} rodada${(e.rodadas ?? 1) === 1 ? "" : "s"}`}`
+        ` · ${e.rodadas === 10 ? "1 minuto" : `${e.rodadas ?? 1} rodada${(e.rodadas ?? 1) === 1 ? "" : "s"}`}` +
+        (e.evita ? ` · evita: salv. ${ATRIBUTOS.find((a) => a.slug === e.evita)?.sigla ?? e.evita}` : "")
       );
     case "resistencia":
     case "imunidade":

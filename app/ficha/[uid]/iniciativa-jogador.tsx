@@ -241,7 +241,15 @@ export function IniciativaJogador({
           <span className="iniciativa-minhas-condicoes">
             <strong>Você está com</strong>
             {voce!.condicoes.map((c) => (
-              <ChipCondicao key={c.id} nome={c.nome} rodadas={c.rodadas}>
+              <ChipCondicao
+                key={c.id}
+                nome={c.nome}
+                rodadas={c.rodadas}
+                origem={c.origem}
+                mecanica={c.mecanica}
+                uso={c.uso}
+                fimDoTurno={c.fimDoTurno}
+              >
                 {c.sair && (
                   <button
                     type="button"
@@ -400,7 +408,15 @@ export function IniciativaJogador({
             {detalhe.condicoes.length > 0 && (
               <div className="iniciativa-detalhe-condicoes">
                 {detalhe.condicoes.map((c) => (
-                  <ChipCondicao key={c.id} nome={c.nome} rodadas={c.rodadas} />
+                  <ChipCondicao
+                    key={c.id}
+                    nome={c.nome}
+                    rodadas={c.rodadas}
+                    origem={c.origem}
+                    mecanica={c.mecanica}
+                    uso={c.uso}
+                    fimDoTurno={c.fimDoTurno}
+                  />
                 ))}
               </div>
             )}

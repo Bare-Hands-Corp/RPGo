@@ -37,6 +37,7 @@ import {
   type TipoHabilidade,
 } from "@/lib/op-rpg";
 import { DescricaoRecolhivel } from "./descricao-recolhivel";
+import { SecaoRecolhivel } from "./secao-recolhivel";
 import { Tooltip } from "@/components/tooltip";
 import { SeletorUnico } from "./seletor-multiplo";
 import { doModelo, type ModeloView } from "@/lib/pastas";
@@ -809,29 +810,32 @@ export function HabilidadesTab({
         </BarraFiltros>
 
         {favoritas.length > 0 && (
-          <section>
-            <div className="section-header">
-              <i className="fas fa-star" style={{ color: "var(--highlight)" }} />
-              <h3>Destaques</h3>
-            </div>
+          <SecaoRecolhivel
+            chave="habilidades:destaques"
+            icone="fa-star"
+            cor="var(--highlight)"
+            titulo="Destaques"
+            forcarAberta={filtrando}
+          >
             <div className="action-grid">{favoritas.map((h) => card(h, `fav-${h.id}`))}</div>
-          </section>
+          </SecaoRecolhivel>
         )}
 
         {ORIGENS_HABILIDADE.map((origem) => {
           const lista = visiveis.filter((h) => h.origem === origem.slug);
           if (lista.length === 0) return null;
           return (
-            <section key={origem.slug}>
-              <div className="section-header">
-                <i className={`fas ${origem.icone}`} style={{ color: origem.cor }} />
-                <h3>{origem.nome}</h3>
-                <span style={{ color: "var(--text-sec)", fontSize: "0.85rem" }}>
-                  ({lista.length})
-                </span>
-              </div>
+            <SecaoRecolhivel
+              key={origem.slug}
+              chave={`habilidades:${origem.slug}`}
+              icone={origem.icone}
+              cor={origem.cor}
+              titulo={origem.nome}
+              contagem={lista.length}
+              forcarAberta={filtrando}
+            >
               <div className="action-grid">{lista.map((h) => card(h, h.id))}</div>
-            </section>
+            </SecaoRecolhivel>
           );
         })}
 
