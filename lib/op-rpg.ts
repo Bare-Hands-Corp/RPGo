@@ -662,6 +662,8 @@ export function resolverDanoArma(opts: {
   dadoFixo?: string | null;
   // Grau da técnica, pro GRAU das fórmulas.
   grau?: number;
+  // Dano a mais da ação que usa a arma ("1d6 fogo", "2").
+  adicional?: string | null;
 }): DanoArmaResolvido | null {
   const partes: ParteDano[] = [];
   const dados: Dado[] = [];
@@ -696,6 +698,14 @@ export function resolverDanoArma(opts: {
     dados.push(...p.dados);
     total += p.modificador;
     partes.push({ rotulo: "Dano bônus", texto: bonus });
+  }
+
+  const adicional = opts.adicional?.trim() ?? "";
+  if (adicional) {
+    const p = resolverFormula(adicional, opts.atributos, opts.nivel, extras);
+    dados.push(...p.dados);
+    total += p.modificador;
+    partes.push({ rotulo: "Adicional", texto: adicional });
   }
 
   if (opts.somaAtributo && opts.atributoDano) {
@@ -970,7 +980,9 @@ export type GatilhoProgressivo = "turno" | "rolagem";
 export type DuraEfeito = "turno" | "mantem";
 
 // `sempreAtivo`: vale sempre, mesmo em habilidade de Usar, desligada ou com usos limitados.
-export type EfeitoHabilidade = EfeitoCru & { sempreAtivo?: boolean; dura?: DuraEfeito };
+// `quem`: numa ação, o efeito na hora vai pra um aliado escolhido no uso (cada
+// efeito escolhe o seu); ausente = quem usa.
+export type EfeitoHabilidade = EfeitoCru & { sempreAtivo?: boolean; dura?: DuraEfeito; quem?: "aliado" };
 
 type EfeitoCru =
   // `formula` (ex: "PROF/2+1", "3*NIVEL") vale no lugar de `valor` quando existe.
@@ -1695,6 +1707,28 @@ export function comoDura(e: EfeitoHabilidade): "repete" | "mantem" | null {
   return e.tipo !== "por_turno" && efeitoEhSustentado(e) ? "mantem" : null;
 }
 
+// ─── Alvo do ataque ───────────────────────────────────────────────────
+// Quem a ação ataca, faz a salvaguarda ou leva o dano (vale pra qualquer tipo
+// de ação, inclusive a Livre). "inimigo" e "qualquer" escolhem na iniciativa do
+// combate. Os efeitos na hora dizem, cada um, em quem vão (`quem`).
+export type AlvoAcao = "nenhum" | "inimigo" | "qualquer";
+
+export const ALVOS_ACAO: { slug: AlvoAcao; nome: string; icone: string }[] = [
+  { slug: "nenhum", nome: "Nenhum", icone: "fa-ban" },
+  { slug: "inimigo", nome: "Inimigo", icone: "fa-crosshairs" },
+  { slug: "qualquer", nome: "Qualquer criatura", icone: "fa-users" },
+];
+
+// Gravado antes ("voce", "aliado") ou ausente: sem alvo de ataque.
+export function lerAlvoAcao(acao: { alvo?: unknown }): AlvoAcao {
+  return ALVOS_ACAO.find((a) => a.slug === acao.alvo)?.slug ?? "nenhum";
+}
+
+// Alvo que se escolhe na iniciativa do combate.
+export function alvoDeCombate(alvo: AlvoAcao): boolean {
+  return alvo === "inimigo" || alvo === "qualquer";
+}
+
 // O `dura` dos efeitos só vale em ação que dura mais que o uso e age em quem usa.
 export function efeitosDuram(acao: { duracao?: unknown; aliado?: boolean }): boolean {
   return !acao.aliado && duraAlemDoUso(acao.duracao);
@@ -1776,7 +1810,36 @@ export function normalizarEfeito(
   obj: Record<string, unknown>,
 ): EfeitoHabilidade | null {
   const e = normalizarCampos(tipo, obj);
-  return e && obj.sempreAtivo === true && podeSerSempreAtivo(e) ? { ...e, sempreAtivo: true } : e;
+  if (!e) return null;
+  return {
+    ...e,
+    ...(obj.sempreAtivo === true && podeSerSempreAtivo(e) ? { sempreAtivo: true } : {}),
+    ...(obj.quem === "aliado" && podeIrProAliado(e) ? { quem: "aliado" as const } : {}),
+  };
+}
+
+// Efeito na hora que dá pra mandar pra um aliado: o que mexe nos pools dele
+// (cura, PV temporário, PP, exaustão) ou tira condição dele. Recurso próprio
+// (PC, PN…) é de quem usa e fica nele.
+export function podeIrProAliado(e: EfeitoHabilidade): boolean {
+  if (e.tipo === "recurso_delta") return e.recurso === "pp" || e.recurso === "exaustao";
+  return e.tipo === "condicao_remover" || efeitoInstantaneo(e);
+}
+
+// O efeito vai pra um aliado? Ação de antes do "Em quem" (aliado na ação
+// inteira) manda todos os que podem.
+export function efeitoNoAliado(e: EfeitoHabilidade, acao: { aliado?: boolean }): boolean {
+  return podeIrProAliado(e) && (e.quem === "aliado" || !!acao.aliado);
+}
+
+// As rolagens da ficha vêm pelo índice na lista de efeitos na hora; num pedaço
+// dela (`posicoes`), cada uma passa pro índice novo.
+export function rolagensDoPedaco<T>(rolagens: Record<number, T> | undefined, posicoes: number[]): Record<number, T> {
+  const out: Record<number, T> = {};
+  posicoes.forEach((pos, novo) => {
+    if (rolagens && pos in rolagens) out[novo] = rolagens[pos];
+  });
+  return out;
 }
 
 // Metros de deslocamento andam de meio em meio (1,5 · 4,5 · 7,5).

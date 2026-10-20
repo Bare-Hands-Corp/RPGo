@@ -618,6 +618,27 @@ a {
   padding: 0 14px 14px;
 }
 
+/* Resumo da seção, só com ela fechada ("3 PP", "2d6 fogo"). */
+.modal-secao-resumo {
+  margin-left: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  font-size: 0.8rem;
+  color: var(--text-sec);
+}
+
+.modal-secao-detalhe[open] .modal-secao-resumo {
+  display: none;
+}
+
+/* Seção opcional ainda vazia ("+ Dano"): botão no lugar dela. */
+.secao-adicionar {
+  margin-top: 14px;
+}
+
 /* ─── BOTÃO PADRÃO ───────────────────────────────── */
 .btn-rect {
   padding: 10px 20px;

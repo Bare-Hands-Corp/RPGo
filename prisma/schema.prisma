@@ -355,11 +355,15 @@ model Acao {
   recarga     String?
 
   // Mecânica de ataque/salvaguarda.
+  // Técnica sem arma: só diz que tem acerto; o atributo é o primário (o da CD).
   atributoAtaque String? @map("atributo_ataque") // "forca" | "destreza" | "sabedoria" | …
+  // Somado ao acerto (número ou fórmula sem dado: "2", "PROF").
+  bonusAcerto    String? @map("bonus_acerto")
   atributoSalv   String? @map("atributo_salv") // atributo que o alvo testa pra resistir
   atributoCd     String? @map("atributo_cd") // legado: a CD vem de Personagem.atributoCdTecnicas; só vale sem ele
   // Dano de quem passa na salvaguarda: "nada" | "metade".
   salvSucesso    String  @default("nada") @map("salv_sucesso")
+  // Ação comum com arma: adicional ao dano da arma. Senão, o dano da ação.
   dano           String? // "1d8 cortante", "2d6 fogo"
   // Tipo do dano escolhido no modal (lib/dano.ts TIPOS_DANO ou texto).
   tipoDano       String? @map("tipo_dano")
@@ -383,7 +387,11 @@ model Acao {
   // Efeitos próprios (formato de Habilidade.efeitos): valem só nas rolagens desta ação.
   efeitos Json @default("[]")
 
-  // Efeitos na hora do uso vão pra um aliado da mesa.
+  // Em quem a ação vale: "nenhum" | "voce" | "aliado" | "inimigo" | "qualquer"
+  // (lib/op-rpg.ts ALVOS_ACAO).
+  alvo String @default("nenhum")
+  // Efeitos na hora do uso vão pra um aliado da mesa. Sai do `alvo` ("aliado");
+  // fica gravado pro código que já lê ele.
   aliado Boolean @default(false)
 
   // Pasta em que a ação está (etiqueta de filtro; lib/pastas.ts).

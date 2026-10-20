@@ -23,6 +23,9 @@ import {
   agregarEfeitos,
   fatorDeDano,
   lerEfeitos,
+  lerAlvoAcao,
+  efeitoNoAliado,
+  rolagensDoPedaco,
   maximoDoRecurso,
   modificador,
   lerProficiencias,
@@ -421,6 +424,8 @@ const ALLOWED_ACAO = [
   "grau",
   "efeitos",
   "aliado",
+  "alvo",
+  "bonusAcerto",
   "armaDeFogo",
   "duracao",
   "tipoDano",
@@ -479,6 +484,7 @@ function normalizarAcaoInput(input: AcaoInput) {
       data[k] = v;
     }
   }
+  if (input.bonusAcerto !== undefined) data.bonusAcerto = formulaOuNulo(input.bonusAcerto);
   if (input.salvSucesso !== undefined) data.salvSucesso = input.salvSucesso === "metade" ? "metade" : "nada";
   if (input.danosExtras !== undefined) data.danosExtras = lerDanosExtras(input.danosExtras);
   if (input.dano !== undefined) data.dano = input.dano ? String(input.dano) : null;
@@ -499,6 +505,8 @@ function normalizarAcaoInput(input: AcaoInput) {
     data.grau = Math.min(7, Math.max(0, Math.trunc(Number(input.grau) || 0)));
   }
   if (input.efeitos !== undefined) data.efeitos = normalizarEfeitosInput(input.efeitos);
+  if (input.alvo !== undefined) data.alvo = lerAlvoAcao({ alvo: input.alvo });
+  // Ação inteira "em aliado" é de antes do `quem` por efeito; só lido em ação antiga.
   if (input.aliado !== undefined) data.aliado = Boolean(input.aliado);
   if (input.armaDeFogo !== undefined) data.armaDeFogo = input.armaDeFogo === true;
   if (input.duracao !== undefined) data.duracao = lerDuracao(input.duracao) ?? Prisma.DbNull;
@@ -559,6 +567,7 @@ function dadosDaAcao(personagemId: string, data: Record<string, unknown>) {
     usosFormula: (data.usosFormula as string | null) ?? null,
     recarga: (data.recarga as string | null) ?? null,
     atributoAtaque: (data.atributoAtaque as string | null) ?? null,
+    bonusAcerto: (data.bonusAcerto as string | null) ?? null,
     atributoSalv: (data.atributoSalv as string | null) ?? null,
     atributoCd: (data.atributoCd as string | null) ?? null,
     salvSucesso: (data.salvSucesso as string) ?? "nada",
@@ -574,6 +583,8 @@ function dadosDaAcao(personagemId: string, data: Record<string, unknown>) {
     grau: (data.grau as number) ?? 0,
     efeitos: (data.efeitos as EfeitoHabilidade[]) ?? [],
     aliado: (data.aliado as boolean) ?? false,
+    alvo: (data.alvo as string) ?? "nenhum",
+    armaDeFogo: (data.armaDeFogo as boolean) ?? false,
     duracao: (data.duracao as Prisma.InputJsonValue | typeof Prisma.DbNull) ?? Prisma.DbNull,
     ...(data.formaDe ? { formaDe: data.formaDe as string } : {}),
   };
@@ -637,7 +648,8 @@ export async function usarAcao(
   rolagens?: RolagensCura,
   opcoes?: {
     sobrecarga?: boolean;
-    alvoId?: string;
+    // Aliado de cada efeito que vai pra aliado, pelo índice na lista de efeitos.
+    aliados?: Record<number, string>;
     // Em combate: alvos (InstanciaCombate.id), como a ficha vai resolver a
     // ação neles e a CD que ela calculou.
     combate?: { alvos?: string[]; modo?: string; cd?: number | null; corpoACorpo?: boolean };
@@ -677,7 +689,8 @@ export async function usarAcao(
     const usosAtual = acao.usosAtual ?? usosMax;
     if (usosMax != null && (usosAtual ?? 0) <= 0) throw new ErroDeUso("Sem usos restantes.");
     // Com alvo: confere como a ação resolve neles antes de gastar qualquer coisa.
-    const pedidos = combate && tipoAcao ? opcoes?.combate?.alvos : null;
+    // Vale pra qualquer tipo de ação, inclusive a Livre (que não gasta ação do turno).
+    const pedidos = combate ? opcoes?.combate?.alvos : null;
     const alvos = Array.isArray(pedidos)
       ? pedidos.filter((id): id is string => typeof id === "string" && !!id).slice(0, 12)
       : [];
@@ -695,28 +708,45 @@ export async function usarAcao(
       custoPp = 0;
     }
     const recurso = await recursoDeCusto(personagemId, acao.custoRecursoId, acao.custoRecursoValor);
+    // Cada efeito na hora vai em quem usa ou no aliado escolhido pra ele.
     const todosEfeitos = lerEfeitos(acao.efeitos);
-    const efeitos = todosEfeitos.filter(efeitoInstantaneo);
-    const removeCondicao = todosEfeitos.some((e) => e.tipo === "condicao_remover");
-    const aliado =
-      acao.aliado && (efeitos.length > 0 || removeCondicao)
-        ? await aliadoDoUso(personagem, opcoes?.alvoId)
-        : null;
+    const aliadoDe = (i: number): string | null =>
+      efeitoNoAliado(todosEfeitos[i], acao) ? String(opcoes?.aliados?.[i] ?? "") : null;
+    const destinos = todosEfeitos.map((e, i) => ({ e, quem: aliadoDe(i) }));
+    const aliados = new Map<string, AliadoDoUso>();
+    for (const id of new Set(destinos.flatMap((d) => (d.quem === null ? [] : [d.quem])))) {
+      aliados.set(id, await aliadoDoUso(personagem, id));
+    }
+    // As rolagens vêm pelo índice na lista dos efeitos na hora.
+    const instantaneos = destinos.filter((d) => efeitoInstantaneo(d.e));
+    const pedaco = (quem: string | null) => {
+      const posicoes = instantaneos.flatMap((d, pos) => (d.quem === quem ? [pos] : []));
+      return {
+        efeitos: posicoes.map((pos) => instantaneos[pos].e),
+        rolagens: rolagensDoPedaco(rolagens, posicoes),
+      };
+    };
+    const removeDe = (quem: string | null) =>
+      destinos.filter((d) => d.quem === quem && d.e.tipo === "condicao_remover").map((d) => d.e);
 
+    const proprio = pedaco(null);
     const ops = await opsDoUso({
       personagemId,
       personagem,
       agg,
-      efeitos,
-      rolagens,
+      efeitos: proprio.efeitos,
+      rolagens: proprio.rolagens,
       incluirMax: false,
       custoPp,
       recurso,
       custoRecurso: acao.custoRecursoValor,
       exaustaoExtra,
-      aliado,
       grau: acao.grau,
     });
+    for (const [id, aliado] of aliados) {
+      const doAliado = pedaco(id);
+      ops.push(...opsNoAliado({ personagem, agg, aliado, ...doAliado, grau: acao.grau }));
+    }
     if (usosMax != null) {
       ops.push(
         prisma.acao.update({
@@ -753,15 +783,16 @@ export async function usarAcao(
       );
     }
     if (ops.length > 0) await prisma.$transaction(ops);
-    if (removeCondicao) await removerCondicoesPorEfeito(aliado?.personagem.id ?? personagemId, todosEfeitos, acao.nome);
+    await removerCondicoesPorEfeito(personagemId, removeDe(null), acao.nome);
+    for (const id of aliados.keys()) await removerCondicoesPorEfeito(id, removeDe(id), acao.nome);
     await estatisticasDoUso({
       personagemId,
       nome: acao.nome,
       custoPp,
-      curou: efeitos.some((e) => e.tipo === "cura"),
+      curou: instantaneos.some((d) => d.e.tipo === "cura"),
       antes: [
         { id: personagemId, hp: personagem.hpAtual },
-        ...(aliado ? [{ id: aliado.personagem.id, hp: aliado.personagem.hpAtual }] : []),
+        ...[...aliados.values()].map((a) => ({ id: a.personagem.id, hp: a.personagem.hpAtual })),
       ],
     });
     // Com alvo, abre a resolução: daqui saem as rolagens de ataque, salvaguarda e dano.
@@ -784,8 +815,8 @@ export async function usarAcao(
           })
         : null;
     revalidatePath(`/ficha/${personagemId}`);
-    if (aliado) revalidatePath(`/ficha/${aliado.personagem.id}`);
-    if (combate && tipoAcao) revalidatePath(`/narrador/${combate.mesaId}`);
+    for (const id of aliados.keys()) revalidatePath(`/ficha/${id}`);
+    if (combate && (tipoAcao || resolucaoId)) revalidatePath(`/narrador/${combate.mesaId}`);
     return { resolucaoId };
   });
 }
@@ -1881,6 +1912,32 @@ async function opsDoUso(opts: {
     ops.push(prisma.recurso.update({ where: { id: r.id, personagemId }, data: { valorAtual: novo } }));
   }
   return ops;
+}
+
+// Efeitos na hora que vão pra um aliado (cura, PV temporário, PP, exaustão).
+// Só mexe nele: o custo e o resto ficam com quem usa, no `opsDoUso`. As rolagens
+// são de quem usa, então a conferência usa os atributos dele.
+function opsNoAliado(opts: {
+  personagem: PersonagemDoUso;
+  agg: EfeitosAgregados;
+  aliado: AliadoDoUso;
+  efeitos: EfeitoHabilidade[];
+  rolagens: unknown;
+  grau: number;
+}): Prisma.PrismaPromise<unknown>[] {
+  const { personagem, agg, aliado, efeitos, grau } = opts;
+  if (efeitos.length === 0) return [];
+  const atributos = atributosEfetivos(atributosDoPersonagem(personagem), agg);
+  const deltas = computarDeltasInstantaneos(efeitos, {
+    incluirMax: false,
+    rolagens: validarRolagensCura(efeitos, opts.rolagens, atributos, personagem.nivel, grau, extrasDeCura(agg)),
+    ctx: agg.ctxFormula ? { ...agg.ctxFormula, grau } : null,
+  });
+  const patch = patchDePools(aliado.personagem, aliado.agg, deltas, 0, 0);
+  if (Object.keys(patch).length === 0) return [];
+  const duracaoTemp =
+    deltas.hpTemp > aliado.personagem.hpTemp ? { hpTempDuracao: deltas.hpTempDuracao ?? null } : {};
+  return [prisma.personagem.update({ where: { id: aliado.personagem.id }, data: { ...patch, ...duracaoTemp } })];
 }
 
 // Debita custos (PP, recurso de custo, usos) e aplica os efeitos instantâneos

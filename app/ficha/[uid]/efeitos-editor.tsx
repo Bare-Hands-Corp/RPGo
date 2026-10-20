@@ -21,6 +21,7 @@ import {
   PRESETS_EFEITO,
   alvoDeRolagem,
   comoDura,
+  podeIrProAliado,
   comPassosProgressivos,
   defesasIgnoradas,
   dependeDosUsos,
@@ -232,7 +233,7 @@ export function ChipEfeito({
       icone={meta.icone}
       cor={meta.cor}
       selo={dura ? TEXTO_DURA[dura] : undefined}
-      texto={[resumo, cru !== resumo && `Fórmula: ${cru}`]}
+      texto={[resumo, cru !== resumo && `Fórmula: ${cru}`, efeito.quem === "aliado" && "Vai num aliado, escolhido no uso"]}
     >
     <span
       className="efeito-chip"
@@ -244,6 +245,7 @@ export function ChipEfeito({
     >
       <i className={`fas ${meta.icone}`} />
       <span className="efeito-chip-label">{nomeDoEfeito(efeito)}</span>
+      {efeito.quem === "aliado" && <i className="fas fa-hand-holding-heart" aria-label="em aliado" />}
       <span className="efeito-chip-resumo">{resumo}</span>
       {efeito.sempreAtivo && <i className="fas fa-infinity" title="Sempre ativo" />}
       {gastaUso && <i className="fas fa-bolt-lightning" title="Gasta 1 uso" />}
@@ -532,15 +534,18 @@ function EditorEfeito({
     dependeDosUsos(efeito, new Set(periciasCustom.map((a) => a.slug)));
   // Efeito sem parâmetro não tem corpo.
   const corpo = renderCorpo(efeito, recursos, onPatch, periciasCustom, daAcao, gastaUso);
-  // Em ação com duração: repete a cada turno ou fica valendo.
-  const como = useContext(EfeitosDuramContext) ? comoDura(efeito) : null;
+  // Numa ação, o efeito na hora escolhe em quem vai (você ou um aliado).
+  const escolheQuem = daAcao && podeIrProAliado(efeito);
+  // Em ação com duração: repete a cada turno ou fica valendo (só em quem usa).
+  const como = useContext(EfeitosDuramContext) && !efeito.quem ? comoDura(efeito) : null;
   const dura = como ? duraQueCabe(como, efeito.dura) : undefined;
   // Incompleto some ao salvar: avisa em vez de mostrar um resumo pela metade.
   const completo = lerEfeitos([efeito]).length > 0;
   const resumo = completo
     ? ((daAcao ? resumoNaAcao(efeito) : null) ??
         resumoEfeito(efeito, (id) => nomesRecurso.get(id), formula ?? undefined)) +
-      (dura ? ` · ${TEXTO_DURA[dura]}` : "")
+      (dura ? ` · ${TEXTO_DURA[dura]}` : "") +
+      (efeito.quem === "aliado" ? " · em aliado" : "")
     : "falta preencher";
   const nome = nomeDoEfeito(efeito);
   // Quem já está marcado segue mostrando, pra dar pra desmarcar.
@@ -585,9 +590,10 @@ function EditorEfeito({
           </button>
         </span>
       </div>
-      {aberto && (corpo || ofereceSempre || como) && (
+      {aberto && (corpo || ofereceSempre || como || escolheQuem) && (
         <div className="efeito-editor-corpo">
           {corpo}
+          {escolheQuem && <CampoQuem valor={efeito.quem} onPatch={onPatch} />}
           {como && <CampoDura como={como} valor={dura} onPatch={onPatch} />}
           {ofereceSempre && (
             <div style={{ gridColumn: "1 / -1" }}>
@@ -600,6 +606,35 @@ function EditorEfeito({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Numa ação: o efeito na hora vai em quem usa ou num aliado (escolhido no uso,
+// cada efeito o seu). No aliado, não repete nem fica valendo.
+function CampoQuem({
+  valor,
+  onPatch,
+}: {
+  valor: "aliado" | undefined;
+  onPatch: (p: Partial<EfeitoHabilidade>) => void;
+}) {
+  return (
+    <div style={{ gridColumn: "1 / -1" }}>
+      <label>Em quem</label>
+      <Segmentos
+        rotulo="Em quem"
+        valor={valor ?? "voce"}
+        opcoes={[
+          { valor: "voce", rotulo: "Você" },
+          { valor: "aliado", rotulo: "Aliado", titulo: "Escolhe o aliado na hora de usar" },
+        ]}
+        onChange={(v) =>
+          onPatch(
+            (v === "aliado" ? { quem: "aliado", dura: undefined } : { quem: undefined }) as Partial<EfeitoHabilidade>,
+          )
+        }
+      />
     </div>
   );
 }

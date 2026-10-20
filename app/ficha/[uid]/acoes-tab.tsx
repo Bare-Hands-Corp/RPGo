@@ -42,6 +42,13 @@ import {
   extrasDeCura,
   formatarMod,
   normalizarAlcance,
+  ALVOS_ACAO,
+  alvoDeCombate,
+  lerAlvoAcao,
+  efeitoNoAliado,
+  nomeDoEfeito,
+  rolagensDoPedaco,
+  type AlvoAcao,
   formulaResolvidaTexto,
   lerEfeitos,
   lerNumeroOuFormula,
@@ -103,13 +110,14 @@ import { useEscolherAlvo } from "./escolher-alvo";
 import { useEscolherAlvosCombate } from "./escolher-alvos-combate";
 import type { Tripulante } from "./tripulacao-tab";
 import { DescricaoRecolhivel } from "./descricao-recolhivel";
+import { rascunho } from "./rascunho";
 import { Tooltip } from "@/components/tooltip";
 import { MarcaExausto } from "./marca-exausto";
 import { TagChip } from "./estilo-cor-picker";
 import { normalizarEfeitoCor, type EstiloCor } from "@/lib/estilos-cor";
 import { SeletorMultiplo, SeletorUnico, type OpcaoVinculo } from "./seletor-multiplo";
 import { DuracaoCampo, comPorTurno, porTurnoDe } from "./duracao-campo";
-import { Segmentos, Sugestoes, TipoDanoCampo, type OpcaoSegmento } from "./campos-modal";
+import { SecaoModal, Segmentos, Sugestoes, TipoDanoCampo, type OpcaoSegmento } from "./campos-modal";
 import { CustosCampo } from "./custos-campo";
 import { CampoFormula } from "./campo-formula";
 import { juntarTipos, mesmoTipo, tiposDoDano } from "@/lib/dano";
@@ -148,6 +156,7 @@ type Acao = {
   custoRecursoId: string | null;
   custoRecursoValor: number;
   atributoAtaque: string | null;
+  bonusAcerto?: string | null;
   atributoSalv: string | null;
   salvSucesso?: string;
   danosExtras?: unknown;
@@ -162,6 +171,7 @@ type Acao = {
   grau: number;
   efeitos: unknown;
   aliado: boolean;
+  alvo?: string | null;
   armaDeFogo?: boolean;
   duracao?: unknown;
   // Usada e ainda valendo, com os turnos que faltam.
@@ -252,6 +262,7 @@ type ItemArma = {
   atributoAtaque: string | null;
   proficienteArma: boolean;
   danoSomaProficiencia: boolean;
+  danoSomaAtributo: boolean;
   efeitos: unknown;
   quantidade: number;
   municaoId?: string | null;
@@ -309,6 +320,12 @@ const SIGLA: Record<Atributo, string> = {
 
 const ALCANCES_RAPIDOS = ["Pessoal", "1,5 m"];
 
+const DICA_ALVO: Record<AlvoAcao, string> = {
+  nenhum: "Sem ataque, salvaguarda ou dano em alguém.",
+  inimigo: "Em combate, escolhe na iniciativa quem é atacado, faz a salvaguarda ou leva o dano.",
+  qualquer: "Em combate, escolhe na iniciativa qualquer participante, aliado ou inimigo.",
+};
+
 const OPCOES_ATRIBUTO: OpcaoSegmento<string>[] = [
   { valor: "", rotulo: "—", titulo: "Nenhum" },
   ...ATRIBUTOS.map((a) => ({ valor: a.slug, rotulo: a.sigla, titulo: a.nome })),
@@ -338,6 +355,8 @@ type FormState = {
   custoRecursoId: string;
   custoRecursoValor: string;
   atributoAtaque: string;
+  // Somado ao acerto (número ou fórmula sem dado).
+  bonusAcerto: string;
   atributoSalv: string;
   salvSucesso: "nada" | "metade";
   danosExtras: DanoExtra[];
@@ -351,9 +370,11 @@ type FormState = {
   tecnica: boolean;
   grau: number;
   efeitos: EfeitoHabilidade[];
-  aliado: boolean;
+  alvo: AlvoAcao;
   armaDeFogo: boolean;
   duracao: Duracao | null;
+  // Seção de dano aberta no modal mesmo sem dano escrito (não vai pro banco).
+  comDano: boolean;
   // Ação de origem da forma alternativa ("" = ação separada).
   formaDe: string;
   // Origem oferecida no modal ("" = não oferece).
@@ -374,6 +395,7 @@ const FORM_VAZIO: FormState = {
   custoRecursoId: "",
   custoRecursoValor: "",
   atributoAtaque: "",
+  bonusAcerto: "",
   atributoSalv: "",
   salvSucesso: "nada",
   danosExtras: [],
@@ -387,9 +409,11 @@ const FORM_VAZIO: FormState = {
   tecnica: false,
   grau: 0,
   efeitos: [],
-  aliado: false,
+  // Sem nada a resolver (ataque, salvaguarda, dano), não pede alvo nenhum.
+  alvo: "inimigo",
   armaDeFogo: false,
   duracao: null,
+  comDano: false,
   formaDe: "",
   origemForma: "",
   usos: "",
@@ -419,6 +443,8 @@ const ACAO_BASE: Omit<Acao, "id"> = {
   grau: 0,
   efeitos: [],
   aliado: false,
+  alvo: "nenhum",
+  bonusAcerto: null,
   armaDeFogo: false,
   duracao: null,
   pasta: null,
@@ -706,7 +732,33 @@ export function AcoesTab({
   const acoesPorId = new Map(acoesOtimistas.map((a) => [a.id, a]));
   const { origemDe, grupoDe } = agruparFormas(acoesOtimistas);
 
-  function abrirNova() {
+  // Ação nova em andamento fica no navegador até salvar.
+  const rascunhoAcao = useMemo(() => rascunho<FormState>(`rpgo:rascunho-acao:${personagemId}`), [personagemId]);
+  useEffect(() => {
+    if (modalAberto && !form.id) rascunhoAcao.gravar(form);
+  }, [modalAberto, form, rascunhoAcao]);
+
+  async function abrirNova() {
+    const guardado = rascunhoAcao.ler();
+    if (guardado?.nome || guardado?.descricao) {
+      const r = await Swal.fire({
+        icon: "question",
+        title: "Retomar o rascunho?",
+        text: `Tem uma ação começada${guardado.nome ? `: ${guardado.nome}` : ""}.`,
+        showDenyButton: true,
+        confirmButtonText: "Retomar",
+        denyButtonText: "Começar do zero",
+        background: "var(--bg-card)",
+        color: "var(--text-main)",
+      });
+      if (r.isDismissed) return;
+      if (r.isConfirmed) {
+        setForm({ ...FORM_VAZIO, ...guardado, id: null });
+        setModalAberto(true);
+        return;
+      }
+      rascunhoAcao.apagar();
+    }
     setForm(FORM_VAZIO);
     setModalAberto(true);
   }
@@ -745,6 +797,7 @@ export function AcoesTab({
       usos: acao.usosFormula ?? (acao.usos != null ? String(acao.usos) : ""),
       recarga: acao.recarga ?? "",
       atributoAtaque: acao.atributoAtaque || "",
+      bonusAcerto: acao.bonusAcerto || "",
       atributoSalv: acao.atributoSalv || "",
       salvSucesso: acao.salvSucesso === "metade" ? "metade" : "nada",
       danosExtras: lerDanosExtras(acao.danosExtras),
@@ -757,10 +810,13 @@ export function AcoesTab({
       habilidadeIds: lerIds(acao.habilidadeIds),
       tecnica: acao.tecnica,
       grau: acao.grau,
-      efeitos: lerEfeitos(acao.efeitos),
-      aliado: acao.aliado,
+      efeitos: lerEfeitos(acao.efeitos).map((e) =>
+        efeitoNoAliado(e, acao) ? { ...e, quem: "aliado" as const } : e,
+      ),
+      alvo: lerAlvoAcao(acao),
       armaDeFogo: !!acao.armaDeFogo,
       duracao: lerDuracao(acao.duracao),
+      comDano: false,
       formaDe: origem?.id ?? "",
       origemForma: origem?.id ?? "",
     };
@@ -810,7 +866,9 @@ export function AcoesTab({
       usosAtual: !usos ? null : antes ? (antes.usosAtual ?? null) : usos.numero,
       usosFormula: usos?.formula ?? null,
       recarga: usos && form.recarga ? form.recarga : null,
-      atributoAtaque: form.atributoAtaque || null,
+      // Com arma, o acerto é o dela.
+      atributoAtaque: form.armaIds.length > 0 ? null : form.atributoAtaque || null,
+      bonusAcerto: form.bonusAcerto.trim() || null,
       atributoSalv: form.atributoSalv || null,
       salvSucesso: form.salvSucesso,
       danosExtras: form.danosExtras.filter((d) => d.formula.trim()),
@@ -824,7 +882,9 @@ export function AcoesTab({
       tecnica: form.tecnica,
       grau: form.tecnica ? form.grau : 0,
       efeitos: form.efeitos,
-      aliado: form.aliado,
+      alvo: form.alvo,
+      // Cada efeito diz se vai pro aliado (`quem`).
+      aliado: false,
       armaDeFogo: form.armaDeFogo,
       duracao: form.duracao,
       // Só vai quando o modal ofereceu a escolha.
@@ -832,6 +892,7 @@ export function AcoesTab({
     };
 
     const editandoId = form.id;
+    if (!editandoId) rascunhoAcao.apagar();
     fecharModal();
 
     startTransition(async () => {
@@ -882,21 +943,19 @@ export function AcoesTab({
       mostrarErro(new Error(trava));
       return;
     }
-    // Em quem: um alvo por ataque (multiataque escolhe o de cada um); vários
-    // de uma vez na salvaguarda e no dano direto.
-    if (tipoAcao && resolve && !resolve.ataque && acao.atributoSalv && resolve.cd == null) {
+    // Em quem: o alvo da ação decide. No combate, um alvo por ataque
+    // (multiataque escolhe o de cada um); vários de uma vez na salvaguarda e no
+    // dano direto. Vale pra qualquer tipo de ação, inclusive a Livre.
+    const alvoAcao = lerAlvoAcao(acao);
+    const escolheNoCombate = !!turno && !!resolve && alvoDeCombate(alvoAcao);
+    if (escolheNoCombate && !resolve.ataque && acao.atributoSalv && resolve.cd == null) {
       mostrarErro(new Error("Escolha a CD das suas técnicas na ficha lateral antes de usar esta ação."));
       return;
     }
     let alvosCombate: string[] = [];
     // Vantagem ou desvantagem de cada ataque, decidida junto com o alvo.
     let modosAtaque: ModoRolagem[] = [];
-    if (
-      tipoAcao &&
-      resolve &&
-      !acao.aliado &&
-      (resolve.ataque || resolve.salvaguarda || resolve.dano || resolve.condicao)
-    ) {
+    if (escolheNoCombate && (resolve.ataque || resolve.salvaguarda || resolve.dano || resolve.condicao)) {
       if (resolve.ataque) {
         const ataques = await alvosDoCombate.escolherAtaques(`${acao.nome}: em quem?`, resolve.ataques, {
           corpoACorpo: resolve.corpoACorpo,
@@ -941,19 +1000,24 @@ export function AcoesTab({
       segue ? "Fica em curso até a duração acabar." : null,
     ].filter((l): l is string => !!l);
 
-    // Em aliado: escolher quem já confirma.
-    let alvoId: string | undefined;
-    if (acao.aliado && (instantaneos.length > 0 || lerEfeitos(acao.efeitos).some((e) => e.tipo === "condicao_remover"))) {
+    // Efeitos que vão pra aliado: cada um escolhe o seu (pelo índice na lista
+    // de efeitos). Escolher já confirma o uso.
+    const todosEfeitos = lerEfeitos(acao.efeitos);
+    const paraAliado = todosEfeitos.flatMap((e, i) => (efeitoNoAliado(e, acao) ? [{ e, i }] : []));
+    const aliados: Record<number, string> = {};
+    if (paraAliado.length > 0) {
       if (!alvo.temAliados) {
         mostrarErro(new Error("Nenhum aliado na mesa."));
         return;
       }
-      const escolhido = await alvo.escolher(
-        `${sobrecarga ? "Sobrecarga: " : ""}${acao.nome} em quem?`,
-        { detalhe: linhas.map((l) => l.replace(/<\/?b>/g, "")).join(" ") },
-      );
-      if (!escolhido) return;
-      alvoId = escolhido;
+      for (const [n, { e, i }] of paraAliado.entries()) {
+        const escolhido = await alvo.escolher(
+          `${sobrecarga ? "Sobrecarga: " : ""}${acao.nome} · ${nomeDoEfeito(e)}: em quem?`,
+          n === 0 ? { detalhe: linhas.map((l) => l.replace(/<\/?b>/g, "")).join(" ") } : undefined,
+        );
+        if (!escolhido) return;
+        aliados[i] = escolhido;
+      }
     } else {
       const ok = await uso.confirmar({
         titulo: sobrecarga ? "Usar com Sobrecarga" : "Usar",
@@ -991,17 +1055,21 @@ export function AcoesTab({
       acao.nome,
       extraCura,
     );
-    const deltas = computarDeltasInstantaneos(instantaneos, {
-      incluirMax: false,
-      rolagens,
-      ctx: efeitosAgregados.ctxFormula ? { ...efeitosAgregados.ctxFormula, grau: acao.grau } : null,
-    });
-    const noAliado = !!alvoId;
+    // Na ficha, na hora: só o que fica em quem usa.
+    const proprios = instantaneos.flatMap((e, pos) => (efeitoNoAliado(e, acao) ? [] : [pos]));
+    const deltas = computarDeltasInstantaneos(
+      proprios.map((pos) => instantaneos[pos]),
+      {
+        incluirMax: false,
+        rolagens: rolagensDoPedaco(rolagens, proprios),
+        ctx: efeitosAgregados.ctxFormula ? { ...efeitosAgregados.ctxFormula, grau: acao.grau } : null,
+      },
+    );
     const deltaPersonagem = {
-      deltaHpAtual: (!noAliado && deltas.hpAtual) || undefined,
-      concedeHpTemp: (!noAliado && deltas.hpTemp) || undefined,
-      deltaPpAtual: (noAliado ? 0 : deltas.ppAtual) - pp || undefined,
-      deltaExaustao: (sobrecarga ? acao.grau : 0) + (noAliado ? 0 : deltas.exaustao) || undefined,
+      deltaHpAtual: deltas.hpAtual || undefined,
+      concedeHpTemp: deltas.hpTemp || undefined,
+      deltaPpAtual: deltas.ppAtual - pp || undefined,
+      deltaExaustao: (sobrecarga ? acao.grau : 0) + deltas.exaustao || undefined,
     };
     if (Object.values(deltaPersonagem).some((v) => v !== undefined)) {
       window.dispatchEvent(new CustomEvent("rpgo:patch-personagem", { detail: deltaPersonagem }));
@@ -1028,7 +1096,7 @@ export function AcoesTab({
         const { resolucaoId } = exigir(
           await usarAcao(personagemId, acao.id, rolagens, {
             sobrecarga,
-            alvoId,
+            aliados,
             combate: {
               alvos: alvosCombate,
               modo: resolve?.ataque ? "ataque" : resolve?.salvaguarda ? "salvaguarda" : "direto",
@@ -1152,6 +1220,13 @@ export function AcoesTab({
   const visiveis = acoesOtimistas.filter((a) => !origemDe(a) && grupoDe(a).some(casaFiltros));
   const filtrando = filtro !== "todas" || !!pastaAtiva || busca.trim() !== "";
 
+  // Modal: o que a arma decide e quando a seção de dano aparece.
+  const formComArma = form.armaIds.length > 0;
+  // Ação comum com arma: o dano é o da arma; o campo vira adicional.
+  const danoDaArma = formComArma && !form.tecnica;
+  const formTemAcerto = formComArma || !!form.atributoAtaque;
+  const formTemDano = form.comDano || !!form.dano.trim() || form.danosExtras.length > 0;
+
   return (
     <NomesRecursoContext.Provider value={new Map(recursos.map((r) => [r.id, r.nome]))}>
     <FormulaContext.Provider value={ctxFormula}>
@@ -1220,7 +1295,17 @@ export function AcoesTab({
                   const recursoCusto = recursos.find(
                     (r) => r.id === acao.custoRecursoId,
                   );
-                  const atributoAtq = acao.atributoAtaque as Atributo | null;
+                  // Técnica acerta com o atributo primário (o da CD); o gravado só
+                  // diz que ela tem acerto.
+                  const atributoAtq = (
+                    acao.atributoAtaque ? (acao.tecnica && cdPadrao) || acao.atributoAtaque : null
+                  ) as Atributo | null;
+                  // Adicional no acerto da própria ação (com arma ou sem).
+                  const adicionalAcerto = acao.bonusAcerto
+                    ? resolverFormula(acao.bonusAcerto, atributosParaTeste, nivel, { grau: acao.grau }).modificador
+                    : 0;
+                  const comAdicional = <T extends { bonus: number; fontes: string[] }>(atq: T): T =>
+                    adicionalAcerto ? { ...atq, bonus: atq.bonus + adicionalAcerto, fontes: [...atq.fontes, "adicional da ação"] } : atq;
                   // A CD da ação com salvaguarda é a das técnicas do personagem (ficha
                   // lateral). O atributo gravado na ação é de antes disso e só vale
                   // enquanto o personagem não escolheu o dele.
@@ -1239,7 +1324,7 @@ export function AcoesTab({
                   const aggDaArma = (arma: ItemArma) => efeitosDaTecnica(efeitosDa(arma), acao);
                   // Um acerto e um dano por arma equipada.
                   const golpes = armasEquipadas.map((arma) => {
-                    const atq = resolverAtaqueArma({
+                    const doAtaque = resolverAtaqueArma({
                       alcanceRaw: arma.alcance,
                       propriedadesRaw: arma.propriedades,
                       atributoOverride: arma.atributoAtaque,
@@ -1250,6 +1335,7 @@ export function AcoesTab({
                       efeitosAgregados: aggDaArma(arma),
                       tecnica: acao.tecnica,
                     });
+                    const atq = doAtaque && comAdicional(doAtaque);
                     const municao = municaoDe(arma);
                     const semMunicao = municao.usa && (!municao.item || municao.restante <= 0);
                     return { arma, atq, municao, semMunicao };
@@ -1278,7 +1364,9 @@ export function AcoesTab({
                       ? bonusAtaqueTecnica({
                           nivel,
                           valorAtributo: atributosParaTeste[atributoAtq],
-                        }) + extraAtaqueSemArma.valor
+                        }) +
+                        extraAtaqueSemArma.valor +
+                        adicionalAcerto
                       : null;
                   // Alcance a mais (ou trocado) que vale sempre nesta ação; o opcional fica no Rolador.
                   const alcancesAcao = (aggAcao.alcances ?? []).filter(
@@ -1300,10 +1388,38 @@ export function AcoesTab({
                   // DES reduzida pela armadura morde o acerto quando ele usa DES.
                   const atributoAcerto = ataqueArma ? ataqueArma.atributo : atributoAtq;
                   const desReduzAtq = atributoAcerto === "destreza" && desReduz;
-                  const fontesAtaque = ataqueArma ? ataqueArma.fontes : extraAtaqueSemArma.fontes;
+                  const fontesAtaque = ataqueArma
+                    ? ataqueArma.fontes
+                    : [...extraAtaqueSemArma.fontes, ...(adicionalAcerto ? ["adicional da ação"] : [])];
                   // Dano da técnica + dano bônus e proficiência da arma + bônus de habilidade.
                   const comporDano = (arma: ItemArma | null) => {
                     const agg = arma ? aggDaArma(arma) : aggAcao;
+                    // Ação comum com arma: o dano da arma (dado, atributo,
+                    // proficiência) e o da ação entra como adicional.
+                    if (arma && !acao.tecnica) {
+                      const atq = golpes.find((g) => g.arma.id === arma.id)?.atq;
+                      const d = resolverDanoArma({
+                        danoBase: danoComMunicao(arma.dano, municaoDe(arma)),
+                        danoBonus: arma.danoBonus,
+                        adicional: acao.dano,
+                        passos: agg.passosDanoArma.valor + passosProprios,
+                        somaAtributo: arma.danoSomaAtributo,
+                        atributoDano: atq?.atributo ?? null,
+                        atributos: atributosParaTeste,
+                        nivel,
+                        proficiencia: arma.danoSomaProficiencia ? bonusProficiencia(nivel) : 0,
+                        alcance: atq?.alcance ?? alcanceContexto,
+                        efeitosAgregados: agg,
+                        dadoFixo: agg.dadoArmaFixo?.formula,
+                      });
+                      const tiposDano = juntarTipos(
+                        acao.tipoDano ? [acao.tipoDano] : [],
+                        tiposDoDano(acao.dano ?? ""),
+                        tiposDoDano(danoComMunicao(arma.dano, municaoDe(arma)) ?? ""),
+                        tiposDoDano(arma.danoBonus ?? ""),
+                      );
+                      return { d, efeitos: efeitosDoContexto(agg), tiposDano };
+                    }
                     const d = acao.dano
                       ? resolverDanoArma({
                           danoBase: acao.dano,
@@ -1616,9 +1732,14 @@ export function AcoesTab({
                                   acao.recarga}
                               </span>
                             )}
-                            {acao.aliado && (
+                            {lerEfeitos(acao.efeitos).some((e) => efeitoNoAliado(e, acao)) && (
                               <span className="acao-stat acao-aliado">
                                 <i className="fas fa-hand-holding-heart" /> Em aliado
+                              </span>
+                            )}
+                            {lerAlvoAcao(acao) === "qualquer" && (
+                              <span className="acao-stat">
+                                <i className="fas fa-users" /> Qualquer criatura
                               </span>
                             )}
                             {/* Um chip de acerto por arma equipada; sem arma, o cálculo da técnica. */}
@@ -1976,147 +2097,195 @@ export function AcoesTab({
                 </>
               )}
 
-              <label>Descrição</label>
-              <textarea
-                value={form.descricao}
-                onChange={(e) => setF("descricao", e.target.value)}
-                placeholder="Descreva o efeito..."
-              />
-
-              <label>Tag</label>
-              <input
-                type="text"
-                value={form.tag}
-                onChange={(e) => setF("tag", e.target.value)}
-                placeholder="Ex: Cortante, Empurrão, Ignição"
-              />
-
-              <label>Técnica</label>
-              <div className="origem-pills">
-                {(
-                  [
-                    [false, "Não", "fa-hand-fist"],
-                    [true, "Sim", "fa-wand-magic-sparkles"],
-                  ] as const
-                ).map(([valor, rotulo, icone]) => (
-                  <button
-                    type="button"
-                    key={rotulo}
-                    className={`origem-pill ${form.tecnica === valor ? "ativo" : ""}`}
-                    aria-pressed={form.tecnica === valor}
-                    onClick={() => setF("tecnica", valor)}
-                  >
-                    <i className={`fas ${icone}`} /> {rotulo}
-                  </button>
-                ))}
-              </div>
-              {form.tecnica && (
-                <>
-                  <label>Grau</label>
-                  <Segmentos
-                    rotulo="Grau"
-                    valor={form.grau}
-                    onChange={(g) => setF("grau", g)}
-                    opcoes={opcoesGrau}
-                  />
-                </>
-              )}
-
-              <DuracaoCampo
-                valor={form.duracao}
-                onChange={(d) => setF("duracao", d)}
-                porTurno={porTurnoDe(form.efeitos)}
-                onPorTurno={(lista) => setF("efeitos", comPorTurno(form.efeitos, lista))}
-                recursos={recursos}
-                aCadaTurno="durando"
-              />
-
-              <h3 className="modal-secao">
-                <i className="fas fa-link" /> De onde vem
-              </h3>
-
-              <label>Habilidades</label>
-              <SeletorMultiplo
-                opcoes={opcoesHabilidade}
-                marcados={form.habilidadeIds}
-                onChange={(ids) => setF("habilidadeIds", ids)}
-                rotulo="habilidade"
-                vazio="Nenhuma habilidade na ficha."
-              />
-
-              <label style={{ marginTop: 14 }}>Item</label>
-              <SeletorUnico
-                opcoes={opcoesItem}
-                marcado={form.itemId}
-                onChange={(id) => setF("itemId", id)}
-                rotulo="item"
-                vazio="Nenhum item no inventário."
-              />
-
-              <h3 className="modal-secao">
-                <i className="fas fa-khanda" /> Usa
-              </h3>
-
-              <label>Armas</label>
-              <SeletorMultiplo
-                opcoes={opcoesArma}
-                marcados={form.armaIds}
-                onChange={(ids) => setF("armaIds", ids)}
-                rotulo="arma"
-                vazio="Nenhuma arma no inventário."
-              />
-
-              <h3 className="modal-secao">
-                <i className="fas fa-gears" /> Números
-              </h3>
-              <div className="numeros-linha">
-                <CampoFormula
-                  label="Dano"
-                  valor={form.dano}
-                  onChange={(v) => setF("dano", v)}
-                  placeholder="Ex: 2d6 fogo"
-                  dados
-                  comGrau={form.tecnica}
-                  grau={form.tecnica && form.grau > 0 ? form.grau : undefined}
+              <SecaoModal titulo="Descrição" icone="fa-align-left" aberta resumo={form.tag || undefined}>
+                <label>Descrição</label>
+                <textarea
+                  value={form.descricao}
+                  onChange={(e) => setF("descricao", e.target.value)}
+                  placeholder="Descreva o efeito..."
                 />
-                <div>
-                  <label>Alcance</label>
-                  <input
-                    type="text"
-                    value={form.alcance}
-                    onChange={(e) => setF("alcance", e.target.value)}
-                    placeholder="Ex: 9 m"
-                  />
-                  <Sugestoes>
-                    {ALCANCES_RAPIDOS.map((a) => (
-                      <button
-                        type="button"
-                        key={a}
-                        className={`sugestao ${form.alcance === a ? "ativo" : ""}`}
-                        aria-pressed={form.alcance === a}
-                        onClick={() => setF("alcance", a)}
-                      >
-                        {a}
-                      </button>
-                    ))}
-                    {/* Efeito de dano pode deixar a arma de fogo de fora (Letárgico). */}
+
+                <label>Tag</label>
+                <input
+                  type="text"
+                  value={form.tag}
+                  onChange={(e) => setF("tag", e.target.value)}
+                  placeholder="Ex: Cortante, Empurrão, Ignição"
+                />
+              </SecaoModal>
+
+              <SecaoModal
+                titulo="Técnica e duração"
+                icone="fa-wand-magic-sparkles"
+                aberta={form.tecnica || !!form.duracao}
+                resumo={
+                  [form.tecnica ? `Técnica${form.grau ? ` · ${form.grau}º grau` : ""}` : null, textoDuracao(form.duracao)]
+                    .filter(Boolean)
+                    .join(" · ") || undefined
+                }
+              >
+                <label>Técnica</label>
+                <div className="origem-pills">
+                  {(
+                    [
+                      [false, "Não", "fa-hand-fist"],
+                      [true, "Sim", "fa-wand-magic-sparkles"],
+                    ] as const
+                  ).map(([valor, rotulo, icone]) => (
                     <button
                       type="button"
-                      className={`sugestao chip-opcao ${form.armaDeFogo ? "ativo" : ""}`}
-                      aria-pressed={form.armaDeFogo}
-                      onClick={() => setF("armaDeFogo", !form.armaDeFogo)}
+                      key={rotulo}
+                      className={`origem-pill ${form.tecnica === valor ? "ativo" : ""}`}
+                      aria-pressed={form.tecnica === valor}
+                      onClick={() => setF("tecnica", valor)}
                     >
-                      <i className="fas fa-gun" /> Arma de fogo
+                      <i className={`fas ${icone}`} /> {rotulo}
                     </button>
-                  </Sugestoes>
+                  ))}
                 </div>
-              </div>
-              {form.dano.trim() && (
-                <TipoDanoCampo valor={form.tipoDano} onChange={(t) => setF("tipoDano", t)} />
-              )}
+                {form.tecnica && (
+                  <>
+                    <label>Grau</label>
+                    <Segmentos
+                      rotulo="Grau"
+                      valor={form.grau}
+                      onChange={(g) => setF("grau", g)}
+                      opcoes={opcoesGrau}
+                    />
+                  </>
+                )}
 
-              {form.dano.trim() && (
-                <div className="danos-extras">
+                <DuracaoCampo
+                  valor={form.duracao}
+                  onChange={(d) => setF("duracao", d)}
+                  porTurno={porTurnoDe(form.efeitos)}
+                  onPorTurno={(lista) => setF("efeitos", comPorTurno(form.efeitos, lista))}
+                  recursos={recursos}
+                  aCadaTurno="durando"
+                />
+              </SecaoModal>
+
+              <SecaoModal
+                titulo="De onde vem"
+                icone="fa-link"
+                aberta={form.habilidadeIds.length > 0 || !!form.itemId}
+                resumo={
+                  [
+                    ...form.habilidadeIds.map((id) => opcoesHabilidade.find((o) => o.id === id)?.nome),
+                    opcoesItem.find((o) => o.id === form.itemId)?.nome,
+                  ]
+                    .filter(Boolean)
+                    .join(", ") || undefined
+                }
+              >
+                <label>Habilidades</label>
+                <SeletorMultiplo
+                  opcoes={opcoesHabilidade}
+                  marcados={form.habilidadeIds}
+                  onChange={(ids) => setF("habilidadeIds", ids)}
+                  rotulo="habilidade"
+                  vazio="Nenhuma habilidade na ficha."
+                />
+
+                <label style={{ marginTop: 14 }}>Item</label>
+                <SeletorUnico
+                  opcoes={opcoesItem}
+                  marcado={form.itemId}
+                  onChange={(id) => setF("itemId", id)}
+                  rotulo="item"
+                  vazio="Nenhum item no inventário."
+                />
+              </SecaoModal>
+
+              <SecaoModal
+                titulo="Ataque"
+                icone="fa-crosshairs"
+                aberta={formTemAcerto}
+                resumo={
+                  formComArma
+                    ? form.armaIds.map((id) => opcoesArma.find((o) => o.id === id)?.nome).filter(Boolean).join(", ")
+                    : form.atributoAtaque
+                      ? `Acerto ${SIGLA[(form.tecnica && cdPadrao ? cdPadrao : form.atributoAtaque) as Atributo]}`
+                      : undefined
+                }
+              >
+                <label>Armas</label>
+                <SeletorMultiplo
+                  opcoes={opcoesArma}
+                  marcados={form.armaIds}
+                  onChange={(ids) => setF("armaIds", ids)}
+                  rotulo="arma"
+                  vazio="Nenhuma arma no inventário."
+                />
+
+                {formComArma ? (
+                  <p className="campo-dica">
+                    {form.tecnica
+                      ? "O acerto vem da arma. O dano é o da técnica, mais o bônus da arma."
+                      : "O acerto e o dano vêm da arma; aqui vai só o que a ação soma."}
+                  </p>
+                ) : form.tecnica ? (
+                  <>
+                    <label>Jogada de ataque</label>
+                    <Segmentos
+                      rotulo="Jogada de ataque"
+                      valor={form.atributoAtaque ? "sim" : "nao"}
+                      onChange={(v) => setF("atributoAtaque", v === "sim" ? cdPadrao || "destreza" : "")}
+                      opcoes={[
+                        { valor: "nao", rotulo: "Não" },
+                        { valor: "sim", rotulo: cdPadrao ? `Sim (${SIGLA[cdPadrao as Atributo]})` : "Sim" },
+                      ]}
+                    />
+                    <p className="campo-dica">
+                      {cdPadrao
+                        ? "A técnica acerta com o atributo primário, o mesmo da CD."
+                        : "A técnica acerta com o atributo primário: escolha a CD das suas técnicas na ficha lateral."}
+                    </p>
+                  </>
+                ) : (
+                  <div className="atrib-grade">
+                    <span className="atrib-grade-rotulo">Acerto</span>
+                    <Segmentos
+                      rotulo="Acerto"
+                      valor={form.atributoAtaque}
+                      onChange={(v) => setF("atributoAtaque", v)}
+                      opcoes={OPCOES_ATRIBUTO}
+                    />
+                  </div>
+                )}
+
+                {formTemAcerto && (
+                  <CampoFormula
+                    label="Adicional no acerto"
+                    valor={form.bonusAcerto}
+                    onChange={(v) => setF("bonusAcerto", v)}
+                    placeholder="Ex: 2, PROF"
+                  />
+                )}
+              </SecaoModal>
+
+              {formTemDano ? (
+                <SecaoModal
+                  titulo={danoDaArma ? "Dano adicional" : "Dano"}
+                  icone="fa-burst"
+                  aberta
+                  resumo={form.dano || undefined}
+                >
+                  <CampoFormula
+                    label={danoDaArma ? "Adicional no dano" : "Dano"}
+                    valor={form.dano}
+                    onChange={(v) => setF("dano", v)}
+                    placeholder={danoDaArma ? "Ex: 1d6 fogo" : "Ex: 2d6 fogo"}
+                    dados
+                    comGrau={form.tecnica}
+                    grau={form.tecnica && form.grau > 0 ? form.grau : undefined}
+                  />
+                  {form.dano.trim() && (
+                    <TipoDanoCampo valor={form.tipoDano} onChange={(t) => setF("tipoDano", t)} />
+                  )}
+
+                  {(form.dano.trim() || danoDaArma) && (
+                    <div className="danos-extras">
                   {form.danosExtras.map((extra, i) => {
                     const mudar = (patch: Partial<DanoExtra>) =>
                       setF(
@@ -2163,139 +2332,169 @@ export function AcoesTab({
                       <i className="fas fa-plus" /> Outro dano, de outro tipo
                     </button>
                   )}
-                </div>
-              )}
-
-              <div className="atrib-grade">
-                {(
-                  [
-                    ["atributoAtaque", "Acerto"],
-                    ["atributoSalv", "Salvaguarda"],
-                  ] as const
-                ).map(([campo, rotulo]) => (
-                  <Fragment key={campo}>
-                    <span className="atrib-grade-rotulo">{rotulo}</span>
-                    <Segmentos
-                      rotulo={rotulo}
-                      valor={form[campo]}
-                      onChange={(v) => setF(campo, v)}
-                      opcoes={OPCOES_ATRIBUTO}
-                    />
-                  </Fragment>
-                ))}
-              </div>
-
-              {form.atributoSalv && (
-                <p className="campo-dica">
-                  {cdPadrao
-                    ? `A CD é a das suas técnicas (${SIGLA[cdPadrao as Atributo]}), definida na ficha lateral.`
-                    : form.atributoCd
-                      ? `A CD usa ${SIGLA[form.atributoCd as Atributo]}, como estava nesta ação. Escolha a CD das suas técnicas na ficha lateral pra valer em todas.`
-                      : "Escolha a CD das suas técnicas na ficha lateral pra esta ação ter CD."}
-                </p>
-              )}
-
-              {form.atributoSalv && (
-                <div className="atrib-grade">
-                  <span className="atrib-grade-rotulo">Quem passa</span>
-                  <Segmentos
-                    rotulo="Dano de quem passa na salvaguarda"
-                    valor={form.salvSucesso}
-                    onChange={(v) => setF("salvSucesso", v)}
-                    opcoes={[
-                      { valor: "nada", rotulo: "Não leva dano" },
-                      { valor: "metade", rotulo: "Leva metade" },
-                    ]}
-                  />
-                </div>
-              )}
-
-              <details
-                className="modal-secao-detalhe"
-                open={!!(form.custoPp || form.custoRecursoId)}
-              >
-                <summary><i className="fas fa-coins" /> Custos</summary>
-                <div className="modal-secao-corpo">
-                  <CustosCampo
-                    pp={form.custoPp}
-                    onPp={(v) => setF("custoPp", v)}
-                    recursos={recursos}
-                    recursoId={form.custoRecursoId}
-                    onRecursoId={(id) => setF("custoRecursoId", id)}
-                    recursoValor={form.custoRecursoValor}
-                    onRecursoValor={(v) => setF("custoRecursoValor", v)}
-                    comGrau={form.tecnica}
-                    grau={form.tecnica && form.grau > 0 ? form.grau : undefined}
-                  />
-                </div>
-              </details>
-
-              <details className="modal-secao-detalhe" open={!!(form.usos || form.recarga)}>
-                <summary>
-                  <i className="fas fa-bolt-lightning" /> Usos limitados
-                </summary>
-                <div className="modal-secao-corpo">
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10 }}>
-                    <CampoFormula
-                      label="Máximo"
-                      valor={form.usos}
-                      onChange={(v) => setF("usos", v)}
-                      placeholder="3, PROF, NIVEL…"
-                    />
-                    <div>
-                      <label>Recarga</label>
-                      <select value={form.recarga} onChange={(e) => setF("recarga", e.target.value)}>
-                        <option value="">—</option>
-                        {RECARGAS_HABILIDADE.map((r) => (
-                          <option key={r.slug} value={r.slug}>
-                            {r.nome}
-                          </option>
-                        ))}
-                      </select>
                     </div>
-                  </div>
-                </div>
-              </details>
+                  )}
+                </SecaoModal>
+              ) : (
+                <button type="button" className="sugestao secao-adicionar" onClick={() => setF("comDano", true)}>
+                  <i className="fas fa-plus" /> {danoDaArma ? "Dano adicional" : "Dano"}
+                </button>
+              )}
 
-              <details
-                className="modal-secao-detalhe"
-                open={form.efeitos.some((e) => e.tipo !== "por_turno")}
+              <SecaoModal
+                titulo="Salvaguarda"
+                icone="fa-shield-alt"
+                aberta={!!form.atributoSalv}
+                resumo={form.atributoSalv ? SIGLA[form.atributoSalv as Atributo] : undefined}
               >
-                <summary>
-                  <i className="fas fa-list-check" /> Efeitos (
-                  {form.efeitos.filter((e) => e.tipo !== "por_turno").length})
-                </summary>
-                <div className="modal-secao-corpo">
-                  <label>Efeitos na hora em</label>
-                  <div className="origem-pills" style={{ marginBottom: 10 }}>
-                    {(
-                      [
-                        [false, "Você", "fa-user"],
-                        [true, "Aliado", "fa-hand-holding-heart"],
-                      ] as const
-                    ).map(([valor, rotulo, icone]) => (
-                      <button
-                        type="button"
-                        key={rotulo}
-                        className={`origem-pill ${form.aliado === valor ? "ativo" : ""}`}
-                        aria-pressed={form.aliado === valor}
-                        onClick={() => setF("aliado", valor)}
-                      >
-                        <i className={`fas ${icone}`} /> {rotulo}
-                      </button>
-                    ))}
-                  </div>
-                  <EfeitosDuramContext.Provider value={efeitosDuram(form)}>
-                    <EfeitosEditor
-                      efeitos={form.efeitos}
-                      onChange={(efeitos) => setF("efeitos", efeitos)}
-                      recursos={recursos}
-                      pergunta="O que essa ação faz?"
-                      presets={PRESETS_ACAO}
-                    />
-                  </EfeitosDuramContext.Provider>
+                <div className="atrib-grade">
+                  <span className="atrib-grade-rotulo">Atributo</span>
+                  <Segmentos
+                    rotulo="Salvaguarda"
+                    valor={form.atributoSalv}
+                    onChange={(v) => setF("atributoSalv", v)}
+                    opcoes={OPCOES_ATRIBUTO}
+                  />
                 </div>
-              </details>
+
+                {form.atributoSalv && (
+                  <p className="campo-dica">
+                    {cdPadrao
+                      ? `A CD é a das suas técnicas (${SIGLA[cdPadrao as Atributo]}), definida na ficha lateral.`
+                      : form.atributoCd
+                        ? `A CD usa ${SIGLA[form.atributoCd as Atributo]}, como estava nesta ação. Escolha a CD das suas técnicas na ficha lateral pra valer em todas.`
+                        : "Escolha a CD das suas técnicas na ficha lateral pra esta ação ter CD."}
+                  </p>
+                )}
+
+                {form.atributoSalv && (
+                  <div className="atrib-grade">
+                    <span className="atrib-grade-rotulo">Quem passa</span>
+                    <Segmentos
+                      rotulo="Dano de quem passa na salvaguarda"
+                      valor={form.salvSucesso}
+                      onChange={(v) => setF("salvSucesso", v)}
+                      opcoes={[
+                        { valor: "nada", rotulo: "Não leva dano" },
+                        { valor: "metade", rotulo: "Leva metade" },
+                      ]}
+                    />
+                  </div>
+                )}
+              </SecaoModal>
+
+              <SecaoModal
+                titulo="Alcance e alvo"
+                icone="fa-bullseye"
+                aberta
+                resumo={[form.alcance, ALVOS_ACAO.find((a) => a.slug === form.alvo)?.nome].filter(Boolean).join(" · ")}
+              >
+                <label>Alcance</label>
+                <input
+                  type="text"
+                  value={form.alcance}
+                  onChange={(e) => setF("alcance", e.target.value)}
+                  placeholder="Ex: 9 m"
+                />
+                <Sugestoes>
+                  {ALCANCES_RAPIDOS.map((a) => (
+                    <button
+                      type="button"
+                      key={a}
+                      className={`sugestao ${form.alcance === a ? "ativo" : ""}`}
+                      aria-pressed={form.alcance === a}
+                      onClick={() => setF("alcance", a)}
+                    >
+                      {a}
+                    </button>
+                  ))}
+                  {/* Efeito de dano pode deixar a arma de fogo de fora (Letárgico). */}
+                  <button
+                    type="button"
+                    className={`sugestao chip-opcao ${form.armaDeFogo ? "ativo" : ""}`}
+                    aria-pressed={form.armaDeFogo}
+                    onClick={() => setF("armaDeFogo", !form.armaDeFogo)}
+                  >
+                    <i className="fas fa-gun" /> Arma de fogo
+                  </button>
+                </Sugestoes>
+
+                <label>Alvo do ataque</label>
+                <Segmentos
+                  rotulo="Alvo do ataque"
+                  valor={form.alvo}
+                  onChange={(v) => setF("alvo", v)}
+                  opcoes={ALVOS_ACAO.map((a) => ({ valor: a.slug, rotulo: a.nome }))}
+                />
+                <p className="campo-dica">
+                  {DICA_ALVO[form.alvo]} Cura, PV temporário e outros efeitos na hora escolhem em quem vão, cada
+                  um na lista de efeitos.
+                </p>
+              </SecaoModal>
+
+              <SecaoModal
+                titulo="Custos"
+                icone="fa-coins"
+                aberta={!!(form.custoPp || form.custoRecursoId)}
+                resumo={form.custoPp ? `${form.custoPp} PP` : undefined}
+              >
+                <CustosCampo
+                  pp={form.custoPp}
+                  onPp={(v) => setF("custoPp", v)}
+                  recursos={recursos}
+                  recursoId={form.custoRecursoId}
+                  onRecursoId={(id) => setF("custoRecursoId", id)}
+                  recursoValor={form.custoRecursoValor}
+                  onRecursoValor={(v) => setF("custoRecursoValor", v)}
+                  comGrau={form.tecnica}
+                  grau={form.tecnica && form.grau > 0 ? form.grau : undefined}
+                />
+              </SecaoModal>
+
+              <SecaoModal
+                titulo="Usos limitados"
+                icone="fa-bolt-lightning"
+                aberta={!!(form.usos || form.recarga)}
+                resumo={form.usos ? `Máx. ${form.usos}` : undefined}
+              >
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10 }}>
+                  <CampoFormula
+                    label="Máximo"
+                    valor={form.usos}
+                    onChange={(v) => setF("usos", v)}
+                    placeholder="3, PROF, NIVEL…"
+                  />
+                  <div>
+                    <label>Recarga</label>
+                    <select value={form.recarga} onChange={(e) => setF("recarga", e.target.value)}>
+                      <option value="">—</option>
+                      {RECARGAS_HABILIDADE.map((r) => (
+                        <option key={r.slug} value={r.slug}>
+                          {r.nome}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </SecaoModal>
+
+              <SecaoModal
+                titulo={`Efeitos (${form.efeitos.filter((e) => e.tipo !== "por_turno").length})`}
+                icone="fa-list-check"
+                aberta={form.efeitos.some((e) => e.tipo !== "por_turno")}
+              >
+                <EfeitosDuramContext.Provider
+                  value={efeitosDuram({ duracao: form.duracao })}
+                >
+                  <EfeitosEditor
+                    efeitos={form.efeitos}
+                    onChange={(efeitos) => setF("efeitos", efeitos)}
+                    recursos={recursos}
+                    pergunta="O que essa ação faz?"
+                    presets={PRESETS_ACAO}
+                  />
+                </EfeitosDuramContext.Provider>
+              </SecaoModal>
 
               <div className="modal-actions">
                 <button
