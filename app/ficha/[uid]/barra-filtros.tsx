@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 // Topo de uma aba: campo de busca, filtros fixos e as pastas da ficha.
 
 export function normalizarBusca(s: string): string {
@@ -30,6 +32,15 @@ export function pastasDe(itens: { pasta?: string | null }[]): PastaDaFicha[] {
     .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
 }
 
+// Linha de filtros a mais (tipo, origem…): um botão por opção, e clicar no
+// ativo de novo tira o filtro.
+export type GrupoFiltro = {
+  rotulo: string;
+  opcoes: readonly (readonly [string, string])[];
+  valor: string | null;
+  onValor: (v: string | null) => void;
+};
+
 export function BarraFiltros<F extends string>({
   busca,
   onBusca,
@@ -40,6 +51,7 @@ export function BarraFiltros<F extends string>({
   pastas,
   pasta,
   onPasta,
+  grupos,
   children,
 }: {
   busca: string;
@@ -52,9 +64,20 @@ export function BarraFiltros<F extends string>({
   pastas: PastaDaFicha[];
   pasta: string | null;
   onPasta: (p: string | null) => void;
+  grupos?: GrupoFiltro[];
   // O que dá pra fazer com a pasta aberta (ativar tudo).
   children?: React.ReactNode;
 }) {
+  // Os filtros ficam recolhidos atrás do ícone; o número diz quantos estão valendo.
+  const [aberto, setAberto] = useState(false);
+  const padrao = filtros[0]?.[0];
+  const ativos =
+    (filtro !== padrao ? 1 : 0) + (pasta ? 1 : 0) + (grupos?.filter((g) => g.valor).length ?? 0);
+  function limparFiltros() {
+    if (padrao) onFiltro(padrao);
+    onPasta(null);
+    grupos?.forEach((g) => g.onValor(null));
+  }
   return (
     <div className="filtros-barra">
       <div className="filtros-busca">
@@ -84,7 +107,20 @@ export function BarraFiltros<F extends string>({
             <i className="fas fa-xmark" />
           </button>
         )}
+        <button
+          type="button"
+          className={`filtros-toggle ${aberto || ativos > 0 ? "ativo" : ""}`}
+          aria-label="Filtros"
+          aria-expanded={aberto}
+          title="Filtros"
+          onClick={() => setAberto((v) => !v)}
+        >
+          <i className="fas fa-filter" />
+          {ativos > 0 && <span className="filtros-toggle-total">{ativos}</span>}
+        </button>
       </div>
+      {aberto && (
+      <div className="filtros-painel">
       <div className="hab-filtros" role="group" aria-label="Filtros">
         {filtros.map(([slug, nome]) => (
           <button
@@ -111,6 +147,29 @@ export function BarraFiltros<F extends string>({
           </button>
         ))}
       </div>
+      {grupos?.map((g) => (
+        <div key={g.rotulo} className="hab-filtros filtros-grupo" role="group" aria-label={g.rotulo}>
+          <span className="filtros-grupo-rotulo">{g.rotulo}</span>
+          {g.opcoes.map(([slug, nome]) => (
+            <button
+              key={slug}
+              type="button"
+              className={`hab-filtro ${g.valor === slug ? "ativo" : ""}`}
+              aria-pressed={g.valor === slug}
+              onClick={() => g.onValor(g.valor === slug ? null : slug)}
+            >
+              {nome}
+            </button>
+          ))}
+        </div>
+      ))}
+      {ativos > 0 && (
+        <button type="button" className="filtros-limpar-tudo" onClick={limparFiltros}>
+          <i className="fas fa-xmark" /> Limpar filtros
+        </button>
+      )}
+      </div>
+      )}
       {pasta && children && (
         <div className="filtros-pasta">
           <span className="filtros-pasta-nome">

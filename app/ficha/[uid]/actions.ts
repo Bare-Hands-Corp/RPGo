@@ -656,6 +656,46 @@ export async function atualizarAcao(
   });
 }
 
+// Grava a ordem arrastada: `itens` é a lista toda na ordem nova, cada ação com
+// o tipo que passou a ter. A posição é o lugar dentro do tipo (1, 2, 3…). Quem
+// mudou de tipo leva as formas alternativas que tinham o tipo antigo; sair de
+// Reação solta o gatilho.
+export async function reordenarAcoes(personagemId: string, itens: { id: string; tipo: string }[]) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    if (!Array.isArray(itens) || itens.length > 500) throw new ErroDeUso("Lista de ações inválida.");
+    const ids = itens.map((i) => i.id);
+    if (new Set(ids).size !== ids.length) throw new ErroDeUso("Lista de ações inválida.");
+    if (itens.some((i) => !TIPOS_ACAO_VALIDOS.has(i.tipo))) throw new ErroDeUso("Tipo de ação inválido.");
+
+    const atuais = new Map(
+      (await prisma.acao.findMany({ where: { personagemId, id: { in: ids } }, select: { id: true, tipo: true, ordem: true } })).map(
+        (a) => [a.id, a],
+      ),
+    );
+    if (atuais.size !== ids.length) throw new ErroDeUso("Ação não encontrada.");
+
+    const porTipo = new Map<string, number>();
+    const ops: Prisma.PrismaPromise<unknown>[] = [];
+    for (const { id, tipo } of itens) {
+      const ordem = (porTipo.get(tipo) ?? 0) + 1;
+      porTipo.set(tipo, ordem);
+      const atual = atuais.get(id)!;
+      if (atual.tipo === tipo && atual.ordem === ordem) continue;
+      const mudou = atual.tipo !== tipo;
+      const tipoNovo = mudou ? { tipo, ...(tipo !== "react" ? { gatilho: null } : {}) } : {};
+      ops.push(prisma.acao.update({ where: { id, personagemId }, data: { ordem, ...tipoNovo } }));
+      if (mudou) {
+        ops.push(
+          prisma.acao.updateMany({ where: { personagemId, formaDe: id, tipo: atual.tipo }, data: tipoNovo }),
+        );
+      }
+    }
+    if (ops.length > 0) await prisma.$transaction(ops);
+    revalidatePath(`/ficha/${personagemId}`);
+  });
+}
+
 export async function deletarAcao(personagemId: string, acaoId: string) {
   return executar("ficha", async () => {
     const { personagem } = await autorizar(personagemId);

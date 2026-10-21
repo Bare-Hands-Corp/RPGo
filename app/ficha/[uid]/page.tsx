@@ -111,7 +111,10 @@ export default async function FichaPage({ params, searchParams }: Params) {
     ...carregado,
     recursos: carregado.recursos.map((r) => ({ ...r, valorMax: maximoDoRecurso(r, ctxFormula) })),
     habilidades: carregado.habilidades.map((h) => comCustosResolvidos(h, ctxFormula)),
-    acoes: carregado.acoes.map((a) => comCustosResolvidos(a, ctxFormula, a.grau)),
+    // Na ordem arrastada pelo jogador; ordem 0 (recém-criada) vai pro fim.
+    acoes: carregado.acoes
+      .map((a) => comCustosResolvidos(a, ctxFormula, a.grau))
+      .sort((a, b) => (a.ordem || Number.MAX_SAFE_INTEGER) - (b.ordem || Number.MAX_SAFE_INTEGER)),
   };
 
   // Autorização: dono OU narrador da mesa; subficha da mesa, qualquer membro.

@@ -177,6 +177,9 @@ const FILTROS = [
   ["sem_custo", "Sem custo"],
 ] as const;
 
+const FILTROS_TIPO = TIPOS_HABILIDADE.map((t) => [t.slug, t.nome] as const);
+const FILTROS_ORIGEM = ORIGENS_HABILIDADE.map((o) => [o.slug, o.nome] as const);
+
 // Habilidade recém-trazida de uma pasta, antes do servidor responder.
 const HABILIDADE_BASE: Omit<Habilidade, "id"> = {
   nome: "",
@@ -236,6 +239,8 @@ export function HabilidadesTab({
   const [filtro, setFiltro] = useState<Filtro>("todas");
   const [busca, setBusca] = useState("");
   const [pastaFiltro, setPastaFiltro] = useState<string | null>(null);
+  const [tipoFiltro, setTipoFiltro] = useState<string | null>(null);
+  const [origemFiltro, setOrigemFiltro] = useState<string | null>(null);
   const uso = useConfirmarUso();
 
   // Itens por id.
@@ -283,6 +288,8 @@ export function HabilidadesTab({
   const filtradas = porFiltro.filter(
     (h) =>
       (!pastaAtiva || h.pasta === pastaAtiva) &&
+      (!tipoFiltro || h.tipo === tipoFiltro) &&
+      (!origemFiltro || h.origem === origemFiltro) &&
       casaBusca(busca, [
         h.nome,
         h.descricao,
@@ -291,7 +298,7 @@ export function HabilidadesTab({
         ORIGENS_HABILIDADE.find((o) => o.slug === h.origem)?.nome,
       ]),
   );
-  const filtrando = filtro !== "todas" || !!pastaAtiva || busca.trim() !== "";
+  const filtrando = filtro !== "todas" || !!pastaAtiva || !!tipoFiltro || !!origemFiltro || busca.trim() !== "";
 
   // Formas alternativas ficam dentro do card da habilidade de origem.
   const { origemDe, grupoDe } = agruparFormas(otimistas);
@@ -794,6 +801,10 @@ export function HabilidadesTab({
           pastas={pastas}
           pasta={pastaAtiva}
           onPasta={setPastaFiltro}
+          grupos={[
+            { rotulo: "Tipo", opcoes: FILTROS_TIPO, valor: tipoFiltro, onValor: setTipoFiltro },
+            { rotulo: "Origem", opcoes: FILTROS_ORIGEM, valor: origemFiltro, onValor: setOrigemFiltro },
+          ]}
         >
           {pastaAtiva && otimistas.some((h) => h.pasta === pastaAtiva && h.tipo !== "passiva") && (
             <>

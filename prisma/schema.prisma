@@ -423,7 +423,12 @@ model Acao {
   // O Multiataque da ficha (Ataque Extra…) vale nesta ação; o jogador marca quais.
   multiataque     Boolean @default(false)
 
+  // Posição na lista da ficha, dentro do tipo (1, 2, 3…); o jogador arrasta pra
+  // reordenar. 0 = ainda sem posição (recém-criada): vai pro fim do tipo.
+  ordem Int @default(0)
+
   @@index([aliadoEmCursoId])
+  @@index([personagemId, tipo, ordem])
   @@map("acoes")
 }
 
