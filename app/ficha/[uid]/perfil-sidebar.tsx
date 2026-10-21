@@ -1474,7 +1474,7 @@ export function PerfilSidebar({
 
       <div className="cd-tecnicas" title="Vale nas ações com salvaguarda que não escolhem uma CD própria">
         <div className="cd-tecnicas-topo">
-          <span className="derivado-label">CD das técnicas</span>
+          <span className="derivado-label">Atributo Primário</span>
           <span className="derivado-value">
             {atributoCd
               ? cdTecnica({ nivel: p.nivel, valorAtributoPrim: atributosParaTeste[atributoCd as Atributo] }) +

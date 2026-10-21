@@ -953,6 +953,8 @@ export type TipoEfeito =
   | "valor_fixo"
   | "falha_auto"
   | "reducao_dano"
+  | "interceptar"
+  | "evasao"
   | "dano_maximo"
   | "piso_dado"
   | "critico_extra"
@@ -1136,6 +1138,12 @@ type EfeitoCru =
   | { tipo: "falha_auto"; alvo: string; quando?: string }
   // Reduz o dano recebido; `tipos` vazio = todos.
   | { tipo: "reducao_dano"; valor: number; formula?: string; tipos?: string; quando?: string }
+  // Reação: quem reage vira o alvo do ataque no lugar do aliado (o ataque acerta,
+  // sem comparar a CR dele).
+  | { tipo: "interceptar" }
+  // Salvaguarda que evita dano: sucesso = nada, falha = metade. Passivo, ou o
+  // que uma reação faz na salvaguarda que a disparou.
+  | { tipo: "evasao" }
   // Dados do dano no máximo. `apartir` liga sozinho com esse d20 (ou mais) no ataque.
   | ({ tipo: "dano_maximo"; em?: string; sempre?: boolean; apartir?: number } & FiltroDano)
   // Dado de dano que rolar até `ate` vira `vira` (0 = o máximo do dado).
@@ -1221,6 +1229,8 @@ export const META_EFEITOS: Record<
   valor_fixo:       { nome: "Valor Fixo",         icone: "fa-equals",         cor: "var(--efeito-neutro)" },
   falha_auto:       { nome: "Falha Automática",         icone: "fa-xmark",          cor: "var(--efeito-ruim)" },
   reducao_dano:     { nome: "Redução de Dano",    icone: "fa-shield-halved",  cor: "var(--efeito-defesa)" },
+  interceptar:      { nome: "Interceptar",        icone: "fa-people-arrows",  cor: "var(--efeito-defesa)" },
+  evasao:           { nome: "Evasão",             icone: "fa-wind",           cor: "var(--efeito-defesa)" },
   dano_maximo:      { nome: "Dano Máximo",        icone: "fa-maximize",       cor: "var(--efeito-ataque)" },
   piso_dado:        { nome: "Dado Mínimo",        icone: "fa-dice-five",      cor: "var(--efeito-ataque)" },
   critico_extra:    { nome: "Crítico Maior",      icone: "fa-skull-crossbones", cor: "var(--efeito-ataque)" },
@@ -1414,6 +1424,24 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     cor: "var(--color-react)",
     grupo: "defesa",
     criar: () => ({ tipo: "reducao_dano", valor: 5 }),
+  },
+  {
+    id: "interceptar",
+    nome: "Interceptar",
+    descricao: "Reação: recebe o ataque no lugar de um aliado",
+    icone: "fa-people-arrows",
+    cor: "var(--color-react)",
+    grupo: "defesa",
+    criar: () => ({ tipo: "interceptar" }),
+  },
+  {
+    id: "evasao",
+    nome: "Evasão",
+    descricao: "Salvaguarda que evita dano: sucesso não sofre, falha sofre metade",
+    icone: "fa-wind",
+    cor: "var(--color-react)",
+    grupo: "defesa",
+    criar: () => ({ tipo: "evasao" }),
   },
   // ─ Condição ─
   {
@@ -2222,6 +2250,9 @@ function normalizarCampos(tipo: TipoEfeito, obj: Record<string, unknown>): Efeit
         alvo: str(obj.alvo),
         ...(str(obj.quando) ? { quando: str(obj.quando) } : {}),
       };
+    case "interceptar":
+    case "evasao":
+      return { tipo };
     case "reducao_dano": {
       const formula = str(obj.formula).trim();
       const numerica = formula !== "" && Number.isFinite(Number(formula));
@@ -3050,7 +3081,10 @@ export type EfeitosAgregados = {
   // Acerto por dano (alvo de ataque).
   ataquesPoderosos: { penalidade: number; bonus: number; alvo: string; fonte: string }[];
   // Redução de dano recebido (painel de defesas).
-  reducoesDano: { valor: number; tipos: string; quando?: string; fonte: string; passiva: boolean }[];
+  reducoesDano: { valor: number; formula?: string; tipos: string; quando?: string; fonte: string; passiva: boolean }[];
+  // Evasão passiva: quem tem não sofre dano na salvaguarda que evita (sucesso) e
+  // sofre metade (falha). Nomes das fontes.
+  evasao: string[];
   // Maior nível de exaustão ignorado.
   ignoraExaustao: { ate: number; fontes: string[] } | null;
   // A mais em cada descanso.
@@ -3185,6 +3219,7 @@ function vazio(): EfeitosAgregados {
     critsExtra: [],
     ataquesPoderosos: [],
     reducoesDano: [],
+    evasao: [],
     ignoraExaustao: null,
     descansoExtra: {
       curto: { exaustao: 0, pp: 0, dv: 0, fontes: [] },
@@ -3609,6 +3644,7 @@ export function efeitoEhSustentado(e: EfeitoHabilidade): boolean {
     case "valor_fixo":
     case "falha_auto":
     case "reducao_dano":
+    case "evasao":
     case "piso_dado":
     case "critico_extra":
     case "ataque_poderoso":
@@ -4296,16 +4332,26 @@ export function agregarEfeitos(
           });
         }
       } else if (e.tipo === "reducao_dano") {
-        const valor = e.formula ? numero(e.formula) : e.valor;
+        // Com dados ("2d12+NIVEL"), `valor` é a média e `formula` rola na hora do dano.
+        const r = e.formula && f ? resolverFormula(e.formula, f.atributos, f.nivel, { grau }) : null;
+        const comDados = !!r && r.dados.length > 0;
+        const valor = comDados
+          ? Math.round(r.dados.reduce((s, d) => s + d.sinal * (d.faces + 1) / 2, r.modificador))
+          : e.formula
+            ? numero(e.formula)
+            : e.valor;
         if (valor > 0) {
           out.reducoesDano.push({
             valor,
+            ...(comDados ? { formula: formulaAgrupada(r.dados, r.modificador) } : {}),
             tipos: e.tipos ?? "",
             ...(e.quando?.trim() ? { quando: e.quando.trim() } : {}),
             fonte: h.nome,
             passiva: ehPassiva,
           });
         }
+      } else if (e.tipo === "evasao") {
+        if (!out.evasao.includes(h.nome)) out.evasao.push(h.nome);
       } else if (e.tipo === "ignora_exaustao") {
         const atual = out.ignoraExaustao ?? { ate: 0, fontes: [] };
         atual.ate = Math.max(atual.ate, e.ate);
@@ -5421,7 +5467,11 @@ export function resumoEfeito(
     case "valor_fixo":
       return `${ALVOS_VALOR_FIXO.find((a) => a.slug === e.alvo)?.nome ?? e.alvo} vira ${texto(e.valor)}`;
     case "reducao_dano":
-      return `−${e.formula ? numero(e.formula) : e.valor}${e.tipos ? ` ${e.tipos}` : ""}${quando(e.quando)}`;
+      return `−${e.formula ? texto(e.formula) : e.valor}${e.tipos ? ` ${e.tipos}` : ""}${quando(e.quando)}`;
+    case "interceptar":
+      return "recebe o ataque no lugar do aliado";
+    case "evasao":
+      return "salvaguarda: sucesso sem dano, falha pela metade";
     case "dano_maximo":
       return `${e.em && e.em !== "dano" ? rotuloAlvo(e.em) : "todo dano"}${e.apartir ? ` · d20 ${e.apartir}+` : ""}`;
     case "piso_dado":

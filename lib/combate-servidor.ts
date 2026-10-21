@@ -25,6 +25,7 @@ import {
   type AcaoVista,
   type CombateVisto,
   type ParticipanteVisto,
+  type ReacaoPedida,
   type Resolucao,
 } from "@/lib/combate";
 import { PERICIAS, modificador, type Atributo, type EfeitoHabilidade } from "@/lib/op-rpg";
@@ -215,11 +216,24 @@ export async function carregarCombateDoJogador(
                     return { ...lerEstadoNavio(minha!.estadoNavio, maxima), maxima, tamanho: montagem.tamanho };
                   })()
                 : null,
+            // Acertos nele e em aliados dele que esperam a decisão de reagir:
+            // as reações dele (do alvo, ou as de aliado que ele tem pra dar).
             reacoes: resolucoes.flatMap((r) => {
-              const alvo = r.alvos.find((a) => a.instanciaId === minha.id && a.reacao === "pendente");
-              return alvo
-                ? [{ resolucaoId: r.id, de: r.atacanteNome, nome: r.nome, modo: r.modo, opcoes: alvo.reacoes ?? [] }]
-                : [];
+              const janelas = new Map<string, ReacaoPedida>();
+              for (const alvo of r.alvos) {
+                if (alvo.reacao !== "pendente" || janelas.has(alvo.instanciaId)) continue;
+                const minhas = (alvo.reacoes ?? []).filter((o) => (o.de ? o.de.instanciaId : alvo.instanciaId) === minha.id);
+                if (minhas.length === 0) continue;
+                janelas.set(alvo.instanciaId, {
+                  resolucaoId: r.id,
+                  de: r.atacanteNome,
+                  nome: r.nome,
+                  modo: r.modo,
+                  opcoes: minhas,
+                  ...(alvo.instanciaId !== minha.id ? { aliado: { instanciaId: alvo.instanciaId, nome: alvo.nome } } : {}),
+                });
+              }
+              return [...janelas.values()];
             }),
             concentracoes: resolucoes.flatMap((r) =>
               r.alvos.flatMap((a) =>

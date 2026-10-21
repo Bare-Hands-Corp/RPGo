@@ -218,6 +218,9 @@ const PRESETS_ACAO = [
   "vantagem",
   "desvantagem",
   "sucesso_auto",
+  "reducao_dano",
+  "interceptar",
+  "evasao",
   "crit_range",
   "margem_critico",
   "passo_dano",
@@ -959,7 +962,6 @@ export function AcoesTab({
     // O que a ação tem pra resolver num alvo (em combate).
     resolve?: Resolve,
   ) {
-    const instantaneos = lerEfeitos(acao.efeitos).filter(efeitoInstantaneo);
     const usosMax = usosMaximos(acao, ctxFormula);
     const usosAtual = acao.usosAtual ?? usosMax ?? 0;
     if (usosMax != null && usosAtual <= 0) {
@@ -973,6 +975,7 @@ export function AcoesTab({
       mostrarErro(new Error(trava));
       return;
     }
+    const instantaneos = lerEfeitos(acao.efeitos).filter(efeitoInstantaneo);
     // Em quem: o alvo da ação decide. No combate, um alvo por ataque
     // (multiataque escolhe o de cada um); vários de uma vez na salvaguarda e no
     // dano direto. Vale pra qualquer tipo de ação, inclusive a Livre.
@@ -2164,8 +2167,8 @@ export function AcoesTab({
                   </select>
                   <p className="campo-dica">
                     Em combate, quando o gatilho bate, a reação é oferecida antes de a ação valer. Efeitos que entram
-                    sozinhos: bônus na CR (o ataque é comparado de novo), PV temporário (o dano sai dele primeiro) e
-                    Redução de Dano.
+                    sozinhos: bônus na CR (o ataque é comparado de novo), PV temporário (o dano sai dele primeiro),
+                    Redução de Dano (aceita dado, como 2d12+NIVEL), Interceptar (com o gatilho de aliado) e Evasão.
                   </p>
                 </>
               )}

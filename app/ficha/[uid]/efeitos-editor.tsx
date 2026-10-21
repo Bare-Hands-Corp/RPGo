@@ -1200,8 +1200,8 @@ function renderCorpo(
           {(e.evita || e.repete) && (
             <p className="campo-dica" style={{ gridColumn: "1 / -1" }}>
               {e.evita
-                ? "Quem a ação pega rola essa salvaguarda contra a CD das suas técnicas (ficha lateral); passando, não recebe."
-                : "Ele rola a salvaguarda da ação contra a CD das suas técnicas (ficha lateral)."}
+                ? "Quem a ação seleciona como alvo rola essa salvaguarda contra a CD das suas técnicas (Atributo Primário); passando, não recebe."
+                : "Ele rola a salvaguarda da ação contra a CD das suas técnicas (Atributo Primário)."}
             </p>
           )}
         </>
@@ -1866,7 +1866,8 @@ function renderCorpo(
             label="Quanto"
             valor={e.formula ?? (e.valor ? String(e.valor) : "")}
             onChange={(v) => onPatch(patchDeFormula(v))}
-            placeholder="5, PROF…"
+            placeholder="5, PROF, 2d12+NIVEL…"
+            dados
           />
           <div style={{ gridColumn: "1 / -1" }}>
             <TiposDanoCampo
@@ -2316,6 +2317,20 @@ function renderCorpo(
             </>
           )}
         </>
+      );
+    case "interceptar":
+      return (
+        <p className="campo-dica" style={{ gridColumn: "1 / -1" }}>
+          Numa reação com o gatilho “Aliado alvo de ataque”: quem reage vira o alvo do ataque, que acerta sem comparar
+          a CR. 
+        </p>
+      );
+    case "evasao":
+      return (
+        <p className="campo-dica" style={{ gridColumn: "1 / -1" }}>
+          Salvaguarda que evita dano: passou, não sofre nada; falhou, sofre metade. Numa habilidade vale sempre; numa
+          reação com o gatilho “Salvaguarda”, vale só na que a disparou.
+        </p>
       );
     case "livre":
       return (

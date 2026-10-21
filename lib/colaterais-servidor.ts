@@ -81,7 +81,7 @@ export async function aplicarColaterais(
         [{ valor, tipo: e.tipoDano ?? "" }],
         e.irredutivel ? [] : defesasDoAgregado(agg),
         estado,
-        { semTemp: e.irredutivel === true },
+        { semTemp: e.irredutivel === true, rolar: true },
       );
       estado.hpAtual = r.hpAtual.depois;
       estado.hpTemp = r.hpTemp.depois;

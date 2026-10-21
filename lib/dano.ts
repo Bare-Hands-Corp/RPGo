@@ -1,6 +1,7 @@
 // Dano recebido: imunidade → redução → resistência → vulnerabilidade → PV temporário → PV → PV negativos.
 // Puro (cliente e servidor), com as defesas como dado — o combate reaproveita.
 
+import { parseFormulaDados, rolarDados } from "@/lib/dice";
 import type { EfeitoHabilidade, EfeitosAgregados } from "@/lib/op-rpg";
 
 // Tipos de dano do livro (cap. 12).
@@ -228,6 +229,8 @@ export type DefesaDano = {
   fontes: string[];
   // Quanto a redução tira (0 nas outras).
   valor: number;
+  // Redução com dados ("2d12+11"): `valor` é a média, a fórmula rola ao aplicar.
+  formula?: string;
   quando?: string;
 };
 
@@ -251,6 +254,7 @@ export function defesasDoAgregado(
       cobre: r.tipos,
       fontes: [r.fonte],
       valor: r.valor,
+      ...(r.formula ? { formula: r.formula } : {}),
       ...(r.quando ? { quando: r.quando } : {}),
     });
   }
@@ -339,7 +343,8 @@ export function resolverDano(
   partes: ParteDano[],
   defesas: DefesaDano[],
   estado: { hpAtual: number; hpTemp: number; hpMax?: number; pvNegativos?: number | null },
-  opcoes: { desligadas?: Iterable<string>; semTemp?: boolean } = {},
+  // `rolar`: reduções com dados rolam (ao aplicar); sem isso valem a média (prévia).
+  opcoes: { desligadas?: Iterable<string>; semTemp?: boolean; rolar?: boolean } = {},
 ): ResultadoDano {
   const desligadas = new Set(opcoes.desligadas ?? []);
   const ativas = defesas.filter((d) => !desligadas.has(d.id));
@@ -359,6 +364,10 @@ export function resolverDano(
   for (const d of ativas) {
     if (d.tipo !== "reducao") continue;
     let resta = d.valor;
+    if (opcoes.rolar && d.formula) {
+      const f = parseFormulaDados(d.formula);
+      resta = Math.max(0, rolarDados(f.dados, f.modificador).total);
+    }
     for (const p of res) {
       if (resta <= 0) break;
       if (p.final <= 0 || !defesaCobre(d, p.tipo)) continue;

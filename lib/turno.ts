@@ -367,6 +367,7 @@ export function aplicarTurno(entrada: {
       if (v <= 0) return;
       const r = resolverDano([{ valor: v, tipo: p.tipoDano ?? "" }], entrada.defesas, e, {
         desligadas: desligadasDePadrao,
+        rolar: true,
       });
       e.hpAtual = r.hpAtual.depois;
       e.hpTemp = r.hpTemp.depois;
