@@ -859,7 +859,7 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
     const resolveEmAlvo =
       item.efeitos.some(
         (e) => e.tipo === "salvaguarda" || e.tipo === "condicao" || (e.tipo === "dano" && e.formula.trim()),
-      ) || item.efeitosExtras.some((e) => e.tipo === "condicao_aplicar");
+      ) || item.efeitosExtras.some((e) => e.tipo === "condicao_aplicar" && !e.emVoce);
 
     // Multiataque: os ataques comuns que ainda cabem na ação padrão deste turno,
     // cada um com o próprio alvo (linha sem alvo não é ataque feito).

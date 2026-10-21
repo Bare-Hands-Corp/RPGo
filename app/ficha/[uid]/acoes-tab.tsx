@@ -243,6 +243,7 @@ const PRESETS_ACAO = [
   "condicao_aplicar",
   "condicao_remover",
   "acao_extra",
+  "colateral",
   "rolagem",
   "trigger",
   "livre",
@@ -979,7 +980,7 @@ export function AcoesTab({
     // Desvantagem no inimigo também pede alvo: o do acerto ou da salvaguarda, se
     // a ação tiver; sem eles, o usuário escolhe em quem ela cai.
     const noInimigo = efeitosNoInimigo(acao).length > 0;
-    const condicaoDoCatalogo = lerEfeitos(acao.efeitos).some((e) => e.tipo === "condicao_aplicar");
+    const condicaoDoCatalogo = lerEfeitos(acao.efeitos).some((e) => e.tipo === "condicao_aplicar" && !e.emVoce);
     const escolheNoCombate = !!turno && !!resolve && (alvoDeCombate(alvoAcao) || noInimigo);
     if (
       escolheNoCombate &&
@@ -1696,7 +1697,7 @@ export function AcoesTab({
                     salvaguarda: cd != null && !!atributoSalv,
                     dano: iDano >= 0,
                     // Condição do catálogo ou efeito que fica valendo no inimigo.
-                    condicao: efeitosAcao.some((e) => e.tipo === "condicao_aplicar" || efeitoNoInimigo(e)),
+                    condicao: efeitosAcao.some((e) => (e.tipo === "condicao_aplicar" && !e.emVoce) || efeitoNoInimigo(e)),
                     cd,
                     // Multiataque ligado de saída: um alvo pra cada ataque.
                     ataques: chipsDoAcerto.find((c) => c.tipo === "multi_ataque" && !c.opcional)?.valor ?? 1,

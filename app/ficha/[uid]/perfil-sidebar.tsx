@@ -12,6 +12,9 @@ import { RecursosSidebar, type Recurso } from "./recursos-sidebar";
 import { FormulaContext } from "./campo-formula";
 import { CrEditavel } from "./cr-editavel";
 import { ExaustaoControle } from "./exaustao-controle";
+import { BloqueiosDaFicha, CondicoesDaFicha } from "./condicoes-da-ficha";
+import { fontesDasCondicoes } from "@/lib/condicoes-mecanica";
+import type { CondicaoAtiva } from "@/lib/condicoes";
 import { DescansoControle } from "./descanso-controle";
 import { NivelModal, type CamadaQueAbre } from "./nivel-modal";
 import {
@@ -131,6 +134,9 @@ type Personagem = {
   dadosVidaGastos: number;
   crOutros: number;
   concentracao?: unknown;
+  // Colaterais: sem PP / sem Haki (lib/colaterais.ts) e a exaustão que some no descanso longo.
+  bloqueios?: unknown;
+  exaustaoTemporaria?: number;
   tiposDano?: unknown;
   // Atributo da CD das técnicas (padrão das ações com salvaguarda).
   atributoCdTecnicas?: string | null;
@@ -283,7 +289,13 @@ export function PerfilSidebar({
   tiposDosAtaques,
   acoes,
   navio,
+  condicoes = [],
+  emCombate = false,
 }: {
+  // Condições do personagem (as do combate, se está num; senão, as da ficha).
+  condicoes?: CondicaoAtiva[];
+  // No combate, a lista é a do combate (painel de iniciativa).
+  emCombate?: boolean;
   personagem: Personagem;
   // Perfil da ficha: blocos à mostra e nome do deslocamento (lib/subficha.ts).
   perfil?: PerfilFicha;
@@ -568,6 +580,8 @@ export function PerfilSidebar({
           ...habs,
           ...fontesDeEfeitoDeItens(itensComOverlay),
           ...recebidasVisiveis.map(fonteDeAliado),
+          // Condições (Cego, Envenenado…) valem como efeito, como no servidor.
+          ...fontesDasCondicoes(condicoes),
         ],
         slugs,
         undefined,
@@ -577,6 +591,7 @@ export function PerfilSidebar({
       slugs,
     );
   }, [
+    condicoes,
     emCurso,
     habilidades,
     ligadaOverlay,
@@ -1304,8 +1319,13 @@ export function PerfilSidebar({
         personagemId={p.id}
         exaustao={p.exaustao}
         ignoradaPor={exaustaoConta === 0 ? efeitosAgregados.ignoraExaustao?.fontes : undefined}
+        temporaria={p.exaustaoTemporaria ?? 0}
       />
       )}
+
+      {mostra("exaustao") && !emCombate && <CondicoesDaFicha personagemId={p.id} condicoes={condicoes} />}
+
+      {mostra("exaustao") && <BloqueiosDaFicha personagemId={p.id} bloqueios={p.bloqueios} />}
 
       {mostra("descanso") && (
       <DescansoControle

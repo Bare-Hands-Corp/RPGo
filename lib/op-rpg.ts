@@ -7,6 +7,7 @@ import { avaliarFormula, formulaUsaGrau, formulaVariavel } from "./formula";
 import { cobre, lerCobertura } from "./dano";
 import { duraAlemDoUso, duracaoPvTempNoBanco, lerDuracaoPvTemp, type DuracaoPvTemp } from "./duracao";
 import type { TipoAcaoCombate } from "./combate";
+import type { MecanicaCondicao } from "./condicoes-mecanica";
 
 export function modificador(valor: number): number {
   return Math.floor((valor - 10) / 2);
@@ -963,7 +964,20 @@ export type TipoEfeito =
   | "explosao"
   | "progressivo"
   | "valor_igual"
+  | "colateral"
   | "livre";
+
+// O que o efeito colateral faz em quem usa a técnica.
+export type OColateral = "dano" | "exaustao" | "sem_pp" | "sem_haki";
+export const COLATERAIS: { slug: OColateral; nome: string }[] = [
+  { slug: "dano", nome: "Dano em você" },
+  { slug: "exaustao", nome: "Exaustão" },
+  { slug: "sem_pp", nome: "Sem PP" },
+  { slug: "sem_haki", nome: "Sem Haki" },
+];
+
+// Quando um efeito em quem usa acontece: no uso ou quando a ação acaba.
+export type QuandoColateral = "uso" | "fim";
 
 export type FiltroArmaDeFogo = "exceto" | "so";
 
@@ -1012,6 +1026,9 @@ type EfeitoCru =
   // é o texto livre de antes das rodadas, só descritivo.
   // `evita`: salvaguarda (atributo) que o alvo rola contra a CD das técnicas
   // pra não receber; ausente = sem salvaguarda própria.
+  // `mecanica`: condição criada aqui (crua, lib/condicoes-mecanica.ts), sem
+  // passar pela Biblioteca; `condicao` é o nome dela. `emVoce`: vai em quem usa
+  // (colateral, postura), não em quem a ação pega.
   | {
       tipo: "condicao_aplicar";
       condicao: string;
@@ -1020,6 +1037,27 @@ type EfeitoCru =
       rodadas?: number;
       repete?: boolean;
       evita?: Atributo;
+      mecanica?: MecanicaCondicao;
+      emVoce?: boolean;
+      // Em você: no uso (padrão) ou quando a ação acaba.
+      quando?: "fim";
+    }
+  // Efeito colateral (livro: Colateral, Debilitante, Devoradora, Exaustiva):
+  // pesa em quem usa, no uso ou quando a ação acaba. dano: `valor` (fórmula),
+  // `tipoDano`, `irredutivel` (sem defesa nem PV temporário). exaustao: `valor`
+  // (níveis), `temporaria` (some no descanso longo). sem_pp / sem_haki:
+  // `minutos` sem gastar PP / sem usar Haki; `exaustaoSemPp`: ficou sem PP
+  // depois do uso = 1 de exaustão.
+  | {
+      tipo: "colateral";
+      o: OColateral;
+      quando: QuandoColateral;
+      valor?: string;
+      tipoDano?: string;
+      irredutivel?: boolean;
+      temporaria?: boolean;
+      minutos?: number;
+      exaustaoSemPp?: boolean;
     }
   | { tipo: "resistencia"; tipoDano: string }
   | { tipo: "imunidade"; tipoDano: string }
@@ -1194,6 +1232,7 @@ export const META_EFEITOS: Record<
   explosao:         { nome: "Explosão",           icone: "fa-explosion",      cor: "var(--efeito-ataque)" },
   progressivo:      { nome: "Bônus Progressivo",  icone: "fa-arrow-trend-up", cor: "var(--efeito-ataque)" },
   valor_igual:      { nome: "Valor Igual",        icone: "fa-right-long",     cor: "var(--efeito-neutro)" },
+  colateral:        { nome: "Efeito Colateral",   icone: "fa-heart-crack",    cor: "var(--danger)" },
   livre:            { nome: "Texto Livre",             icone: "fa-feather",        cor: "var(--text-sec)" },
 };
 
@@ -1605,6 +1644,15 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     criar: () => ({ tipo: "acao_extra", acao: "padrao", quantidade: 1 }),
   },
   {
+    id: "colateral",
+    nome: "Efeito Colateral",
+    descricao: "Pesa em quem usa: dano, exaustão, sem PP ou sem Haki",
+    icone: "fa-heart-crack",
+    cor: "var(--danger)",
+    grupo: "ativo",
+    criar: () => ({ tipo: "colateral", o: "dano", quando: "uso", valor: "" }),
+  },
+  {
     id: "sucesso_auto",
     nome: "Sucesso Automático",
     descricao: "Passa sem rolar em algum teste/condição",
@@ -1974,8 +2022,17 @@ function normalizarCampos(tipo: TipoEfeito, obj: Record<string, unknown>): Efeit
       if (str(obj.duracao)) e.duracao = str(obj.duracao);
       const rodadas = Math.trunc(num(obj.rodadas));
       if (rodadas > 0) e.rodadas = Math.min(100, rodadas);
-      if (obj.repete === true) e.repete = true;
-      if (ATRIBUTOS_SET.has(str(obj.evita))) e.evita = str(obj.evita) as Atributo;
+      // Conferida por lerMecanica ao salvar (actions) e ao usar.
+      if (obj.mecanica && typeof obj.mecanica === "object") e.mecanica = obj.mecanica as MecanicaCondicao;
+      if (obj.emVoce === true) {
+        e.emVoce = true;
+        if (obj.quando === "fim") e.quando = "fim";
+      }
+      // Em você não tem salvaguarda: vale direto.
+      else {
+        if (obj.repete === true) e.repete = true;
+        if (ATRIBUTOS_SET.has(str(obj.evita))) e.evita = str(obj.evita) as Atributo;
+      }
       return e;
     }
     case "resistencia":
@@ -2291,6 +2348,27 @@ function normalizarCampos(tipo: TipoEfeito, obj: Record<string, unknown>): Efeit
         ...(passos ? { passos } : {}),
         ...(cresce ? { cresce } : {}),
       };
+    }
+    case "colateral": {
+      const o = COLATERAIS.find((c) => c.slug === obj.o)?.slug ?? "dano";
+      const quando: QuandoColateral = obj.quando === "fim" ? "fim" : "uso";
+      if (o === "dano") {
+        const valor = str(obj.valor).trim().slice(0, 40);
+        return {
+          tipo,
+          o,
+          quando,
+          valor,
+          ...(str(obj.tipoDano).trim() ? { tipoDano: str(obj.tipoDano).trim().slice(0, 40) } : {}),
+          ...(obj.irredutivel === true ? { irredutivel: true } : {}),
+        };
+      }
+      if (o === "exaustao") {
+        const niveis = Math.min(6, Math.max(1, Math.trunc(num(obj.valor)) || 1));
+        return { tipo, o, quando, valor: String(niveis), ...(obj.temporaria === true ? { temporaria: true } : {}) };
+      }
+      const minutos = Math.min(600, Math.max(1, Math.trunc(num(obj.minutos)) || 1));
+      return { tipo, o, quando, minutos, ...(o === "sem_pp" && obj.exaustaoSemPp === true ? { exaustaoSemPp: true } : {}) };
     }
     case "livre":
       if (!str(obj.texto)) return null;
@@ -5252,12 +5330,16 @@ export function resumoEfeito(
     case "condicao_imune":
     case "condicao_remover":
       return e.condicao;
-    case "condicao_aplicar":
+    case "condicao_aplicar": {
+      const r = e.rodadas;
+      const dura = !r ? "padrão" : r >= 100 ? "até tirar" : r === 10 ? "1 minuto" : `${r} rodada${r === 1 ? "" : "s"}`;
       return (
         (e.cd ? `${e.condicao} (CD ${e.cd})` : e.condicao) +
-        ` · ${e.rodadas === 10 ? "1 minuto" : `${e.rodadas ?? 1} rodada${(e.rodadas ?? 1) === 1 ? "" : "s"}`}` +
+        (e.emVoce ? ` em você${e.quando === "fim" ? " no fim" : ""}` : "") +
+        ` · ${dura}` +
         (e.evita ? ` · evita: salv. ${ATRIBUTOS.find((a) => a.slug === e.evita)?.sigla ?? e.evita}` : "")
       );
+    }
     case "resistencia":
     case "imunidade":
     case "vulnerabilidade":
@@ -5385,9 +5467,24 @@ export function resumoEfeito(
       return `+${texto(e.formula).replace(/^\+\s*/, "")} por ${porDoProgressivo(e)} · até ${e.max}×${
         e.em && e.em !== "dano" ? ` · ${rotuloAlvo(e.em)}` : ""
       }`;
+    case "colateral":
+      return textoDoColateral(e);
     case "livre":
       return e.texto;
   }
+}
+
+// "2d6 Fogo em você no fim", "2 de exaustão (até o descanso longo)", "1 min sem PP".
+export function textoDoColateral(e: Extract<EfeitoHabilidade, { tipo: "colateral" }>): string {
+  const quando = e.quando === "fim" ? " no fim" : "";
+  if (e.o === "dano") {
+    return `${e.valor || "?"}${e.tipoDano ? ` ${e.tipoDano}` : ""} em você${e.irredutivel ? " (irredutível)" : ""}${quando}`;
+  }
+  if (e.o === "exaustao") {
+    return `${e.valor ?? 1} de exaustão${e.temporaria ? " (até o descanso longo)" : ""}${quando}`;
+  }
+  const t = `${e.minutos ?? 1} min ${e.o === "sem_pp" ? "sem PP" : "sem Haki"}`;
+  return `${t}${e.exaustaoSemPp ? " (sem PP: 1 de exaustão)" : ""}${quando}`;
 }
 
 // "cura 1d6+3", "+5 PV temporário", "1d6 fogo em você", "−1 PP".

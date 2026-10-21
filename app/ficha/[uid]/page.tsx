@@ -18,7 +18,7 @@ import { juntarTipos, tiposDoDano, tiposDosEfeitos } from "@/lib/dano";
 import {
   SELECT_ACAO_QUE_DURA,
   carregarRecebidas,
-  condicoesEmCombate,
+  condicoesDoPersonagem,
   fonteRecebida,
 } from "@/lib/efeitos-servidor";
 import { fontesDasCondicoes } from "@/lib/condicoes-mecanica";
@@ -75,7 +75,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
       },
     }),
     carregarRecebidas(uid),
-    condicoesEmCombate(uid),
+    condicoesDoPersonagem(uid),
   ]);
   if (!user) redirect("/login");
   if (!carregado) notFound();
@@ -308,6 +308,8 @@ export default async function FichaPage({ params, searchParams }: Params) {
       )}
       <CatalogoTiposProvider tipos={catalogoTipos}>
       <PerfilSidebar
+        condicoes={condicoes}
+        emCombate={!!combate}
         navio={
           perfil.slug === "veiculo"
             ? {

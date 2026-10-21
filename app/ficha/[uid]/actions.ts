@@ -49,6 +49,14 @@ import {
 } from "@/lib/op-rpg";
 import { faixaDaRolagem } from "@/lib/dice";
 import { SELECT_ACAO_QUE_DURA, acabaComOPvTemp, carregarAgregado } from "@/lib/efeitos-servidor";
+import { aplicarColaterais, colateraisDaConcentracao, colateraisDoFim } from "@/lib/colaterais-servidor";
+import {
+  bloqueioDe,
+  lerBloqueios,
+  passarRodadaDosBloqueios,
+  tempoDoBloqueio,
+  textoDoBloqueio,
+} from "@/lib/colaterais";
 import {
   MAX_TIPOS_SALVOS,
   cdConcentracao,
@@ -215,6 +223,8 @@ import {
 } from "@/lib/estatisticas-servidor";
 import {
   aplicarCondicoes,
+  aplicarCondicoesNoPersonagem,
+  tirarCondicaoDoPersonagem,
   avancarTurnoDoCombate,
   bonusDePericiaDaCriatura,
   bonusDeSalvaguardaDaCriatura,
@@ -230,6 +240,7 @@ import { defesasDaCriatura } from "@/lib/dano";
 import {
   RODADAS_MAX,
   lerCondicoesAtivas,
+  passarRodadaNaFicha,
   lerRodadas,
   textoRodadas,
   type CondicaoAplicada,
@@ -238,6 +249,7 @@ import {
 import {
   condicoesDosEfeitos,
   fontesDasCondicoes,
+  lerMecanica,
   mecanicaDa,
   modoDaSalvaguarda,
   bonusDasCondicoesNaCriatura,
@@ -353,6 +365,9 @@ export async function patchPersonagem(
         ? opsConcentracao(personagemId, personagem.concentracao, null)
         : []),
     ]);
+    // O que acabou (concentração, ações que duravam com o PV temporário): colaterais "no fim".
+    if (incapacitou || fim?.soltaConcentracao) await colateraisDaConcentracao(personagemId, personagem.concentracao);
+    await colateraisDoFim(personagemId, (fim?.acoes ?? []).map((a) => a.id));
     revalidarFicha(personagem);
   });
 }
@@ -724,6 +739,14 @@ export async function usarAcao(
     const aggAcao = efeitosDaTecnica(agg, acao);
     let custoPp = custoDaAcao(aggAcao, armas, "pp", acao.custoPp, acao.grau).final;
     let exaustaoExtra = 0;
+    // Colateral de outra técnica: sem PP / sem Haki por um tempo.
+    const bloqueios = lerBloqueios(personagem.bloqueios);
+    const semPp = custoPp > 0 ? bloqueioDe(bloqueios, "pp") : null;
+    if (semPp) throw new ErroDeUso(`${textoDoBloqueio(semPp)}: falta ${tempoDoBloqueio(semPp.rodadas)}.`);
+    const semHaki = bloqueioDe(bloqueios, "haki");
+    if (semHaki && (await vemDeHaki(personagemId, acao.habilidadeIds))) {
+      throw new ErroDeUso(`${textoDoBloqueio(semHaki)}: falta ${tempoDoBloqueio(semHaki.rodadas)}.`);
+    }
     if (custoPp > personagem.ppAtual) {
       const motivo = motivoSemSobrecarga(acao, personagem.exaustao);
       if (motivo || !opcoes?.sobrecarga) throw new ErroDeUso(motivo ?? "PP insuficiente.");
@@ -879,10 +902,44 @@ export async function usarAcao(
             ppGasto: acao.tecnica ? custoPp : 0,
           })
         : null;
+    // Colaterais e Aplica Condição "em você" do uso; ação que não dura
+    // (instantânea) já acaba aqui, com os "no fim".
+    await aplicarColaterais(personagemId, acao, "uso");
+    if (!pedeConcentracao(acao.duracao) && !ficaEmCurso(acao, !!instanciaDoAliado)) {
+      await aplicarColaterais(personagemId, acao, "fim");
+    }
     revalidatePath(`/ficha/${personagemId}`);
     for (const id of aliados.keys()) revalidatePath(`/ficha/${id}`);
     if (combate && (tipoAcao || resolucaoId)) revalidatePath(`/narrador/${combate.mesaId}`);
     return { resolucaoId };
+  });
+}
+
+// Põe uma condição no personagem pela ficha (o jogador ou o narrador da mesa):
+// no combate, se ele está num; senão, na lista da ficha.
+export async function adicionarCondicao(personagemId: string, condicao: { nome: string; rodadas?: number }) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const nome = String(condicao?.nome ?? "").trim().slice(0, 40);
+    if (!nome) throw new ErroDeUso("Escolha a condição.");
+    const rodadas = Math.trunc(Number(condicao?.rodadas) || 0);
+    const { receberam, imunes } = await aplicarCondicoesNoPersonagem(
+      personagemId,
+      [{ nome, rodadas: lerRodadas(rodadas), ...(rodadas > 0 ? {} : { usaPadroes: true }), salvaguarda: null }],
+      "",
+    );
+    if (!receberam && imunes.length > 0) throw new ErroDeUso(`Imune a ${imunes.join(", ")}.`);
+    revalidatePath(`/ficha/${personagemId}`);
+  });
+}
+
+// Tira uma condição do personagem (do combate, se está num; senão, da ficha).
+export async function removerCondicao(personagemId: string, condicaoId: string) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const saiu = await tirarCondicaoDoPersonagem(personagemId, String(condicaoId ?? ""));
+    if (!saiu) throw new ErroDeUso("Essa condição já saiu.");
+    revalidatePath(`/ficha/${personagemId}`);
   });
 }
 
@@ -898,6 +955,8 @@ export async function encerrarAcao(personagemId: string, acaoId: string) {
       where: { id: acaoId, personagemId },
       data: { emCurso: false, turnosRestantes: null, aliadoEmCursoId: null },
     });
+    // Acabou: os colaterais "no fim".
+    await colateraisDoFim(personagemId, [acaoId]);
     revalidatePath(`/ficha/${personagemId}`);
     if (acao?.aliadoEmCursoId) revalidatePath(`/ficha/${acao.aliadoEmCursoId}`);
   });
@@ -1012,6 +1071,7 @@ export async function encerrarConcentracao(personagemId: string) {
     const { personagem } = await autorizar(personagemId);
     const ops = opsConcentracao(personagemId, personagem.concentracao, null);
     if (ops.length > 0) await prisma.$transaction(ops);
+    await colateraisDaConcentracao(personagemId, personagem.concentracao);
     revalidatePath(`/ficha/${personagemId}`);
   });
 }
@@ -1650,7 +1710,14 @@ function normalizarEfeitosInput(raw: unknown): EfeitoHabilidade[] {
     const t = obj.tipo;
     if (typeof t !== "string" || !TIPOS_EFEITO_VALIDOS.has(t as TipoEfeito)) continue;
     const e = normalizarEfeito(t as TipoEfeito, obj);
-    if (e) out.push(comDura(e, obj.dura));
+    if (!e) continue;
+    // Condição criada no Aplica Condição: a mecânica passa pela leitura de sempre.
+    if (e.tipo === "condicao_aplicar" && e.mecanica) {
+      const m = lerMecanica(e.mecanica);
+      if (m) e.mecanica = m;
+      else delete e.mecanica;
+    }
+    out.push(comDura(e, obj.dura));
   }
   return out;
 }
@@ -2045,6 +2112,11 @@ async function aplicarUsoHabilidade(
   const custoPp = hab.custoPp * vezes;
   const custoRecurso = hab.custoRecursoValor * vezes;
 
+  // Colateral de uma técnica: sem PP / sem Haki por um tempo.
+  const bloqueios = lerBloqueios(personagem.bloqueios);
+  const bloqueio =
+    (custoPp > 0 ? bloqueioDe(bloqueios, "pp") : null) ?? (hab.origem === "haki" ? bloqueioDe(bloqueios, "haki") : null);
+  if (bloqueio) throw new ErroDeUso(`${textoDoBloqueio(bloqueio)}: falta ${tempoDoBloqueio(bloqueio.rodadas)}.`);
   if (custoPp > 0 && personagem.ppAtual < custoPp) {
     throw new ErroDeUso("PP insuficiente.");
   }
@@ -3504,6 +3576,8 @@ async function danoNoPersonagem(entrada: {
     ...(fim?.ops ?? []),
     ...(perdeu ? opsConcentracao(personagemId, concentracao, null) : []),
   ]);
+  if (perdeu) await colateraisDaConcentracao(personagemId, personagem.concentracao);
+  await colateraisDoFim(personagemId, acoesAcabaram.map((a) => a.id));
   revalidatePath(`/ficha/${personagemId}`);
   await registrarDanoEmPersonagem(personagemId, r, entrada.fonte);
   return {
@@ -3640,7 +3714,17 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
       const novo = crescerPorTurno(x.efeitos);
       return novo ? [{ tabela: x.tabela, id: x.id, nome: x.nome, novo }] : [];
     });
-    if (porTurno.length === 0 && duracoes.length === 0 && !tecnica && crescem.length === 0) {
+    // Condições da ficha (fora do combate): uma rodada a menos.
+    const condicoesFicha = lerCondicoesAtivas(personagem.condicoes);
+    const bloqueiosAntes = lerBloqueios(personagem.bloqueios);
+    if (
+      porTurno.length === 0 &&
+      duracoes.length === 0 &&
+      !tecnica &&
+      crescem.length === 0 &&
+      !condicoesFicha.some((c) => c.rodadas < RODADAS_MAX) &&
+      bloqueiosAntes.length === 0
+    ) {
       throw new ErroDeUso("Nada acontece a cada turno.");
     }
 
@@ -3710,6 +3794,17 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
     else if (concentracao && r.concentracaoTurnos != null) {
       dadosPersonagem.concentracao = { ...concentracao, turnos: r.concentracaoTurnos };
     }
+    // Bloqueios dos colaterais: uma rodada a menos.
+    if (bloqueiosAntes.length > 0) {
+      const b = passarRodadaDosBloqueios(bloqueiosAntes);
+      dadosPersonagem.bloqueios = b.bloqueios;
+      for (const x of b.acabaram) r.linhas.push({ fonte: x.fonte || "Colateral", texto: `${textoDoBloqueio(x)} acabou` });
+    }
+    const passou = passarRodadaNaFicha(condicoesFicha);
+    if (passou.condicoes.some((c, i) => c.rodadas !== condicoesFicha[i]?.rodadas) || passou.acabaram.length > 0) {
+      dadosPersonagem.condicoes = passou.condicoes;
+      for (const nome of passou.acabaram) r.linhas.push({ fonte: nome, texto: "acabou" });
+    }
     if (Object.keys(dadosPersonagem).length > 0) {
       ops.push(prisma.personagem.update({ where: { id: personagemId }, data: dadosPersonagem }));
     }
@@ -3751,6 +3846,11 @@ export async function passarTurno(personagemId: string, rolagens?: unknown) {
       },
     });
     const [criada] = await prisma.$transaction([mensagem, ...ops]);
+    // Ações que acabaram neste turno (duração, concentração perdida): colaterais "no fim".
+    await colateraisDoFim(personagemId, [
+      ...r.desligar.filter((h) => idsDeAcao.has(h.id)).map((h) => h.id),
+      ...(perdeu && acaoConcentrada ? [acaoConcentrada.id] : []),
+    ]);
     revalidatePath(`/ficha/${personagemId}`);
     return {
       estado: r.estado,
@@ -3846,7 +3946,11 @@ export async function descansar(personagemId: string, tipo: TipoDescanso) {
       resumo.ppRestaurado = ppNovo - personagem.ppAtual;
       resumo.ppPelaMetade = personagem.exaustao > 0 && ppDoDescanso < maximos.ppMax;
       resumo.pvTempPerdido = Math.max(0, personagem.hpTemp);
-      resumo.exaustaoRecuperada = Math.min(personagem.exaustao, 1 + extra.exaustao);
+      // A temporária (colateral) sai inteira, além da recuperação normal.
+      resumo.exaustaoRecuperada = Math.min(
+        personagem.exaustao,
+        1 + extra.exaustao + personagem.exaustaoTemporaria,
+      );
       resumo.dadosVidaDevolvidos = Math.min(
         personagem.dadosVidaGastos,
         dadosVidaRecuperados(personagem.nivel, personagem.dadosVidaGastos) + extra.dv,
@@ -3860,7 +3964,14 @@ export async function descansar(personagemId: string, tipo: TipoDescanso) {
             ppAtual: ppNovo,
             hpTemp: 0,
             exaustao: personagem.exaustao - resumo.exaustaoRecuperada,
+            // A exaustão temporária (colateral) já saiu junto.
+            exaustaoTemporaria: 0,
+            bloqueios: [],
             dadosVidaGastos: personagem.dadosVidaGastos - resumo.dadosVidaDevolvidos,
+            // As condições com duração acabam; "até tirar" fica.
+            condicoes: lerCondicoesAtivas(personagem.condicoes).filter(
+              (c) => c.rodadas >= RODADAS_MAX,
+            ) as unknown as Prisma.InputJsonValue,
           },
         }),
       );
@@ -3891,6 +4002,10 @@ export async function descansar(personagemId: string, tipo: TipoDescanso) {
       }
     }
 
+    // Descanso curto também acaba os bloqueios (sem PP / sem Haki).
+    if (tipo === "curto" && lerBloqueios(personagem.bloqueios).length > 0) {
+      ops.push(prisma.personagem.update({ where: { id: personagemId }, data: { bloqueios: [] } }));
+    }
     if (ops.length > 0) await prisma.$transaction(ops);
     revalidatePath(`/ficha/${personagemId}`);
     return resumo;
@@ -4630,7 +4745,7 @@ function modoDaResolucao(
   if (comportaAtaque) throw new ErroDeUso("Sem como rolar o acerto: equipe a arma (e a munição) desta ação.");
   // Sem teste: dano direto, ou só a condição que a ação põe.
   const poeCondicao =
-    lerEfeitos(acao.efeitos).some((e) => e.tipo === "condicao_aplicar") || efeitosNoInimigo(acao).length > 0;
+    lerEfeitos(acao.efeitos).some((e) => e.tipo === "condicao_aplicar" && !e.emVoce) || efeitosNoInimigo(acao).length > 0;
   return acao.dano?.trim() || poeCondicao ? "direto" : null;
 }
 
@@ -4778,7 +4893,8 @@ async function abrirResolucao(entrada: {
   const { acao } = entrada;
   // Condições que a ação põe em quem ela pega (efeito "Aplica Condição").
   const condicoes: CondicaoAplicada[] = lerEfeitos(acao.efeitos).flatMap((e) => {
-    if (e.tipo !== "condicao_aplicar") return [];
+    // As "em você" vão em quem usou (condicoesEmQuemUsou).
+    if (e.tipo !== "condicao_aplicar" || e.emVoce) return [];
     const cd = entrada.cd > 0 ? entrada.cd : (e.cd ?? 0);
     // Salvaguarda que evita a condição, contra a CD das técnicas. Se é a mesma
     // da ação, vale o resultado dela (não rola duas vezes).
@@ -4795,6 +4911,8 @@ async function abrirResolucao(entrada: {
         salvaguarda: e.repete && (evita ?? acao.atributoSalv) && cd > 0 ? { atributo: (evita ?? acao.atributoSalv)!, cd } : null,
         ...(evita ? { evita: { atributo: evita, cd } } : {}),
         ...(cd > 0 ? { cdDaFonte: cd } : {}),
+        // Criada no efeito: a mecânica vem com ela.
+        ...(e.mecanica ? { mecanica: e.mecanica } : {}),
       },
     ];
   });
@@ -5929,6 +6047,7 @@ export async function responderConcentracao(personagemId: string, resolucaoId: s
     const concentracao = lerConcentracao(personagem.concentracao);
     if (!manteve && concentracao) {
       await prisma.$transaction(opsConcentracao(personagemId, concentracao, null));
+      await colateraisDaConcentracao(personagemId, personagem.concentracao);
     }
     await avisarCombate(
       combate.mesaId,
@@ -6098,7 +6217,7 @@ export async function usarAcaoDeCriatura(
     );
     // As do "Aplica Condição" (efeitos extras, o mesmo editor da ficha). A CD
     // é a do efeito, a da salvaguarda da ação ou a da criatura.
-    const aplica = acao.efeitosExtras.flatMap((e) => (e.tipo === "condicao_aplicar" ? [e] : []));
+    const aplica = acao.efeitosExtras.flatMap((e) => (e.tipo === "condicao_aplicar" && !e.emVoce ? [e] : []));
     if (aplica.length > 0) {
       const criatura = await prisma.criatura.findUnique({
         where: { id: emCombate.criaturaId },
@@ -6117,8 +6236,32 @@ export async function usarAcaoDeCriatura(
           salvaguarda: repete && cd > 0 ? { atributo: repete, cd } : null,
           ...(evita && cd > 0 ? { evita: { atributo: evita, cd } } : {}),
           ...(cd > 0 ? { cdDaFonte: cd } : {}),
+          ...(e.mecanica ? { mecanica: e.mecanica } : {}),
         });
       }
+    }
+    // "Em você": a própria criatura fica com elas.
+    const emSi: CondicaoAplicada[] = acao.efeitosExtras.flatMap((e) =>
+      e.tipo === "condicao_aplicar" && e.emVoce
+        ? [
+            {
+              nome: e.condicao,
+              rodadas: lerRodadas(e.rodadas),
+              ...(e.rodadas ? {} : { usaPadroes: true }),
+              salvaguarda: null,
+              ...(e.mecanica ? { mecanica: e.mecanica } : {}),
+            },
+          ]
+        : [],
+    );
+    if (emSi.length > 0) {
+      await aplicarCondicoes({
+        combateId: lado.combateId,
+        instanciaIds: [lado.instanciaId],
+        condicoes: emSi,
+        fonteId: lado.instanciaId,
+        origem: acao.nome || "Ação",
+      });
     }
     const modo: Resolucao["modo"] | null = ataque
       ? "ataque"
@@ -6312,5 +6455,27 @@ export async function reagirComoCriatura(
     const reacao = await fecharJanela(lado, resolucaoId, instanciaId, { de: instancia.nomeExibicao, nome, efeito });
     revalidatePath(`/narrador/${mesaId}`);
     return { reacao };
+  });
+}
+
+// A ação vem de uma habilidade de origem Haki (pra o colateral "sem Haki").
+async function vemDeHaki(personagemId: string, habilidadeIds: unknown): Promise<boolean> {
+  const ids = normalizarIds(habilidadeIds);
+  if (ids.length === 0) return false;
+  return (await prisma.habilidade.count({ where: { personagemId, id: { in: ids }, origem: "haki" } })) > 0;
+}
+
+// Encerra à mão um bloqueio de colateral (sem PP / sem Haki), pela posição na lista.
+export async function encerrarBloqueio(personagemId: string, indice: number) {
+  return executar("ficha", async () => {
+    const { personagem } = await autorizar(personagemId);
+    const bloqueios = lerBloqueios(personagem.bloqueios);
+    const i = Math.trunc(Number(indice));
+    if (!(i >= 0 && i < bloqueios.length)) throw new ErroDeUso("Esse bloqueio já acabou.");
+    await prisma.personagem.update({
+      where: { id: personagemId },
+      data: { bloqueios: bloqueios.filter((_, j) => j !== i) as unknown as Prisma.InputJsonValue },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
   });
 }

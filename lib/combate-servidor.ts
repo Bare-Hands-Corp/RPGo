@@ -673,6 +673,126 @@ export async function tirarCondicao(combateId: string, instanciaId: string, cond
   return { condicao: saiu, nome: instancia.nomeExibicao };
 }
 
+// ─── Condições na ficha (fora do combate) ──────────────────────────────────
+
+// O que de uma condição de combate fica na ficha: sem quem marca a rodada nem o
+// gatilho já caído. As que só valiam por um turno (uso único, até o fim do
+// próximo turno) acabam com o combate.
+function paraFicha(c: CondicaoAtiva): CondicaoAtiva | null {
+  if (c.uso || c.fimDoTurno) return null;
+  const limpa: CondicaoAtiva = { ...c, fonteId: null };
+  delete limpa.disparou;
+  return limpa;
+}
+
+// As da ficha, por cima das que já estão (a mesma condição fica com a nova).
+function juntarNaFicha(atuais: CondicaoAtiva[], novas: CondicaoAtiva[]): CondicaoAtiva[] {
+  return [...atuais.filter((c) => !novas.some((n) => mesmaCondicao(n.nome, c.nome))), ...novas].slice(-MAX_CONDICOES);
+}
+
+// As condições da ficha de quem entra no combate (vão pra instância).
+export async function condicoesQueEntram(personagemIds: string[]): Promise<Map<string, CondicaoAtiva[]>> {
+  if (personagemIds.length === 0) return new Map();
+  const ps = await prisma.personagem.findMany({
+    where: { id: { in: personagemIds } },
+    select: { id: true, condicoes: true },
+  });
+  return new Map(ps.map((p) => [p.id, lerCondicoesAtivas(p.condicoes).map((c) => ({ ...c, fonteId: null }))]));
+}
+
+// Depois que entraram no combate, a ficha fica sem elas (uma lista só por vez).
+export async function esvaziarCondicoesDaFicha(personagemIds: string[]) {
+  if (personagemIds.length === 0) return;
+  await prisma.personagem.updateMany({ where: { id: { in: personagemIds } }, data: { condicoes: [] } });
+}
+
+// Saindo do combate (fim, remoção ou fim da sessão): o que ainda vale volta pra ficha.
+export async function devolverCondicoesAFicha(
+  instancias: { personagemId: string | null; condicoesAtivas: unknown }[],
+) {
+  for (const i of instancias) {
+    if (!i.personagemId) continue;
+    const voltam = lerCondicoesAtivas(i.condicoesAtivas).flatMap((c) => paraFicha(c) ?? []);
+    if (voltam.length === 0) continue;
+    const p = await prisma.personagem.findUnique({ where: { id: i.personagemId }, select: { condicoes: true } });
+    if (!p) continue;
+    await prisma.personagem.update({
+      where: { id: i.personagemId },
+      data: { condicoes: juntarNaFicha(lerCondicoesAtivas(p.condicoes), voltam) as unknown as Prisma.InputJsonValue },
+    });
+  }
+}
+
+// Põe condições num personagem: na instância, se ele está num combate aberto;
+// senão, na ficha. A mecânica e os padrões vêm do catálogo do narrador da mesa.
+export async function aplicarCondicoesNoPersonagem(
+  personagemId: string,
+  condicoes: CondicaoAplicada[],
+  origem: string,
+): Promise<{ receberam: boolean; imunes: string[]; aplicadas: CondicaoAplicada[] }> {
+  if (condicoes.length === 0) return { receberam: false, imunes: [], aplicadas: [] };
+  const instancia = await prisma.instanciaCombate.findFirst({
+    where: { personagemId, combate: { encerradoEm: null, sessao: { encerradaEm: null } } },
+    select: { id: true, combateId: true },
+  });
+  if (instancia) {
+    const r = await aplicarCondicoes({
+      combateId: instancia.combateId,
+      instanciaIds: [instancia.id],
+      condicoes,
+      fonteId: instancia.id,
+      origem,
+    });
+    return { receberam: r.receberam.length > 0, imunes: r.imunes, aplicadas: r.aplicadas };
+  }
+  const p = await prisma.personagem.findUnique({
+    where: { id: personagemId },
+    select: { condicoes: true, mesa: { select: { userId: true } } },
+  });
+  if (!p) return { receberam: false, imunes: [], aplicadas: [] };
+  const catalogo = await catalogoCondicoesDoNarrador(p.mesa?.userId);
+  const imuneA = await imunidadesDe({ personagemId, criaturaId: null });
+  const resolvidas = condicoes.map((c) => comMecanicaDoCatalogo(c, catalogo));
+  const aplicadas = resolvidas.filter((c) => !imuneA.some((x) => mesmaCondicao(x, c.nome)));
+  const imunes = resolvidas.filter((c) => !aplicadas.includes(c)).map((c) => c.nome);
+  if (aplicadas.length > 0) {
+    const novas: CondicaoAtiva[] = aplicadas.map((c) => ({
+      id: crypto.randomUUID(),
+      nome: c.nome,
+      rodadas: c.rodadas,
+      fonteId: null,
+      origem,
+      salvaguarda: c.salvaguarda,
+      porTurno: c.porTurno ?? null,
+      ...(c.mecanica ? { mecanica: c.mecanica } : {}),
+    }));
+    await prisma.personagem.update({
+      where: { id: personagemId },
+      data: { condicoes: juntarNaFicha(lerCondicoesAtivas(p.condicoes), novas) as unknown as Prisma.InputJsonValue },
+    });
+    if (travasDasCondicoes(aplicadas).semConcentracao) await soltarConcentracao(personagemId);
+  }
+  return { receberam: aplicadas.length > 0, imunes, aplicadas };
+}
+
+// Tira uma condição do personagem (do combate, se está num; senão, da ficha).
+export async function tirarCondicaoDoPersonagem(personagemId: string, condicaoId: string): Promise<CondicaoAtiva | null> {
+  const instancia = await prisma.instanciaCombate.findFirst({
+    where: { personagemId, combate: { encerradoEm: null, sessao: { encerradaEm: null } } },
+    select: { id: true, combateId: true },
+  });
+  if (instancia) return (await tirarCondicao(instancia.combateId, instancia.id, condicaoId))?.condicao ?? null;
+  const p = await prisma.personagem.findUnique({ where: { id: personagemId }, select: { condicoes: true } });
+  const atuais = lerCondicoesAtivas(p?.condicoes);
+  const saiu = atuais.find((c) => c.id === condicaoId);
+  if (!saiu) return null;
+  await prisma.personagem.update({
+    where: { id: personagemId },
+    data: { condicoes: atuais.filter((c) => c.id !== condicaoId) as unknown as Prisma.InputJsonValue },
+  });
+  return saiu;
+}
+
 // ─── Resoluções (ação com alvo) ────────────────────────────────────────────
 
 // Quantas resoluções encerradas ficam guardadas no combate.
@@ -705,7 +825,7 @@ export async function encerrarTecnicasDoEncontro(personagemIds: string[]) {
   const [acoes, personagens] = await Promise.all([
     prisma.acao.findMany({
       where: { personagemId: { in: personagemIds }, duracao: { path: ["unidade"], equals: "encontro" } },
-      select: { id: true, emCurso: true },
+      select: { id: true, emCurso: true, personagemId: true },
     }),
     prisma.personagem.findMany({
       where: { id: { in: personagemIds } },
@@ -730,6 +850,10 @@ export async function encerrarTecnicasDoEncontro(personagemIds: string[]) {
       data: { concentracao: Prisma.DbNull },
     });
   }
+  // Acabaram com o encontro: os colaterais "no fim" (import tardio: o módulo usa este).
+  const { colateraisDaConcentracao, colateraisDoFim } = await import("@/lib/colaterais-servidor");
+  for (const a of acoes.filter((x) => x.emCurso)) await colateraisDoFim(a.personagemId, [a.id]);
+  for (const p of concentrando) await colateraisDaConcentracao(p.id, p.concentracao);
 }
 
 // CR do personagem como a ficha mostra (armadura, efeitos, exaustão).

@@ -916,6 +916,70 @@
   opacity: 1;
 }
 
+/* ─── CONDIÇÕES (fora do combate) ─────────────────────────── */
+.condicoes-ficha {
+  flex-wrap: wrap;
+}
+
+.condicoes-ficha .recurso-nome {
+  flex: 1;
+}
+
+.condicoes-ficha.ativo .recurso-icone {
+  color: var(--warning);
+}
+
+.condicoes-ficha-lista {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.condicoes-ficha-nova {
+  flex-basis: 100%;
+  display: grid;
+  gap: 6px;
+}
+
+/* Bloqueios dos colaterais (sem PP / sem Haki). */
+.bloqueios-ficha {
+  flex-wrap: wrap;
+  border-color: var(--danger);
+}
+
+.bloqueios-ficha .recurso-icone {
+  color: var(--danger);
+}
+
+.bloqueio-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--danger);
+  font-size: 0.78rem;
+}
+
+.exaustao-temporaria {
+  color: var(--text-sec);
+}
+
+/* Condição criada no Aplica Condição: o editor e a prévia. */
+.condicao-criada {
+  display: grid;
+  gap: 8px;
+}
+
+.condicao-previa ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+  display: grid;
+  gap: 2px;
+}
+
 /* ─── EXAUSTÃO ────────────────────────────────────────────── */
 .exaustao-linha {
   cursor: help;

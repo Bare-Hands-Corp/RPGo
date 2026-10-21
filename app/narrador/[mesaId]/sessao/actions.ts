@@ -7,6 +7,7 @@ import { pvComSinal, separarPv } from "@/lib/dano";
 import { parseFormulaDados, rolarD20Contextual, rolarDados } from "@/lib/dice";
 import { bonusDasCondicoesNaCriatura, modoDaSalvaguarda } from "@/lib/condicoes-mecanica";
 import { ATRIBUTOS } from "@/lib/op-rpg";
+import type { Prisma } from "@prisma/client";
 import { defesasDaCriatura, resolverDano, type ParteDano } from "@/lib/dano";
 import { comoResistencias } from "@/app/bestiario/utils";
 import {
@@ -20,7 +21,10 @@ import {
   aplicarCondicoes,
   avancarTurnoDoCombate,
   bonusDeSalvaguardaDaCriatura,
+  condicoesQueEntram,
+  devolverCondicoesAFicha,
   encerrarTecnicasDoEncontro,
+  esvaziarCondicoesDaFicha,
   mudarResolucoes,
   tirarCondicao,
 } from "@/lib/combate-servidor";
@@ -102,7 +106,7 @@ async function montarLinhas(
   const criaturaIds = participantes.filter((p) => p.criaturaId).map((p) => p.criaturaId!);
   const personagemIds = participantes.filter((p) => p.personagemId).map((p) => p.personagemId!);
 
-  const [criaturas, personagens] = await Promise.all([
+  const [criaturas, personagens, daFicha] = await Promise.all([
     criaturaIds.length
       ? prisma.criatura.findMany({
           where: { id: { in: criaturaIds }, OR: [{ userId: narradorId }, { userId: null }] },
@@ -112,6 +116,8 @@ async function montarLinhas(
     personagemIds.length
       ? prisma.personagem.findMany({ where: { id: { in: personagemIds }, mesaId, molde: false }, select: { id: true, nome: true } })
       : Promise.resolve([]),
+    // As condições da ficha entram no combate com ele.
+    condicoesQueEntram(personagemIds),
   ]);
 
   const linhas: {
@@ -122,6 +128,7 @@ async function montarLinhas(
     ordem: number;
     pvAtual: number | null;
     pvMax: number | null;
+    condicoesAtivas?: Prisma.InputJsonValue;
   }[] = [];
 
   // Criatura que entra mais de uma vez neste lote sai numerada ("Soldado 2"),
@@ -178,6 +185,7 @@ async function montarLinhas(
         ordem: ordem++,
         pvAtual: null,
         pvMax: null,
+        condicoesAtivas: (daFicha.get(p.personagemId) ?? []) as unknown as Prisma.InputJsonValue,
       });
     }
   }
@@ -244,8 +252,10 @@ export async function encerrarSessao(mesaId: string, sessaoId: string) {
   // encerrar o combate explicitamente antes, isso é só uma rede de segurança.
   const residuais = await prisma.combate.findMany({
     where: { sessaoId, encerradoEm: null },
-    select: { id: true, participantes: { select: { personagemId: true } } },
+    select: { id: true, participantes: { select: { personagemId: true, condicoesAtivas: true } } },
   });
+  // As condições que ainda valem voltam pra ficha.
+  for (const c of residuais) await devolverCondicoesAFicha(c.participantes);
   for (const c of residuais) await finalizarRegistro(c.id);
   const noCombate = residuais.flatMap((c) =>
     c.participantes.flatMap((p) => (p.personagemId ? [p.personagemId] : [])),
@@ -269,6 +279,7 @@ export async function iniciarCombate(mesaId: string, sessaoId: string, participa
   await prisma.instanciaCombate.createMany({
     data: linhas.map((l) => ({ ...l, combateId: combate.id })),
   });
+  await esvaziarCondicoesDaFicha(linhas.flatMap((l) => (l.personagemId ? [l.personagemId] : [])));
   await iniciarRegistro(combate.id, sessaoId);
 
   revalidar(mesaId);
@@ -308,6 +319,7 @@ export async function adicionarParticipantes(mesaId: string, combateId: string, 
       }),
     ]),
   );
+  await esvaziarCondicoesDaFicha(linhas.flatMap((l) => (l.personagemId ? [l.personagemId] : [])));
   await registrarReforco(combateId);
 
   revalidar(mesaId);
@@ -348,10 +360,12 @@ export async function removerParticipante(mesaId: string, instanciaId: string) {
 
   const instancia = await prisma.instanciaCombate.findFirst({
     where: { id: instanciaId, combate: { sessao: { mesaId } } },
-    select: { combateId: true, combate: { select: { sessaoId: true } } },
+    select: { combateId: true, personagemId: true, condicoesAtivas: true, combate: { select: { sessaoId: true } } },
   });
   if (!instancia) throw new Error("Participante não encontrado nesta mesa.");
   await registrarSaida(instancia.combateId, instanciaId);
+  // As condições que ainda valem voltam pra ficha dele.
+  await devolverCondicoesAFicha([instancia]);
   await mudarParticipantes(
     instancia.combateId,
     () => prisma.instanciaCombate.delete({ where: { id: instanciaId } }),
@@ -815,6 +829,8 @@ export async function encerrarCombate(mesaId: string, combateId: string) {
     await encerrarTecnicasDoEncontro(personagemIds);
     for (const id of personagemIds) revalidatePath(`/ficha/${id}`);
   }
+  // As condições que ainda valem voltam pra ficha de cada personagem.
+  await devolverCondicoesAFicha(combate.participantes);
   await prisma.combate.update({ where: { id: combateId }, data: { encerradoEm: new Date(), resolucoes: [] } });
   await prisma.instanciaCombate.deleteMany({ where: { combateId } });
 

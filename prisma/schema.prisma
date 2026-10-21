@@ -169,6 +169,13 @@ model Personagem {
 
   // Em que está concentrando: { tipo: "habilidade" | "acao", id, nome } (lib/duracao.ts).
   concentracao Json?
+  // Condições fora do combate (lib/condicoes.ts CondicaoAtiva[]). Entrando no
+  // combate vão pra instância; saindo, as que ainda valem voltam.
+  condicoes    Json @default("[]")
+  // Efeito colateral (lib/colaterais.ts): sem PP / sem Haki por um tempo.
+  bloqueios    Json @default("[]")
+  // Parte de `exaustao` que some no descanso longo (exaustão temporária).
+  exaustaoTemporaria Int @default(0) @map("exaustao_temporaria")
 
   // Tipos de dano digitados ao receber dano, pra sugerir de novo (lib/dano.ts).
   tiposDano Json @default("[]") @map("tipos_dano")

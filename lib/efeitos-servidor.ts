@@ -278,7 +278,7 @@ export async function carregarAgregado(
     prisma.personagem.findUnique({ where: { id: personagemId }, select: SELECT_BASE_FORMULA }),
     carregarRecebidas(personagemId),
     carregarAcoesEmCurso(personagemId),
-    condicoesEmCombate(personagemId),
+    condicoesDoPersonagem(personagemId),
   ]);
   const habs = ligada
     ? habilidades.map((h) => (h.id === ligada.id ? { ...h, ligada: ligada.ligada } : h))
@@ -306,13 +306,16 @@ export async function carregarAgregado(
   };
 }
 
-// Condições do personagem no combate aberto da mesa.
-export async function condicoesEmCombate(personagemId: string): Promise<CondicaoAtiva[]> {
+// Condições do personagem: as do combate aberto da mesa, se ele está num;
+// senão, as da ficha. Uma lista só por vez (entram e saem com o combate).
+export async function condicoesDoPersonagem(personagemId: string): Promise<CondicaoAtiva[]> {
   const instancia = await prisma.instanciaCombate.findFirst({
     where: { personagemId, combate: { encerradoEm: null, sessao: { encerradaEm: null } } },
     select: { condicoesAtivas: true },
   });
-  return lerCondicoesAtivas(instancia?.condicoesAtivas);
+  if (instancia) return lerCondicoesAtivas(instancia.condicoesAtivas);
+  const p = await prisma.personagem.findUnique({ where: { id: personagemId }, select: { condicoes: true } });
+  return lerCondicoesAtivas(p?.condicoes);
 }
 
 // Solta a concentração; a habilidade que ela segurava desliga.
@@ -326,6 +329,9 @@ export async function soltarConcentracao(personagemId: string) {
       : []),
     prisma.personagem.update({ where: { id: personagemId }, data: { concentracao: Prisma.DbNull } }),
   ]);
+  // Era numa ação: os colaterais "no fim" dela (import tardio: o módulo usa este).
+  const { colateraisDaConcentracao } = await import("@/lib/colaterais-servidor");
+  await colateraisDaConcentracao(personagemId, p?.concentracao);
 }
 
 export const SELECT_ACAO_QUE_DURA = {
@@ -418,6 +424,10 @@ export async function soltarOQueDuravaComPvTemp(personagemIds: string[]) {
         : []),
     ];
     if (ops.length > 0) await prisma.$transaction(ops);
+    // O que acabou: colaterais "no fim" (import tardio: o módulo usa este).
+    const { colateraisDaConcentracao, colateraisDoFim } = await import("@/lib/colaterais-servidor");
+    if (fim.soltaConcentracao) await colateraisDaConcentracao(p.id, p.concentracao);
+    await colateraisDoFim(p.id, fim.acoes.map((a) => a.id));
   }
 }
 

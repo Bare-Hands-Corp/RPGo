@@ -267,6 +267,19 @@ export function fimDoTurnoDoAfetado(
   return { condicoes: condicoes.filter((c) => !c.fimDoTurno || c.fimDoTurno === turno), acabaram };
 }
 
+// Fora do combate (Passar turno da ficha): uma rodada a menos em cada
+// condição; "até tirar" não conta.
+export function passarRodadaNaFicha(condicoes: CondicaoAtiva[]): { condicoes: CondicaoAtiva[]; acabaram: string[] } {
+  const acabaram: string[] = [];
+  const restam: CondicaoAtiva[] = [];
+  for (const c of condicoes) {
+    if (c.rodadas >= RODADAS_MAX) restam.push(c);
+    else if (c.rodadas - 1 <= 0) acabaram.push(c.nome);
+    else restam.push({ ...c, rodadas: c.rodadas - 1 });
+  }
+  return { condicoes: restam, acabaram };
+}
+
 // Passa uma rodada pra quem a vez de `daVezId` marca: tira uma de cada
 // condição dele e solta as que acabaram. `presentes` = quem ainda está no combate.
 export function passarRodada(

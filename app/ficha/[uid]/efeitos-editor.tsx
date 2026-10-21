@@ -14,6 +14,7 @@ import {
   ALVOS_VALOR_IGUAL,
   ACOES_EXTRAS,
   ATRIBUTOS,
+  COLATERAIS,
   DEFESAS_IGNORADAS,
   EVENTO_PASSOS,
   GRUPOS_PRESET,
@@ -59,6 +60,9 @@ import { Tooltip } from "@/components/tooltip";
 import { casaBusca, normalizarBusca } from "./barra-filtros";
 import { CampoFormula, FormulaContext } from "./campo-formula";
 import { DURACOES_CONDICAO } from "@/lib/condicoes";
+import { MECANICA_VAZIA, lerMecanica, linhasDaMecanica, type MecanicaCondicao } from "@/lib/condicoes-mecanica";
+import { MecanicaCondicaoEditor } from "@/app/biblioteca/mecanica-condicao";
+import { useCatalogoCondicoes } from "@/components/tipos-dano/condicoes";
 import { DURACOES_PV_TEMP, type DuracaoPvTemp } from "@/lib/duracao";
 import { SeletorBusca } from "./seletor-busca";
 
@@ -398,7 +402,8 @@ function PickerPreset({
 }) {
   const [busca, setBusca] = useState("");
   const oferecidos = PRESETS_EFEITO.filter(
-    (p) => (!presets || presets.includes(p.id)) && casaBusca(busca, [p.nome, p.descricao]),
+    // Sem lista, tudo menos o que só vale em ação (o colateral pesa em quem usa a técnica).
+    (p) => (presets ? presets.includes(p.id) : p.id !== "colateral") && casaBusca(busca, [p.nome, p.descricao]),
   );
   // Enter escolhe o que começa com o que foi digitado; senão, o primeiro da lista.
   const melhor =
@@ -1080,15 +1085,81 @@ function renderCorpo(
           />
         </div>
       );
-    case "condicao_aplicar":
+    case "condicao_aplicar": {
+      const criada = !!e.mecanica;
       return (
         <>
+          {daAcao && (
+            <div style={{ gridColumn: "1 / -1" }}>
+              <label>Em quem</label>
+              <Segmentos
+                rotulo="Em quem a condição vai"
+                valor={e.emVoce ? "voce" : "alvo"}
+                opcoes={[
+                  { valor: "alvo", rotulo: "Alvo", titulo: "Em quem a ação pega" },
+                  { valor: "voce", rotulo: "Você", titulo: "Em quem usa (colateral, postura)" },
+                ]}
+                onChange={(v) =>
+                  onPatch({
+                    emVoce: v === "voce" || undefined,
+                    // Em você não tem salvaguarda.
+                    ...(v === "voce" ? { evita: undefined, repete: undefined } : { quando: undefined }),
+                  } as Partial<EfeitoHabilidade>)
+                }
+              />
+            </div>
+          )}
+          {daAcao && e.emVoce && (
+            <div style={{ gridColumn: "1 / -1" }}>
+              <label>Quando</label>
+              <Segmentos
+                rotulo="Quando a condição entra"
+                valor={e.quando ?? "uso"}
+                opcoes={[
+                  { valor: "uso", rotulo: "No uso" },
+                  { valor: "fim", rotulo: "No fim", titulo: "Quando a ação acaba (encerrada, duração, concentração)" },
+                ]}
+                onChange={(v) => onPatch({ quando: v === "fim" ? "fim" : undefined } as Partial<EfeitoHabilidade>)}
+              />
+            </div>
+          )}
           <div style={{ gridColumn: "1 / -1" }}>
-            <CondicaoCampo
-              valor={e.condicao}
-              onChange={(v) => onPatch({ condicao: v } as Partial<EfeitoHabilidade>)}
+            <label>Condição</label>
+            <Segmentos
+              rotulo="De onde vem a condição"
+              valor={criada ? "criar" : "biblioteca"}
+              opcoes={[
+                { valor: "biblioteca", rotulo: "Da Biblioteca" },
+                { valor: "criar", rotulo: "Criar aqui", titulo: "Nome e efeitos só desta ação" },
+              ]}
+              onChange={(v) =>
+                onPatch({ mecanica: v === "criar" ? { efeitos: [] } : undefined } as Partial<EfeitoHabilidade>)
+              }
             />
           </div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            {criada ? (
+              <Campo
+                label="Nome"
+                valor={e.condicao}
+                onChange={(v) => onPatch({ condicao: v } as Partial<EfeitoHabilidade>)}
+                placeholder="Ex: Postura de Ferro"
+              />
+            ) : (
+              <CondicaoCampo
+                valor={e.condicao}
+                onChange={(v) => onPatch({ condicao: v } as Partial<EfeitoHabilidade>)}
+              />
+            )}
+          </div>
+          {criada && (
+            <div style={{ gridColumn: "1 / -1" }}>
+              <CondicaoCriadaAqui
+                mecanica={lerMecanica(e.mecanica) ?? MECANICA_VAZIA}
+                onChange={(m) => onPatch({ mecanica: m } as Partial<EfeitoHabilidade>)}
+              />
+            </div>
+          )}
           <div style={{ gridColumn: "1 / -1" }}>
             <label>Dura</label>
             <Segmentos
@@ -1102,6 +1173,8 @@ function renderCorpo(
               onChange={(v) => onPatch({ rodadas: v || undefined } as Partial<EfeitoHabilidade>)}
             />
           </div>
+          {!e.emVoce && (
+          <>
           <label className="efeito-check" style={{ gridColumn: "1 / -1" }}>
             <input
               type="checkbox"
@@ -1122,6 +1195,8 @@ function renderCorpo(
               onChange={(v) => onPatch({ evita: v || undefined } as Partial<EfeitoHabilidade>)}
             />
           </div>
+          </>
+          )}
           {(e.evita || e.repete) && (
             <p className="campo-dica" style={{ gridColumn: "1 / -1" }}>
               {e.evita
@@ -1131,6 +1206,7 @@ function renderCorpo(
           )}
         </>
       );
+    }
     case "resistencia":
     case "imunidade":
     case "vulnerabilidade":
@@ -2131,6 +2207,116 @@ function renderCorpo(
         </>
       );
     }
+    case "colateral":
+      return (
+        <>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <SelectLista
+              label="O que"
+              valor={e.o}
+              opcoes={COLATERAIS}
+              onChange={(v) =>
+                onPatch({
+                  o: v,
+                  // Cada um só guarda os campos dele.
+                  valor: v === "exaustao" ? "1" : v === "dano" ? "" : undefined,
+                  tipoDano: undefined,
+                  irredutivel: undefined,
+                  temporaria: undefined,
+                  minutos: v === "sem_pp" || v === "sem_haki" ? 1 : undefined,
+                  exaustaoSemPp: undefined,
+                } as Partial<EfeitoHabilidade>)
+              }
+            />
+          </div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <SelectLista
+              label="Quando"
+              valor={e.quando}
+              opcoes={[
+                { slug: "uso", nome: "No uso" },
+                { slug: "fim", nome: "No fim" },
+              ]}
+              onChange={(v) => onPatch({ quando: v } as Partial<EfeitoHabilidade>)}
+            />
+          </div>
+          {e.o === "dano" && (
+            <>
+              <CampoFormula
+                label="Dano"
+                valor={e.valor ?? ""}
+                onChange={(v) => onPatch({ valor: v } as Partial<EfeitoHabilidade>)}
+                placeholder="20, 2d6, NIVEL…"
+                dados
+                comGrau
+              />
+              <div style={{ gridColumn: "1 / -1" }}>
+                <TipoDanoCampo
+                  rotulo="Tipo de dano"
+                  valor={e.tipoDano ?? ""}
+                  onChange={(v) => onPatch({ tipoDano: v || undefined } as Partial<EfeitoHabilidade>)}
+                />
+              </div>
+              <label className="efeito-check" style={{ gridColumn: "1 / -1" }}>
+                <input
+                  type="checkbox"
+                  checked={!!e.irredutivel}
+                  onChange={(ev) => onPatch({ irredutivel: ev.target.checked || undefined } as Partial<EfeitoHabilidade>)}
+                />
+                Irredutível (não reduz e não sai do PV temporário)
+              </label>
+            </>
+          )}
+          {e.o === "exaustao" && (
+            <>
+              <CampoNum
+                label="Níveis"
+                valor={Number(e.valor) || 1}
+                min={1}
+                max={6}
+                onChange={(v) => onPatch({ valor: String(v) } as Partial<EfeitoHabilidade>)}
+              />
+              <label className="efeito-check" style={{ gridColumn: "1 / -1" }}>
+                <input
+                  type="checkbox"
+                  checked={!!e.temporaria}
+                  onChange={(ev) => onPatch({ temporaria: ev.target.checked || undefined } as Partial<EfeitoHabilidade>)}
+                />
+                Só até o descanso longo
+              </label>
+            </>
+          )}
+          {(e.o === "sem_pp" || e.o === "sem_haki") && (
+            <>
+              <CampoNum
+                label="Minutos"
+                valor={e.minutos ?? 1}
+                min={1}
+                max={600}
+                onChange={(v) => onPatch({ minutos: v } as Partial<EfeitoHabilidade>)}
+              />
+              {e.o === "sem_pp" && (
+                <label className="efeito-check" style={{ gridColumn: "1 / -1" }}>
+                  <input
+                    type="checkbox"
+                    checked={!!e.exaustaoSemPp}
+                    onChange={(ev) =>
+                      onPatch({ exaustaoSemPp: ev.target.checked || undefined } as Partial<EfeitoHabilidade>)
+                    }
+                  />
+                  Ficou sem PP depois do uso: 1 de exaustão
+                </label>
+              )}
+              <p className="campo-dica" style={{ gridColumn: "1 / -1" }}>
+                {e.o === "sem_pp"
+                  ? "Nesse tempo, ações e habilidades que gastam PP ficam travadas."
+                  : "Nesse tempo, habilidades de origem Haki (e ações que vêm delas) ficam travadas."}{" "}
+                1 minuto = 10 rodadas, contadas no Passar turno; o descanso acaba antes.
+              </p>
+            </>
+          )}
+        </>
+      );
     case "livre":
       return (
         <div style={{ gridColumn: "1 / -1" }}>
@@ -2304,6 +2490,36 @@ function CampoNum({
           onChange={onChange}
         />
       )}
+    </div>
+  );
+}
+
+// Condição criada dentro do Aplica Condição: o mesmo editor da Biblioteca e a
+// prévia do que vale pra quem estiver com ela.
+function CondicaoCriadaAqui({
+  mecanica,
+  onChange,
+}: {
+  mecanica: MecanicaCondicao;
+  onChange: (m: MecanicaCondicao) => void;
+}) {
+  const catalogo = useCatalogoCondicoes();
+  const linhas = linhasDaMecanica(mecanica);
+  return (
+    <div className="condicao-criada">
+      <MecanicaCondicaoEditor mecanica={mecanica} condicoes={catalogo} onChange={onChange} />
+      <div className="condicao-previa">
+        <span className="trait-condicao-estilo-titulo">Quem estiver com ela:</span>
+        {linhas.length > 0 ? (
+          <ul>
+            {linhas.map((l, i) => (
+              <li key={i}>{l}</li>
+            ))}
+          </ul>
+        ) : (
+          <p className="campo-dica">Nada no jogo ainda: adicione efeitos acima.</p>
+        )}
+      </div>
     </div>
   );
 }

@@ -10,12 +10,14 @@ type Props = {
   exaustao: number;
   // Efeitos que fazem a exaustão atual não pesar.
   ignoradaPor?: string[];
+  // Níveis que vieram de colateral e somem no descanso longo.
+  temporaria?: number;
 };
 
 const MAX_NIVEL = 6;
 
 // Controle compacto de exaustão (0–6) com botões −/+.
-export function ExaustaoControle({ personagemId, exaustao, ignoradaPor }: Props) {
+export function ExaustaoControle({ personagemId, exaustao, ignoradaPor, temporaria = 0 }: Props) {
   const [otimista, aplicar] = useOptimistic(exaustao, (_: number, novo: number) => novo);
   const [, startTransition] = useTransition();
 
@@ -58,6 +60,12 @@ export function ExaustaoControle({ personagemId, exaustao, ignoradaPor }: Props)
       <span className="recurso-nome">
         Exaustão
         {otimista > 0 && ignoradaPor?.length ? <i className="fas fa-link prof-fonte" /> : null}
+        {temporaria > 0 && (
+          <small className="exaustao-temporaria" title="Vem de colateral e some no descanso longo">
+            {" "}
+            ({temporaria} temporária)
+          </small>
+        )}
       </span>
       <div className="exaustao-controles">
         <button
