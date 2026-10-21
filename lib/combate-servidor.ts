@@ -37,7 +37,7 @@ import {
   soltarConcentracao,
   soltarOQueDuravaComPvTemp,
 } from "@/lib/efeitos-servidor";
-import { mecanicaDa, travasDasCondicoes } from "@/lib/condicoes-mecanica";
+import { lerPadroes, mecanicaDa, travasDasCondicoes } from "@/lib/condicoes-mecanica";
 import { lerEstadoNavio, lerNavio, velocidadeComDano } from "@/lib/navio";
 import {
   MAX_CONDICOES,
@@ -522,8 +522,10 @@ export async function aplicarCondicoes(entrada: {
   condicoes: CondicaoAplicada[];
   fonteId: string | null;
   origem: string;
-}): Promise<{ receberam: string[]; imunes: string[] }> {
-  if (entrada.condicoes.length === 0 || entrada.instanciaIds.length === 0) return { receberam: [], imunes: [] };
+}): Promise<{ receberam: string[]; imunes: string[]; aplicadas: CondicaoAplicada[] }> {
+  if (entrada.condicoes.length === 0 || entrada.instanciaIds.length === 0) {
+    return { receberam: [], imunes: [], aplicadas: [] };
+  }
   const [instancias, combate] = await Promise.all([
     prisma.instanciaCombate.findMany({
       where: { combateId: entrada.combateId, id: { in: [...new Set(entrada.instanciaIds)] } },
@@ -584,20 +586,29 @@ export async function aplicarCondicoes(entrada: {
     }),
   );
   for (const id of perdemConcentracao) await soltarConcentracao(id);
-  return { receberam, imunes };
+  // Com os padrões da Biblioteca já aplicados (duração, salvaguarda).
+  return { receberam, imunes, aplicadas: condicoes };
 }
 
-// A mecânica configurada no catálogo (se a condição não trouxer uma) e o dano
-// de início ou fim de turno dela como dano por turno.
+// A mecânica configurada no catálogo (se a condição não trouxer uma), o dano
+// de início ou fim de turno dela como dano por turno e, se a ação pediu, os
+// padrões dela (duração e salvaguarda pra sair).
 function comMecanicaDoCatalogo(c: CondicaoAplicada, catalogo: CondicaoCatalogo[]): CondicaoAplicada {
-  const mecanica = c.mecanica ?? condicaoNoCatalogo(catalogo, c.nome)?.mecanica ?? undefined;
+  const entrada = condicaoNoCatalogo(catalogo, c.nome);
+  const padroes = lerPadroes(entrada?.padroes);
+  const rodadas = c.usaPadroes && padroes?.rodadas ? padroes.rodadas : c.rodadas;
+  const cdSaida = padroes?.saida ? (padroes.saida.cd === "fonte" ? (c.cdDaFonte ?? 0) : padroes.saida.cd) : 0;
+  const salvaguarda =
+    c.salvaguarda ??
+    (c.usaPadroes && padroes?.saida && cdSaida > 0 ? { atributo: padroes.saida.atributo, cd: cdSaida } : null);
+  const mecanica = c.mecanica ?? entrada?.mecanica ?? undefined;
   const m = mecanicaDa({ nome: c.nome, mecanica });
   const porTurno =
     c.porTurno ??
     (m?.dano && (m.dano.quando === "inicio" || m.dano.quando === "fim")
       ? { formula: m.dano.formula, tipo: m.dano.tipo, quando: m.dano.quando }
       : null);
-  return { ...c, porTurno, ...(mecanica ? { mecanica } : {}) };
+  return { ...c, rodadas, salvaguarda, porTurno, ...(mecanica ? { mecanica } : {}) };
 }
 
 // Efeito "Remove Condição" usado em combate: tira a condição de quem recebe

@@ -1,9 +1,9 @@
 import type { Criatura, Encontro, Esquadrao, Linhagem, TraitInstance, TraitTemplate } from "@prisma/client";
 import { EFEITO_COR_PADRAO, normalizarEfeitoCor } from "@/lib/estilos-cor";
-import { extraNoDano, lerEfeitos, nomeDoEfeito, resumoEfeito, type EfeitoHabilidade } from "@/lib/op-rpg";
+import { ATRIBUTOS, extraNoDano, lerEfeitos, nomeDoEfeito, resumoEfeito, type EfeitoHabilidade } from "@/lib/op-rpg";
 import { lerDanoPorTurno, textoDanoPorTurno } from "@/lib/condicoes";
 import { lerGatilho } from "@/lib/combate";
-import { lerMecanica } from "@/lib/condicoes-mecanica";
+import { lerMecanicaSalva, lerPadroes } from "@/lib/condicoes-mecanica";
 import type {
   AtributoSalvaguarda,
   CaracteristicasPayload,
@@ -236,6 +236,7 @@ function comoEfeito(e: Record<string, unknown>): EfeitoAcao | null {
         efeito: normalizarEfeitoCor(e.efeito),
         duracaoTurnos: e.duracaoTurnos === null || e.duracaoTurnos === undefined ? null : Number(e.duracaoTurnos),
         danoPorTurno: lerDanoPorTurno(e.danoPorTurno),
+        evita: lerEvita(e.evita),
       };
     case "livre":
       return { id, tipo: "livre", texto: String(e.texto ?? "") };
@@ -379,7 +380,7 @@ export function serializarCriatura(
 // ─── Biblioteca de traits ─────────────────────────────────────────────────
 
 function formulaVazia(): TemplateFormula {
-  return { efeitos: [], efeitosExtras: [], origem: null, usos: null, recarga: null, cor: "", cor2: "", efeito: EFEITO_COR_PADRAO, icone: "", alcance: "", custo: "", tecnica: false, grau: 0, custoLendario: 1, gatilho: "qualquer", mecanica: null };
+  return { efeitos: [], efeitosExtras: [], origem: null, usos: null, recarga: null, cor: "", cor2: "", efeito: EFEITO_COR_PADRAO, icone: "", alcance: "", custo: "", tecnica: false, grau: 0, custoLendario: 1, gatilho: "qualquer", mecanica: null, padroes: null };
 }
 
 export function criarTemplateVazio(): TemplatePayload {
@@ -465,7 +466,8 @@ export function serializarTemplate(template: TraitTemplate): TemplateSerializado
       grau: f.tecnica === true ? comoGrau(f.grau) : 0,
       custoLendario: comoCustoLendario(f.custoLendario),
       gatilho: lerGatilho(f.gatilho),
-      mecanica: template.categoria === "condicao" ? lerMecanica(f.mecanica) : null,
+      mecanica: template.categoria === "condicao" ? lerMecanicaSalva(f.mecanica) : null,
+      padroes: template.categoria === "condicao" ? lerPadroes(f.padroes) : null,
     },
     tagsProve: template.tagsProve,
     tagsConsome: template.tagsConsome,
@@ -573,9 +575,14 @@ export function textoEfeitoAcao(e: EfeitoAcao): string | null {
       return e.alvo.trim() ? `${e.alvo}: ${e.valor >= 0 ? "+" : ""}${e.valor}${e.duracao ? ` (${e.duracao})` : ""}` : null;
     case "cura":
       return e.formula.trim() ? `Recupera ${e.formula.trim()} PV` : null;
-    case "condicao":
-      // A condição em si é destacada na descrição; aqui só o dano que ela traz.
-      return e.danoPorTurno ? `${e.nome || "Condição"}: ${textoDanoPorTurno(e.danoPorTurno)}` : null;
+    case "condicao": {
+      // A condição em si é destacada na descrição; aqui o dano que ela traz e a salvaguarda que evita.
+      const partes = [
+        e.danoPorTurno ? textoDanoPorTurno(e.danoPorTurno) : null,
+        e.evita ? `evita com salvaguarda de ${nomeDoAtributo(e.evita.atributo)} CD ${e.evita.cd}` : null,
+      ].filter(Boolean);
+      return partes.length > 0 ? `${e.nome || "Condição"}: ${partes.join("; ")}` : null;
+    }
     case "livre":
       return e.texto.trim() || null;
   }
@@ -724,4 +731,18 @@ export function extrasDeDano(componentes: ComEfeitos[], acao: ComEfeitos): Extra
       ];
     }),
   );
+}
+
+const ATRIBUTOS_SALV = new Set<string>(["forca", "destreza", "constituicao", "sabedoria", "presenca", "vontade"]);
+
+// Salvaguarda que evita a condição; inválida ou sem CD = nenhuma.
+function lerEvita(raw: unknown): { atributo: AtributoSalvaguarda; cd: number } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const cd = Math.min(40, Math.trunc(Number(o.cd) || 0));
+  return ATRIBUTOS_SALV.has(String(o.atributo)) && cd > 0 ? { atributo: o.atributo as AtributoSalvaguarda, cd } : null;
+}
+
+function nomeDoAtributo(slug: string): string {
+  return ATRIBUTOS.find((a) => a.slug === slug)?.nome ?? slug;
 }

@@ -10,8 +10,7 @@ import {
   type CondicaoCatalogo,
 } from "@/lib/condicoes";
 import { EFEITO_COR_PADRAO, estiloAplicado } from "@/lib/estilos-cor";
-import { lerMecanica } from "@/lib/condicoes-mecanica";
-import { nomeDoEfeito, resumoEfeito } from "@/lib/op-rpg";
+import { linhasDaMecanica, mecanicaDa } from "@/lib/condicoes-mecanica";
 import { Tooltip } from "@/components/tooltip";
 
 // Condições do narrador da mesa (Biblioteca); sem provider valem as do livro.
@@ -31,6 +30,12 @@ export function CatalogoCondicoesProvider({
 export function useCatalogoCondicoes(): string[] {
   const catalogo = useContext(CatalogoCondicoesContext);
   return useMemo(() => catalogo.map((c) => c.nome), [catalogo]);
+}
+
+// Entrada do catálogo pelo nome (mecânica e padrões da Biblioteca).
+export function useCondicaoDoCatalogo() {
+  const catalogo = useContext(CatalogoCondicoesContext);
+  return (nome: string) => condicaoNoCatalogo(catalogo, nome);
 }
 
 // Cara do chip de uma condição: o estilo da Biblioteca ou, fora dela, a cor fixa do nome.
@@ -53,8 +58,8 @@ export function useEstiloCondicao() {
 
 // Condição valendo em alguém: o nome com a cara dela e as rodadas que faltam.
 // `children` são os botões de quem pode mexer nela (tirar, repetir a salvaguarda).
-// Sem descrição na Biblioteca (a que uma técnica põe), o tooltip lista os
-// efeitos dela (`mecanica`) e quanto ela vale (`uso`, `fimDoTurno`).
+// O tooltip lista o que ela faz (a `mecanica` que veio com ela ou a da
+// Biblioteca), a nota da Biblioteca e quanto ela vale (`uso`, `fimDoTurno`).
 export function ChipCondicao({
   nome,
   rodadas,
@@ -73,6 +78,7 @@ export function ChipCondicao({
   children?: React.ReactNode;
 }) {
   const cara = useEstiloCondicao()(nome);
+  const entrada = useCondicaoDoCatalogo()(nome);
   const falta = uso
     ? "Próxima rolagem"
     : fimDoTurno
@@ -82,7 +88,8 @@ export function ChipCondicao({
           ? "Até tirar"
           : `Falta ${textoRodadas(rodadas)}`
         : "";
-  const efeitos = cara.descricao ? [] : (lerMecanica(mecanica)?.efeitos ?? []);
+  const m = mecanicaDa({ nome, mecanica: mecanica ?? entrada?.mecanica });
+  const linhas = m ? linhasDaMecanica(m) : [];
   return (
     <Tooltip
       cor={cara.cor}
@@ -90,8 +97,8 @@ export function ChipCondicao({
       titulo={nome}
       selo={falta || undefined}
       texto={[
+        ...linhas,
         cara.descricao,
-        ...efeitos.map((e) => `${nomeDoEfeito(e)}: ${resumoEfeito(e)}`),
         uso && "Some na primeira rolagem em que vale.",
         fimDoTurno && "Acaba no fim do próximo turno de quem está com ela.",
         origem && `De ${origem}`,

@@ -5,7 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { usuarioDaRequest } from "@/lib/supabase/server";
 import { pvComSinal, separarPv } from "@/lib/dano";
 import { parseFormulaDados, rolarD20Contextual, rolarDados } from "@/lib/dice";
-import { modoDaSalvaguarda } from "@/lib/condicoes-mecanica";
+import { bonusDasCondicoesNaCriatura, modoDaSalvaguarda } from "@/lib/condicoes-mecanica";
+import { ATRIBUTOS } from "@/lib/op-rpg";
 import { defesasDaCriatura, resolverDano, type ParteDano } from "@/lib/dano";
 import { comoResistencias } from "@/app/bestiario/utils";
 import {
@@ -654,7 +655,7 @@ export async function aplicarCondicao(
   mesaId: string,
   combateId: string,
   instanciaId: string,
-  condicao: { nome: string; rodadas: number },
+  condicao: { nome: string; rodadas: number; salvaguarda?: { atributo: string; cd: number } | null },
 ) {
   await autorizarNarrador(mesaId);
   const combate = await combateDaMesa(mesaId, combateId);
@@ -662,11 +663,15 @@ export async function aplicarCondicao(
   const nome = String(condicao?.nome ?? "").trim().slice(0, 40);
   if (!nome) throw new Error("Escolha a condição.");
   const rodadas = lerRodadas(condicao?.rodadas);
+  const s = condicao?.salvaguarda;
+  const cd = Math.min(40, Math.trunc(Number(s?.cd) || 0));
+  const salvaguarda =
+    s && ATRIBUTOS.some((a) => a.slug === s.atributo) && cd > 0 ? { atributo: String(s.atributo), cd } : null;
   const daVez = ordenarParticipantes(combate.participantes)[combate.turnoAtual];
   const { receberam, imunes } = await aplicarCondicoes({
     combateId,
     instanciaIds: [instanciaId],
-    condicoes: [{ nome, rodadas, salvaguarda: null }],
+    condicoes: [{ nome, rodadas, salvaguarda }],
     fonteId: daVez?.id ?? null,
     origem: "",
   });
@@ -706,7 +711,9 @@ export async function rolarSaidaDeCondicao(mesaId: string, combateId: string, in
   // As outras condições dela pesam (falha automática, vantagem, desvantagem).
   const outras = lerCondicoesAtivas(instancia.condicoesAtivas).filter((c) => c.id !== condicaoId);
   const pelaCondicao = modoDaSalvaguarda(outras, condicao.salvaguarda.atributo);
-  const bonus = bonusDeSalvaguardaDaCriatura(criatura, condicao.salvaguarda.atributo);
+  const bonus =
+    bonusDeSalvaguardaDaCriatura(criatura, condicao.salvaguarda.atributo) +
+    bonusDasCondicoesNaCriatura(outras, { tipo: "salvaguarda", atributo: condicao.salvaguarda.atributo }).valor;
   const natural = pelaCondicao.falha
     ? 1
     : rolarD20Contextual({

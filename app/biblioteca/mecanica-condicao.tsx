@@ -7,11 +7,21 @@ import { EfeitosEditor } from "@/app/ficha/[uid]/efeitos-editor";
 import { CampoPasso, Segmentos } from "@/app/ficha/[uid]/campos-modal";
 import {
   GATILHOS_DANO,
+  MECANICA_VAZIA,
+  linhasDaMecanica,
+  mecanicaDa,
+  mecanicaDoLivro,
+  origemDaMecanica,
+  textoDaSaida,
   type AcaoDaCondicao,
   type CustoAcaoCondicao,
   type MecanicaCondicao,
+  type MecanicaSalva,
+  type OrigemMecanica,
+  type PadroesCondicao,
 } from "@/lib/condicoes-mecanica";
-import { PERICIAS } from "@/lib/op-rpg";
+import { DURACOES_CONDICAO, textoRodadas } from "@/lib/condicoes";
+import { ATRIBUTOS, PERICIAS, type Atributo } from "@/lib/op-rpg";
 
 const REGRAS: { campo: "incapacita" | "semReacao" | "semConcentracao" | "umaAcao" | "criticoPerto" | "ppDeErroVolta"; rotulo: string }[] = [
   { campo: "incapacita", rotulo: "Sem ações" },
@@ -215,5 +225,165 @@ export function MecanicaCondicaoEditor({
         )}
       </div>
     </div>
+  );
+}
+
+// O que quem estiver com a condição sofre, em linhas: os efeitos, as regras do
+// combate, o dano e os padrões. Lista, ficha da Biblioteca, prévia e tooltip.
+export function linhasDaCondicao(nome: string, salva: MecanicaSalva, padroes: PadroesCondicao | null): string[] {
+  const m = mecanicaDa({ nome, mecanica: salva });
+  return [
+    ...(m ? linhasDaMecanica(m) : []),
+    ...(padroes?.rodadas ? [`Dura ${textoRodadas(padroes.rodadas)}`] : []),
+    ...(padroes?.saida ? [textoDaSaida(padroes.saida)] : []),
+  ];
+}
+
+const ORIGENS: { valor: OrigemMecanica; rotulo: string; titulo: string }[] = [
+  { valor: "livro", rotulo: "Do livro", titulo: "A regra do livro, como está" },
+  { valor: "personalizada", rotulo: "Personalizada", titulo: "Você escolhe o que ela faz" },
+  { valor: "texto", rotulo: "Só texto", titulo: "Não faz nada no jogo; vale a descrição" },
+];
+
+// Formulário da condição na Biblioteca: de onde vem a mecânica, os efeitos,
+// os padrões (duração e salvaguarda pra sair), a prévia e a nota.
+export function CondicaoDaBiblioteca({
+  nome,
+  mecanica,
+  padroes,
+  descricao,
+  condicoes,
+  onMecanica,
+  onPadroes,
+  onDescricao,
+}: {
+  nome: string;
+  mecanica: MecanicaSalva;
+  padroes: PadroesCondicao | null;
+  descricao: string;
+  condicoes: string[];
+  onMecanica: (m: MecanicaSalva) => void;
+  onPadroes: (p: PadroesCondicao | null) => void;
+  onDescricao: (texto: string) => void;
+}) {
+  const doLivro = mecanicaDoLivro(nome);
+  const origem = origemDaMecanica(nome, mecanica);
+  const linhas = linhasDaCondicao(nome, mecanica, padroes);
+  const mudarPadroes = (patch: Partial<PadroesCondicao>) => {
+    const novo = { ...padroes, ...patch };
+    if (!novo.rodadas) delete novo.rodadas;
+    if (!novo.saida) delete novo.saida;
+    onPadroes(novo.rodadas || novo.saida ? novo : null);
+  };
+  const saida = padroes?.saida;
+
+  return (
+    <>
+      <div className="trait-condicao-estilo">
+        <span className="trait-condicao-estilo-titulo">Mecânica</span>
+        <Segmentos
+          rotulo="Mecânica"
+          valor={origem}
+          opcoes={doLivro ? ORIGENS : ORIGENS.filter((o) => o.valor !== "livro")}
+          onChange={(v) => {
+            if (v === origem) return;
+            // Personalizada começa da regra do livro (ou vazia).
+            if (v === "personalizada") onMecanica(structuredClone(doLivro ?? MECANICA_VAZIA));
+            else onMecanica(v === "texto" ? "nenhuma" : null);
+          }}
+        />
+        <p className="campo-dica">
+          {origem === "livro"
+            ? "Usando a regra do livro. Pra ajustar, escolha Personalizada: ela começa com a do livro."
+            : origem === "texto"
+              ? "Não faz nada no jogo: vale só a descrição."
+              : "Só vale o que estiver aqui."}
+        </p>
+      </div>
+
+      {origem === "personalizada" && (
+        <MecanicaCondicaoEditor
+          mecanica={typeof mecanica === "object" && mecanica ? mecanica : MECANICA_VAZIA}
+          condicoes={condicoes}
+          onChange={onMecanica}
+        />
+      )}
+
+      <div className="trait-condicao-estilo">
+        <span className="trait-condicao-estilo-titulo">Padrões</span>
+        <label>Duração padrão</label>
+        <Segmentos
+          rotulo="Duração padrão"
+          valor={padroes?.rodadas ?? 0}
+          opcoes={[
+            { valor: 0, rotulo: "Sem padrão", titulo: "Quem aplica escolhe (1 rodada, se não escolher)" },
+            ...DURACOES_CONDICAO.map((d) => ({ valor: d.rodadas, rotulo: d.nome })),
+          ]}
+          onChange={(rodadas) => mudarPadroes({ rodadas: rodadas || undefined })}
+        />
+        <label>Salvaguarda pra sair</label>
+        <Segmentos
+          rotulo="Salvaguarda pra sair"
+          valor={saida?.atributo ?? ""}
+          opcoes={[
+            { valor: "", rotulo: "Nenhuma" },
+            ...ATRIBUTOS.map((a) => ({ valor: a.slug as string, rotulo: a.sigla, titulo: a.nome })),
+          ]}
+          onChange={(atributo) =>
+            mudarPadroes({ saida: atributo ? { atributo: atributo as Atributo, cd: saida?.cd ?? "fonte" } : undefined })
+          }
+        />
+        {saida && (
+          <div className="mecanica-acao-teste">
+            <Segmentos
+              rotulo="CD"
+              valor={saida.cd === "fonte" ? "fonte" : "fixa"}
+              opcoes={[
+                { valor: "fonte", rotulo: "CD de quem aplicou" },
+                { valor: "fixa", rotulo: "CD fixa" },
+              ]}
+              onChange={(v) => mudarPadroes({ saida: { ...saida, cd: v === "fonte" ? "fonte" : 10 } })}
+            />
+            {saida.cd !== "fonte" && (
+              <CampoPasso
+                rotulo="CD"
+                valor={saida.cd}
+                min={1}
+                max={40}
+                onChange={(cd) => mudarPadroes({ saida: { ...saida, cd } })}
+              />
+            )}
+          </div>
+        )}
+        <p className="campo-dica">
+          O &quot;+ condição&quot; do narrador e o Aplica Condição em &quot;Padrão&quot; usam esses. A salvaguarda
+          repete no fim de cada turno de quem está com ela.
+        </p>
+      </div>
+
+      {/* Prévia: o que vale pra quem estiver com ela, enquanto edita. */}
+      <div className="trait-condicao-estilo condicao-previa">
+        <span className="trait-condicao-estilo-titulo">Quem estiver com ela:</span>
+        {linhas.length > 0 ? (
+          <ul>
+            {linhas.map((l, i) => (
+              <li key={i}>{l}</li>
+            ))}
+          </ul>
+        ) : (
+          <p className="campo-dica">Nada no jogo.</p>
+        )}
+      </div>
+
+      <label>
+        Nota (opcional)
+        <textarea
+          className="bestiario-textarea-descricao"
+          value={descricao}
+          onChange={(e) => onDescricao(e.target.value)}
+          placeholder="Ex: de onde vem, como os personagens percebem."
+        />
+      </label>
+    </>
   );
 }

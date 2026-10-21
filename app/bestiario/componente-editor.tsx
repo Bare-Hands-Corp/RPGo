@@ -619,6 +619,54 @@ function renderCampos(
           )}
           {condicao && (
             <>
+              {/* Quem a ação pega rola pra não receber (além da salvaguarda da própria ação). */}
+              <label>
+                Evita com salvaguarda de
+                <select
+                  value={efeito.evita?.atributo ?? ""}
+                  onChange={(e) =>
+                    onAtualizar({
+                      evita: e.target.value
+                        ? {
+                            atributo: e.target.value as AtributoSalvaguarda,
+                            cd: efeito.evita?.cd ?? sugestoes.cd ?? 10,
+                          }
+                        : null,
+                    })
+                  }
+                >
+                  <option value="">Nenhuma</option>
+                  {ATRIBUTOS_DO_JOGO.map((a) => (
+                    <option key={a.slug} value={a.slug}>
+                      {a.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {efeito.evita && (
+                <label>
+                  CD pra evitar
+                  <NumeroInput
+                    value={efeito.evita.cd}
+                    onChange={(v) => onAtualizar({ evita: { ...efeito.evita!, cd: v ?? 10 } })}
+                  />
+                </label>
+              )}
+              {efeito.evita && sugestoes.cd !== null && efeito.evita.cd !== sugestoes.cd && (
+                <div className="bestiario-atalhos">
+                  <button
+                    type="button"
+                    className="sugestao chip-opcao"
+                    onClick={() => onAtualizar({ evita: { ...efeito.evita!, cd: sugestoes.cd ?? 10 } })}
+                  >
+                    Usar a CD da criatura ({sugestoes.cd})
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+          {condicao && (
+            <>
               <label>
                 Dano a cada turno (opcional)
                 <input

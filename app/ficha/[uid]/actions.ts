@@ -33,6 +33,7 @@ import {
   lerProficiencias,
   motivoSemSobrecarga,
   acoesGanhasNoUso,
+  formatarMod,
   normalizarEfeito,
   poolsEfetivos,
   resolverFormula,
@@ -239,6 +240,7 @@ import {
   fontesDasCondicoes,
   mecanicaDa,
   modoDaSalvaguarda,
+  bonusDasCondicoesNaCriatura,
   modoDoAtaque,
   travaDaCondicaoNaAcao,
   travasDasCondicoes,
@@ -4690,7 +4692,12 @@ async function criarResolucao(
         resultado = "falha";
         linhas.push(`${i.nomeExibicao} falhou na salvaguarda (${pelaCondicao.falha})`);
       } else {
-        const bonus = bonusDeSalvaguardaDaCriatura(criatura, salvaguarda.atributo);
+        // Bônus e penalidades das condições dela também entram.
+        const daCondicao = bonusDasCondicoesNaCriatura(lerCondicoesAtivas(i.condicoesAtivas), {
+          tipo: "salvaguarda",
+          atributo: salvaguarda.atributo,
+        });
+        const bonus = bonusDeSalvaguardaDaCriatura(criatura, salvaguarda.atributo) + daCondicao.valor;
         const natural = rolarD20Contextual({
           vantagem: pelaCondicao.modo === "vantagem",
           desvantagem: pelaCondicao.modo === "desvantagem",
@@ -4699,7 +4706,8 @@ async function criarResolucao(
         resultado = salv.resultado;
         linhas.push(
           `${i.nomeExibicao} ${textoDaSalvaguarda(salv)}` +
-            (pelaCondicao.modo !== "normal" ? ` (com ${pelaCondicao.modo})` : ""),
+            (pelaCondicao.modo !== "normal" ? ` (com ${pelaCondicao.modo})` : "") +
+            (daCondicao.valor ? ` (${formatarMod(daCondicao.valor)} de ${daCondicao.fontes.join(", ")})` : ""),
         );
       }
     }
@@ -4782,8 +4790,11 @@ async function abrirResolucao(entrada: {
       {
         nome: e.condicao,
         rodadas: lerRodadas(e.rodadas),
+        // Sem duração própria, valem os padrões da condição na Biblioteca.
+        ...(e.rodadas ? {} : { usaPadroes: true }),
         salvaguarda: e.repete && (evita ?? acao.atributoSalv) && cd > 0 ? { atributo: (evita ?? acao.atributoSalv)!, cd } : null,
         ...(evita ? { evita: { atributo: evita, cd } } : {}),
+        ...(cd > 0 ? { cdDaFonte: cd } : {}),
       },
     ];
   });
@@ -4858,7 +4869,7 @@ async function condicoesDaResolucao(combate: Pick<Lado, "combateId" | "mesaId">,
   }
   const diretas = resolucao.condicoes.filter((c) => !c.evita);
   if (diretas.length === 0) return;
-  const { receberam: nomes, imunes } = await aplicarCondicoes({
+  const { receberam: nomes, imunes, aplicadas } = await aplicarCondicoes({
     combateId: combate.combateId,
     instanciaIds: feito.ids,
     condicoes: diretas,
@@ -4871,7 +4882,7 @@ async function condicoesDaResolucao(combate: Pick<Lado, "combateId" | "mesaId">,
     combate.mesaId,
     nomes.join(", "),
     (nomes.length > 1 ? "ficaram: " : "ficou: ") +
-      diretas
+      aplicadas
         .map(
           (c) =>
             `${c.nome} (${c.uso ? "próxima rolagem" : c.ateOProximoTurno ? "até o fim do próximo turno" : textoRodadas(c.rodadas)})`,
@@ -5135,12 +5146,14 @@ async function crDoAlvo(alvo: AlvoResolucao): Promise<number> {
   if (alvo.personagemId) return crDoPersonagem(alvo.personagemId);
   const instancia = await prisma.instanciaCombate.findUnique({
     where: { id: alvo.instanciaId },
-    select: { criaturaId: true },
+    select: { criaturaId: true, condicoesAtivas: true },
   });
   const criatura = instancia?.criaturaId
     ? await prisma.criatura.findUnique({ where: { id: instancia.criaturaId }, select: { classeResistencia: true } })
     : null;
-  return criatura?.classeResistencia ?? 10;
+  // Bônus e penalidades de CR das condições dela.
+  const daCondicao = bonusDasCondicoesNaCriatura(lerCondicoesAtivas(instancia?.condicoesAtivas), { tipo: "cr" });
+  return (criatura?.classeResistencia ?? 10) + daCondicao.valor;
 }
 
 type LanceDeAtaque = { total: number; natural: number | null; critico: boolean; ataque?: number };
@@ -6076,10 +6089,37 @@ export async function usarAcaoDeCriatura(
               // Com salvaguarda na ação, o afetado pode repeti-la pra sair antes.
               salvaguarda: salv ? { atributo: salv.atributo, cd: salv.cd } : null,
               porTurno: e.danoPorTurno ?? null,
+              // Salvaguarda que evita: rolada depois, por quem a ação pegou. Se
+              // é a mesma da ação, já valeu o resultado dela.
+              ...(e.evita && !(salv && !ataque && salv.atributo === e.evita.atributo) ? { evita: e.evita } : {}),
             },
           ]
         : [],
     );
+    // As do "Aplica Condição" (efeitos extras, o mesmo editor da ficha). A CD
+    // é a do efeito, a da salvaguarda da ação ou a da criatura.
+    const aplica = acao.efeitosExtras.flatMap((e) => (e.tipo === "condicao_aplicar" ? [e] : []));
+    if (aplica.length > 0) {
+      const criatura = await prisma.criatura.findUnique({
+        where: { id: emCombate.criaturaId },
+        select: { classeDificuldade: true },
+      });
+      for (const e of aplica) {
+        const cd = e.cd ?? salv?.cd ?? criatura?.classeDificuldade ?? 0;
+        // Mesma salvaguarda da ação: já valeu o resultado dela.
+        const evita = e.evita && !(salv && !ataque && salv.atributo === e.evita) ? e.evita : null;
+        const repete = e.repete ? (evita ?? salv?.atributo ?? null) : null;
+        condicoes.push({
+          nome: e.condicao,
+          rodadas: lerRodadas(e.rodadas),
+          // Sem duração própria, valem os padrões da condição na Biblioteca.
+          ...(e.rodadas ? {} : { usaPadroes: true }),
+          salvaguarda: repete && cd > 0 ? { atributo: repete, cd } : null,
+          ...(evita && cd > 0 ? { evita: { atributo: evita, cd } } : {}),
+          ...(cd > 0 ? { cdDaFonte: cd } : {}),
+        });
+      }
+    }
     const modo: Resolucao["modo"] | null = ataque
       ? "ataque"
       : salv

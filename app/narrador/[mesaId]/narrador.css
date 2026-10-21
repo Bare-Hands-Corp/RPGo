@@ -2215,6 +2215,10 @@ input.sessao-iniciativa-pv {
   padding: 0 14px;
 }
 
+.condicao-modal-cd {
+  width: 72px;
+}
+
 .nv-btn.ativo {
   border-color: var(--primary);
   background: color-mix(in oklch, var(--primary) 14%, var(--bg-surface));

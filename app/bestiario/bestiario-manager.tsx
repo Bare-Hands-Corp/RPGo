@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Swal from "sweetalert2";
+import { useVisaoNoHistorico } from "@/lib/use-visao-no-historico";
 import { atualizarCriatura, deletarCriatura } from "./actions";
 import { criarCriaturaVazia, draftDeCriatura } from "./utils";
 import type { CriaturaPayload, CriaturaSerializada, TemplateSerializado } from "./types";
@@ -46,6 +47,36 @@ export function BestiarioManager({ criaturasIniciais, templates, linhagens }: Pr
   const sugestoes = sugestoesDe(criaturas);
   const alterado = visualizacao === "editor" && JSON.stringify(draft) !== salvo;
 
+  // Sai do editor pra lista; false = o usuário quis continuar editando.
+  async function sairDoEditor(): Promise<boolean> {
+    if (alterado) {
+      const resposta = await Swal.fire({
+        icon: "warning",
+        title: "Sair sem salvar?",
+        text: "As alterações desta criatura serão perdidas.",
+        showCancelButton: true,
+        confirmButtonText: "Sair sem salvar",
+        cancelButtonText: "Continuar editando",
+        background: "var(--bg-card)",
+        color: "var(--text-main)",
+      });
+      if (!resposta.isConfirmed) return false;
+    }
+    setVisualizacao("lista");
+    return true;
+  }
+
+  // Editor e wizard entram no histórico: o Voltar (da página ou do navegador)
+  // recua uma tela, em vez de sair do Bestiário.
+  const visoes = useVisaoNoHistorico<"lista" | "editor" | "wizard">("lista", async (v) => {
+    if (v !== "lista") return false;
+    if (wizardAberto) {
+      setWizardAberto(false);
+      return true;
+    }
+    return sairDoEditor();
+  });
+
   const criaturasFiltradas = criaturas.filter((c) => {
     if (filtroCategoria && c.categoria !== filtroCategoria) return false;
     if (!busca.trim()) return true;
@@ -62,6 +93,7 @@ export function BestiarioManager({ criaturasIniciais, templates, linhagens }: Pr
   function aoTerminarWizard(nova: CriaturaSerializada) {
     setCriaturas((prev) => [...prev, nova].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")));
     setWizardAberto(false);
+    visoes.trocar("lista");
     setSelecionadaId(nova.id);
     router.refresh();
   }
@@ -72,23 +104,7 @@ export function BestiarioManager({ criaturasIniciais, templates, linhagens }: Pr
     setDraft(inicial);
     setSalvo(JSON.stringify(inicial));
     setVisualizacao("editor");
-  }
-
-  async function voltarParaLista() {
-    if (alterado) {
-      const resposta = await Swal.fire({
-        icon: "warning",
-        title: "Sair sem salvar?",
-        text: "As alterações desta criatura serão perdidas.",
-        showCancelButton: true,
-        confirmButtonText: "Sair sem salvar",
-        cancelButtonText: "Continuar editando",
-        background: "var(--bg-card)",
-        color: "var(--text-main)",
-      });
-      if (!resposta.isConfirmed) return;
-    }
-    setVisualizacao("lista");
+    visoes.abrir("editor");
   }
 
   function campo<K extends keyof CriaturaPayload>(chave: K, valor: CriaturaPayload[K]) {
@@ -148,6 +164,7 @@ export function BestiarioManager({ criaturasIniciais, templates, linhagens }: Pr
       setCriaturas((prev) => prev.filter((c) => c.id !== selecionadaId));
       setSelecionadaId(null);
       setVisualizacao("lista");
+      visoes.trocar("lista");
       router.refresh();
     } catch (err) {
       void Swal.fire({
@@ -167,7 +184,7 @@ export function BestiarioManager({ criaturasIniciais, templates, linhagens }: Pr
         templates={templates}
         linhagens={linhagens}
         onCriada={aoTerminarWizard}
-        onCancelar={() => setWizardAberto(false)}
+        onCancelar={visoes.voltar}
       />
     );
   }
@@ -203,7 +220,14 @@ export function BestiarioManager({ criaturasIniciais, templates, linhagens }: Pr
             <Link href="/bestiario/encontros" className="bestiario-btn-biblioteca">
               <i className="fas fa-people-group" /> Esquadrões e Encontros
             </Link>
-            <button type="button" className="bestiario-btn-nova" onClick={() => setWizardAberto(true)}>
+            <button
+              type="button"
+              className="bestiario-btn-nova"
+              onClick={() => {
+                setWizardAberto(true);
+                visoes.abrir("wizard");
+              }}
+            >
               <i className="fas fa-plus" /> Nova criatura
             </button>
           </div>
@@ -249,7 +273,7 @@ export function BestiarioManager({ criaturasIniciais, templates, linhagens }: Pr
     <div className="bestiario-editor-view">
       <section className="bestiario-editor">
         <div className="bestiario-editor-header fixo">
-          <button type="button" className="bestiario-voltar-lista" onClick={() => void voltarParaLista()}>
+          <button type="button" className="bestiario-voltar-lista" onClick={visoes.voltar}>
             <i className="fas fa-arrow-left" /> Voltar
           </button>
           <h2>{draft.nome.trim() || "Editar criatura"}</h2>

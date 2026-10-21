@@ -229,6 +229,22 @@
   overflow: hidden;
 }
 
+/* Condição sem escolha salva: vale a regra do livro. */
+.biblioteca-card-aviso {
+  font-size: 0.72rem;
+  color: var(--text-sec);
+  font-style: italic;
+}
+
+/* Prévia do que a condição faz, no formulário. */
+.condicao-previa ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+  display: grid;
+  gap: 2px;
+}
+
 /* Tipo de dano ou condição com a cor e o ícone escolhidos. */
 .biblioteca-chip {
   display: inline-flex;

@@ -58,7 +58,7 @@ import {
 import { Tooltip } from "@/components/tooltip";
 import { casaBusca, normalizarBusca } from "./barra-filtros";
 import { CampoFormula, FormulaContext } from "./campo-formula";
-import { DURACOES_CONDICAO, RODADAS_PADRAO } from "@/lib/condicoes";
+import { DURACOES_CONDICAO } from "@/lib/condicoes";
 import { DURACOES_PV_TEMP, type DuracaoPvTemp } from "@/lib/duracao";
 import { SeletorBusca } from "./seletor-busca";
 
@@ -1093,9 +1093,13 @@ function renderCorpo(
             <label>Dura</label>
             <Segmentos
               rotulo="Duração da condição"
-              valor={e.rodadas ?? RODADAS_PADRAO}
-              opcoes={DURACOES_CONDICAO.map((d) => ({ valor: d.rodadas, rotulo: d.nome }))}
-              onChange={(v) => onPatch({ rodadas: v } as Partial<EfeitoHabilidade>)}
+              valor={e.rodadas ?? 0}
+              opcoes={[
+                // A da condição na Biblioteca (1 rodada, se ela não tiver).
+                { valor: 0, rotulo: "Padrão", titulo: "A duração padrão da condição na Biblioteca" },
+                ...DURACOES_CONDICAO.map((d) => ({ valor: d.rodadas, rotulo: d.nome })),
+              ]}
+              onChange={(v) => onPatch({ rodadas: v || undefined } as Partial<EfeitoHabilidade>)}
             />
           </div>
           <label className="efeito-check" style={{ gridColumn: "1 / -1" }}>

@@ -47,8 +47,11 @@ export type CondicaoCatalogo = {
   cor: string;
   cor2: string | null;
   efeito: EfeitoCor;
-  // Mecânica configurada na Biblioteca, crua (lib/condicoes-mecanica.ts); null = a do livro.
+  // Mecânica configurada na Biblioteca, crua (lib/condicoes-mecanica.ts);
+  // "nenhuma" = só texto; null = a do livro.
   mecanica: unknown;
+  // Duração e salvaguarda pra sair padrão, crus (lerPadroes); null = sem.
+  padroes: unknown;
 };
 
 export const CATALOGO_CONDICOES_PADRAO: CondicaoCatalogo[] = CONDICOES_DO_LIVRO.map((nome) => ({
@@ -58,6 +61,7 @@ export const CATALOGO_CONDICOES_PADRAO: CondicaoCatalogo[] = CONDICOES_DO_LIVRO.
   cor2: null,
   efeito: EFEITO_COR_PADRAO,
   mecanica: null,
+  padroes: null,
 }));
 
 const semAcento = (t: string) =>
@@ -79,8 +83,14 @@ export function condicaoDoCatalogo(nome: string, descricao: string, estilo: Reco
     cor: corValida(estilo.cor) ?? corDaCondicao(nome.trim()),
     cor2: corValida(estilo.cor2),
     efeito: normalizarEfeitoCor(estilo.efeito),
-    mecanica: estilo.mecanica && typeof estilo.mecanica === "object" ? estilo.mecanica : null,
+    mecanica: mecanicaCrua(estilo.mecanica) ?? null,
+    padroes: estilo.padroes && typeof estilo.padroes === "object" ? estilo.padroes : null,
   };
+}
+
+// Mecânica crua que vale guardar: a configurada ou "nenhuma" (só texto).
+function mecanicaCrua(raw: unknown): unknown {
+  return raw === "nenhuma" || (raw && typeof raw === "object") ? raw : undefined;
 }
 
 // Catálogo a partir das cadastradas; nenhuma = as do livro.
@@ -99,14 +109,16 @@ export function condicaoNoCatalogo(catalogo: CondicaoCatalogo[], nome: string): 
 // ─── Duração ───────────────────────────────────────────────────────────────
 // Em rodadas. Uma rodada acaba quando a vez de quem aplicou a condição volta
 // ("até o início do próximo turno"); um minuto são 10 rodadas.
+export const RODADAS_PADRAO = 1;
+// Também "até tirar": não conta rodada.
+export const RODADAS_MAX = 100;
+
 export const DURACOES_CONDICAO: { rodadas: number; nome: string }[] = [
   { rodadas: 1, nome: "1 rodada" },
   { rodadas: 3, nome: "3 rodadas" },
   { rodadas: 10, nome: "1 minuto" },
+  { rodadas: RODADAS_MAX, nome: "Até tirar" },
 ];
-
-export const RODADAS_PADRAO = 1;
-export const RODADAS_MAX = 100;
 
 export function lerRodadas(raw: unknown): number {
   const n = Math.trunc(Number(raw) || 0);
@@ -114,6 +126,7 @@ export function lerRodadas(raw: unknown): number {
 }
 
 export function textoRodadas(rodadas: number): string {
+  if (rodadas >= RODADAS_MAX) return "até tirar";
   return rodadas === 10 ? "1 minuto" : rodadas === 1 ? "1 rodada" : `${rodadas} rodadas`;
 }
 
@@ -134,7 +147,8 @@ export type CondicaoAtiva = {
   // veneno): rolado e descontado sozinho quando a vez dele começa ou acaba.
   porTurno?: DanoPorTurno | null;
   // O que ela faz (lib/condicoes-mecanica.ts), copiado do catálogo quando foi
-  // aplicada; cru, lido por `mecanicaDa`. Ausente = a do livro pelo nome.
+  // aplicada; cru, lido por `mecanicaDa`. Ausente = a do livro pelo nome;
+  // "nenhuma" = não faz nada.
   mecanica?: unknown;
   // Turno ("rodada:turno") em que o dano de gatilho já caiu.
   disparou?: string;
@@ -162,10 +176,14 @@ export function textoDanoPorTurno(d: DanoPorTurno): string {
 
 // O que uma ação aplica em quem ela pega. `ateOProximoTurno`: só até o fim do
 // próximo turno do afetado. `evita`: salvaguarda que o alvo rola pra não
-// receber (fora a da própria ação).
+// receber (fora a da própria ação). `usaPadroes`: a duração e a salvaguarda
+// pra sair vêm dos padrões da condição na Biblioteca (os campos ficam de
+// reserva). `cdDaFonte`: a CD de quem aplicou, pra salvaguarda "CD da fonte".
 export type CondicaoAplicada = Pick<CondicaoAtiva, "nome" | "rodadas" | "salvaguarda" | "porTurno" | "mecanica" | "uso"> & {
   ateOProximoTurno?: boolean;
   evita?: { atributo: string; cd: number } | null;
+  usaPadroes?: boolean;
+  cdDaFonte?: number;
 };
 
 export const MAX_CONDICOES = 12;
@@ -193,7 +211,7 @@ export function lerCondicoesAtivas(raw: unknown): CondicaoAtiva[] {
               ? { atributo: String(salv.atributo ?? ""), cd: Math.trunc(Number(salv.cd)) }
               : null,
           porTurno: lerDanoPorTurno(o.porTurno),
-          ...(o.mecanica && typeof o.mecanica === "object" ? { mecanica: o.mecanica } : {}),
+          ...(mecanicaCrua(o.mecanica) ? { mecanica: o.mecanica } : {}),
           ...(typeof o.disparou === "string" ? { disparou: o.disparou } : {}),
           ...(o.uso === "proxima" ? { uso: "proxima" as const } : {}),
           ...(typeof o.fimDoTurno === "string" ? { fimDoTurno: o.fimDoTurno } : {}),
@@ -229,6 +247,8 @@ export function lerCondicoesAplicadas(raw: unknown): CondicaoAplicada[] {
         ...(mecanica ? { mecanica } : {}),
         ...(uso ? { uso } : {}),
         ...(o.ateOProximoTurno === true ? { ateOProximoTurno: true } : {}),
+        ...(o.usaPadroes === true ? { usaPadroes: true } : {}),
+        ...(Number(o.cdDaFonte) > 0 ? { cdDaFonte: Math.trunc(Number(o.cdDaFonte)) } : {}),
         ...(evita && typeof evita === "object" && evita.atributo && Number(evita.cd) > 0
           ? { evita: { atributo: String(evita.atributo), cd: Math.trunc(Number(evita.cd)) } }
           : {}),
@@ -259,7 +279,8 @@ export function passarRodada(
   const restam: CondicaoAtiva[] = [];
   for (const c of condicoes) {
     const marca = c.fonteId && presentes.has(c.fonteId) ? c.fonteId : afetadoId;
-    if (marca !== daVezId) {
+    // "Até tirar" não conta rodada.
+    if (marca !== daVezId || c.rodadas >= RODADAS_MAX) {
       restam.push(c);
       continue;
     }

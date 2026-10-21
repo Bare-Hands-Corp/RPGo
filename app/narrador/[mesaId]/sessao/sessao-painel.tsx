@@ -1,5 +1,6 @@
 "use client";
 
+import { bonusDasCondicoesNaCriatura } from "@/lib/condicoes-mecanica";
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Swal from "sweetalert2";
@@ -855,9 +856,10 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
     const instanciaId = instanciaAberta.id;
     const rotulo = `${instanciaAberta.nomeExibicao}: ${item.nome || "Ação"}`;
     const temAtaque = item.efeitos.some((e) => e.tipo === "ataque" && e.bonus.trim());
-    const resolveEmAlvo = item.efeitos.some(
-      (e) => e.tipo === "salvaguarda" || e.tipo === "condicao" || (e.tipo === "dano" && e.formula.trim()),
-    );
+    const resolveEmAlvo =
+      item.efeitos.some(
+        (e) => e.tipo === "salvaguarda" || e.tipo === "condicao" || (e.tipo === "dano" && e.formula.trim()),
+      ) || item.efeitosExtras.some((e) => e.tipo === "condicao_aplicar");
 
     // Multiataque: os ataques comuns que ainda cabem na ação padrão deste turno,
     // cada um com o próprio alvo (linha sem alvo não é ataque feito).
@@ -1006,10 +1008,15 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
 
     if (uso.modo === "ataque" && uso.ataque) {
       const bonus = parseFormulaDados(uso.ataque);
+      // Bônus e penalidades de acerto das condições da criatura.
+      const daCondicao = bonusDasCondicoesNaCriatura(instanciaAberta.condicoes, {
+        tipo: "ataque",
+        corpoACorpo: inferirAlcance(item.alcance) === "corpo_a_corpo",
+      });
       empilharRolagem({
         dados: [D20, ...bonus.dados],
-        modificador: bonus.modificador,
-        nomePreset: rotulo,
+        modificador: bonus.modificador + daCondicao.valor,
+        nomePreset: daCondicao.valor ? `${rotulo} (${daCondicao.fontes.join(", ")})` : rotulo,
         contexto: { tipo: "ataque", alcance: "corpo_a_corpo" },
         modos,
         rolarAuto: true,
