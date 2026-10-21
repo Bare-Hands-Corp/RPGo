@@ -1065,3 +1065,109 @@ input[type="checkbox"]:disabled {
     opacity: 0;
   }
 }
+
+/* ─── Reordenar arrastando (lib/use-reordenar.ts) ──────────── */
+/* Lugar do item arrastado: uma vaga marcada na lista. */
+.reordenar-vaga,
+.reordenar-vaga[class*="type-"] {
+  border: 2px dashed var(--primary) !important;
+  background: color-mix(in oklch, var(--primary) 8%, transparent) !important;
+  box-shadow: none !important;
+  transform: none;
+}
+
+.reordenar-vaga > * {
+  visibility: hidden;
+}
+
+/* Cópia que segue o cursor. */
+body > .reordenar-flutuante {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 9999;
+  margin: 0;
+  pointer-events: none;
+  scale: 1;
+  rotate: 0deg;
+  cursor: grabbing;
+  will-change: transform;
+  transition:
+    scale 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+    rotate 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 0.18s;
+}
+
+body > .reordenar-flutuante.levantado {
+  scale: 1.03;
+  rotate: 1deg;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.4);
+}
+
+body.reordenando {
+  user-select: none;
+  cursor: grabbing;
+}
+
+body.reordenando * {
+  cursor: grabbing !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reordenar-flutuante {
+    transition: none;
+  }
+}
+
+/* Categoria que recebe o item arrastado, mesmo vazia. */
+.reordenar-zona {
+  min-height: 56px;
+  border-radius: 12px;
+  transition: background 0.15s, outline-color 0.15s;
+}
+
+.reordenar-zona.recebendo {
+  outline: 2px dashed var(--primary);
+  outline-offset: 4px;
+  background: color-mix(in oklch, var(--primary) 8%, transparent);
+}
+
+/* Alça de arrastar dentro de um card (canto superior esquerdo). */
+.btn-card-alca {
+  position: absolute;
+  top: 12px;
+  left: 8px;
+  width: 20px;
+  height: 26px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-sec);
+  font-size: 0.8rem;
+  opacity: 0.45;
+  cursor: grab;
+  touch-action: none;
+  transition: opacity 0.2s, color 0.2s;
+}
+
+.btn-card-alca:hover,
+.btn-card-alca:focus-visible {
+  opacity: 1;
+  color: var(--primary);
+}
+
+.btn-card-alca:active {
+  cursor: grabbing;
+}
+
+
+/* Categoria (seção) que recebe o item arrastado, aberta ou fechada. */
+.secao-recolhivel.recebendo {
+  outline: 2px dashed var(--primary);
+  outline-offset: 4px;
+  border-radius: 12px;
+  background: color-mix(in oklch, var(--primary) 8%, transparent);
+}

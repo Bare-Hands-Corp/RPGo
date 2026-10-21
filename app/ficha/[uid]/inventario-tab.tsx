@@ -4,12 +4,14 @@ import { useEffect, useEffectEvent, useMemo, useOptimistic, useState, useTransit
 import Swal from "sweetalert2";
 import { ehTemporario, exigir, idTemporario } from "@/lib/acoes";
 import { EditableStat } from "./editable-stat";
+import { useReordenar } from "@/lib/use-reordenar";
 import {
   atualizarItem,
   criarItem,
   deletarItem,
   gastarMunicao,
   patchPersonagem,
+  reordenarItens,
   usarItem,
 } from "./actions";
 import { useRefreshAgrupado } from "@/lib/use-refresh-agrupado";
@@ -111,6 +113,8 @@ type Item = {
   efeitos: unknown;
   quantidade: number;
   municaoId?: string | null;
+  // Posição na lista (0 = nunca arrastado, vai pro fim).
+  ordem?: number;
 };
 
 // Unidades do item; só a munição pode ficar em zero.
@@ -374,7 +378,9 @@ export function InventarioTab({
     | { kind: "update"; id: string; patch: Partial<Item> }
     | { kind: "updateMany"; ids: string[]; patch: Partial<Item> }
     | { kind: "create"; item: Item }
-    | { kind: "delete"; id: string };
+    | { kind: "delete"; id: string }
+    // Ids na ordem nova.
+    | { kind: "reordenar"; ids: string[] };
   const [itensOtimistas, aplicarOtimista] = useOptimistic(itens, (state, p: Patch) => {
     if (p.kind === "update") {
       return state.map((i) => (i.id === p.id ? { ...i, ...p.patch } : i));
@@ -384,6 +390,10 @@ export function InventarioTab({
       return state.map((i) => (set.has(i.id) ? { ...i, ...p.patch } : i));
     }
     if (p.kind === "create") return [...state, p.item];
+    if (p.kind === "reordenar") {
+      const lugar = new Map(p.ids.map((id, i) => [id, i + 1]));
+      return state.map((i) => (lugar.has(i.id) ? { ...i, ordem: lugar.get(i.id)! } : i));
+    }
     return state.filter((i) => i.id !== p.id);
   });
 
@@ -826,7 +836,30 @@ export function InventarioTab({
     corBarra = "var(--warning)";
   }
 
-  const ordenados = [...itensOtimistas].sort((a, b) => a.nome.localeCompare(b.nome));
+  // Na ordem arrastada; quem nunca foi arrastado (ordem 0) vai pro fim, em ordem alfabética.
+  const porOrdem = [...itensOtimistas].sort(
+    (a, b) =>
+      (a.ordem || Number.MAX_SAFE_INTEGER) - (b.ordem || Number.MAX_SAFE_INTEGER) || a.nome.localeCompare(b.nome),
+  );
+  // Reordenar arrastando (lib/use-reordenar.ts), só dentro da categoria: ela
+  // vem do tipo do item, que arrastar não deve trocar.
+  const reordenar = useReordenar({
+    itens: porOrdem.filter((i) => !ehTemporario(i.id)).map((i) => ({ id: i.id, grupo: categoriaDoItem(i.tipo) })),
+    mudaGrupo: false,
+    aoSoltar: (lista) => {
+      const ids = lista.map((x) => x.id);
+      startTransition(async () => {
+        aplicarOtimista({ kind: "reordenar", ids });
+        try {
+          exigir(await reordenarItens(personagemId, ids));
+        } catch (err) {
+          atualizar();
+          mostrarErro(err);
+        }
+      });
+    },
+  });
+  const ordenados = reordenar.ordenar(porOrdem);
   const visiveis = mostrarEquipados ? ordenados.filter((i) => i.equipado) : ordenados;
 
   const favoritos = !mostrarEquipados ? visiveis.filter((i) => i.favorito) : [];
@@ -950,6 +983,8 @@ export function InventarioTab({
         titulo="Arsenal"
         icone="fa-fist-raised"
         itens={arsenal}
+        grupo="arsenal"
+        reordenar={reordenar}
         visivel={mostrarEquipados || categoria === "arsenal"}
         callbacks={{ toggleFavorito, toggleEquipar, usar, abrirEdit, apagar, mudarQuantidade, mudarEfeitos, gastoMunicao }}
         calcArma={calcArma}
@@ -959,6 +994,8 @@ export function InventarioTab({
         titulo="Armaria"
         icone="fa-shield-alt"
         itens={armaria}
+        grupo="armaria"
+        reordenar={reordenar}
         visivel={mostrarEquipados || categoria === "armaria"}
         callbacks={{ toggleFavorito, toggleEquipar, usar, abrirEdit, apagar, mudarQuantidade, mudarEfeitos, gastoMunicao }}
         calcArma={calcArma}
@@ -968,6 +1005,8 @@ export function InventarioTab({
         titulo="Mochila"
         icone="fa-shopping-bag"
         itens={mochila}
+        grupo="mochila"
+        reordenar={reordenar}
         visivel={mostrarEquipados || categoria === "mochila"}
         callbacks={{ toggleFavorito, toggleEquipar, usar, abrirEdit, apagar, mudarQuantidade, mudarEfeitos, gastoMunicao }}
         calcArma={calcArma}
@@ -1399,6 +1438,8 @@ function SecaoItens({
   titulo,
   icone,
   itens,
+  grupo,
+  reordenar,
   visivel,
   callbacks,
   calcArma,
@@ -1407,6 +1448,8 @@ function SecaoItens({
   titulo: string;
   icone: string;
   itens: Item[];
+  grupo: Categoria;
+  reordenar: ReturnType<typeof useReordenar>;
   visivel: boolean;
   callbacks: CardCallbacks;
   calcArma: (item: Item) => ArmaResolvida;
@@ -1418,11 +1461,16 @@ function SecaoItens({
       <h3 style={{ marginTop: 30, marginBottom: 20, color: "var(--text-main)" }}>
         <i className={`fas ${icone}`} /> {titulo}
       </h3>
-      <div className="action-grid">
+      <div className={`action-grid reordenar-zona${reordenar.recebendo(grupo)}`} {...reordenar.zona(grupo)}>
         {itens.map((item) => (
           <CardItem
             key={item.id}
             item={item}
+            reordenar={
+              ehTemporario(item.id)
+                ? undefined
+                : { item: reordenar.item(item.id), alca: reordenar.alca(item.id), vaga: reordenar.vaga(item.id) }
+            }
             arma={calcArma(item)}
             concedidos={concedidosPorItem.get(item.id)}
             onToggleFavorito={() => callbacks.toggleFavorito(item)}
@@ -1452,8 +1500,11 @@ function CardItem({
   onQuantidade,
   onEfeitos,
   gasto,
+  reordenar,
 }: {
   item: Item;
+  // Arrastar pra reordenar: props do item, da alça e a classe da vaga.
+  reordenar?: { item: object; alca: object; vaga: string };
   arma: ArmaResolvida;
   concedidos?: Concedidos;
   onToggleFavorito: () => void;
@@ -1492,9 +1543,21 @@ function CardItem({
   const semMunicao = !!municao?.usa && (!municao.item || municao.restante <= 0);
   return (
     <div
-      className={`action-card type-comum ${item.equipado ? "item-equipado" : ""} ${item.favorito ? "item-favorito" : ""} ${ehTemporario(item.id) ? "item-pendente" : ""}`}
+      className={`action-card type-comum ${item.equipado ? "item-equipado" : ""} ${item.favorito ? "item-favorito" : ""} ${ehTemporario(item.id) ? "item-pendente" : ""}${reordenar ? " com-alca" : ""}${reordenar?.vaga ?? ""}`}
       inert={ehTemporario(item.id)}
+      {...reordenar?.item}
     >
+      {reordenar && (
+        <button
+          type="button"
+          className="btn-card-alca"
+          title="Arraste pra mudar a ordem (ou use as setas)"
+          aria-label={`Mudar ${item.nome} de posição`}
+          {...reordenar.alca}
+        >
+          <i className="fas fa-grip-vertical" />
+        </button>
+      )}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
         <div className="card-title">
           <button

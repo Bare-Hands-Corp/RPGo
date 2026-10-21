@@ -330,6 +330,10 @@ model Item {
 
   // Concessões: ver Acao.itemId / Habilidade.itemId.
 
+  // Posição na lista da ficha (arrastar pra reordenar). 0 = nunca arrastado:
+  // vai pro fim, em ordem alfabética.
+  ordem Int @default(0)
+
   @@map("itens")
 }
 
@@ -780,6 +784,10 @@ model Criatura {
   // Posição do tier dentro da linhagem (1=Recruta...8=Almirante). Só relevante
   // com linhagemId setado; define a ordem de exibição na UI agrupada.
   ordemTier  Int?      @map("ordem_tier")
+
+  // Posição na lista do bestiário (arrastar pra reordenar). 0 = nunca arrastada:
+  // vai pro fim, em ordem alfabética.
+  ordem      Int       @default(0)
 
   nome          String
   // Categoria livre (Marinha/Pirata/CP/Animal/Pacifista/...) — texto, não enum,

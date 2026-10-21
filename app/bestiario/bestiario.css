@@ -2100,3 +2100,34 @@ button.bestiario-ficha-badge-rolavel:hover {
   -webkit-appearance: none;
   margin: 0;
 }
+
+/* Lista dos blocos: o espaço entre os cards continua o mesmo de antes. */
+.bestiario-componente-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* A alça de reordenar fica na linha do nome, não no canto do card. */
+.bestiario-componente-topo .btn-card-alca {
+  position: static;
+  flex: none;
+  height: 28px;
+}
+
+/* Card da lista: o botão do card e a alça de arrastar ficam lado a lado. */
+.bestiario-card-wrap {
+  position: relative;
+  display: flex;
+  border-radius: 12px;
+}
+
+.bestiario-card-wrap > .bestiario-card-item {
+  flex: 1;
+  min-width: 0;
+  padding-left: 30px;
+}
+
+.bestiario-card-wrap > .btn-card-alca {
+  top: 14px;
+}

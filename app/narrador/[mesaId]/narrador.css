@@ -1930,13 +1930,6 @@ button.narrador-miniatura:focus-visible .narrador-miniatura-editar {
   cursor: grabbing;
 }
 
-.sessao-linha-iniciativa.arrastando,
-.sessao-preparo-linha.arrastando {
-  border-style: dashed;
-  border-color: var(--primary);
-  opacity: 0.75;
-}
-
 /* ─── Iniciativa em andamento ─── */
 .sessao-iniciativa-lista {
   display: flex;

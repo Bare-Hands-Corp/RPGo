@@ -110,7 +110,10 @@ export default async function FichaPage({ params, searchParams }: Params) {
   const personagem = {
     ...carregado,
     recursos: carregado.recursos.map((r) => ({ ...r, valorMax: maximoDoRecurso(r, ctxFormula) })),
-    habilidades: carregado.habilidades.map((h) => comCustosResolvidos(h, ctxFormula)),
+    // Na ordem arrastada pelo jogador; ordem 0 (nunca arrastada) segue por criação.
+    habilidades: carregado.habilidades
+      .map((h) => comCustosResolvidos(h, ctxFormula))
+      .sort((a, b) => (a.ordem || Number.MAX_SAFE_INTEGER) - (b.ordem || Number.MAX_SAFE_INTEGER)),
     // Na ordem arrastada pelo jogador; ordem 0 (recém-criada) vai pro fim.
     acoes: carregado.acoes
       .map((a) => comCustosResolvidos(a, ctxFormula, a.grau))

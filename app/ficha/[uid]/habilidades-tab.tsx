@@ -11,6 +11,7 @@ import {
   criarHabilidade,
   deletarHabilidade,
   guardarNaPasta,
+  reordenarHabilidades,
   usarHabilidade,
 } from "./actions";
 import {
@@ -66,6 +67,7 @@ import { useEscolherAlvo } from "./escolher-alvo";
 import { ACadaTurnoCampo, DuracaoCampo, comPorTurno, porTurnoDe } from "./duracao-campo";
 import { CustosCampo } from "./custos-campo";
 import { CampoFormula } from "./campo-formula";
+import { useReordenar } from "@/lib/use-reordenar";
 import {
   anunciarConcentracao,
   lerDuracao,
@@ -145,13 +147,33 @@ type Patch =
   | { kind: "create"; habilidade: Habilidade }
   | { kind: "update"; id: string; patch: Partial<Habilidade> }
   | { kind: "delete"; id: string }
-  | { kind: "usar"; id: string; vezes?: number };
+  | { kind: "usar"; id: string; vezes?: number }
+  // A lista toda na ordem nova, cada habilidade com a origem que passou a ter.
+  | { kind: "reordenar"; itens: { id: string; origem: string }[] };
 
 function aplicarPatch(state: Habilidade[], p: Patch): Habilidade[] {
   if (p.kind === "create") return [...state, p.habilidade];
   if (p.kind === "update")
     return state.map((h) => (h.id === p.id ? { ...h, ...p.patch } : h));
   if (p.kind === "delete") return state.filter((h) => h.id !== p.id);
+  if (p.kind === "reordenar") {
+    const arrastadas = new Map(p.itens.map((x, i) => [x.id, { ...x, pos: i }]));
+    const origemAntes = new Map(state.map((h) => [h.id, h.origem]));
+    const contagem = new Map<string, number>();
+    return state
+      .map((h) => {
+        const x = arrastadas.get(h.id);
+        if (x) {
+          const ordem = (contagem.get(x.origem) ?? 0) + 1;
+          contagem.set(x.origem, ordem);
+          return { ...h, origem: x.origem, ordem };
+        }
+        // A forma alternativa acompanha a origem se tinha a mesma origem dela.
+        const raiz = h.formaDe ? arrastadas.get(h.formaDe) : undefined;
+        return raiz && origemAntes.get(h.formaDe!) === h.origem ? { ...h, origem: raiz.origem } : h;
+      })
+      .sort((a, b) => (arrastadas.get(a.id)?.pos ?? 1e9) - (arrastadas.get(b.id)?.pos ?? 1e9));
+  }
   return state.map((h) =>
     h.id === p.id && h.usosAtual != null
       ? { ...h, usosAtual: Math.max(0, h.usosAtual - (p.vezes ?? 1)) }
@@ -308,6 +330,27 @@ export function HabilidadesTab({
     (h) => !origemDe(h) && grupoDe(h).some((f) => casam.has(f.id)),
   );
   const favoritas = visiveis.filter((h) => h.favorita);
+
+  // Reordenar arrastando (lib/use-reordenar.ts); arrastar pra outra origem
+  // troca a origem. Com filtro a lista está incompleta, então não reordena.
+  const reordenar = useReordenar({
+    itens: otimistas
+      .filter((h) => !origemDe(h) && !ehTemporario(h.id))
+      .map((h) => ({ id: h.id, grupo: h.origem })),
+    aoSoltar: (lista) => {
+      const itens = lista.map((x) => ({ id: x.id, origem: x.grupo }));
+      startTransition(async () => {
+        aplicar({ kind: "reordenar", itens });
+        try {
+          exigir(await reordenarHabilidades(personagemId, itens));
+        } catch (err) {
+          atualizar();
+          mostrarErro(err);
+        }
+      });
+    },
+  });
+  const podeArrastar = !filtrando;
 
   // Turnos que faltam, contados pelo Passar turno antes do servidor responder.
   const [turnosOverlay, setTurnosOverlay] = useState<Record<string, number>>({});
@@ -718,7 +761,7 @@ export function HabilidadesTab({
   }
 
   // Card da habilidade de origem, com a forma escolhida à mostra.
-  function card(origem: Habilidade, chave: string) {
+  function card(origem: Habilidade, chave: string, arrastavel = false) {
     const formas = grupoDe(origem);
     // A forma escolhida; senão a ligada ou a primeira, entre as que casam com o filtro.
     const candidatas = filtrando ? formas.filter((f) => casam.has(f.id)) : formas;
@@ -756,6 +799,11 @@ export function HabilidadesTab({
         onAlternar={() => acionar(h, !h.ligada)}
         favorita={origem.favorita}
         onFavorita={() => toggleFavorita(origem)}
+        reordenar={
+          arrastavel && podeArrastar && !ehTemporario(origem.id)
+            ? { item: reordenar.item(origem.id), alca: reordenar.alca(origem.id), vaga: reordenar.vaga(origem.id) }
+            : undefined
+        }
       />
     );
   }
@@ -833,8 +881,9 @@ export function HabilidadesTab({
         )}
 
         {ORIGENS_HABILIDADE.map((origem) => {
-          const lista = visiveis.filter((h) => h.origem === origem.slug);
-          if (lista.length === 0) return null;
+          const lista = reordenar.ordenar(visiveis).filter((h) => reordenar.grupoDe(h.id, h.origem) === origem.slug);
+          // Arrastando, todas as origens aparecem pra poderem receber.
+          if (lista.length === 0 && !reordenar.arrastando) return null;
           return (
             <SecaoRecolhivel
               key={origem.slug}
@@ -844,8 +893,12 @@ export function HabilidadesTab({
               titulo={origem.nome}
               contagem={lista.length}
               forcarAberta={filtrando}
+              zona={reordenar.zona(origem.slug)}
+              recebendo={!!reordenar.recebendo(origem.slug)}
             >
-              <div className="action-grid">{lista.map((h) => card(h, h.id))}</div>
+              <div className="reordenar-zona" {...reordenar.zona(origem.slug)}>
+                <div className="action-grid">{lista.map((h) => card(h, h.id, true))}</div>
+              </div>
             </SecaoRecolhivel>
           );
         })}
@@ -912,6 +965,7 @@ function CardHabilidade({
   onAlternar,
   favorita,
   onFavorita,
+  reordenar,
 }: {
   personagemId: string;
   // Pastas que já existem na ficha.
@@ -942,6 +996,8 @@ function CardHabilidade({
   // Destaque da habilidade de origem.
   favorita: boolean;
   onFavorita: () => void;
+  // Arrastar pra reordenar: props do item, da alça e a classe da vaga.
+  reordenar?: { item: object; alca: object; vaga: string };
 }) {
   const efeitos = lerEfeitos(habilidade.efeitos);
   // O "a cada turno" aparece junto da duração.
@@ -1016,15 +1072,27 @@ function CardHabilidade({
     <div
       className={`action-card com-copia ${tipoClass}${ligadaAtiva ? " hab-card-ligada" : ""}${
         bloqueada ? " hab-travada" : ""
-      }${pendente ? " item-pendente" : ""}`}
+      }${pendente ? " item-pendente" : ""}${reordenar?.vaga ?? ""}`}
       inert={pendente}
+      {...reordenar?.item}
     >
+      {reordenar && (
+        <button
+          type="button"
+          className="btn-card-alca"
+          title="Arraste pra mudar a ordem ou a origem (ou use as setas)"
+          aria-label={`Mudar ${habilidade.nome} de posição`}
+          {...reordenar.alca}
+        >
+          <i className="fas fa-grip-vertical" />
+        </button>
+      )}
       <button
         type="button"
         className={`btn-favorito ${favorita ? "ativo" : ""}`}
         title="Favoritar"
         onClick={onFavorita}
-        style={{ position: "absolute", top: 12, left: 12 }}
+        style={{ position: "absolute", top: 12, left: reordenar ? 30 : 12 }}
       >
         <i className={`fa-star ${favorita ? "fas" : "far"}`} />
       </button>
@@ -1062,7 +1130,7 @@ function CardHabilidade({
       </button>
 
       <div>
-        <div className="card-title" style={{ paddingLeft: 26 }}>
+        <div className="card-title" style={{ paddingLeft: reordenar ? 46 : 26 }}>
           {habilidade.nome}
         </div>
         {formas.length > 1 && (

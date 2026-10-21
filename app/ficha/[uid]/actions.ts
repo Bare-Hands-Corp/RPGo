@@ -675,23 +675,129 @@ export async function reordenarAcoes(personagemId: string, itens: { id: string; 
     );
     if (atuais.size !== ids.length) throw new ErroDeUso("Ação não encontrada.");
 
+    // Um UPDATE só (e não um por ação): o banco é remoto e dezenas de idas e
+    // voltas estouravam o tempo da transação.
     const porTipo = new Map<string, number>();
-    const ops: Prisma.PrismaPromise<unknown>[] = [];
+    const mudou = { ids: [] as string[], ordens: [] as number[], tipos: [] as string[] };
+    const formas = { ids: [] as string[], antigos: [] as string[], novos: [] as string[] };
     for (const { id, tipo } of itens) {
       const ordem = (porTipo.get(tipo) ?? 0) + 1;
       porTipo.set(tipo, ordem);
       const atual = atuais.get(id)!;
       if (atual.tipo === tipo && atual.ordem === ordem) continue;
-      const mudou = atual.tipo !== tipo;
-      const tipoNovo = mudou ? { tipo, ...(tipo !== "react" ? { gatilho: null } : {}) } : {};
-      ops.push(prisma.acao.update({ where: { id, personagemId }, data: { ordem, ...tipoNovo } }));
-      if (mudou) {
-        ops.push(
-          prisma.acao.updateMany({ where: { personagemId, formaDe: id, tipo: atual.tipo }, data: tipoNovo }),
-        );
+      mudou.ids.push(id);
+      mudou.ordens.push(ordem);
+      mudou.tipos.push(tipo);
+      if (atual.tipo !== tipo) {
+        formas.ids.push(id);
+        formas.antigos.push(atual.tipo);
+        formas.novos.push(tipo);
       }
     }
-    if (ops.length > 0) await prisma.$transaction(ops);
+    if (mudou.ids.length > 0) {
+      await prisma.$transaction([
+        prisma.$executeRaw`
+          UPDATE acoes SET ordem = v.ordem, tipo = v.tipo,
+            gatilho = CASE WHEN v.tipo <> 'react' AND acoes.tipo <> v.tipo THEN NULL ELSE acoes.gatilho END
+          FROM (SELECT unnest(${mudou.ids}::text[]) AS id, unnest(${mudou.ordens}::int[]) AS ordem,
+                       unnest(${mudou.tipos}::text[]) AS tipo) v
+          WHERE acoes.id::text = v.id AND acoes.personagem_id::text = ${personagemId}`,
+        prisma.$executeRaw`
+          UPDATE acoes SET tipo = v.novo, gatilho = CASE WHEN v.novo <> 'react' THEN NULL ELSE acoes.gatilho END
+          FROM (SELECT unnest(${formas.ids}::text[]) AS id, unnest(${formas.antigos}::text[]) AS antigo,
+                       unnest(${formas.novos}::text[]) AS novo) v
+          WHERE acoes.forma_de::text = v.id AND acoes.tipo = v.antigo AND acoes.personagem_id::text = ${personagemId}`,
+      ]);
+    }
+    revalidatePath(`/ficha/${personagemId}`);
+  });
+}
+
+// Grava a ordem arrastada das habilidades: `itens` é a lista toda na ordem
+// nova, cada uma com a origem que passou a ter. A posição é o lugar dentro da
+// origem (1, 2, 3…). Quem mudou de origem leva as formas alternativas que
+// tinham a origem antiga.
+export async function reordenarHabilidades(personagemId: string, itens: { id: string; origem: string }[]) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    if (!Array.isArray(itens) || itens.length > 500) throw new ErroDeUso("Lista de habilidades inválida.");
+    const ids = itens.map((i) => i.id);
+    if (new Set(ids).size !== ids.length) throw new ErroDeUso("Lista de habilidades inválida.");
+    if (itens.some((i) => !ORIGENS_HAB_VALIDAS.has(i.origem))) throw new ErroDeUso("Origem inválida.");
+
+    const atuais = new Map(
+      (
+        await prisma.habilidade.findMany({
+          where: { personagemId, id: { in: ids } },
+          select: { id: true, origem: true, ordem: true },
+        })
+      ).map((h) => [h.id, h]),
+    );
+    if (atuais.size !== ids.length) throw new ErroDeUso("Habilidade não encontrada.");
+
+    // Um UPDATE só (ver reordenarAcoes).
+    const porOrigem = new Map<string, number>();
+    const mudou = { ids: [] as string[], ordens: [] as number[], origens: [] as string[] };
+    const formas = { ids: [] as string[], antigas: [] as string[], novas: [] as string[] };
+    for (const { id, origem } of itens) {
+      const ordem = (porOrigem.get(origem) ?? 0) + 1;
+      porOrigem.set(origem, ordem);
+      const atual = atuais.get(id)!;
+      if (atual.origem === origem && atual.ordem === ordem) continue;
+      mudou.ids.push(id);
+      mudou.ordens.push(ordem);
+      mudou.origens.push(origem);
+      if (atual.origem !== origem) {
+        formas.ids.push(id);
+        formas.antigas.push(atual.origem);
+        formas.novas.push(origem);
+      }
+    }
+    if (mudou.ids.length > 0) {
+      await prisma.$transaction([
+        prisma.$executeRaw`
+          UPDATE habilidades SET ordem = v.ordem, origem = v.origem
+          FROM (SELECT unnest(${mudou.ids}::text[]) AS id, unnest(${mudou.ordens}::int[]) AS ordem,
+                       unnest(${mudou.origens}::text[]) AS origem) v
+          WHERE habilidades.id::text = v.id AND habilidades.personagem_id::text = ${personagemId}`,
+        prisma.$executeRaw`
+          UPDATE habilidades SET origem = v.nova
+          FROM (SELECT unnest(${formas.ids}::text[]) AS id, unnest(${formas.antigas}::text[]) AS antiga,
+                       unnest(${formas.novas}::text[]) AS nova) v
+          WHERE habilidades.forma_de::text = v.id AND habilidades.origem = v.antiga
+            AND habilidades.personagem_id::text = ${personagemId}`,
+      ]);
+    }
+    revalidatePath(`/ficha/${personagemId}`);
+  });
+}
+
+// Grava a ordem arrastada do inventário: `ids` é a lista toda na ordem nova.
+export async function reordenarItens(personagemId: string, ids: string[]) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    if (!Array.isArray(ids) || ids.length > 1000 || new Set(ids).size !== ids.length) {
+      throw new ErroDeUso("Lista de itens inválida.");
+    }
+    const atuais = new Map(
+      (await prisma.item.findMany({ where: { personagemId, id: { in: ids } }, select: { id: true, ordem: true } })).map(
+        (i) => [i.id, i.ordem],
+      ),
+    );
+    if (atuais.size !== ids.length) throw new ErroDeUso("Item não encontrado.");
+    // Um UPDATE só (ver reordenarAcoes).
+    const mudou = { ids: [] as string[], ordens: [] as number[] };
+    ids.forEach((id, i) => {
+      if (atuais.get(id) === i + 1) return;
+      mudou.ids.push(id);
+      mudou.ordens.push(i + 1);
+    });
+    if (mudou.ids.length > 0) {
+      await prisma.$executeRaw`
+        UPDATE itens SET ordem = v.ordem
+        FROM (SELECT unnest(${mudou.ids}::text[]) AS id, unnest(${mudou.ordens}::int[]) AS ordem) v
+        WHERE itens.id::text = v.id AND itens.personagem_id::text = ${personagemId}`;
+    }
     revalidatePath(`/ficha/${personagemId}`);
   });
 }

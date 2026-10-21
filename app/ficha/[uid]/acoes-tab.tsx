@@ -3,10 +3,8 @@
 import {
   Fragment,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useOptimistic,
-  useRef,
   useState,
   useTransition,
 } from "react";
@@ -25,6 +23,7 @@ import {
   aplicarDanoEmCombate,
 } from "./actions";
 import { BarraFiltros, casaBusca, pastasDe } from "./barra-filtros";
+import { useReordenar } from "@/lib/use-reordenar";
 import { useConfirmarUso } from "./usar-modal";
 import { doModelo, type ModeloView } from "@/lib/pastas";
 import { agruparFormas } from "@/lib/formas";
@@ -394,13 +393,6 @@ type Patch =
   | { kind: "reordenar"; itens: ItemArrastado[] };
 
 type ItemArrastado = { id: string; tipo: string };
-
-// Ids de cada tipo, na ordem em que aparecem.
-function idsPorTipo(lista: ItemArrastado[]): Record<string, string[]> {
-  const mapa: Record<string, string[]> = {};
-  for (const { id, tipo } of lista) (mapa[tipo] ??= []).push(id);
-  return mapa;
-}
 
 type FormState = {
   id: string | null;
@@ -830,184 +822,25 @@ export function AcoesTab({
   const acoesPorId = new Map(acoesOtimistas.map((a) => [a.id, a]));
   const { origemDe, grupoDe } = agruparFormas(acoesOtimistas);
 
-  // Reordenar arrastando (ponteiro, não o drag nativo): o card sobe e segue o
-  // cursor, o lugar dele vira um espaço marcado na grade, os outros deslizam
-  // pro novo lugar na hora e, ao soltar, o card encaixa no espaço. Arrastar pra
-  // outra categoria troca o tipo. A ordem vai pro servidor ao soltar.
-  const raizes: ItemArrastado[] = acoesOtimistas
-    .filter((a) => !origemDe(a) && !ehTemporario(a.id))
-    .map((a) => ({ id: a.id, tipo: a.tipo }));
-  const [arrasto, setArrasto] = useState<ItemArrastado[] | null>(null);
-  const arrastoRef = useRef<ItemArrastado[] | null>(null);
-  const [idArrastado, setIdArrastado] = useState<string | null>(null);
-  // Categorias abertas à força enquanto arrasta, pra todas poderem receber.
-  const arrastando = idArrastado !== null;
-
-  function guardarOrdem(lista: ItemArrastado[], antes: string) {
-    if (JSON.stringify(idsPorTipo(lista)) === antes) return;
-    startTransition(async () => {
-      aplicarPatch({ kind: "reordenar", itens: lista });
-      try {
-        exigir(await reordenarAcoes(personagemId, lista));
-      } catch (err) {
-        atualizar();
-        mostrarErro(err);
-      }
-    });
-  }
-
-  // Deslizar dos cards pro novo lugar: compara onde cada um estava (em
-  // coordenadas da página, pra rolar não contar) com onde ficou.
-  const posicoesAntes = useRef(new Map<string, { x: number; y: number }>());
-  const arrastoAnterior = useRef<ItemArrastado[] | null>(null);
-  useLayoutEffect(() => {
-    const reduz = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const novas = new Map<string, { x: number; y: number }>();
-    document.querySelectorAll<HTMLElement>(".action-card[data-arrastar-id]").forEach((el) => {
-      const id = el.dataset.arrastarId!;
-      const r = el.getBoundingClientRect();
-      const pos = { x: r.left + window.scrollX, y: r.top + window.scrollY };
-      novas.set(id, pos);
-      const antes = posicoesAntes.current.get(id);
-      if (!reduz && arrastoAnterior.current !== arrasto && antes && (antes.x !== pos.x || antes.y !== pos.y)) {
-        el.animate(
-          [{ transform: `translate(${antes.x - pos.x}px, ${antes.y - pos.y}px)` }, { transform: "translate(0, 0)" }],
-          { duration: 260, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
-        );
-      }
-    });
-    posicoesAntes.current = novas;
-    arrastoAnterior.current = arrasto;
+  // Reordenar arrastando (lib/use-reordenar.ts); arrastar pra outra categoria
+  // troca o tipo. A ordem vai pro servidor ao soltar.
+  const reordenar = useReordenar({
+    itens: acoesOtimistas
+      .filter((a) => !origemDe(a) && !ehTemporario(a.id))
+      .map((a) => ({ id: a.id, grupo: a.tipo })),
+    aoSoltar: (lista) => {
+      const itens = lista.map((x) => ({ id: x.id, tipo: x.grupo }));
+      startTransition(async () => {
+        aplicarPatch({ kind: "reordenar", itens });
+        try {
+          exigir(await reordenarAcoes(personagemId, itens));
+        } catch (err) {
+          atualizar();
+          mostrarErro(err);
+        }
+      });
+    },
   });
-
-  function iniciarArrasto(e: React.PointerEvent<HTMLElement>, id: string) {
-    if (e.pointerType === "mouse" && e.button !== 0) return;
-    const card = e.currentTarget.closest<HTMLElement>(".action-card");
-    if (!card) return;
-    const r0 = card.getBoundingClientRect();
-    const dentro = { x: e.clientX - r0.left, y: e.clientY - r0.top };
-    const inicio = { x: e.clientX, y: e.clientY };
-    const ponteiro = { x: e.clientX, y: e.clientY };
-    const antes = JSON.stringify(idsPorTipo(raizes));
-    let flutuante: HTMLElement | null = null;
-    let quadro = 0;
-    let livreEm = 0;
-
-    // Onde o cursor está: sobre outro card (antes ou depois dele, conforme a
-    // metade) ou numa categoria de outro tipo (vai pro fim dela).
-    function avaliar() {
-      const base = arrastoRef.current;
-      if (!base) return;
-      const sob = document.elementFromPoint(ponteiro.x, ponteiro.y);
-      const alvo = sob?.closest<HTMLElement>(".action-card[data-arrastar-id]");
-      let nova: ItemArrastado[] | null = null;
-      if (alvo && alvo.dataset.arrastarId !== id) {
-        const b = base.find((x) => x.id === alvo.dataset.arrastarId);
-        if (!b) return;
-        const r = alvo.getBoundingClientRect();
-        const lado = r.width < (alvo.parentElement?.clientWidth ?? 0) * 0.75;
-        const depois = lado ? ponteiro.x > r.left + r.width / 2 : ponteiro.y > r.top + r.height / 2;
-        const sem = base.filter((x) => x.id !== id);
-        const j = sem.findIndex((x) => x.id === b.id) + (depois ? 1 : 0);
-        nova = [...sem.slice(0, j), { id, tipo: b.tipo }, ...sem.slice(j)];
-      } else if (!alvo) {
-        const tipo = sob?.closest<HTMLElement>(".acoes-soltar")?.dataset.tipo;
-        const eu = base.find((x) => x.id === id);
-        if (tipo && eu && eu.tipo !== tipo) nova = [...base.filter((x) => x.id !== id), { id, tipo }];
-      }
-      if (!nova || nova.every((x, i) => x.id === base[i].id && x.tipo === base[i].tipo)) return;
-      arrastoRef.current = nova;
-      setArrasto(nova);
-      // Dá tempo dos cards deslizarem antes de reavaliar, senão eles dançam.
-      livreEm = performance.now() + 120;
-    }
-
-    function posicionar() {
-      if (flutuante) flutuante.style.transform = `translate3d(${ponteiro.x - dentro.x}px, ${ponteiro.y - dentro.y}px, 0)`;
-    }
-
-    // Rola a página quando o cursor chega perto da borda.
-    function rolar() {
-      const borda = 80;
-      const h = window.innerHeight;
-      const passo =
-        ponteiro.y < borda ? -((borda - ponteiro.y) / borda) * 18 : ponteiro.y > h - borda ? ((ponteiro.y - (h - borda)) / borda) * 18 : 0;
-      if (passo) window.scrollBy(0, passo);
-      if (passo || performance.now() >= livreEm) avaliar();
-      quadro = requestAnimationFrame(rolar);
-    }
-
-    function comecar() {
-      flutuante = card!.cloneNode(true) as HTMLElement;
-      flutuante.removeAttribute("data-arrastar-id");
-      flutuante.classList.add("acao-flutuante");
-      Object.assign(flutuante.style, { width: `${r0.width}px`, height: `${r0.height}px` });
-      document.body.appendChild(flutuante);
-      posicionar();
-      requestAnimationFrame(() => flutuante?.classList.add("levantado"));
-      document.body.classList.add("arrastando-acao");
-      arrastoRef.current = raizes;
-      setIdArrastado(id);
-      quadro = requestAnimationFrame(rolar);
-    }
-
-    function mover(ev: PointerEvent) {
-      ponteiro.x = ev.clientX;
-      ponteiro.y = ev.clientY;
-      if (!flutuante) {
-        if (Math.hypot(ev.clientX - inicio.x, ev.clientY - inicio.y) < 5) return;
-        comecar();
-      }
-      posicionar();
-      if (performance.now() >= livreEm) avaliar();
-    }
-
-    function soltar() {
-      window.removeEventListener("pointermove", mover);
-      window.removeEventListener("pointerup", soltar);
-      window.removeEventListener("pointercancel", soltar);
-      cancelAnimationFrame(quadro);
-      if (!flutuante) return;
-      const lista = arrastoRef.current;
-      const voando = flutuante;
-      // Encaixa: o card desce até o espaço dele e então vira o card de verdade.
-      const vaga = document.querySelector(`.action-card[data-arrastar-id="${id}"]`)?.getBoundingClientRect();
-      voando.classList.remove("levantado");
-      if (vaga) {
-        voando.style.transition = "transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1)";
-        voando.style.transform = `translate3d(${vaga.left}px, ${vaga.top}px, 0)`;
-      }
-      setTimeout(() => {
-        voando.remove();
-        document.body.classList.remove("arrastando-acao");
-        arrastoRef.current = null;
-        setArrasto(null);
-        setIdArrastado(null);
-        if (lista) guardarOrdem(lista, antes);
-      }, vaga ? 230 : 0);
-    }
-
-    window.addEventListener("pointermove", mover);
-    window.addEventListener("pointerup", soltar);
-    window.addEventListener("pointercancel", soltar);
-  }
-
-  // Teclado na alça: setas movem a ação um lugar dentro da categoria.
-  function moverComTeclado(e: React.KeyboardEvent, id: string) {
-    const passo = e.key === "ArrowUp" || e.key === "ArrowLeft" ? -1 : e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : 0;
-    if (!passo) return;
-    e.preventDefault();
-    const eu = raizes.find((x) => x.id === id);
-    const irmaos = raizes.filter((x) => x.tipo === eu?.tipo);
-    const vizinho = irmaos[irmaos.findIndex((x) => x.id === id) + passo];
-    if (!eu || !vizinho) return;
-    const sem = raizes.filter((x) => x.id !== id);
-    const j = sem.findIndex((x) => x.id === vizinho.id) + (passo > 0 ? 1 : 0);
-    guardarOrdem([...sem.slice(0, j), eu, ...sem.slice(j)], JSON.stringify(idsPorTipo(raizes)));
-  }
-
-  // Tipo e posição de cada ação enquanto arrasta.
-  const noArrasto = arrasto ? new Map(arrasto.map((x, i) => [x.id, { tipo: x.tipo, pos: i }])) : null;
 
   // Ação nova em andamento fica no navegador até salvar.
   const rascunhoAcao = useMemo(() => rascunho<FormState>(`rpgo:rascunho-acao:${personagemId}`), [personagemId]);
@@ -1550,11 +1383,8 @@ export function AcoesTab({
     filtro !== "todas" || !!pastaAtiva || !!tipoFiltro || !!tecnicaFiltro || !!origemFiltro || busca.trim() !== "";
   // Com filtro a lista está incompleta, então não dá pra reordenar.
   const podeArrastar = !filtrando;
-  const tipoNaTela = (a: Acao) => noArrasto?.get(a.id)?.tipo ?? a.tipo;
-  const naTela = noArrasto
-    ? visiveis.slice().sort((a, b) => (noArrasto.get(a.id)?.pos ?? 1e9) - (noArrasto.get(b.id)?.pos ?? 1e9))
-    : visiveis;
-  const tipoDoArrastado = idArrastado ? (noArrasto?.get(idArrastado)?.tipo ?? undefined) : undefined;
+  const tipoNaTela = (a: Acao) => reordenar.grupoDe(a.id, a.tipo);
+  const naTela = reordenar.ordenar(visiveis);
 
   // Modal: o que a arma decide e quando a seção de dano aparece.
   const formComArma = form.armaIds.length > 0;
@@ -1627,12 +1457,11 @@ export function AcoesTab({
             cor={grupo.cor}
             titulo={grupo.titulo}
             contagem={lista.length}
-            forcarAberta={filtrando || arrastando}
+            forcarAberta={filtrando}
+            zona={reordenar.zona(grupo.tipo)}
+            recebendo={!!reordenar.recebendo(grupo.tipo)}
           >
-            <div
-              className={`acoes-soltar${arrastando && tipoDoArrastado === grupo.tipo ? " recebendo" : ""}`}
-              data-tipo={grupo.tipo}
-            >
+            <div className="reordenar-zona" {...reordenar.zona(grupo.tipo)}>
             {lista.length > 0 ? (
               <div className="action-grid">
                 {lista.map((origem) => {
@@ -1981,11 +1810,11 @@ export function AcoesTab({
                   return (
                     <div
                       key={origem.id}
-                      className={`action-card com-copia type-${noArrasto ? tipoNaTela(origem) : acao.tipo}${travada ? " hab-travada" : ""}${
+                      className={`action-card com-copia type-${reordenar.arrastando ? tipoNaTela(origem) : acao.tipo}${travada ? " hab-travada" : ""}${
                         ehTemporario(acao.id) ? " item-pendente" : ""
-                      }${podeArrastar ? " com-alca" : ""}${idArrastado === origem.id ? " arrastando" : ""}`}
+                      }${podeArrastar ? " com-alca" : ""}${reordenar.vaga(origem.id)}`}
                       inert={ehTemporario(acao.id)}
-                      data-arrastar-id={podeArrastar && !ehTemporario(origem.id) ? origem.id : undefined}
+                      {...(podeArrastar && !ehTemporario(origem.id) ? reordenar.item(origem.id) : {})}
                     >
                       {podeArrastar && !ehTemporario(origem.id) && (
                         <button
@@ -1993,8 +1822,7 @@ export function AcoesTab({
                           className="btn-card-alca"
                           title="Arraste pra mudar a ordem ou a categoria (ou use as setas)"
                           aria-label={`Mudar ${acao.nome} de posição`}
-                          onPointerDown={(e) => iniciarArrasto(e, origem.id)}
-                          onKeyDown={(e) => moverComTeclado(e, origem.id)}
+                          {...reordenar.alca(origem.id)}
                         >
                           <i className="fas fa-grip-vertical" />
                         </button>

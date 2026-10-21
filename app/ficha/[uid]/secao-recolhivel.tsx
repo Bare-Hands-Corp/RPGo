@@ -32,6 +32,8 @@ export function SecaoRecolhivel({
   titulo,
   contagem,
   forcarAberta,
+  zona,
+  recebendo,
   children,
 }: {
   chave: string;
@@ -40,6 +42,9 @@ export function SecaoRecolhivel({
   titulo: string;
   contagem?: number;
   forcarAberta?: boolean;
+  // Recebe um item arrastado (lib/use-reordenar.ts) mesmo fechada; `recebendo` marca quando é ela.
+  zona?: object;
+  recebendo?: boolean;
   children: ReactNode;
 }) {
   const storage = `rpgo:secao:${chave}`;
@@ -60,7 +65,7 @@ export function SecaoRecolhivel({
 
   const aberta = forcarAberta || !recolhida;
   return (
-    <section className={`secao-recolhivel${aberta ? "" : " recolhida"}`}>
+    <section className={`secao-recolhivel${aberta ? "" : " recolhida"}${recebendo ? " recebendo" : ""}`} {...zona}>
       <button
         type="button"
         className="section-header secao-recolhivel-topo"

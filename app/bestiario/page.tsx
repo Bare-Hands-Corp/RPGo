@@ -33,6 +33,9 @@ export default async function BestiarioPage() {
     }),
   ]);
 
+  // Na ordem arrastada pelo narrador; ordem 0 (nunca arrastada) segue alfabética.
+  criaturas.sort((a, b) => (a.ordem || Number.MAX_SAFE_INTEGER) - (b.ordem || Number.MAX_SAFE_INTEGER));
+
   // Tipos de dano do narrador (Biblioteca), com cor e ícone, pros campos de tipo.
   const [catalogoTipos, catalogoCondicoes] = await Promise.all([
     catalogoTiposDoNarrador(user.id),

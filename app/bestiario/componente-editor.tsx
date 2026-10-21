@@ -46,6 +46,8 @@ type Props = {
   // Fechado mostra só o nome e o resumo; a lista de ações cabe na tela.
   aberto: boolean;
   onAlternar: () => void;
+  // Arrastar pra reordenar: props do item, da alça e a classe da vaga.
+  reordenar?: { item: object; alca: object; vaga: string };
   onAtualizar: (patch: Partial<ComponentePayload>) => void;
   onRemover: () => void;
 };
@@ -58,7 +60,16 @@ type Props = {
 // criação de habilidades do jogador já usa. Usado tanto no editor de
 // criatura quanto no wizard, pra não ter dois formulários fazendo a mesma
 // coisa de jeitos diferentes.
-export function ComponenteEditor({ item, condicoesDisponiveis, recursos, aberto, onAlternar, onAtualizar, onRemover }: Props) {
+export function ComponenteEditor({
+  item,
+  condicoesDisponiveis,
+  recursos,
+  aberto,
+  onAlternar,
+  onAtualizar,
+  onRemover,
+  reordenar,
+}: Props) {
   const cor = CATEGORIAS_COMPONENTE.find((c) => c.key === item.categoria)?.cor;
   const resumo = [
     ...(item.tecnica ? [textoTecnica(item)] : []),
@@ -70,10 +81,22 @@ export function ComponenteEditor({ item, condicoesDisponiveis, recursos, aberto,
   const custoAntigo = item.custo.trim() && pp === 0 ? item.custo.trim() : null;
   return (
     <div
-      className={`bestiario-componente-card${aberto ? " aberto" : ""}`}
+      className={`bestiario-componente-card${aberto ? " aberto" : ""}${reordenar?.vaga ?? ""}`}
       style={{ "--acao-cor": cor } as React.CSSProperties}
+      {...reordenar?.item}
     >
       <div className="bestiario-componente-topo">
+        {reordenar && (
+          <button
+            type="button"
+            className="btn-card-alca"
+            title="Arraste pra mudar a ordem ou o bloco (ou use as setas)"
+            aria-label={`Mudar ${item.nome || "ação"} de posição`}
+            {...reordenar.alca}
+          >
+            <i className="fas fa-grip-vertical" />
+          </button>
+        )}
         <button type="button" className="bestiario-componente-abrir" aria-expanded={aberto} onClick={onAlternar}>
           <i className="fas fa-chevron-right bestiario-componente-seta" />
           <strong>{item.nome.trim() || "(sem nome)"}</strong>
