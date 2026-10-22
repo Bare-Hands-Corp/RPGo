@@ -497,6 +497,14 @@ export function resumoRico(texto: string | null | undefined): Bloco | null {
   return null;
 }
 
+// O texto usa algum recurso da descrição rica (chip, marca, lista, título…)? Texto
+// antigo, puro, devolve false e segue com o destaque de condição de sempre.
+export function temMarcacaoRica(texto: string | null | undefined): boolean {
+  return parseDescricaoRica(texto).some(
+    (bl) => bl.b !== "p" || bl.filhos.some((n) => n.t !== "texto"),
+  );
+}
+
 export function referenciasDeRica(texto: string | null | undefined): { tipo: TipoRef; id: string }[] {
   const vistas = new Set<string>();
   const out: { tipo: TipoRef; id: string }[] = [];

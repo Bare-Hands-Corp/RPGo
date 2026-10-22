@@ -2131,3 +2131,12 @@ button.bestiario-ficha-badge-rolavel:hover {
 .bestiario-card-wrap > .btn-card-alca {
   top: 14px;
 }
+
+.bestiario-descricao-rica {
+  display: grid;
+  gap: 4px;
+}
+.bestiario-descricao-rica > span {
+  font-size: 0.8rem;
+  font-weight: 600;
+}

@@ -4,7 +4,9 @@ import { useMemo } from "react";
 import { ChipEfeito, NomesRecursoContext } from "@/app/ficha/[uid]/efeitos-editor";
 import { modificador, formatarMod } from "@/lib/op-rpg";
 import { nomeDoTamanho } from "./campos-criatura";
-import { ChipCondicao, separarCondicoes } from "./destacar-condicoes";
+import { ChipCondicao, descricaoDeCriatura } from "./destacar-condicoes";
+import { useCatalogoCondicoesCompleto } from "@/components/tipos-dano/condicoes";
+import { useCatalogoTiposCompleto } from "@/components/tipos-dano/tipos-dano";
 import { RecursoBarra } from "./recursos-editor";
 import { ChipTipoDano } from "./tipos-dano-chips";
 import { IconeTipoDano } from "@/components/tipos-dano/tipos-dano";
@@ -226,6 +228,10 @@ type Props = {
 };
 
 export function FichaCriaturaView({ criatura: c, onEditar, onFechar }: Props) {
+  // Catálogos da mesa pros chips da descrição (condição, tipo de dano).
+  const catalogoCondicoes = useCatalogoCondicoesCompleto();
+  const tiposDano = useCatalogoTiposCompleto();
+  const contextoRico = useMemo(() => ({ catalogoCondicoes, tiposDano }), [catalogoCondicoes, tiposDano]);
   const temSentidos = c.caracteristicas.percepcaoPassiva !== null || c.caracteristicas.sentidosExtras.trim() !== "";
   const temPericias = c.caracteristicas.pericias.length > 0;
   const temSalvaguardas = c.caracteristicas.salvaguardas.length > 0;
@@ -421,7 +427,7 @@ export function FichaCriaturaView({ criatura: c, onEditar, onFechar }: Props) {
                   const custo = item.custo.trim();
                   // Condições citadas no texto ficam destacadas nele; as que não
                   // aparecem viram chip no rodapé, junto dos efeitos de ficha.
-                  const { conteudo: descricao, faltantes } = separarCondicoes(item.descricao, condicoes);
+                  const { conteudo: descricao, faltantes } = descricaoDeCriatura(item.descricao, condicoes, contextoRico);
                   return (
                     <div key={item.id} className="bestiario-acao-card">
                       <div className="bestiario-acao-topo">

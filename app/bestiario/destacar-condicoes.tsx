@@ -1,6 +1,9 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { DescricaoRica } from "@/components/descricao-rica/descricao-rica";
+import type { ContextoRico } from "@/components/descricao-rica/atomos";
+import { temMarcacaoRica, usosDoCatalogo } from "@/lib/descricao-rica";
 import { Tooltip } from "@/components/tooltip";
 import { estiloAplicado, normalizarEfeitoCor } from "@/lib/estilos-cor";
 import { corDaCondicao } from "./cor-condicao";
@@ -48,6 +51,23 @@ export function separarCondicoes(
   }
 
   return { conteudo: partes, faltantes };
+}
+
+// A descrição de uma ação de criatura: texto com marcação rica vira a visualização
+// rica (as condições citadas por chip já aparecem nela); texto antigo, puro, segue
+// com o destaque pelo nome. `faltantes` são as condições escolhidas que o texto não cita.
+export function descricaoDeCriatura(
+  texto: string,
+  condicoes: CondicaoEfeito[],
+  contexto?: ContextoRico,
+): { conteudo: ReactNode; faltantes: CondicaoEfeito[] } {
+  if (!temMarcacaoRica(texto)) return separarCondicoes(texto, condicoes);
+  const citadas = usosDoCatalogo(texto).condicoes.map((n) => n.toLowerCase());
+  const doTexto = texto.toLowerCase();
+  const faltantes = condicoes.filter(
+    (c) => c.nome.trim() && !citadas.includes(c.nome.toLowerCase()) && !doTexto.includes(c.nome.toLowerCase()),
+  );
+  return { conteudo: <DescricaoRica texto={texto} contexto={contexto} />, faltantes };
 }
 
 // Versão "tudo junto": as condições que não aparecem no texto entram como

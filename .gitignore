@@ -46,11 +46,8 @@ Thumbs.db
 # ─── Vercel ─────────────────────────────────────────────────
 .vercel
 
-# ─── Claude (skills locais e config pessoal) ────────────────
-.claude/skills/
-.claude/settings.local.json
-.claude/CLAUDE.md
-.claude/credenciais-teste.md
+# ─── Claude (materiais de apoio, protótipos e config pessoal) ─
+.claude/
 
 # ─── Handoff entre sessões (artefato de sessão, não código) ─
 HANDOFF.md

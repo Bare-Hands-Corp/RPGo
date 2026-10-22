@@ -12,6 +12,9 @@ import { Segmentos, type OpcaoSegmento } from "@/app/ficha/[uid]/campos-modal";
 import { CATEGORIAS_COMPONENTE, FORMAS_AREA, META_EFEITO_ACAO, RECARGAS_ACAO, criarEfeitoAcao } from "./types";
 import type { AtributoSalvaguarda, ComponentePayload, EfeitoAcao, EfeitoAcaoTipo, FormaArea, RecargaAcao, TemplateSerializado } from "./types";
 import { NumeroInput } from "./inputs";
+import { EditorRico } from "@/components/descricao-rica/editor-rico";
+import { useCatalogoCondicoesCompleto } from "@/components/tipos-dano/condicoes";
+import { useCatalogoTiposCompleto } from "@/components/tipos-dano/tipos-dano";
 import { TiposDanoChips } from "./tipos-dano-chips";
 import { ppDoCusto, textoEfeitoAcao, textoEfeitoExtra, textoTecnica } from "./utils";
 
@@ -71,6 +74,11 @@ export function ComponenteEditor({
   reordenar,
 }: Props) {
   const cor = CATEGORIAS_COMPONENTE.find((c) => c.key === item.categoria)?.cor;
+  // Catálogos da mesa pros chips da descrição (condição, tipo de dano).
+  const catalogoCondicoes = useCatalogoCondicoesCompleto();
+  const tiposDano = useCatalogoTiposCompleto();
+  const contextoRico = useMemo(() => ({ catalogoCondicoes, tiposDano }), [catalogoCondicoes, tiposDano]);
+  const nomesCondicoes = useMemo(() => catalogoCondicoes.map((x) => x.nome), [catalogoCondicoes]);
   const resumo = [
     ...(item.tecnica ? [textoTecnica(item)] : []),
     ...item.efeitos.map(textoEfeitoAcao).filter((t): t is string => t !== null),
@@ -181,14 +189,16 @@ export function ComponenteEditor({
             onChange={(efeitosExtras) => onAtualizar({ efeitosExtras })}
           />
 
-          <label>
-            Descrição
-            <textarea
-              className="bestiario-textarea-descricao"
-              value={item.descricao}
-              onChange={(e) => onAtualizar({ descricao: e.target.value })}
+          <div className="bestiario-descricao-rica">
+            <span>Descrição</span>
+            <EditorRico
+              valor={item.descricao}
+              onChange={(t) => onAtualizar({ descricao: t })}
+              condicoes={nomesCondicoes}
+              contexto={contextoRico}
+              placeholder="Descreva a ação… (@ insere, / blocos)"
             />
-          </label>
+          </div>
         </>
       )}
     </div>
