@@ -29,6 +29,9 @@ import {
   ATRIBUTOS,
   META_EFEITOS,
   bonusAtaqueTecnica,
+  bonusProficiencia,
+  formatarMod,
+  modificador,
   cdTecnica,
   efeitosDuram,
   nomeDoEfeito,
@@ -171,6 +174,20 @@ function textoDano(dados: Dado[], mod: number): string {
   return mod ? `${t} ${mod > 0 ? "+" : "-"} ${Math.abs(mod)}` : t;
 }
 
+// "2d6+FOR+1" → uma linha por parcela: dados como estão, siglas e fórmulas com o valor da ficha.
+function parcelasDoDano(formula: string, ficha: FichaDeTeste, grau?: number): string[] {
+  const termos = formula.match(/[+-]?\s*[^+-]+/g) ?? [];
+  return termos.map((t) => {
+    const limpo = t.replace(/\s+/g, "");
+    const sinal = limpo.startsWith("-") ? "-" : "";
+    const corpo = limpo.replace(/^[+-]/, "");
+    if (/^\d*d\d+$/i.test(corpo)) return `Dados: ${sinal}${corpo}`;
+    if (/^\d+$/.test(corpo)) return `Fixo: ${formatarMod(sinal === "-" ? -Number(corpo) : Number(corpo))}`;
+    const v = resolverFormula(corpo, ficha.atributos, ficha.nivel, { grau }).modificador;
+    return `${corpo}: ${sinal === "-" ? formatarMod(-v) : formatarMod(v)}`;
+  });
+}
+
 // Os números do card como a ficha mostra: acerto e CD com a ficha real, dano
 // resolvido ("2d6+FOR" vira "2d6+3") e rolável.
 function dadosDoCard(a: AcaoDeTeste, duracao: Duracao | null, ficha: FichaDeTeste): DadosCard {
@@ -192,6 +209,21 @@ function dadosDoCard(a: AcaoDeTeste, duracao: Duracao | null, ficha: FichaDeTest
     acerto: atqAttr ? bonusAtaqueTecnica({ nivel: ficha.nivel, valorAtributo: ficha.atributos[atqAttr] ?? 10 }) : undefined,
     dano: rol && rol.dados.length > 0 ? textoDano(rol.dados, rol.modificador) : d?.formula,
     rolagemDano: rol && rol.dados.length > 0 ? rol : undefined,
+    dicaAcerto: atqAttr
+      ? [
+          `Proficiência: ${formatarMod(bonusProficiencia(ficha.nivel))}`,
+          `${siglaAtributo(atqAttr)}: ${formatarMod(modificador(ficha.atributos[atqAttr] ?? 10))}`,
+        ]
+      : undefined,
+    dicaDano: d ? parcelasDoDano(d.formula, ficha, grau) : undefined,
+    dicaCd:
+      a.atributoSalv && cd != null && ficha.atributoCd
+        ? [
+            "Base: 8",
+            `Proficiência: ${formatarMod(bonusProficiencia(ficha.nivel))}`,
+            `${siglaAtributo(ficha.atributoCd)}: ${formatarMod(modificador(ficha.atributos[ficha.atributoCd as Atributo] ?? 10))}`,
+          ]
+        : undefined,
     tipoDano: d?.tipo?.toLowerCase(),
     cd: a.atributoSalv && cd != null ? `Salv ${siglaAtributo(a.atributoSalv)} CD ${cd}` : undefined,
     alcance: a.alcance ?? undefined,

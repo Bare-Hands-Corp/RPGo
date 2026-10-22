@@ -37,7 +37,11 @@ import {
   type OrigemHabilidade,
   type TipoHabilidade,
 } from "@/lib/op-rpg";
-import { DescricaoRecolhivel } from "./descricao-recolhivel";
+import { DescricaoCard } from "@/components/descricao-rica/descricao-card";
+import type { ContextoRico } from "@/components/descricao-rica/atomos";
+import { usosDoCatalogo } from "@/lib/descricao-rica";
+import { CardMeta } from "@/components/card-meta";
+import { contextoDaAcao, useContextoRico } from "./contexto-rico";
 import { SecaoRecolhivel } from "./secao-recolhivel";
 import { Tooltip } from "@/components/tooltip";
 import { SeletorUnico } from "./seletor-multiplo";
@@ -141,6 +145,10 @@ type Props = {
   efeitosAgregados: EfeitosAgregados;
   /** Graus das técnicas do personagem (GRAU nos chips). */
   grausTecnicas: number[];
+  /** Ações da ficha (as descrições citam `[[acao:…]]`). */
+  acoes: { id: string; nome: string; tipo: string; tecnica: boolean; grau: number }[];
+  /** Atributo da CD das técnicas (o chip de salvaguarda sem CD usa). */
+  atributoCdTecnicas: string | null;
 };
 
 type Patch =
@@ -244,8 +252,20 @@ export function HabilidadesTab({
   tripulantes,
   efeitosAgregados,
   grausTecnicas,
+  acoes,
+  atributoCdTecnicas,
 }: Props) {
   const travadasSet = useMemo(() => new Set(travadas), [travadas]);
+  // Contexto dos chips da descrição: o que vale pra ficha inteira, montado uma vez.
+  const { ficha: fichaRica, base: contextoBaseRico } = useContextoRico({
+    nivel,
+    atributos,
+    atributoCd: atributoCdTecnicas,
+    acoes,
+    habilidades,
+    itens,
+    recursos,
+  });
   const alvo = useEscolherAlvo(tripulantes, personagemId);
   const nomeDoTripulante = (id: string | null) => tripulantes.find((t) => t.id === id)?.nome;
   const [otimistas, aplicar] = useOptimistic(habilidades, aplicarPatch);
@@ -790,6 +810,8 @@ export function HabilidadesTab({
         recursoNomePorId={recursoNomePorId}
         atributos={atributos}
         nivel={nivel}
+        fichaRica={fichaRica}
+        contextoBaseRico={contextoBaseRico}
         nomeDoAlvo={nomeDoTripulante(h.alvoPersonagemId)}
         turnosRestantes={turnosDe(h)}
         onEdit={() => abrirEdit(h)}
@@ -956,6 +978,8 @@ function CardHabilidade({
   recursoNomePorId,
   atributos,
   nivel,
+  fichaRica,
+  contextoBaseRico,
   nomeDoAlvo,
   turnosRestantes,
   onEdit,
@@ -984,6 +1008,9 @@ function CardHabilidade({
   recursoNomePorId: Map<string, string>;
   atributos: Record<Atributo, number>;
   nivel: number;
+  // Ficha e contexto dos chips da descrição (montados uma vez na aba).
+  fichaRica: Parameters<typeof contextoDaAcao>[1];
+  contextoBaseRico: ContextoRico;
   // Aliado em que está ligada.
   nomeDoAlvo?: string;
   // Ligada com duração em turnos: quanto falta.
@@ -1002,6 +1029,10 @@ function CardHabilidade({
   const efeitos = lerEfeitos(habilidade.efeitos);
   // O "a cada turno" aparece junto da duração.
   const chips = efeitos.filter((e) => e.tipo !== "por_turno");
+  // A descrição rica cita os efeitos no próprio texto; o que ela não cita continua
+  // aparecendo como chip (texto antigo, sem chips, não perde nada).
+  const efeitosCitados = usosDoCatalogo(habilidade.descricao).efeitos;
+  const chipsNaoCitados = chips.filter((e) => !efeitosCitados.includes(e.tipo));
   // Concedida por item: só vale com ele equipado.
   const travadaPorItem = !!habilidade.itemId && !itemOrigem?.equipado;
   const bloqueada = travada || travadaPorItem;
@@ -1070,7 +1101,7 @@ function CardHabilidade({
 
   return (
     <div
-      className={`action-card com-copia ${tipoClass}${ligadaAtiva ? " hab-card-ligada" : ""}${
+      className={`action-card card2 com-copia ${tipoClass}${ligadaAtiva ? " hab-card-ligada" : ""}${
         bloqueada ? " hab-travada" : ""
       }${pendente ? " item-pendente" : ""}${reordenar?.vaga ?? ""}`}
       inert={pendente}
@@ -1150,67 +1181,79 @@ function CardHabilidade({
             ))}
           </div>
         )}
-        <div className="acao-stats">
-          {tipoMeta && (
-            <span className="acao-stat" style={{ color: tipoMeta.cor }}>
-              <i className={`fas ${tipoMeta.icone}`} /> {tipoMeta.nome}
-            </span>
-          )}
-          {usosMax != null && (
-            <Tooltip
-              titulo="Usos"
-              icone="fa-bolt-lightning"
-              texto={habilidade.usosFormula ? `Máximo: ${habilidade.usosFormula}` : undefined}
-            >
-              <span className="acao-stat">
-                <i className="fas fa-bolt-lightning" /> {habilidade.usosAtual ?? usosMax}/{usosMax}
+        <CardMeta
+          itens={[
+            ...custos.map((c, i) => (
+              <span key={`c${i}`} className="card2-custo">
+                {c}
               </span>
-            </Tooltip>
-          )}
-          {habilidade.recarga && (
-            <span className="acao-stat">
-              <i className="fas fa-rotate" />{" "}
-              {RECARGAS_HABILIDADE.find((r) => r.slug === habilidade.recarga)?.nome ??
-                habilidade.recarga}
-            </span>
-          )}
-          {textoDuracao(lerDuracao(habilidade.duracao)) && (
-            <Tooltip
-              titulo="Duração"
-              icone="fa-hourglass-half"
-              texto={ligadaAtiva && turnosRestantes != null ? (textoDuracao(lerDuracao(habilidade.duracao)) ?? undefined) : undefined}
-            >
-              <span className="acao-stat">
-                <i className="fas fa-hourglass-half" />{" "}
-                {ligadaAtiva && turnosRestantes != null
-                  ? textoTurnosRestantes(turnosRestantes)
-                  : textoDuracao(lerDuracao(habilidade.duracao))}
+            )),
+            tipoMeta && (
+              <span key="tipo" style={{ color: tipoMeta.cor }}>
+                <i className={`fas ${tipoMeta.icone}`} /> {tipoMeta.nome}
               </span>
-            </Tooltip>
-          )}
-          <StatsPorTurno efeitos={efeitos} />
-          {habilidade.aliado && (
-            <span className="acao-stat acao-aliado">
-              <i className="fas fa-hand-holding-heart" />{" "}
-              {ligadaAtiva && nomeDoAlvo ? `em ${nomeDoAlvo}` : "Em aliado"}
-            </span>
-          )}
-          {itemOrigem && !travadaPorItem && (
-            <span className="acao-stat">
-              <i className={`fas ${habilidade.itemUsa ? "fa-khanda" : "fa-sack-dollar"}`} />{" "}
-              {habilidade.itemUsa ? "Usa" : "Vem de"} {itemOrigem.nome}
-            </span>
-          )}
-        </div>
+            ),
+            textoDuracao(lerDuracao(habilidade.duracao)) && (
+              <Tooltip
+                key="dur"
+                titulo="Duração"
+                icone="fa-hourglass-half"
+                texto={ligadaAtiva && turnosRestantes != null ? (textoDuracao(lerDuracao(habilidade.duracao)) ?? undefined) : undefined}
+              >
+                <span>
+                  <i className="fas fa-hourglass-half" />{" "}
+                  {ligadaAtiva && turnosRestantes != null
+                    ? textoTurnosRestantes(turnosRestantes)
+                    : textoDuracao(lerDuracao(habilidade.duracao))}
+                </span>
+              </Tooltip>
+            ),
+            habilidade.aliado && (
+              <span key="ali" className="acao-aliado">
+                <i className="fas fa-hand-holding-heart" />{" "}
+                {ligadaAtiva && nomeDoAlvo ? `em ${nomeDoAlvo}` : "Em aliado"}
+              </span>
+            ),
+            itemOrigem && !travadaPorItem && (
+              <span key="item">
+                <i className={`fas ${habilidade.itemUsa ? "fa-khanda" : "fa-sack-dollar"}`} />{" "}
+                {habilidade.itemUsa ? "Usa" : "Vem de"} {itemOrigem.nome}
+              </span>
+            ),
+          ]}
+        />
+        {(usosMax != null || habilidade.recarga || efeitos.some((e) => e.tipo === "por_turno")) && (
+          <div className="acao-stats card2-estado">
+            {usosMax != null && (
+              <Tooltip
+                titulo="Usos"
+                icone="fa-bolt-lightning"
+                texto={habilidade.usosFormula ? `Máximo: ${habilidade.usosFormula}` : undefined}
+              >
+                <span className="acao-stat">
+                  <i className="fas fa-bolt-lightning" /> {habilidade.usosAtual ?? usosMax}/{usosMax}
+                </span>
+              </Tooltip>
+            )}
+            {habilidade.recarga && (
+              <span className="acao-stat">
+                <i className="fas fa-rotate" />{" "}
+                {RECARGAS_HABILIDADE.find((r) => r.slug === habilidade.recarga)?.nome ??
+                  habilidade.recarga}
+              </span>
+            )}
+            <StatsPorTurno efeitos={efeitos} />
+          </div>
+        )}
         {bloqueada && (
           <div className="hab-travada-nota">
             <i className="fas fa-lock" /> Habilidade travada ·{" "}
             {travadaPorItem ? `equipe ${itemOrigem?.nome ?? "o item"}` : "talento não liberado"}
           </div>
         )}
-        {chips.length > 0 && (
+        {chipsNaoCitados.length > 0 && (
           <div className="efeito-chips">
-            {chips.map((e, i) => (
+            {chipsNaoCitados.map((e, i) => (
               <ChipEfeito
                 key={i}
                 efeito={e}
@@ -1220,21 +1263,24 @@ function CardHabilidade({
           </div>
         )}
         <PassosProgressivos efeitos={efeitos} onChange={onEfeitos} travado={bloqueada} />
-        <DescricaoRecolhivel texto={habilidade.descricao} />
+        <DescricaoCard
+          texto={habilidade.descricao}
+          contexto={contextoDaAcao(
+            contextoBaseRico,
+            fichaRica,
+            { nome: habilidade.nome, tecnica: false, grau: 0 },
+            efeitos,
+            lerDuracao(habilidade.duracao),
+          )}
+        />
       </div>
 
-      {(custos.length > 0 ||
-        tags.length > 0 ||
+      {(tags.length > 0 ||
         !!habilidade.pasta ||
         mostrarUsar ||
         mostrarToggle ||
         rolagens.length > 0) && (
         <div className="card-tags">
-          {custos.map((c, i) => (
-            <span key={`c${i}`} className="tag tag-custo">
-              {c}
-            </span>
-          ))}
           {tags.map((t, i) => (
             <TagChip key={`t${i}`} nome={t} estilo={estilosTag[t]} />
           ))}

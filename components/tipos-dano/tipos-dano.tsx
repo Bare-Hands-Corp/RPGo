@@ -23,6 +23,11 @@ export function useCatalogoTipos(): string[] {
   return useMemo(() => catalogo.map((t) => t.nome), [catalogo]);
 }
 
+// O catálogo inteiro (cor, ícone, efeito), pra quem monta a cara do chip por conta própria.
+export function useCatalogoTiposCompleto(): TipoDanoCatalogo[] {
+  return useContext(CatalogoTiposContext);
+}
+
 // Ícone do tipo na cor que o narrador deu; nada pra tipo fora do catálogo ou sem ícone.
 export function IconeTipoDano({ tipo }: { tipo: string }) {
   const entrada = tipoNoCatalogo(useContext(CatalogoTiposContext), tipo);

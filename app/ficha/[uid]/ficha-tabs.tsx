@@ -251,6 +251,8 @@ export function FichaTabs({
           tripulantes={alvos}
           efeitosAgregados={efeitosAgregados}
           grausTecnicas={grausTecnicas}
+          acoes={acoes}
+          atributoCdTecnicas={atributoCdTecnicas}
         />
       </div>
 

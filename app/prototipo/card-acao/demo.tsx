@@ -54,6 +54,10 @@ export type DadosCard = {
   cdNaDescricao?: boolean;
   // Rolagens já resolvidas com a ficha (a fórmula "2d6+FOR" não se rola crua).
   rolagemDano?: { dados: Dado[]; modificador: number };
+  // Decomposição dos números, uma linha por parcela (aparece na dica de cada chip).
+  dicaAcerto?: string[];
+  dicaDano?: string[];
+  dicaCd?: string[];
 };
 
 const TEXTO_TECNICA =
@@ -345,7 +349,7 @@ export function CardCompacto({
       <CardMeta itens={meta} />
       <CardNumeros>
         {d.acerto != null && (
-          <Tooltip titulo="Acerto" icone="fa-crosshairs" texto="Clique para empilhar no Rolador">
+          <Tooltip titulo="Acerto" icone="fa-crosshairs" texto={[...(d.dicaAcerto ?? []), "Clique para empilhar no Rolador"]}>
             <CardNumero aoRolar={rolarAcerto}>
               <i className="fas fa-crosshairs" /> <strong>+{d.acerto}</strong>
             </CardNumero>
@@ -355,7 +359,7 @@ export function CardCompacto({
           <Tooltip
             titulo={`Dano${tipoDano ? ` ${tipoDano.nome}` : ""}`}
             icone={tipoDano?.icone ?? "fa-burst"}
-            texto="Clique para empilhar no Rolador"
+            texto={[...(d.dicaDano ?? []), "Clique para empilhar no Rolador"]}
           >
             <CardNumero aoRolar={rolarDano}>
               <i className={`fas ${tipoDano?.icone ?? "fa-burst"}`} style={tipoDano?.cor ? { color: tipoDano.cor } : undefined} />{" "}
@@ -364,7 +368,7 @@ export function CardCompacto({
           </Tooltip>
         )}
         {cd && (
-          <Tooltip titulo="Salvaguarda" icone="fa-shield-alt" texto={cd}>
+          <Tooltip titulo="Salvaguarda" icone="fa-shield-alt" texto={d.dicaCd ?? cd}>
             <CardNumero>
               <i className="fas fa-shield-alt" /> <strong>{cd.replace("Salv ", "").replace(" CD ", " ")}</strong>
             </CardNumero>

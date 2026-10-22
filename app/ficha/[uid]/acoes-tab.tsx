@@ -125,7 +125,11 @@ import { AcoesDoTurno, EVENTO_CD_TECNICAS } from "./acoes-do-turno";
 import { useEscolherAlvo } from "./escolher-alvo";
 import { useEscolherAlvosCombate } from "./escolher-alvos-combate";
 import type { Tripulante } from "./tripulacao-tab";
-import { DescricaoRecolhivel } from "./descricao-recolhivel";
+import { DescricaoCard } from "@/components/descricao-rica/descricao-card";
+import { usosDoCatalogo } from "@/lib/descricao-rica";
+import { CardMeta } from "@/components/card-meta";
+import { CardNumeros } from "@/components/card-numeros";
+import { contextoDaAcao, useContextoRico } from "./contexto-rico";
 import { SecaoRecolhivel } from "./secao-recolhivel";
 import { rascunho } from "./rascunho";
 import { Tooltip } from "@/components/tooltip";
@@ -1368,6 +1372,20 @@ export function AcoesTab({
   // Pastas da ficha: filtro e busca.
   const pastas = pastasDe(acoesOtimistas);
   const nomesDasPastas = pastas.map((p) => p.nome);
+  // Contexto dos chips da descrição: o que vale pra ficha inteira, montado uma vez.
+  const acoesRicas = useMemo(
+    () => acoes.map((x) => ({ id: x.id, nome: x.nome, tipo: x.tipo, tecnica: x.tecnica, grau: x.grau })),
+    [acoes],
+  );
+  const { ficha: fichaRica, base: contextoBaseRico } = useContextoRico({
+    nivel,
+    atributos,
+    atributoCd: cdPadrao || null,
+    acoes: acoesRicas,
+    habilidades,
+    itens,
+    recursos,
+  });
   const pastaAtiva = pastas.some((p) => p.nome === pastaFiltro) ? pastaFiltro : null;
   const casaFiltros = (a: Acao) =>
     (!tipoFiltro || a.tipo === tipoFiltro) &&
@@ -1710,6 +1728,10 @@ export function AcoesTab({
                   const duracaoTexto = textoDuracao(lerDuracao(acao.duracao));
                   const temPorTurno = efeitosAcao.some((e) => e.tipo === "por_turno");
                   const chipsAcao = efeitosAcao.filter((e) => e.tipo !== "por_turno");
+                  // A descrição rica cita os efeitos no próprio texto; o que ela não cita
+                  // continua aparecendo como chip (texto antigo, sem chips, não perde nada).
+                  const efeitosCitados = usosDoCatalogo(acao.descricao).efeitos;
+                  const chipsNaoCitados = chipsAcao.filter((e) => !efeitosCitados.includes(e.tipo));
                   // Tipo escolhido que o texto do dano ainda não diz.
                   const tipoNoChip =
                     acao.tipoDano && !tiposDoDano(acao.dano ?? "").some((t) => mesmoTipo(t, acao.tipoDano!))
@@ -1810,7 +1832,7 @@ export function AcoesTab({
                   return (
                     <div
                       key={origem.id}
-                      className={`action-card com-copia type-${reordenar.arrastando ? tipoNaTela(origem) : acao.tipo}${travada ? " hab-travada" : ""}${
+                      className={`action-card card2 com-copia type-${reordenar.arrastando ? tipoNaTela(origem) : acao.tipo}${travada ? " hab-travada" : ""}${
                         ehTemporario(acao.id) ? " item-pendente" : ""
                       }${podeArrastar ? " com-alca" : ""}${reordenar.vaga(origem.id)}`}
                       inert={ehTemporario(acao.id)}
@@ -1885,24 +1907,68 @@ export function AcoesTab({
                             </span>
                           </div>
                         )}
-                        {(bonusAtq != null || cd != null || atributoSalv || acao.dano || acao.alcance || alcancesAcao.length > 0 || golpes.length > 0 || acao.tecnica || duracaoTexto || temPorTurno || usosMax != null) && (
-                          <div className="acao-stats">
-                            {acao.tecnica && (
-                              <span className="acao-stat acao-tecnica">
-                                <i className="fas fa-wand-magic-sparkles" /> Técnica
-                                {acao.grau > 0 ? ` ${acao.grau}º grau` : ""}
+                        <CardMeta
+                          itens={[
+                            ...custos.map((c, i) => (
+                              <TagChip
+                                key={`c${i}`}
+                                nome={c.texto}
+                                estilo={c.estilo}
+                                classePadrao="card2-custo"
+                                title={c.titulo}
+                              />
+                            )),
+                            acao.tecnica && (
+                              <span
+                                key="tec"
+                                className="card2-grau"
+                                title={acao.grau > 0 ? `Técnica de ${acao.grau}º grau` : "Técnica"}
+                              >
+                                {acao.grau > 0 ? `${acao.grau}º` : "Técnica"}
                               </span>
-                            )}
-                            {duracaoTexto && (
-                              <span className="acao-stat">
-                                <i className="fas fa-hourglass-half" /> {duracaoTexto}
-                              </span>
-                            )}
-                            {acao.tipo === "react" && acao.gatilho && (
-                              <span className="acao-stat" title="Gatilho da reação">
+                            ),
+                            acao.tipo === "react" && acao.gatilho && (
+                              <span key="gat" title="Gatilho da reação">
                                 <i className="fas fa-bell" /> {textoGatilho(lerGatilho(acao.gatilho))}
                               </span>
-                            )}
+                            ),
+                            duracaoTexto && lerDuracao(acao.duracao)?.unidade !== "instantanea" && (
+                              <span key="dur">
+                                <i className="fas fa-hourglass-half" /> {duracaoTexto}
+                              </span>
+                            ),
+                            (acao.alcance || alcancesAcao.length > 0) && (
+                              <Tooltip
+                                key="alc"
+                                titulo="Alcance"
+                                icone="fa-ruler-horizontal"
+                                texto={
+                                  alcancesAcao.length
+                                    ? `de ${[...new Set(alcancesAcao.map((a) => a.fonte))].join(", ")}`
+                                    : undefined
+                                }
+                              >
+                                <span>
+                                  <i className="fas fa-ruler-horizontal" /> {normalizarAlcance(alcanceVira ?? acao.alcance ?? "")}
+                                  {alcanceSoma !== 0 ? ` ${formatarMod(alcanceSoma)} m` : ""}
+                                  {alcancesAcao.length > 0 && <i className="fas fa-link prof-fonte" />}
+                                </span>
+                              </Tooltip>
+                            ),
+                            efeitosAcao.some((e) => efeitoNoAliado(e, acao)) && (
+                              <span key="ali" className="acao-aliado">
+                                <i className="fas fa-hand-holding-heart" /> Em aliado
+                              </span>
+                            ),
+                            lerAlvoAcao(acao) === "qualquer" && (
+                              <span key="qq">
+                                <i className="fas fa-users" /> Qualquer criatura
+                              </span>
+                            ),
+                          ]}
+                        />
+                        {(emCursoAgora || temPorTurno || usosMax != null) && (
+                          <div className="acao-stats card2-estado">
                             {emCursoAgora && (
                               <span className="acao-stat acao-em-curso">
                                 <i className="fas fa-circle-play" /> Em curso
@@ -1933,16 +1999,9 @@ export function AcoesTab({
                                   acao.recarga}
                               </span>
                             )}
-                            {lerEfeitos(acao.efeitos).some((e) => efeitoNoAliado(e, acao)) && (
-                              <span className="acao-stat acao-aliado">
-                                <i className="fas fa-hand-holding-heart" /> Em aliado
-                              </span>
-                            )}
-                            {lerAlvoAcao(acao) === "qualquer" && (
-                              <span className="acao-stat">
-                                <i className="fas fa-users" /> Qualquer criatura
-                              </span>
-                            )}
+                          </div>
+                        )}
+                        <CardNumeros>
                             {/* Um chip de acerto por arma equipada; sem arma, o cálculo da técnica. */}
                             {golpes.length > 0
                               ? golpes.map(({ arma, atq, municao, semMunicao }) =>
@@ -1961,7 +2020,7 @@ export function AcoesTab({
                                     <button
                                       type="button"
                                       disabled={travada || semMunicao}
-                                      className={`acao-stat acao-rolar ${esperaAcerto ? "esperando" : ""} ${penD20 > 0 || (atq.atributo === "destreza" && desReduz) ? "valor-exausto" : ""}`}
+                                      className={`card2-num card2-rolar acao-rolar ${esperaAcerto ? "esperando" : ""} ${penD20 > 0 || (atq.atributo === "destreza" && desReduz) ? "valor-exausto" : ""}`}
                                       onClick={() => {
                                         const golpe = golpes.find((g) => g.arma.id === arma.id) ?? null;
                                         if (pendente && esperaAcerto) {
@@ -1995,7 +2054,7 @@ export function AcoesTab({
                                   <button
                                     type="button"
                                     disabled={travada}
-                                    className={`acao-stat acao-rolar ${esperaAcerto ? "esperando" : ""} ${penD20 > 0 || desReduzAtq ? "valor-exausto" : ""}`}
+                                    className={`card2-num card2-rolar acao-rolar ${esperaAcerto ? "esperando" : ""} ${penD20 > 0 || desReduzAtq ? "valor-exausto" : ""}`}
                                     onClick={() => {
                                       if (pendente && esperaAcerto) pedirAtaque(pendente.id, acao, resolve);
                                       else empilharAcerto(null);
@@ -2031,7 +2090,7 @@ export function AcoesTab({
                                 {rolar ? (
                                 <button
                                   type="button"
-                                  className={`acao-stat acao-rolar${acertosPendentes.length > 0 ? " esperando" : ""}`}
+                                  className={`card2-num card2-rolar acao-rolar${acertosPendentes.length > 0 ? " esperando" : ""}`}
                                   onClick={() => {
                                     if (pendente && acertosPendentes.length > 0) {
                                       pedirDano(
@@ -2054,14 +2113,14 @@ export function AcoesTab({
                                   {miolo}
                                 </button>
                                 ) : (
-                                  <span className="acao-stat">{miolo}</span>
+                                  <span className="card2-num">{miolo}</span>
                                 )}
                                 </Tooltip>
                               );
                             })}
                             {danosExtras.map((e, i) => (
                               <Tooltip key={`x${i}`} titulo="Dano extra" icone="fa-plus" texto="Rolado à parte, junto com o dano">
-                                <span className="acao-stat">
+                                <span className="card2-num">
                                   <i className="fas fa-plus" /> {e.formula}
                                   {e.tipo ? ` ${e.tipo.toLowerCase()}` : ""}
                                 </span>
@@ -2073,39 +2132,21 @@ export function AcoesTab({
                                 icone="fa-shield-alt"
                                 texto={fontesCd.length ? `${formatarMod(extraCd)} de ${fontesCd.join(", ")}` : undefined}
                               >
-                                <span className="acao-stat">
+                                <span className="card2-num">
                                   <i className="fas fa-shield-alt" /> Salv {SIGLA[atributoSalv]} CD <strong>{cd}</strong>
                                   {fontesCd.length > 0 && <i className="fas fa-link prof-fonte" />}
                                 </span>
                               </Tooltip>
                             )}
-                            {(acao.alcance || alcancesAcao.length > 0) && (
-                              <Tooltip
-                                titulo="Alcance"
-                                icone="fa-ruler-horizontal"
-                                texto={
-                                  alcancesAcao.length
-                                    ? `de ${[...new Set(alcancesAcao.map((a) => a.fonte))].join(", ")}`
-                                    : undefined
-                                }
-                              >
-                                <span className="acao-stat">
-                                  <i className="fas fa-ruler-horizontal" /> {normalizarAlcance(alcanceVira ?? acao.alcance ?? "")}
-                                  {alcanceSoma !== 0 ? ` ${formatarMod(alcanceSoma)} m` : ""}
-                                  {alcancesAcao.length > 0 && <i className="fas fa-link prof-fonte" />}
-                                </span>
-                              </Tooltip>
-                            )}
-                          </div>
-                        )}
+                        </CardNumeros>
                         {travada && (
                           <div className="hab-travada-nota">
                             <i className="fas fa-lock" /> Ação travada · equipe {itemOrigem?.nome ?? "o item"}
                           </div>
                         )}
-                        {chipsAcao.length > 0 && (
+                        {chipsNaoCitados.length > 0 && (
                           <div className="efeito-chips">
-                            {chipsAcao.map((e, i) => (
+                            {chipsNaoCitados.map((e, i) => (
                               <ChipEfeito
                                 key={i}
                                 efeito={e}
@@ -2121,19 +2162,13 @@ export function AcoesTab({
                           travado={travada}
                           grau={acao.tecnica && acao.grau > 0 ? acao.grau : undefined}
                         />
-                        <DescricaoRecolhivel texto={acao.descricao} />
+                        <DescricaoCard
+                          texto={acao.descricao}
+                          contexto={contextoDaAcao(contextoBaseRico, fichaRica, acao, efeitosAcao, lerDuracao(acao.duracao))}
+                        />
                       </div>
-                      {(custos.length > 0 || podeUsar || acao.tag || acao.pasta || origens.length > 0 || armasDaAcao.length > 0) && (
+                      {(podeUsar || emCursoAgora || acao.tag || acao.pasta || origens.length > 0 || armasDaAcao.length > 0) && (
                         <div className="card-tags">
-                          {custos.map((c, i) => (
-                            <TagChip
-                              key={i}
-                              nome={c.texto}
-                              estilo={c.estilo}
-                              classePadrao="tag tag-custo"
-                              title={c.titulo}
-                            />
-                          ))}
                           {podeUsar && (
                             <button
                               type="button"

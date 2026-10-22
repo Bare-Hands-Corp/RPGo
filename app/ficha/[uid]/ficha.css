@@ -8947,3 +8947,13 @@ form > .turno-campo,
   text-overflow: ellipsis;
 }
 .card2 .desc-chip-nome { flex: none; }
+
+/* Em curso, usos e por turno: linha própria, só quando existe. */
+.card2 .card2-estado {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+}
+.card2 > .card-tags {
+  margin-top: auto;
+  padding-top: 8px;
+}

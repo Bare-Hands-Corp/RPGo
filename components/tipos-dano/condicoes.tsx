@@ -26,6 +26,11 @@ export function CatalogoCondicoesProvider({
   return <CatalogoCondicoesContext.Provider value={condicoes}>{children}</CatalogoCondicoesContext.Provider>;
 }
 
+// O catálogo inteiro (cor, efeito, mecânica), pra quem monta a cara do chip por conta própria.
+export function useCatalogoCondicoesCompleto(): CondicaoCatalogo[] {
+  return useContext(CatalogoCondicoesContext);
+}
+
 // Nomes das condições, na ordem do catálogo.
 export function useCatalogoCondicoes(): string[] {
   const catalogo = useContext(CatalogoCondicoesContext);
