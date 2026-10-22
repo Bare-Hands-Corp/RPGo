@@ -8848,3 +8848,102 @@ form > .turno-campo,
   background: var(--bg-surface);
   color: var(--text-main);
 }
+
+/* ─── Card compacto (ação e habilidade) ─────────────────────── */
+.action-card.card2 {
+  min-height: 0;
+  justify-content: flex-start;
+  gap: 0;
+  padding: 12px 14px;
+}
+.card2-topo {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.card2-topo .card-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  line-height: 1.25;
+}
+.card2-topo .hab-usar {
+  flex: none;
+  margin-left: 0;
+}
+/* Micro-especificações: uma linha de texto discreto, pontos entre os itens. */
+.card2-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1px 0;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--text-sec);
+}
+.card2-sep { margin: 0 7px; opacity: 0.6; font-weight: 700; }
+.card2-meta i { margin-right: 2px; font-size: 0.85em; opacity: 0.8; }
+.card2-custo { color: var(--highlight); font-weight: 700; }
+/* O grau: único selo da linha, reconhecível pelo símbolo. */
+.card2-grau {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: color-mix(in oklch, var(--color-power) 18%, transparent);
+  color: var(--color-power);
+  font-weight: 800;
+  line-height: 1.5;
+}
+/* Faixa dos números que se rolam: acerto, dano, salvaguarda. */
+.card2-nums {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin-top: 8px;
+}
+.card2-num {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: color-mix(in oklch, var(--text-main) 6%, transparent);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 0.84rem;
+  font-variant-numeric: tabular-nums;
+}
+.card2-num i { font-size: 0.8em; color: var(--text-sec); }
+.card2-num small { font-size: 0.72rem; color: var(--text-sec); }
+.card2-rolar { cursor: pointer; }
+.card2-rolar:hover {
+  border-color: color-mix(in srgb, var(--primary) 40%, transparent);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+}
+.card2 .card-desc-rica {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+.card2-pe {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 0.72rem;
+  font-style: italic;
+  color: var(--text-sec);
+}
+.card2-pe .hab-usar { margin-left: auto; font-style: normal; }
+
+
+/* Na descrição do card o chip nunca passa da largura: o que sobra do valor vira
+   reticências (a dica mostra completo). Chip curto fica como sempre. */
+.card2 .desc-chip { max-width: 100%; }
+.card2 .desc-chip-detalhe {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.card2 .desc-chip-nome { flex: none; }

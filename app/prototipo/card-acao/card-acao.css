@@ -1,0 +1,58 @@
+/* Só a página de demonstração do card; o card em si usa o CSS real da ficha. */
+.demo-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px;
+  color: var(--text-main);
+}
+.demo-card-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.demo-card h1 { font-size: 1.25rem; }
+.demo-card h2 {
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-sec);
+}
+.demo-card h3 { margin-bottom: 6px; font-size: 0.85rem; color: var(--text-sec); }
+.demo-card-controles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  font-size: 0.82rem;
+}
+.demo-card-controles > div { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.demo-card-controles strong { margin-right: 4px; }
+.demo-card-controles button {
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-sec);
+  cursor: pointer;
+}
+.demo-card-controles button[aria-pressed="true"] {
+  border-color: var(--primary);
+  color: var(--primary);
+  font-weight: 700;
+}
+.demo-card-log {
+  font-family: ui-monospace, monospace;
+  font-size: 0.78rem;
+  color: var(--text-sec);
+}
+.demo-card-comparacao {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+  gap: 15px;
+  align-items: start;
+}

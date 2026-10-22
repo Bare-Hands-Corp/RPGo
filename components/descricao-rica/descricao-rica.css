@@ -1,0 +1,543 @@
+/* Descrição rica v2: blocos, marcadores e o que o v1 não tinha.
+   Os chips continuam em ../descricao/descricao.css. */
+
+.desc-rica {
+  white-space: normal;
+}
+
+/* ─── Blocos (iguais na visualização e no editor) ─────────── */
+/* --desc-lh: altura da linha. Folgada de propósito: os chips (com borda e
+   padding) são mais altos que o texto e se tocavam de uma linha pra outra. */
+.desc-l {
+  --recuo: 0em;
+  position: relative;
+  min-height: calc(var(--desc-lh, 1.85) * 1em);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: var(--desc-lh, 1.85);
+}
+.desc-l[data-n="1"] { --recuo: 1.4em; }
+.desc-l[data-n="2"] { --recuo: 2.8em; }
+.desc-l[data-n="3"] { --recuo: 4.2em; }
+
+.desc-l[data-b="lista"],
+.desc-l[data-b="num"] {
+  padding-left: calc(var(--recuo) + 1.5em);
+}
+.desc-marcador {
+  position: absolute;
+  left: var(--recuo);
+  top: 0;
+  width: 1.3em;
+  text-align: center;
+  color: var(--primary);
+  font-size: 0.9em;
+  font-weight: 700;
+  line-height: var(--desc-lh, 1.85);
+  user-select: none;
+}
+.desc-l[data-b="lista"] .desc-marcador i {
+  font-size: 0.85em;
+}
+
+.desc-l[data-b="titulo"] {
+  margin-top: 0.4em;
+  font-size: 0.78em;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-sec);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 2px;
+  margin-bottom: 2px;
+}
+.desc-l[data-b="citacao"] {
+  margin: 2px 0;
+  padding: 2px 10px;
+  border-left: 3px solid var(--primary);
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in oklch, var(--primary) 8%, var(--bg-card));
+  color: var(--text-main);
+  font-size: 0.95em;
+}
+.desc-l[data-b="hr"] {
+  min-height: 0;
+  padding: 4px 0;
+}
+.desc-l[data-b="hr"] hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 0;
+}
+
+/* Chips novos: efeito e dano. */
+.desc-chip--efeito { --chip-cor: var(--primary); }
+.desc-chip--dano { --chip-cor: var(--color-power, #e67e22); }
+.desc-rica u { text-underline-offset: 2px; }
+
+/* ─── Editor ──────────────────────────────────────────────── */
+.desc-editor-rico {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface, var(--bg-card));
+}
+.desc-editor-rico:focus-within { border-color: var(--primary); }
+
+.desc-barra-rica {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.desc-grupo {
+  display: flex;
+  gap: 3px;
+  padding-right: 6px;
+  margin-right: 2px;
+  border-right: 1px solid var(--border);
+}
+.desc-grupo:last-child { border-right: 0; }
+.desc-barra-rica button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.desc-barra-rica button:hover:not(:disabled),
+.desc-barra-rica button[aria-pressed="true"] {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.desc-barra-rica button:disabled { opacity: 0.4; cursor: not-allowed; }
+.desc-barra-rica .desc-amostra {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.desc-campo-rico {
+  min-height: 140px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 8px 10px;
+  outline: none;
+  color: var(--text-main);
+}
+.desc-campo-rico:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-sec);
+  pointer-events: none;
+}
+.desc-campo-rico .desc-marcador { pointer-events: none; }
+
+.desc-rodape {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 10px 6px;
+  font-size: 0.72rem;
+  color: var(--text-sec);
+  border-top: 1px solid var(--border);
+}
+
+/* Painéis (flutuam sob a barra) */
+.desc-painel-rico {
+  position: absolute;
+  z-index: 30;
+  left: 6px;
+  right: 6px;
+  top: 52px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  max-height: 340px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--primary);
+  background: var(--bg-card);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.3);
+}
+.desc-painel-rico input[type="text"],
+.desc-painel-rico select {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface, var(--bg-card));
+  color: var(--text-main);
+}
+.desc-filtros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.desc-filtros button {
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface, var(--bg-card));
+  color: var(--text-sec);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.desc-filtros button[aria-pressed="true"] {
+  border-color: var(--primary);
+  color: var(--primary);
+  font-weight: 700;
+}
+.desc-opcoes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+.desc-opcao {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-main);
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+}
+.desc-opcao i { width: 1.2em; text-align: center; }
+.desc-opcao small { margin-left: auto; color: var(--text-sec); }
+.desc-opcao:hover,
+.desc-opcao:focus-visible,
+.desc-opcao[aria-selected="true"] {
+  background: color-mix(in oklch, var(--primary) 14%, var(--bg-card));
+  outline: none;
+}
+.desc-cores {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
+  gap: 6px;
+}
+.desc-cores button {
+  height: 34px;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+.desc-cores button[aria-pressed="true"] { border-color: var(--text-main); }
+.desc-linha-par {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.desc-linha-par label { font-size: 0.78rem; color: var(--text-sec); min-width: 64px; }
+.desc-painel-dica { font-size: 0.78rem; color: var(--text-sec); }
+.desc-painel-acoes {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.desc-painel-acoes button {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+  cursor: pointer;
+}
+.desc-painel-acoes button.primario {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+.desc-painel-acoes button:disabled { opacity: 0.5; cursor: not-allowed; }
+.desc-grade-icones {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
+  gap: 4px;
+  overflow-y: auto;
+}
+.desc-grade-icones button {
+  height: 36px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface, var(--bg-card));
+  color: var(--text-main);
+  cursor: pointer;
+}
+.desc-grade-icones button:hover { border-color: var(--primary); color: var(--primary); }
+
+/* ─── Descrição dentro do card ────────────────────────────── */
+.card-desc-rica {
+  --desc-lh: 1.7;
+  display: flex;
+  flex-direction: column;
+  font-size: 0.85rem;
+  line-height: var(--desc-lh);
+  color: var(--text-sec);
+}
+.card-desc-rica .desc-chip { font-size: 0.8rem; }
+.card-desc-rica .desc-l[data-b="titulo"] { margin-top: 0.3em; font-size: 0.7em; }
+.card-desc-rica .desc-l[data-b="titulo"]:first-child { margin-top: 0; }
+.card-desc-rica .desc-marcador { font-size: 0.8em; line-height: calc(var(--desc-lh) / 0.8); }
+.card-desc-rica .desc-l[data-b="citacao"] { font-size: 0.92em; }
+.card-desc-rica .desc-l[data-b="lista"],
+.card-desc-rica .desc-l[data-b="num"] { padding-left: calc(var(--recuo) + 1.4em); }
+
+/* Cortada em N linhas: só esmaece quando de fato corta. */
+.card-desc-rica.recolhida.linhas .card-desc-rica-corpo {
+  max-height: calc(var(--linhas, 5) * var(--desc-lh) * 1em);
+  overflow: hidden;
+}
+/* Título no começo não gasta linha do limite: o corte conta a partir do conteúdo. */
+.card-desc-rica.recolhida.linhas .card-desc-rica-corpo:has(.desc-l[data-b="titulo"]:first-child) {
+  max-height: calc(var(--linhas, 5) * var(--desc-lh) * 1em + 1.4em);
+}
+.card-desc-rica.recolhida.linhas.corta .card-desc-rica-corpo {
+  -webkit-mask-image: linear-gradient(#000 calc(100% - 1.7em), transparent);
+  mask-image: linear-gradient(#000 calc(100% - 1.7em), transparent);
+}
+/* Resumo: uma linha, com reticências; chips aparecem inteiros ou são cortados. */
+.card-desc-rica.recolhida.resumo .desc-l {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─── Chip com valor calculado, duração, aviso e modo automático ─── */
+.desc-chip-nome { font-weight: 700; }
+.desc-chip-detalhe {
+  padding-left: 6px;
+  border-left: 1px solid color-mix(in oklch, var(--chip-cor) 40%, transparent);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.desc-chip--duracao { --chip-cor: var(--text-sec); }
+.desc-chip--efeito.desc-chip--morta .desc-chip-nome { text-decoration: line-through; }
+
+.desc-auto,
+.desc-auto-selo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.desc-auto-selo {
+  border-color: color-mix(in oklch, var(--color-success, #27ae60) 50%, var(--border));
+  background: color-mix(in oklch, var(--color-success, #27ae60) 12%, transparent);
+  color: var(--color-success, #27ae60);
+  cursor: help;
+}
+.desc-barra-rica button.desc-auto {
+  border-color: var(--color-power, #e67e22);
+  color: var(--color-power, #e67e22);
+}
+
+/* "A descrição não cita": efeitos da ação que ficaram de fora do texto. */
+.desc-aviso {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklch, var(--color-bonus, #f1c40f) 10%, transparent);
+  font-size: 0.78rem;
+  color: var(--text-sec);
+}
+.desc-aviso-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px dashed var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.desc-aviso-chip:hover { border-color: var(--primary); }
+
+/* ─── Editar chip, sugestões e rodapé ─────────────────────── */
+.desc-campo-rico [data-no] { cursor: pointer; }
+.desc-chip--editando {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+.desc-painel-acoes button.perigo {
+  margin-right: auto;
+  border-color: var(--color-danger, #e74c3c);
+  color: var(--color-danger, #e74c3c);
+}
+.desc-rodape-botao {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline dotted;
+  cursor: pointer;
+}
+.desc-rodape-botao[aria-pressed="false"] { opacity: 0.7; }
+
+/* Caixinha "trocar por chip": fixa na janela, abre ao lado do cursor. */
+.desc-sugestao {
+  position: fixed;
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 220px;
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--primary);
+  background: var(--bg-card);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.3);
+  max-height: 280px;
+  overflow-y: auto;
+}
+.desc-sugestao.acima { transform: translateY(-100%); }
+.desc-sugestao-topo {
+  padding: 0 6px 2px;
+  font-size: 0.7rem;
+  color: var(--text-sec);
+}
+.desc-sugestao-topo kbd {
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.68rem;
+}
+
+/* Tela de toque não tem tecla Tab: some a dica. */
+@media (hover: none) {
+  .desc-sugestao-topo kbd { display: none; }
+}
+
+/* ─── Celular: barra rolável e painéis como folha por baixo ── */
+.desc-folha-fundo { display: none; }
+@media (max-width: 640px) {
+  .desc-barra-rica {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .desc-barra-rica::-webkit-scrollbar { display: none; }
+  .desc-grupo { flex: none; }
+  .desc-barra-rica button {
+    min-width: 42px;
+    min-height: 42px;
+  }
+  .desc-folha-fundo {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+    background: rgba(0, 0, 0, 0.45);
+  }
+  .desc-painel-rico {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    z-index: 1000;
+    max-height: min(70vh, 520px);
+    padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+    border-radius: 16px 16px 0 0;
+  }
+  /* 16px: abaixo disso o iOS dá zoom ao focar o campo. */
+  .desc-painel-rico input[type="text"],
+  .desc-painel-rico select {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .desc-opcao,
+  .desc-painel-acoes button { min-height: 44px; }
+  .desc-filtros button { min-height: 36px; }
+  .desc-grade-icones { grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); }
+  .desc-grade-icones button { height: 44px; }
+  .desc-cores button { height: 44px; }
+}
+
+/* ─── Página de demonstração ──────────────────────────────── */
+.desc-demo2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px;
+  color: var(--text-main);
+}
+.desc-demo2 h1 { font-size: 1.3rem; }
+.desc-demo2 h2 {
+  margin-bottom: 6px;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-sec);
+}
+.desc-demo2-colunas {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 860px) {
+  .desc-demo2-colunas { grid-template-columns: minmax(0, 1fr); }
+}
+.desc-demo2-cartao {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.desc-demo2 pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.78rem;
+  color: var(--text-sec);
+}
+.desc-demo2-log { font-family: ui-monospace, monospace; font-size: 0.78rem; color: var(--text-sec); }
+
+/* Chip de tipo de dano: a cara vem da Biblioteca (.fx-chip + efeito), igual à
+   ficha e ao bestiário. Vence a cápsula padrão do .desc-chip. */
+.desc-chip.fx-chip {
+  background: color-mix(in oklch, var(--fx-cor) 14%, transparent);
+  border-color: color-mix(in oklch, var(--fx-cor) 32%, transparent);
+  color: var(--fx-txt);
+}
+.desc-chip.fx-chip i { color: var(--fx-txt); }
+
+/* Salvaguarda ("CON | CD 18") e atributo ("FOR"). */
+.desc-chip--salv { --chip-cor: var(--color-warning, #d4a017); }
+.desc-chip--attr { --chip-cor: var(--text-sec); }

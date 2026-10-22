@@ -1,0 +1,260 @@
+/* Descrição rica — components/descricao */
+.desc {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.55;
+}
+.desc strong {
+  font-weight: 800;
+}
+.desc-icone {
+  margin: 0 2px;
+  color: var(--primary);
+}
+
+.desc-chip {
+  --chip-cor: var(--primary);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  margin: 1px 2px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklch, var(--chip-cor) 55%, var(--border));
+  background: color-mix(in oklch, var(--chip-cor) 14%, var(--bg-card));
+  color: var(--text-main);
+  font: inherit;
+  font-size: 0.92em;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+  vertical-align: baseline;
+  user-select: none;
+}
+.desc-chip i {
+  font-size: 0.8em;
+  color: var(--chip-cor);
+}
+button.desc-chip:not(:disabled),
+.desc-chip[role="button"] {
+  cursor: pointer;
+}
+button.desc-chip:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.desc-chip:not(:disabled):hover,
+.desc-chip:focus-visible {
+  background: color-mix(in oklch, var(--chip-cor) 26%, var(--bg-card));
+  outline: none;
+}
+.desc-chip--acao { --chip-cor: var(--primary); }
+.desc-chip--hab { --chip-cor: #3498db; }
+.desc-chip--item { --chip-cor: #c9a227; }
+.desc-chip--cond { --chip-cor: var(--color-danger, #e74c3c); }
+.desc-chip--rolagem { --chip-cor: var(--color-success, #27ae60); }
+/* No editor o ícone é um chip (precisa de alvo pro cursor), mas sem cápsula:
+   fica igual ao ícone solto da visualização. */
+.desc-chip--icone {
+  padding: 0 2px;
+  border-color: transparent;
+  background: transparent;
+}
+.desc-chip--morta {
+  --chip-cor: var(--text-sec);
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+/* ─── Editor ──────────────────────────────────────────────── */
+.desc-editor {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface, var(--bg-card));
+}
+.desc-editor:focus-within {
+  border-color: var(--primary);
+}
+.desc-barra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.desc-barra button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.desc-barra button:hover,
+.desc-barra button[aria-pressed="true"] {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.desc-campo {
+  min-height: 96px;
+  padding: 8px 10px;
+  outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.55;
+  color: var(--text-main);
+}
+/* Âncora no fim: sem ela, um "\n" final não abre linha nova pro cursor. */
+.desc-campo::after {
+  content: "\200b";
+}
+.desc-campo:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-sec);
+  pointer-events: none;
+}
+.desc-painel {
+  position: absolute;
+  z-index: 20;
+  left: 6px;
+  right: 6px;
+  top: 46px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--primary);
+  background: var(--bg-card);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.3);
+}
+.desc-painel input {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface, var(--bg-card));
+  color: var(--text-main);
+}
+.desc-painel-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.desc-painel-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-main);
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+}
+.desc-painel-item:hover,
+.desc-painel-item:focus-visible {
+  background: color-mix(in oklch, var(--primary) 14%, var(--bg-card));
+  outline: none;
+}
+.desc-painel-item small {
+  margin-left: auto;
+  color: var(--text-sec);
+}
+.desc-painel-grade {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.desc-painel-grade button {
+  height: 36px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface, var(--bg-card));
+  color: var(--text-main);
+  cursor: pointer;
+}
+.desc-painel-grade button:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.desc-painel-dica {
+  font-size: 0.78rem;
+  color: var(--text-sec);
+}
+.desc-painel-acoes {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.desc-painel-acoes button {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+  cursor: pointer;
+}
+.desc-painel-acoes button.primario {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+.desc-painel-acoes button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ─── Página de demonstração ──────────────────────────────── */
+.desc-demo {
+  display: grid;
+  gap: 16px;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 16px;
+  color: var(--text-main);
+}
+.desc-demo h1 {
+  font-size: 1.3rem;
+}
+.desc-demo h2 {
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-sec);
+  margin-bottom: 6px;
+}
+.desc-demo-cartao {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.desc-demo pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.8rem;
+  color: var(--text-sec);
+}
+.desc-demo-log {
+  font-family: ui-monospace, monospace;
+  font-size: 0.78rem;
+  color: var(--text-sec);
+}

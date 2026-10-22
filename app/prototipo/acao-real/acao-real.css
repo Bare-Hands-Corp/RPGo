@@ -1,0 +1,157 @@
+/* Só a página de demonstração. */
+.demo-ar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+  color: var(--text-main);
+}
+.demo-ar-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.demo-ar h1 { font-size: 1.2rem; }
+.demo-ar h2 {
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-sec);
+}
+.demo-ar h3 { margin: 12px 0 6px; font-size: 0.8rem; color: var(--text-sec); }
+.demo-ar-dica { font-size: 0.82rem; color: var(--text-sec); }
+.demo-ar-abas {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+/* Só os botões da página (abas, "Abrir no formulário", "Fechar"): os chips da
+   descrição também são <button> e não podem herdar este estilo. */
+.demo-ar-abas button,
+.demo-ar-item > header > button,
+.demo-ar-form > header > button {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-sec);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.demo-ar-abas button[aria-selected="true"] {
+  border-color: var(--primary);
+  color: var(--primary);
+  font-weight: 700;
+}
+.demo-ar-abas small { opacity: 0.7; }
+.demo-ar-filtro {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--text-sec);
+}
+.demo-ar-cartao,
+.demo-ar-form {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.demo-ar-form > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.demo-ar-colunas {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .demo-ar-colunas { grid-template-columns: minmax(0, 1fr); }
+}
+.demo-ar-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.demo-ar-tipo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.78rem;
+}
+.demo-ar-tipo b { color: var(--text-sec); font-weight: 600; }
+.demo-ar-tipo.generico {
+  border-color: var(--color-warning, #b7791f);
+  background: color-mix(in oklch, var(--color-warning, #b7791f) 14%, transparent);
+}
+.demo-ar-lista {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(380px, 100%), 1fr));
+  gap: 12px;
+}
+.demo-ar-item {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.demo-ar-item header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-bottom: 6px;
+}
+.demo-ar-item > header > button { margin-left: auto; }
+.demo-ar-meta { font-size: 0.75rem; color: var(--text-sec); }
+.demo-ar-nao-usado {
+  padding: 0 7px;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  color: var(--text-sec);
+}
+.demo-ar-aviso {
+  font-size: 0.72rem;
+  color: var(--color-warning, #b7791f);
+}
+.demo-ar-gerada { font-size: 0.9rem; }
+.demo-ar-item details { margin-top: 8px; font-size: 0.78rem; color: var(--text-sec); }
+.demo-ar pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.75rem;
+}
+.demo-ar-atual { font-size: 0.8rem; color: var(--text-sec); white-space: pre-wrap; }
+
+/* A célula da grade: o card igual ao da ficha e, abaixo, a faixa só da revisão. */
+.demo-ar-celula { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.demo-ar-celula > .action-card { flex: 1; }
+.demo-ar-revisao {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 0.75rem;
+}
+.demo-ar-revisao > button {
+  margin-left: auto;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-sec);
+  cursor: pointer;
+}
+.demo-ar-revisao details { flex-basis: 100%; color: var(--text-sec); }
