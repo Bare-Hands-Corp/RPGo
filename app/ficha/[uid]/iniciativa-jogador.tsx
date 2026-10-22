@@ -7,6 +7,7 @@ import { Tooltip } from "@/components/tooltip";
 
 import { useEffect, useRef, useState } from "react";
 import type { CombateVisto, ModoResolucao, OpcaoReacao, ParticipanteVisto } from "@/lib/combate";
+import { textoPuroRico } from "@/lib/descricao-rica";
 import {
   BotaoFinalizarTurno,
   EVENTO_ROLAR_CONCENTRACAO,
@@ -451,7 +452,7 @@ export function IniciativaJogador({
                           ))}
                         </div>
                       )}
-                      {a.descricao && <p>{a.descricao}</p>}
+                      {a.descricao && <p>{textoPuroRico(a.descricao)}</p>}
                     </div>
                   ))
                 )}

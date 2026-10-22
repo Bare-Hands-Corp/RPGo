@@ -330,6 +330,8 @@ export function FichaTabs({
           habilidades={habilidades}
           tripulantes={alvos}
           grausTecnicas={grausTecnicas}
+          acoesFicha={acoes}
+          atributoCdTecnicas={atributoCdTecnicas}
         />
       </div>
 

@@ -39,9 +39,11 @@ import {
 } from "@/lib/op-rpg";
 import { DescricaoCard } from "@/components/descricao-rica/descricao-card";
 import type { ContextoRico } from "@/components/descricao-rica/atomos";
-import { usosDoCatalogo } from "@/lib/descricao-rica";
+import { textoPuroRico } from "@/lib/descricao-rica";
 import { CardMeta } from "@/components/card-meta";
-import { contextoDaAcao, useContextoRico } from "./contexto-rico";
+import { condicoesCatalogoNomes, contextoDaAcao, useContextoRico } from "./contexto-rico";
+import { EditorRico } from "@/components/descricao-rica/editor-rico";
+import { gerarDaEntrada } from "./descricao-da-acao";
 import { SecaoRecolhivel } from "./secao-recolhivel";
 import { Tooltip } from "@/components/tooltip";
 import { SeletorUnico } from "./seletor-multiplo";
@@ -54,7 +56,6 @@ import { useConfirmarUso, type ItemDeUso } from "./usar-modal";
 import { Segmentos } from "./campos-modal";
 import {
   AlvosCustomContext,
-  ChipEfeito,
   FormulaContext,
   NomesRecursoContext,
   DatalistAlvos,
@@ -334,7 +335,7 @@ export function HabilidadesTab({
       (!origemFiltro || h.origem === origemFiltro) &&
       casaBusca(busca, [
         h.nome,
-        h.descricao,
+        textoPuroRico(h.descricao),
         h.tags,
         h.pasta,
         ORIGENS_HABILIDADE.find((o) => o.slug === h.origem)?.nome,
@@ -953,6 +954,8 @@ export function HabilidadesTab({
             itens={itens}
             atributos={atributos}
             nivel={nivel}
+            fichaRica={fichaRica}
+            contextoBaseRico={contextoBaseRico}
             onCancelar={() => setModalAberto(false)}
             onSalvar={salvarForm}
           />
@@ -1027,12 +1030,6 @@ function CardHabilidade({
   reordenar?: { item: object; alca: object; vaga: string };
 }) {
   const efeitos = lerEfeitos(habilidade.efeitos);
-  // O "a cada turno" aparece junto da duração.
-  const chips = efeitos.filter((e) => e.tipo !== "por_turno");
-  // A descrição rica cita os efeitos no próprio texto; o que ela não cita continua
-  // aparecendo como chip (texto antigo, sem chips, não perde nada).
-  const efeitosCitados = usosDoCatalogo(habilidade.descricao).efeitos;
-  const chipsNaoCitados = chips.filter((e) => !efeitosCitados.includes(e.tipo));
   // Concedida por item: só vale com ele equipado.
   const travadaPorItem = !!habilidade.itemId && !itemOrigem?.equipado;
   const bloqueada = travada || travadaPorItem;
@@ -1251,17 +1248,6 @@ function CardHabilidade({
             {travadaPorItem ? `equipe ${itemOrigem?.nome ?? "o item"}` : "talento não liberado"}
           </div>
         )}
-        {chipsNaoCitados.length > 0 && (
-          <div className="efeito-chips">
-            {chipsNaoCitados.map((e, i) => (
-              <ChipEfeito
-                key={i}
-                efeito={e}
-                comUsos={habilidade.tipo === "passiva" && usosMax != null}
-              />
-            ))}
-          </div>
-        )}
         <PassosProgressivos efeitos={efeitos} onChange={onEfeitos} travado={bloqueada} />
         <DescricaoCard
           texto={habilidade.descricao}
@@ -1372,6 +1358,8 @@ function HabilidadeModal({
   itens,
   atributos,
   nivel,
+  fichaRica,
+  contextoBaseRico,
   onCancelar,
   onSalvar,
 }: {
@@ -1384,6 +1372,9 @@ function HabilidadeModal({
   itens: ItemRef[];
   atributos: Record<Atributo, number>;
   nivel: number;
+  // Ficha e contexto dos chips da descrição (montados uma vez na aba).
+  fichaRica: Parameters<typeof contextoDaAcao>[1] & { habilidades: { id: string; nome: string }[] };
+  contextoBaseRico: ContextoRico;
   onCancelar: () => void;
   onSalvar: (d: HabilidadeFormDados) => void;
 }) {
@@ -1400,6 +1391,8 @@ function HabilidadeModal({
     (base?.tipo as TipoHabilidade) ?? "passiva",
   );
   const [descricao, setDescricao] = useState(base?.descricao ?? "");
+  // A descrição segue o texto gerado dos efeitos e da duração (habilidade nova ou sem descrição).
+  const [descAuto, setDescAuto] = useState(!(base?.descricao ?? "").trim());
   const [custoPp, setCustoPp] = useState(
     base?.custoPpFormula ?? (base?.custoPp ? String(base.custoPp) : ""),
   );
@@ -1429,6 +1422,40 @@ function HabilidadeModal({
   // Com efeito que fica valendo, a habilidade só pode ser de Liga e desliga.
   const temSustentado = temEfeitoSustentado(efeitos);
   const ligaDesliga = alternavel || temSustentado;
+  const descricaoGerada = useMemo(
+    () => gerarDaEntrada({ efeitos, duracao, passiva: tipo === "passiva" }),
+    [efeitos, duracao, tipo],
+  );
+  const descricaoDoForm = descAuto ? descricaoGerada : descricao;
+  const contextoEditor = useMemo(
+    () => contextoDaAcao(contextoBaseRico, fichaRica, { nome, tecnica: false, grau: 0 }, efeitos, duracao),
+    [contextoBaseRico, fichaRica, nome, efeitos, duracao],
+  );
+  const refsEditor = useMemo(
+    () => [
+      ...fichaRica.acoes.map((x) => ({ tipo: "acao" as const, id: x.id, nome: x.nome })),
+      ...fichaRica.habilidades.filter((h) => h.id !== inicial?.id).map((h) => ({ tipo: "hab" as const, id: h.id, nome: h.nome })),
+      ...itens.map((i) => ({ tipo: "item" as const, id: i.id, nome: i.nome })),
+    ],
+    [fichaRica, itens, inicial?.id],
+  );
+  const condicoesEditor = useMemo(() => condicoesCatalogoNomes(contextoBaseRico), [contextoBaseRico]);
+  async function regenerarDescricao() {
+    if (!descAuto && descricao.trim()) {
+      const r = await Swal.fire({
+        icon: "question",
+        title: "Regenerar a descrição?",
+        text: "O texto escrito à mão é trocado pelo gerado dos efeitos e da duração (Ctrl+Z no editor desfaz).",
+        showCancelButton: true,
+        confirmButtonText: "Regenerar",
+        cancelButtonText: "Cancelar",
+        background: "var(--bg-card)",
+        color: "var(--text-main)",
+      });
+      if (!r.isConfirmed) return;
+    }
+    setDescAuto(true);
+  }
   function submit(e: React.FormEvent) {
     e.preventDefault();
     const nomeLimpo = nome.trim();
@@ -1457,7 +1484,7 @@ function HabilidadeModal({
       nome: nomeLimpo,
       origem,
       tipo,
-      descricao,
+      descricao: descricaoDoForm,
       custoPp: pp.numero,
       custoPpFormula: pp.formula,
       custoPa: base?.custoPa ?? 0,
@@ -1614,10 +1641,18 @@ function HabilidadeModal({
           )}
 
           <label>Descrição</label>
-          <textarea
-            value={descricao}
-            onChange={(e) => setDescricao(e.target.value)}
-            placeholder="Como funciona, quando se aplica, regras especiais..."
+          <EditorRico
+            valor={descricaoDoForm}
+            onChange={(t) => {
+              if (descAuto && t === descricaoGerada) return; // eco do editor
+              setDescricao(t);
+              setDescAuto(false);
+            }}
+            refs={refsEditor}
+            condicoes={condicoesEditor}
+            contexto={contextoEditor}
+            automatica={{ ativa: descAuto, regenerar: regenerarDescricao }}
+            placeholder="Como funciona, quando se aplica, regras especiais… (@ insere, / blocos)"
           />
 
           <label>Item</label>

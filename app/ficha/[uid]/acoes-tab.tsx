@@ -91,7 +91,6 @@ import {
 } from "@/lib/empilhar-rolagem";
 import { rolarDados, type ModoRolagem } from "@/lib/dice";
 import {
-  ChipEfeito,
   DatalistAlvos,
   EfeitoDeAcaoContext,
   EfeitosDuramContext,
@@ -126,10 +125,12 @@ import { useEscolherAlvo } from "./escolher-alvo";
 import { useEscolherAlvosCombate } from "./escolher-alvos-combate";
 import type { Tripulante } from "./tripulacao-tab";
 import { DescricaoCard } from "@/components/descricao-rica/descricao-card";
-import { usosDoCatalogo } from "@/lib/descricao-rica";
+import { textoPuroRico } from "@/lib/descricao-rica";
 import { CardMeta } from "@/components/card-meta";
 import { CardNumeros } from "@/components/card-numeros";
-import { contextoDaAcao, useContextoRico } from "./contexto-rico";
+import { condicoesCatalogoNomes, contextoDaAcao, useContextoRico } from "./contexto-rico";
+import { EditorRico } from "@/components/descricao-rica/editor-rico";
+import { entradaDaAcao, gerarDaEntrada } from "./descricao-da-acao";
 import { SecaoRecolhivel } from "./secao-recolhivel";
 import { rascunho } from "./rascunho";
 import { Tooltip } from "@/components/tooltip";
@@ -402,6 +403,8 @@ type FormState = {
   id: string | null;
   nome: string;
   descricao: string;
+  // A descrição segue o texto gerado dos campos da ação (ação nova ou sem descrição).
+  descAuto: boolean;
   tipo: string;
   gatilho: GatilhoReacao;
   tag: string;
@@ -444,6 +447,7 @@ const FORM_VAZIO: FormState = {
   id: null,
   nome: "",
   descricao: "",
+  descAuto: true,
   tipo: "padrao",
   gatilho: "qualquer",
   tag: "",
@@ -852,6 +856,75 @@ export function AcoesTab({
     if (modalAberto && !form.id) rascunhoAcao.gravar(form);
   }, [modalAberto, form, rascunhoAcao]);
 
+  // Contexto dos chips da descrição: o que vale pra ficha inteira, montado uma vez.
+  const acoesRicas = useMemo(
+    () => acoes.map((x) => ({ id: x.id, nome: x.nome, tipo: x.tipo, tecnica: x.tecnica, grau: x.grau })),
+    [acoes],
+  );
+  const { ficha: fichaRica, base: contextoBaseRico } = useContextoRico({
+    nivel,
+    atributos,
+    atributoCd: cdPadrao || null,
+    acoes: acoesRicas,
+    habilidades,
+    itens,
+    recursos,
+  });
+
+  // A descrição gerada dos campos do formulário e o contexto que o editor usa nos chips.
+  const descricaoGerada = useMemo(
+    () =>
+      gerarDaEntrada(
+        entradaDaAcao(
+          {
+            tipo: form.tipo,
+            gatilho: form.gatilho,
+            atributoAtaque: form.atributoAtaque,
+            comArma: form.armaIds.length > 0,
+            dano: form.dano,
+            tipoDano: form.tipoDano,
+            alcance: form.alcance,
+            atributoSalv: form.atributoSalv,
+            salvSucesso: form.salvSucesso,
+          },
+          form.efeitos,
+          form.duracao,
+        ),
+      ),
+    [form.tipo, form.gatilho, form.atributoAtaque, form.armaIds, form.dano, form.tipoDano, form.alcance, form.atributoSalv, form.salvSucesso, form.efeitos, form.duracao],
+  );
+  const descricaoDoForm = form.descAuto ? descricaoGerada : form.descricao;
+  const contextoEditor = useMemo(
+    () => contextoDaAcao(contextoBaseRico, fichaRica, { nome: form.nome, tecnica: form.tecnica, grau: form.grau }, form.efeitos, form.duracao),
+    [contextoBaseRico, fichaRica, form.nome, form.tecnica, form.grau, form.efeitos, form.duracao],
+  );
+  const refsEditor = useMemo(
+    () => [
+      ...acoes.filter((x) => x.id !== form.id).map((x) => ({ tipo: "acao" as const, id: x.id, nome: x.nome })),
+      ...habilidades.map((h) => ({ tipo: "hab" as const, id: h.id, nome: h.nome })),
+      ...itens.map((i) => ({ tipo: "item" as const, id: i.id, nome: i.nome })),
+    ],
+    [acoes, habilidades, itens, form.id],
+  );
+  const condicoesEditor = useMemo(() => condicoesCatalogoNomes(contextoBaseRico), [contextoBaseRico]);
+
+  async function regenerarDescricao() {
+    if (!form.descAuto && form.descricao.trim()) {
+      const r = await Swal.fire({
+        icon: "question",
+        title: "Regenerar a descrição?",
+        text: "O texto escrito à mão é trocado pelo gerado dos campos da ação (Ctrl+Z no editor desfaz).",
+        showCancelButton: true,
+        confirmButtonText: "Regenerar",
+        cancelButtonText: "Cancelar",
+        background: "var(--bg-card)",
+        color: "var(--text-main)",
+      });
+      if (!r.isConfirmed) return;
+    }
+    setF("descAuto", true);
+  }
+
   async function abrirNova() {
     const guardado = rascunhoAcao.ler();
     if (guardado?.nome || guardado?.descricao) {
@@ -901,6 +974,7 @@ export function AcoesTab({
       id: acao.id,
       nome: acao.nome,
       descricao: acao.descricao,
+      descAuto: !acao.descricao.trim(),
       tipo: acao.tipo,
       gatilho: lerGatilho(acao.gatilho),
       tag: acao.tag || "",
@@ -968,7 +1042,7 @@ export function AcoesTab({
     const antes = form.id ? acoesPorId.get(form.id) : undefined;
     const dados = {
       nome: nomeLimpo,
-      descricao: form.descricao,
+      descricao: descricaoDoForm,
       tipo: form.tipo,
       gatilho: form.tipo === "react" && form.gatilho !== "qualquer" ? form.gatilho : null,
       tag: form.tag,
@@ -1372,20 +1446,6 @@ export function AcoesTab({
   // Pastas da ficha: filtro e busca.
   const pastas = pastasDe(acoesOtimistas);
   const nomesDasPastas = pastas.map((p) => p.nome);
-  // Contexto dos chips da descrição: o que vale pra ficha inteira, montado uma vez.
-  const acoesRicas = useMemo(
-    () => acoes.map((x) => ({ id: x.id, nome: x.nome, tipo: x.tipo, tecnica: x.tecnica, grau: x.grau })),
-    [acoes],
-  );
-  const { ficha: fichaRica, base: contextoBaseRico } = useContextoRico({
-    nivel,
-    atributos,
-    atributoCd: cdPadrao || null,
-    acoes: acoesRicas,
-    habilidades,
-    itens,
-    recursos,
-  });
   const pastaAtiva = pastas.some((p) => p.nome === pastaFiltro) ? pastaFiltro : null;
   const casaFiltros = (a: Acao) =>
     (!tipoFiltro || a.tipo === tipoFiltro) &&
@@ -1394,7 +1454,7 @@ export function AcoesTab({
     (filtro !== "sem_custo" ||
       (a.custoPp === 0 && a.custoPa === 0 && (!a.custoRecursoId || a.custoRecursoValor === 0))) &&
     (!pastaAtiva || a.pasta === pastaAtiva) &&
-    casaBusca(busca, [a.nome, a.descricao, a.tag, a.pasta, a.dano, a.tipoDano, a.tecnica ? "técnica" : null]);
+    casaBusca(busca, [a.nome, textoPuroRico(a.descricao), a.tag, a.pasta, a.dano, a.tipoDano, a.tecnica ? "técnica" : null]);
   // Um card por ação de origem; aparece se ela ou uma forma dela casar.
   const visiveis = acoesOtimistas.filter((a) => !origemDe(a) && grupoDe(a).some(casaFiltros));
   const filtrando =
@@ -1724,14 +1784,8 @@ export function AcoesTab({
                     turnos: acao.turnosRestantes ?? null,
                   };
                   const emCursoAgora = curso.emCurso && ficaEmCurso(acao);
-                  const duram = efeitosDuram(acao);
                   const duracaoTexto = textoDuracao(lerDuracao(acao.duracao));
                   const temPorTurno = efeitosAcao.some((e) => e.tipo === "por_turno");
-                  const chipsAcao = efeitosAcao.filter((e) => e.tipo !== "por_turno");
-                  // A descrição rica cita os efeitos no próprio texto; o que ela não cita
-                  // continua aparecendo como chip (texto antigo, sem chips, não perde nada).
-                  const efeitosCitados = usosDoCatalogo(acao.descricao).efeitos;
-                  const chipsNaoCitados = chipsAcao.filter((e) => !efeitosCitados.includes(e.tipo));
                   // Tipo escolhido que o texto do dano ainda não diz.
                   const tipoNoChip =
                     acao.tipoDano && !tiposDoDano(acao.dano ?? "").some((t) => mesmoTipo(t, acao.tipoDano!))
@@ -2144,18 +2198,6 @@ export function AcoesTab({
                             <i className="fas fa-lock" /> Ação travada · equipe {itemOrigem?.nome ?? "o item"}
                           </div>
                         )}
-                        {chipsNaoCitados.length > 0 && (
-                          <div className="efeito-chips">
-                            {chipsNaoCitados.map((e, i) => (
-                              <ChipEfeito
-                                key={i}
-                                efeito={e}
-                                grau={acao.tecnica && acao.grau > 0 ? acao.grau : undefined}
-                                dura={duram ? e.dura : undefined}
-                              />
-                            ))}
-                          </div>
-                        )}
                         <PassosProgressivos
                           efeitos={efeitosAcao}
                           onChange={(efeitos) => mudarEfeitos(acao, efeitos)}
@@ -2336,10 +2378,16 @@ export function AcoesTab({
 
               <SecaoModal titulo="Descrição" icone="fa-align-left" aberta resumo={form.tag || undefined}>
                 <label>Descrição</label>
-                <textarea
-                  value={form.descricao}
-                  onChange={(e) => setF("descricao", e.target.value)}
-                  placeholder="Descreva o efeito..."
+                <EditorRico
+                  valor={descricaoDoForm}
+                  onChange={(t) => {
+                    if (form.descAuto && t === descricaoGerada) return; // eco do editor
+                    setForm((f) => ({ ...f, descricao: t, descAuto: false }));
+                  }}
+                  refs={refsEditor}
+                  condicoes={condicoesEditor}
+                  contexto={contextoEditor}
+                  automatica={{ ativa: form.descAuto, regenerar: regenerarDescricao }}
                 />
 
                 <label>Tag</label>

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { createContext, useMemo } from "react";
 import { useCatalogoTiposCompleto } from "@/components/tipos-dano/tipos-dano";
 import { useCatalogoCondicoesCompleto } from "@/components/tipos-dano/condicoes";
 import type { ContextoRico } from "@/components/descricao-rica/atomos";
@@ -93,4 +93,12 @@ export function useContextoRico(e: {
   );
   const base = useMemo(() => contextoBaseDaFicha(ficha), [ficha]);
   return { ficha, base };
+}
+
+// Contexto base da ficha pra quem está fundo na árvore (card de item): evita passar por todos os níveis.
+export const ContextoDescricaoCtx = createContext<ContextoRico | undefined>(undefined);
+
+// Nomes das condições da Biblioteca (o editor sugere e insere por nome).
+export function condicoesCatalogoNomes(base: ContextoRico): string[] {
+  return (base.catalogoCondicoes ?? []).map((x) => x.nome);
 }

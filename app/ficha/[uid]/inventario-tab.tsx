@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useEffectEvent, useMemo, useOptimistic, useState, useTransition } from "react";
+import { useContext, useEffect, useEffectEvent, useMemo, useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
+import { DescricaoCard } from "@/components/descricao-rica/descricao-card";
+import { EditorRico } from "@/components/descricao-rica/editor-rico";
+import { ContextoDescricaoCtx, condicoesCatalogoNomes, useContextoRico } from "./contexto-rico";
 import { ehTemporario, exigir, idTemporario } from "@/lib/acoes";
 import { EditableStat } from "./editable-stat";
 import { useReordenar } from "@/lib/use-reordenar";
@@ -148,6 +151,10 @@ type Props = {
   tripulantes: Tripulante[];
   /** Graus das técnicas do personagem (GRAU nos chips). */
   grausTecnicas: number[];
+  /** Todas as ações da ficha (as descrições citam `[[acao:…]]`). */
+  acoesFicha: { id: string; nome: string; tipo: string; tecnica: boolean; grau: number }[];
+  /** Atributo da CD das técnicas (o chip de salvaguarda sem CD usa). */
+  atributoCdTecnicas: string | null;
 };
 
 function lerPropriedades(raw: unknown): PropriedadeArma[] {
@@ -346,7 +353,19 @@ export function InventarioTab({
   habilidades,
   tripulantes,
   grausTecnicas,
+  acoesFicha,
+  atributoCdTecnicas,
 }: Props) {
+  // Contexto dos chips da descrição: o mesmo das abas de ações e habilidades.
+  const { base: contextoBaseRico } = useContextoRico({
+    nivel,
+    atributos,
+    atributoCd: atributoCdTecnicas,
+    acoes: acoesFicha,
+    habilidades,
+    itens,
+    recursos,
+  });
   // Penalidade de exaustão (−2 × nível) some no acerto da arma (teste de d20).
   const exaustao = useExaustaoOtimista(exaustaoServer);
   const penD20 = penalidadeD20Exaustao(exaustaoQueConta(exaustao, efeitosAgregados));
@@ -869,6 +888,7 @@ export function InventarioTab({
   const mochila = naoFavoritos.filter((i) => categoriaDoItem(i.tipo) === "mochila");
 
   return (
+    <ContextoDescricaoCtx.Provider value={contextoBaseRico}>
     <AlvosCustomContext.Provider value={alvosPericiaCustom(periciasCustom)}>
     <NomesRecursoContext.Provider value={new Map(recursos.map((r) => [r.id, r.nome]))}>
     <FormulaContext.Provider value={ctxFormula}>
@@ -1350,10 +1370,17 @@ export function InventarioTab({
               />
 
               <label>Descrição / Efeitos</label>
-              <textarea
-                value={form.descricao}
-                onChange={(e) => set("descricao", e.target.value)}
-                placeholder="Descrição do item..."
+              <EditorRico
+                valor={form.descricao}
+                onChange={(t) => set("descricao", t)}
+                refs={[
+                  ...acoesFicha.map((x) => ({ tipo: "acao" as const, id: x.id, nome: x.nome })),
+                  ...habilidades.map((h) => ({ tipo: "hab" as const, id: h.id, nome: h.nome })),
+                  ...itens.filter((i) => i.id !== form.id).map((i) => ({ tipo: "item" as const, id: i.id, nome: i.nome })),
+                ]}
+                condicoes={condicoesCatalogoNomes(contextoBaseRico)}
+                contexto={{ ...contextoBaseRico, nomeRolagem: form.nome }}
+                placeholder="Descrição do item… (@ insere, / blocos)"
               />
 
               <div className="modal-actions">
@@ -1377,6 +1404,7 @@ export function InventarioTab({
     </FormulaContext.Provider>
     </NomesRecursoContext.Provider>
     </AlvosCustomContext.Provider>
+    </ContextoDescricaoCtx.Provider>
   );
 }
 
@@ -1519,6 +1547,8 @@ function CardItem({
   gasto: number;
 }) {
   const efeitos = lerEfeitos(item.efeitos);
+  const contextoBase = useContext(ContextoDescricaoCtx);
+  const contextoDoItem = useMemo(() => ({ ...contextoBase, nomeRolagem: item.nome }), [contextoBase, item.nome]);
   // Efeito na hora (cura, PV temporário, recurso) é de usar e gastar; o resto vale equipado.
   const usavel = efeitos.some(efeitoInstantaneo);
   const nEquipado = efeitos.filter((e) => !efeitoInstantaneo(e)).length;
@@ -1742,7 +1772,9 @@ function CardItem({
         </div>
       )}
 
-      {item.descricao && <div className="card-desc" style={{ marginTop: 8 }}>{item.descricao}</div>}
+      {item.descricao && (
+        <DescricaoCard texto={item.descricao} contexto={contextoDoItem} />
+      )}
 
       {item.tags && (
         <div className="card-tags">
