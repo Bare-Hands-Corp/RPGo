@@ -6,6 +6,7 @@ import { mesmoGrupo } from "@/lib/acesso-ficha";
 import { habilidadesTravadas } from "@/lib/arvore";
 import {
   agregarEfeitos,
+  efeitosQueFicamNoAliado,
   fonteDeAliado,
   fontesDeEfeitoDeItens,
   type Atributo,
@@ -173,16 +174,44 @@ async function semTravadasNoDono<
   return habs.filter((h) => !travadas.has(h.id) && (!h.itemId || ids.has(h.itemId)));
 }
 
-// Recebidas de aliados; falha vira lista vazia (dado auxiliar, não derruba a ficha).
+// Ações de aliados em curso que deixaram efeitos valendo em quem está em
+// `alvoIds`. A de concentração vale enquanto o dono concentra nela.
+async function acoesRecebidas(
+  alvoIds: string[],
+  donos: Prisma.PersonagemWhereInput,
+): Promise<(HabilidadeRecebida & { alvoId: string })[]> {
+  const acoes = await prisma.acao.findMany({
+    where: { aliadoEmCursoId: { in: alvoIds }, personagem: donos },
+    select: {
+      ...SELECT_ACAO_QUE_DURA,
+      personagemId: true,
+      aliadoEmCursoId: true,
+      personagem: { select: { nome: true, concentracao: true } },
+    },
+  });
+  return acoes.flatMap((a) => {
+    const alvoId = a.aliadoEmCursoId;
+    if (!alvoId || alvoId === a.personagemId) return [];
+    if (acoesEmCurso([a], a.personagem.concentracao).length === 0) return [];
+    const efeitos = efeitosQueFicamNoAliado(a);
+    if (efeitos.length === 0) return [];
+    return [{ id: a.id, nome: a.nome, efeitos, personagem: { nome: a.personagem.nome }, alvoId }];
+  });
+}
+
+// Recebidas de aliados (habilidades ligadas e ações em curso); falha vira lista
+// vazia (dado auxiliar, não derruba a ficha).
 export async function carregarRecebidas(personagemId: string): Promise<HabilidadeRecebida[]> {
   try {
-    return await semTravadasNoDono(
-      await prisma.habilidade.findMany({
+    const [habilidades, acoes] = await Promise.all([
+      prisma.habilidade.findMany({
         where: ondeRecebidas(personagemId),
         select: { ...SELECT_RECEBIDA, itemId: true, personagemId: true, formaDe: true },
         orderBy: { criadoEm: "asc" },
       }),
-    );
+      acoesRecebidas([personagemId], mesmoGrupo(personagemId)),
+    ]);
+    return [...(await semTravadasNoDono(habilidades)), ...acoes];
   } catch (err) {
     console.error("[efeitos] habilidades recebidas", err);
     return [];
@@ -196,6 +225,8 @@ export async function recebidasDaMesa(
 ): Promise<Map<string, HabilidadeFonte[]>> {
   const out = new Map<string, HabilidadeFonte[]>();
   if (ids.length === 0) return out;
+  // Membro da mesa, subficha de um membro ou subficha da mesa.
+  const daMesa: Prisma.PersonagemWhereInput = { OR: [{ mesaId }, { dono: { mesaId } }, { donoMesaId: mesaId }] };
   try {
     const habs = await semTravadasNoDono(
       await prisma.habilidade.findMany({
@@ -203,8 +234,7 @@ export async function recebidasDaMesa(
           alvoPersonagemId: { in: ids },
           ligada: true,
           aliado: true,
-          // Membro da mesa, subficha de um membro ou subficha da mesa.
-          personagem: { OR: [{ mesaId }, { dono: { mesaId } }, { donoMesaId: mesaId }] },
+          personagem: daMesa,
         },
         select: {
           ...SELECT_RECEBIDA,
@@ -219,6 +249,9 @@ export async function recebidasDaMesa(
     for (const h of habs) {
       if (!h.alvoPersonagemId || h.alvoPersonagemId === h.personagemId) continue;
       out.set(h.alvoPersonagemId, [...(out.get(h.alvoPersonagemId) ?? []), fonteRecebida(h)]);
+    }
+    for (const a of await acoesRecebidas(ids, daMesa)) {
+      out.set(a.alvoId, [...(out.get(a.alvoId) ?? []), fonteRecebida(a)]);
     }
   } catch (err) {
     console.error("[efeitos] habilidades recebidas da mesa", err);
@@ -245,7 +278,7 @@ export async function carregarAgregado(
     prisma.personagem.findUnique({ where: { id: personagemId }, select: SELECT_BASE_FORMULA }),
     carregarRecebidas(personagemId),
     carregarAcoesEmCurso(personagemId),
-    condicoesEmCombate(personagemId),
+    condicoesDoPersonagem(personagemId),
   ]);
   const habs = ligada
     ? habilidades.map((h) => (h.id === ligada.id ? { ...h, ligada: ligada.ligada } : h))
@@ -273,13 +306,16 @@ export async function carregarAgregado(
   };
 }
 
-// Condições do personagem no combate aberto da mesa.
-export async function condicoesEmCombate(personagemId: string): Promise<CondicaoAtiva[]> {
+// Condições do personagem: as do combate aberto da mesa, se ele está num;
+// senão, as da ficha. Uma lista só por vez (entram e saem com o combate).
+export async function condicoesDoPersonagem(personagemId: string): Promise<CondicaoAtiva[]> {
   const instancia = await prisma.instanciaCombate.findFirst({
     where: { personagemId, combate: { encerradoEm: null, sessao: { encerradaEm: null } } },
     select: { condicoesAtivas: true },
   });
-  return lerCondicoesAtivas(instancia?.condicoesAtivas);
+  if (instancia) return lerCondicoesAtivas(instancia.condicoesAtivas);
+  const p = await prisma.personagem.findUnique({ where: { id: personagemId }, select: { condicoes: true } });
+  return lerCondicoesAtivas(p?.condicoes);
 }
 
 // Solta a concentração; a habilidade que ela segurava desliga.
@@ -293,6 +329,9 @@ export async function soltarConcentracao(personagemId: string) {
       : []),
     prisma.personagem.update({ where: { id: personagemId }, data: { concentracao: Prisma.DbNull } }),
   ]);
+  // Era numa ação: os colaterais "no fim" dela (import tardio: o módulo usa este).
+  const { colateraisDaConcentracao } = await import("@/lib/colaterais-servidor");
+  await colateraisDaConcentracao(personagemId, p?.concentracao);
 }
 
 export const SELECT_ACAO_QUE_DURA = {
@@ -385,6 +424,10 @@ export async function soltarOQueDuravaComPvTemp(personagemIds: string[]) {
         : []),
     ];
     if (ops.length > 0) await prisma.$transaction(ops);
+    // O que acabou: colaterais "no fim" (import tardio: o módulo usa este).
+    const { colateraisDaConcentracao, colateraisDoFim } = await import("@/lib/colaterais-servidor");
+    if (fim.soltaConcentracao) await colateraisDaConcentracao(p.id, p.concentracao);
+    await colateraisDoFim(p.id, fim.acoes.map((a) => a.id));
   }
 }
 

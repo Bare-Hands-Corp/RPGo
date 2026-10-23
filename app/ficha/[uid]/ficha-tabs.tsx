@@ -1,7 +1,9 @@
 "use client";
 
 import type { CombateVisto } from "@/lib/combate";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { EVENTO_GASTAR_CONDICAO } from "@/lib/condicoes";
+import { gastarCondicaoDaRolagem } from "./actions";
 import { AcoesTab } from "./acoes-tab";
 import { ArvoresTab, type Arvore, type ArvoreCopiavel } from "./arvores-tab";
 import { HabilidadesTab } from "./habilidades-tab";
@@ -101,6 +103,16 @@ export function FichaTabs({
   arvoresCopiaveis,
   habilidadesTravadas,
 }: Props) {
+  // O Rolador rolou com a vantagem ou desvantagem de uso único de uma técnica.
+  useEffect(() => {
+    function ouvir(ev: Event) {
+      const ids = (ev as CustomEvent<string[]>).detail;
+      gastarCondicaoDaRolagem(personagemId, ids).catch((err) => console.error("[condição] gastar", err));
+    }
+    window.addEventListener(EVENTO_GASTAR_CONDICAO, ouvir);
+    return () => window.removeEventListener(EVENTO_GASTAR_CONDICAO, ouvir);
+  }, [personagemId]);
+
   const tabs = ABAS.filter((a) => abas.includes(a.id));
   const primeira = tabs[0]?.id ?? "combate";
   const [escolhida, setAtivaEstado] = useState<AbaFicha>(
@@ -239,6 +251,8 @@ export function FichaTabs({
           tripulantes={alvos}
           efeitosAgregados={efeitosAgregados}
           grausTecnicas={grausTecnicas}
+          acoes={acoes}
+          atributoCdTecnicas={atributoCdTecnicas}
         />
       </div>
 
@@ -316,6 +330,8 @@ export function FichaTabs({
           habilidades={habilidades}
           tripulantes={alvos}
           grausTecnicas={grausTecnicas}
+          acoesFicha={acoes}
+          atributoCdTecnicas={atributoCdTecnicas}
         />
       </div>
 

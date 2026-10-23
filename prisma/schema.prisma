@@ -169,6 +169,13 @@ model Personagem {
 
   // Em que está concentrando: { tipo: "habilidade" | "acao", id, nome } (lib/duracao.ts).
   concentracao Json?
+  // Condições fora do combate (lib/condicoes.ts CondicaoAtiva[]). Entrando no
+  // combate vão pra instância; saindo, as que ainda valem voltam.
+  condicoes    Json @default("[]")
+  // Efeito colateral (lib/colaterais.ts): sem PP / sem Haki por um tempo.
+  bloqueios    Json @default("[]")
+  // Parte de `exaustao` que some no descanso longo (exaustão temporária).
+  exaustaoTemporaria Int @default(0) @map("exaustao_temporaria")
 
   // Tipos de dano digitados ao receber dano, pra sugerir de novo (lib/dano.ts).
   tiposDano Json @default("[]") @map("tipos_dano")
@@ -323,6 +330,10 @@ model Item {
 
   // Concessões: ver Acao.itemId / Habilidade.itemId.
 
+  // Posição na lista da ficha (arrastar pra reordenar). 0 = nunca arrastado:
+  // vai pro fim, em ordem alfabética.
+  ordem Int @default(0)
+
   @@map("itens")
 }
 
@@ -355,11 +366,15 @@ model Acao {
   recarga     String?
 
   // Mecânica de ataque/salvaguarda.
+  // Técnica sem arma: só diz que tem acerto; o atributo é o primário (o da CD).
   atributoAtaque String? @map("atributo_ataque") // "forca" | "destreza" | "sabedoria" | …
+  // Somado ao acerto (número ou fórmula sem dado: "2", "PROF").
+  bonusAcerto    String? @map("bonus_acerto")
   atributoSalv   String? @map("atributo_salv") // atributo que o alvo testa pra resistir
   atributoCd     String? @map("atributo_cd") // legado: a CD vem de Personagem.atributoCdTecnicas; só vale sem ele
   // Dano de quem passa na salvaguarda: "nada" | "metade".
   salvSucesso    String  @default("nada") @map("salv_sucesso")
+  // Ação comum com arma: adicional ao dano da arma. Senão, o dano da ação.
   dano           String? // "1d8 cortante", "2d6 fogo"
   // Tipo do dano escolhido no modal (lib/dano.ts TIPOS_DANO ou texto).
   tipoDano       String? @map("tipo_dano")
@@ -383,7 +398,11 @@ model Acao {
   // Efeitos próprios (formato de Habilidade.efeitos): valem só nas rolagens desta ação.
   efeitos Json @default("[]")
 
-  // Efeitos na hora do uso vão pra um aliado da mesa.
+  // Em quem a ação vale: "nenhum" | "voce" | "aliado" | "inimigo" | "qualquer"
+  // (lib/op-rpg.ts ALVOS_ACAO).
+  alvo String @default("nenhum")
+  // Efeitos na hora do uso vão pra um aliado da mesa. Sai do `alvo` ("aliado");
+  // fica gravado pro código que já lê ele.
   aliado Boolean @default(false)
 
   // Pasta em que a ação está (etiqueta de filtro; lib/pastas.ts).
@@ -400,9 +419,20 @@ model Acao {
   emCurso         Boolean @default(false) @map("em_curso")
   // Turnos que faltam enquanto em curso (duração em turnos/minutos); null = não conta.
   turnosRestantes Int?    @map("turnos_restantes")
+  // Aliado (Personagem.id, sem FK) em que os efeitos que ficam valendo da última
+  // vez que foi usada valem, enquanto ela estiver em curso.
+  aliadoEmCursoId String? @map("aliado_em_curso_id")
   // Ataque com arma de fogo (efeito de dano pode deixar de fora ou valer só nela).
   armaDeFogo      Boolean @default(false) @map("arma_de_fogo")
+  // O Multiataque da ficha (Ataque Extra…) vale nesta ação; o jogador marca quais.
+  multiataque     Boolean @default(false)
 
+  // Posição na lista da ficha, dentro do tipo (1, 2, 3…); o jogador arrasta pra
+  // reordenar. 0 = ainda sem posição (recém-criada): vai pro fim do tipo.
+  ordem Int @default(0)
+
+  @@index([aliadoEmCursoId])
+  @@index([personagemId, tipo, ordem])
   @@map("acoes")
 }
 
@@ -754,6 +784,10 @@ model Criatura {
   // Posição do tier dentro da linhagem (1=Recruta...8=Almirante). Só relevante
   // com linhagemId setado; define a ordem de exibição na UI agrupada.
   ordemTier  Int?      @map("ordem_tier")
+
+  // Posição na lista do bestiário (arrastar pra reordenar). 0 = nunca arrastada:
+  // vai pro fim, em ordem alfabética.
+  ordem      Int       @default(0)
 
   nome          String
   // Categoria livre (Marinha/Pirata/CP/Animal/Pacifista/...) — texto, não enum,

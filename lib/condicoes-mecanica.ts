@@ -4,9 +4,20 @@
 // condição do livro (cap. 10.3) sem configuração usa a tabela daqui, pela
 // grafia do nome. Puro.
 
-import { lerEfeitos, PERICIAS, type EfeitoHabilidade, type HabilidadeFonte } from "./op-rpg";
+import {
+  agregarEfeitos,
+  ATRIBUTOS,
+  lerEfeitos,
+  nomeDoEfeito,
+  PERICIAS,
+  resumoEfeito,
+  type Atributo,
+  type EfeitoHabilidade,
+  type HabilidadeFonte,
+  type ValeEfeito,
+} from "./op-rpg";
 import type { ModoRolagem } from "./dice";
-import { mesmaCondicao } from "./condicoes";
+import { mesmaCondicao, type CondicaoAplicada } from "./condicoes";
 
 // Quando o dano da condição cai: no início ou no fim do turno de quem está com
 // ela, no 1º ataque do turno ou quando ele se move (avisado num botão).
@@ -51,7 +62,25 @@ export type MecanicaCondicao = {
   acoes?: AcaoDaCondicao[];
 };
 
-export type CondicaoComMecanica = { nome: string; mecanica?: unknown };
+// O que a Biblioteca guarda: a mecânica personalizada, "nenhuma" (só texto,
+// não faz nada no jogo) ou null (sem escolha: a do livro pelo nome).
+export type MecanicaSalva = MecanicaCondicao | "nenhuma" | null;
+
+export function lerMecanicaSalva(raw: unknown): MecanicaSalva {
+  return raw === "nenhuma" ? "nenhuma" : lerMecanica(raw);
+}
+
+// De onde vem o que a condição faz.
+export type OrigemMecanica = "livro" | "personalizada" | "texto";
+
+export function origemDaMecanica(nome: string, salva: MecanicaSalva): OrigemMecanica {
+  if (salva === "nenhuma") return "texto";
+  if (salva) return "personalizada";
+  return mecanicaDoLivro(nome) ? "livro" : "texto";
+}
+
+// `id` e `uso`: a de uso único (lib/condicoes.ts) some quando vale numa rolagem.
+export type CondicaoComMecanica = { nome: string; mecanica?: unknown; id?: string; uso?: "proxima" };
 
 export const MECANICA_VAZIA: MecanicaCondicao = { efeitos: [] };
 
@@ -175,20 +204,34 @@ export function lerMecanica(raw: unknown): MecanicaCondicao | null {
   };
 }
 
-// A configurada; sem ela, a do livro pelo nome.
+// A configurada; "nenhuma" não faz nada; sem ela, a do livro pelo nome.
 export function mecanicaDa(c: CondicaoComMecanica): MecanicaCondicao | null {
+  if (c.mecanica === "nenhuma") return null;
   return lerMecanica(c.mecanica) ?? mecanicaDoLivro(c.nome);
 }
 
-// As condições como fontes de efeito da ficha ("Cego (condição)").
+// As condições como fontes de efeito da ficha ("Cego (condição)"). A de uso
+// único diz qual condição o chip gasta ao rolar.
 export function fontesDasCondicoes(condicoes: CondicaoComMecanica[]): HabilidadeFonte[] {
   const vistas = new Set<string>();
   return condicoes.flatMap((c) => {
     const m = mecanicaDa(c);
     if (!m || m.efeitos.length === 0 || vistas.has(c.nome)) return [];
     vistas.add(c.nome);
-    return [{ nome: `${c.nome} (condição)`, tipo: "passiva", efeitos: m.efeitos }];
+    return [
+      {
+        nome: `${c.nome} (condição)`,
+        tipo: "passiva",
+        efeitos: m.efeitos,
+        ...(c.uso === "proxima" && c.id ? { consome: c.id } : {}),
+      },
+    ];
   });
+}
+
+// As de uso único que valeram (gastam), sem repetir.
+function gasta(c: CondicaoComMecanica, lista: string[]) {
+  if (c.uso === "proxima" && c.id && !lista.includes(c.id)) lista.push(c.id);
 }
 
 type Regra = "incapacita" | "semReacao" | "semConcentracao" | "umaAcao" | "ppDeErroVolta";
@@ -221,7 +264,7 @@ export function travasDasCondicoes(condicoes: CondicaoComMecanica[]): {
 export function travaDaCondicaoNaAcao(
   condicoes: CondicaoComMecanica[],
   tipo: string,
-  gastas: Partial<Record<string, number>>,
+  gastas: { padrao?: number; bonus?: number; power?: number },
 ): string | null {
   const t = travasDasCondicoes(condicoes);
   if (t.incapacita && (tipo === "padrao" || tipo === "bonus" || tipo === "power" || tipo === "react")) {
@@ -242,15 +285,17 @@ function juntarModos(vantagem: boolean, desvantagem: boolean): ModoRolagem {
 }
 
 // Modo de um ataque pelas condições do alvo (e, pra quem não tem ficha, as do
-// atacante). `motivos`: "Cego: vantagem".
+// atacante). `motivos`: "Cego: vantagem". `gastas`: as de uso único do
+// atacante que valeram.
 export function modoDoAtaque(
   alvo: CondicaoComMecanica[],
   atacante: CondicaoComMecanica[] = [],
   corpoACorpo = true,
-): { modo: ModoRolagem; motivos: string[] } {
+): { modo: ModoRolagem; motivos: string[]; gastas: string[] } {
   let vantagem = false;
   let desvantagem = false;
   const motivos: string[] = [];
+  const gastas: string[] = [];
   const vistas = new Set<string>();
   for (const c of alvo) {
     const contra = mecanicaDa(c)?.contra;
@@ -267,28 +312,36 @@ export function modoDoAtaque(
       if (e.tipo === "vantagem") vantagem = true;
       else desvantagem = true;
       motivos.push(`${c.nome}: ${e.tipo}`);
+      gasta(c, gastas);
     }
   }
-  return { modo: juntarModos(vantagem, desvantagem), motivos };
+  return { modo: juntarModos(vantagem, desvantagem), motivos, gastas };
 }
 
 // Salvaguarda de quem não tem ficha (criatura): falha automática, vantagem ou
-// desvantagem pelas condições.
+// desvantagem pelas condições. `gastas`: as de uso único que valeram.
 export function modoDaSalvaguarda(
   condicoes: CondicaoComMecanica[],
   atributo: string,
-): { falha: string | null; modo: ModoRolagem } {
+): { falha: string | null; modo: ModoRolagem; gastas: string[] } {
   const cabe = (alvo: string) => alvo === "salvaguarda" || alvo === `salv-${atributo}`;
   let vantagem = false;
   let desvantagem = false;
+  const gastas: string[] = [];
   for (const c of condicoes) {
     for (const e of mecanicaDa(c)?.efeitos ?? []) {
-      if (e.tipo === "falha_auto" && cabe(e.alvo)) return { falha: c.nome, modo: "normal" };
-      if (e.tipo === "vantagem" && cabe(e.alvo)) vantagem = true;
-      if (e.tipo === "desvantagem" && cabe(e.alvo)) desvantagem = true;
+      if (e.tipo === "falha_auto" && cabe(e.alvo)) {
+        gasta(c, gastas);
+        return { falha: c.nome, modo: "normal", gastas };
+      }
+      if ((e.tipo === "vantagem" || e.tipo === "desvantagem") && cabe(e.alvo)) {
+        if (e.tipo === "vantagem") vantagem = true;
+        else desvantagem = true;
+        gasta(c, gastas);
+      }
     }
   }
-  return { falha: null, modo: juntarModos(vantagem, desvantagem) };
+  return { falha: null, modo: juntarModos(vantagem, desvantagem), gastas };
 }
 
 // Acerto a 1,5 m em alvo indefeso (Inconsciente, Paralisado) é crítico.
@@ -296,12 +349,13 @@ export function viraCritico(condicoes: CondicaoComMecanica[], corpoACorpo: boole
   return corpoACorpo && condicoes.some((c) => mecanicaDa(c)?.criticoPerto);
 }
 
-// Resumo em linhas curtas: "Ataques contra: vantagem", "Sem reação", "1d6 Fogo no 1º ataque do turno".
+// Resumo em linhas curtas: "Desvantagem: Ataque", "Ataques contra: vantagem",
+// "Sem reação", "1d6 Fogo: 1º ataque do turno".
 export function linhasDaMecanica(m: MecanicaCondicao): string[] {
   const contra = { vantagem: "vantagem", desvantagem: "desvantagem", perto: "vantagem a 1,5 m" };
   const quando = GATILHOS_DANO.find((g) => g.slug === m.dano?.quando)?.nome.toLowerCase() ?? "";
   return [
-    ...(m.efeitos.length > 0 ? [`${m.efeitos.length} ${m.efeitos.length === 1 ? "efeito" : "efeitos"} na ficha`] : []),
+    ...m.efeitos.map((e) => `${nomeDoEfeito(e)}: ${resumoEfeito(e)}`),
     ...(m.contra ? [`Ataques contra: ${contra[m.contra]}`] : []),
     ...(m.incapacita ? ["Sem ações"] : []),
     ...(m.semReacao && !m.incapacita ? ["Sem reação"] : []),
@@ -314,6 +368,66 @@ export function linhasDaMecanica(m: MecanicaCondicao): string[] {
   ];
 }
 
+// ─── Padrões da condição (Biblioteca) ──────────────────────────────────────
+// Duração e salvaguarda pra sair que o "+ condição" do narrador e o Aplica
+// Condição sem duração própria usam. `cd: "fonte"`: a CD de quem aplicou.
+export type PadroesCondicao = {
+  rodadas?: number;
+  saida?: { atributo: Atributo; cd: number | "fonte" };
+};
+
+const ATRIBUTOS_SET = new Set<string>(ATRIBUTOS.map((a) => a.slug));
+
+export function lerPadroes(raw: unknown): PadroesCondicao | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const rodadas = Math.trunc(Number(o.rodadas) || 0);
+  const s = o.saida as Record<string, unknown> | null | undefined;
+  const cd: number | "fonte" = s?.cd === "fonte" ? "fonte" : Math.min(40, Math.max(0, Math.trunc(Number(s?.cd) || 0)));
+  const saida: PadroesCondicao["saida"] | null =
+    s && ATRIBUTOS_SET.has(String(s.atributo)) && (cd === "fonte" || cd > 0)
+      ? { atributo: String(s.atributo) as Atributo, cd }
+      : null;
+  if (rodadas <= 0 && !saida) return null;
+  return { ...(rodadas > 0 ? { rodadas: Math.min(100, rodadas) } : {}), ...(saida ? { saida } : {}) };
+}
+
+// "Salv. CON CD 15 pra sair" / "Salv. CON (CD de quem aplicou) pra sair".
+export function textoDaSaida(saida: NonNullable<PadroesCondicao["saida"]>): string {
+  const sigla = ATRIBUTOS.find((a) => a.slug === saida.atributo)?.sigla ?? saida.atributo;
+  return `Salv. ${sigla} ${saida.cd === "fonte" ? "(CD de quem aplicou)" : `CD ${saida.cd}`} pra sair, no fim do turno`;
+}
+
+// ─── Bônus da condição na criatura ─────────────────────────────────────────
+// A criatura não tem ficha: os bônus e penalidades numéricos das condições
+// dela entram nas rolagens que o sistema faz (acerto, salvaguarda) e na CR
+// que o ataque contra ela compara. Perícia fica de fora.
+export function bonusDasCondicoesNaCriatura(
+  condicoes: CondicaoComMecanica[],
+  onde: { tipo: "ataque"; corpoACorpo: boolean } | { tipo: "salvaguarda"; atributo: string } | { tipo: "cr" },
+): { valor: number; fontes: string[] } {
+  const fontes = fontesDasCondicoes(condicoes);
+  if (fontes.length === 0) return { valor: 0, fontes: [] };
+  const agg = agregarEfeitos(fontes);
+  const partes =
+    onde.tipo === "ataque"
+      ? [agg.bonusAtaque, onde.corpoACorpo ? agg.bonusAtaqueCC : agg.bonusAtaqueDistancia, agg.bonusAtaqueComum, agg.bonusQualquer]
+      : onde.tipo === "salvaguarda"
+        ? [agg.bonusSalvaguarda[onde.atributo as Atributo], agg.bonusSalvaguardaTodas, agg.bonusQualquer]
+        : [agg.bonusCR];
+  let valor = 0;
+  const nomes: string[] = [];
+  for (const p of partes) {
+    if (!p || !p.valor) continue;
+    valor += p.valor;
+    for (const f of p.fontes) {
+      const nome = f.replace(/ \(condição\)$/, "");
+      if (!nomes.includes(nome)) nomes.push(nome);
+    }
+  }
+  return { valor, fontes: nomes };
+}
+
 // "Apagar (ação padrão): vira Queimadura".
 export function textoDaAcao(a: AcaoDaCondicao): string {
   const custo = { padrao: "ação padrão", bonus: "ação bônus", power: "ação poderosa", livre: "livre" }[a.custo];
@@ -321,4 +435,37 @@ export function textoDaAcao(a: AcaoDaCondicao): string {
   const faz =
     a.faz === "trocar" ? `vira ${a.condicao}` : a.faz === "teste" ? `${nomePericia} CD ${a.teste?.cd} tira` : "tira";
   return `${a.nome} (${custo}): ${faz}`;
+}
+
+// Efeitos de uma ação que valem em outro participante (vantagem no aliado,
+// desvantagem no inimigo…) viram condições com o nome dela, uma por "Vale":
+// - próxima rolagem: some ao valer, ou no início do próximo turno de quem usou;
+// - próximo turno: até o fim do próximo turno do afetado;
+// - sem "Vale": o que a ação dura (`rodadasDaAcao`), contado na vez de quem usou.
+export function condicoesDosEfeitos(
+  nome: string,
+  efeitos: EfeitoHabilidade[],
+  rodadasDaAcao: number,
+): CondicaoAplicada[] {
+  const grupos: { vale: ValeEfeito | undefined; efeitos: EfeitoHabilidade[] }[] = [];
+  for (const e of efeitos) {
+    let grupo = grupos.find((g) => g.vale === e.vale);
+    if (!grupo) {
+      grupo = { vale: e.vale, efeitos: [] };
+      grupos.push(grupo);
+    }
+    const limpo = { ...e };
+    delete limpo.quem;
+    delete limpo.vale;
+    grupo.efeitos.push(limpo);
+  }
+  const sufixo: Record<ValeEfeito, string> = { proxima: "próxima rolagem", turno: "próximo turno" };
+  return grupos.map((g) => ({
+    nome: grupos.length > 1 && g.vale ? `${nome} (${sufixo[g.vale]})` : nome,
+    rodadas: g.vale === "proxima" ? 1 : g.vale === "turno" ? 2 : rodadasDaAcao,
+    salvaguarda: null,
+    mecanica: { efeitos: g.efeitos },
+    ...(g.vale === "proxima" ? { uso: "proxima" as const } : {}),
+    ...(g.vale === "turno" ? { ateOProximoTurno: true } : {}),
+  }));
 }

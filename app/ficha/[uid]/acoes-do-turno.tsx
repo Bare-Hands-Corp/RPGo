@@ -141,6 +141,7 @@ export function AcoesDoTurno({
           const usadas = Math.min(total, gastas[tipo] ?? 0);
           const restam = total - usadas;
           const fontes = fontesExtras[tipo] ?? [];
+          const ganhas = gastas.ganhas?.[tipo] ?? 0;
           return (
             <div
               key={tipo}
@@ -148,7 +149,8 @@ export function AcoesDoTurno({
               style={{ "--acao-cor": ACAO_COMBATE[tipo].cor } as React.CSSProperties}
               title={
                 `${ACAO_COMBATE[tipo].nome}: ${restam} de ${total}` +
-                (fontes.length > 0 ? ` (a mais: ${fontes.join(", ")})` : "")
+                (fontes.length > 0 ? ` (a mais: ${fontes.join(", ")})` : "") +
+                (ganhas > 0 ? ` (+${ganhas} neste turno)` : "")
               }
             >
               <span className="turno-bolinhas" aria-hidden>

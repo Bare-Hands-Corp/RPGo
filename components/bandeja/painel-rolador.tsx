@@ -1,5 +1,6 @@
 "use client";
 
+import { Tooltip } from "@/components/tooltip";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Swal from "sweetalert2";
 import {
@@ -15,6 +16,7 @@ import {
 import { addPreset, getPresets, removePreset, type Preset } from "@/lib/presets";
 import { registrarRolagem } from "./actions";
 import { anunciarGastoMunicao } from "@/lib/municao";
+import { EVENTO_GASTAR_CONDICAO } from "@/lib/condicoes";
 import type { MensagemSerializada } from "@/lib/mensagens";
 import {
   EVENTO_EMPILHAR,
@@ -115,6 +117,9 @@ type RegraExplosao = NonNullable<ChipContexto["explosao"]>;
 
 // Habilidade de Usar que a rolagem gasta, e quantos usos empilhados.
 type Gasto = { id: string; vezes: number };
+
+// Gasto que é uma condição de uso único, não uma habilidade.
+const PREFIXO_CONDICAO = "condicao:";
 
 // Chip sob demanda que dá pra usar mais de uma vez na mesma rolagem.
 function empilhavel(c: ChipContexto): boolean {
@@ -803,6 +808,8 @@ export function PainelRolador({
     // gastam juntos: vale o maior empilhamento entre eles.
     const vezesPorHabilidade = new Map<string, number>();
     for (const c of ligados) {
+      // Vantagem ou desvantagem de uso único (de uma técnica): some ao rolar.
+      for (const id of c.consome ?? []) vezesPorHabilidade.set(`${PREFIXO_CONDICAO}${id}`, 1);
       if (!c.gasta || c.tipo === "reroll") continue;
       vezesPorHabilidade.set(c.gasta, Math.max(vezesPorHabilidade.get(c.gasta) ?? 1, vezesDe(c)));
     }
@@ -1085,10 +1092,16 @@ export function PainelRolador({
     setPendente(null);
   }
 
-  // Chip de dano sob demanda gasta a habilidade (a aba Habilidades debita).
+  // Chip de dano sob demanda gasta a habilidade (a aba Habilidades debita); o
+  // de uso único gasta a condição que o dava (a ficha tira).
   function gastarHabilidades(gastos: Gasto[]) {
+    const condicoes: string[] = [];
     for (const detail of gastos) {
-      window.dispatchEvent(new CustomEvent("rpgo:gastar-habilidade", { detail }));
+      if (detail.id.startsWith(PREFIXO_CONDICAO)) condicoes.push(detail.id.slice(PREFIXO_CONDICAO.length));
+      else window.dispatchEvent(new CustomEvent("rpgo:gastar-habilidade", { detail }));
+    }
+    if (condicoes.length > 0) {
+      window.dispatchEvent(new CustomEvent<string[]>(EVENTO_GASTAR_CONDICAO, { detail: condicoes }));
     }
   }
 
@@ -1275,13 +1288,14 @@ export function PainelRolador({
             if (c.tipo === "progressivo") {
               const n = passosDe(c);
               return (
-                <span
+                <Tooltip
                   key={c.chave}
-                  className={`rolador-chip rolador-chip-passos${on ? " on" : ""}`}
-                  title={[`${c.rotulo} — ${c.fontes.join(", ")}`, c.detalhe, `até ${c.max}`]
-                    .filter(Boolean)
-                    .join(" · ")}
+                  titulo={c.rotulo}
+                  icone={ICONE_CHIP[c.tipo]}
+                  selo={`até ${c.max}`}
+                  texto={[c.fontes.length > 0 && `de ${c.fontes.join(", ")}`, c.detalhe]}
                 >
+                <span className={`rolador-chip rolador-chip-passos${on ? " on" : ""}`}>
                   <button
                     type="button"
                     aria-label={`Menos ${c.rotulo}`}
@@ -1302,19 +1316,21 @@ export function PainelRolador({
                     <i className="fas fa-plus" />
                   </button>
                 </span>
+                </Tooltip>
               );
             }
             // Sob demanda e ligado: − e + empilham os usos na mesma rolagem.
             if (on && empilhavel(c)) {
               const n = vezesDe(c);
               return (
-                <span
+                <Tooltip
                   key={c.chave}
-                  className="rolador-chip rolador-chip-passos on"
-                  title={[`${c.rotulo} — ${c.fontes.join(", ")}`, c.detalhe, `até ${c.max}×`]
-                    .filter(Boolean)
-                    .join(" · ")}
+                  titulo={c.rotulo}
+                  icone={ICONE_CHIP[c.tipo]}
+                  selo={`até ${c.max}×`}
+                  texto={[c.fontes.length > 0 && `de ${c.fontes.join(", ")}`, c.detalhe]}
                 >
+                <span className="rolador-chip rolador-chip-passos on">
                   <button type="button" aria-label={`Menos ${c.rotulo}`} onClick={() => mudarVezes(c, -1)}>
                     <i className="fas fa-minus" />
                   </button>
@@ -1331,26 +1347,28 @@ export function PainelRolador({
                     <i className="fas fa-plus" />
                   </button>
                 </span>
+                </Tooltip>
               );
             }
             return (
-              <button
+              <Tooltip
                 key={c.chave}
-                type="button"
-                className={`rolador-chip${on ? " on" : ""}`}
-                aria-pressed={on}
-                title={[
-                  c.fontes.length ? `${c.rotulo} — ${c.fontes.join(", ")}` : c.rotulo,
-                  c.detalhe,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-                onClick={() => alternarChip(c.chave)}
+                titulo={c.rotulo}
+                icone={ICONE_CHIP[c.tipo]}
+                selo={on ? "ligado" : "desligado"}
+                texto={[c.fontes.length > 0 && `de ${c.fontes.join(", ")}`, c.detalhe]}
               >
-                <i className={`fas ${ICONE_CHIP[c.tipo]}`} />
-                {c.rotulo}
-                {c.usos && <span className="rolador-chip-usos">{c.usos}</span>}
-              </button>
+                <button
+                  type="button"
+                  className={`rolador-chip${on ? " on" : ""}`}
+                  aria-pressed={on}
+                  onClick={() => alternarChip(c.chave)}
+                >
+                  <i className={`fas ${ICONE_CHIP[c.tipo]}`} />
+                  {c.rotulo}
+                  {c.usos && <span className="rolador-chip-usos">{c.usos}</span>}
+                </button>
+              </Tooltip>
             );
           })}
         </div>

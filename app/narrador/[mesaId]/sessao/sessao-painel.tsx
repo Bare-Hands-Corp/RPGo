@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { bonusDasCondicoesNaCriatura } from "@/lib/condicoes-mecanica";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Swal from "sweetalert2";
 import { modificador } from "@/lib/op-rpg";
@@ -53,7 +54,7 @@ import { FichaCombate } from "./ficha-combate";
 import { DanoCriaturaModal } from "./dano-criatura-modal";
 import { CondicaoModal } from "./condicao-modal";
 import { ChipCondicao } from "@/components/tipos-dano/condicoes";
-import { moverNaLista, useArrastar } from "./use-arrastar";
+import { useReordenar } from "@/lib/use-reordenar";
 import {
   ACAO_COMBATE,
 
@@ -371,13 +372,13 @@ function ParticipanteBuilder({
     });
   }
 
-  const arrastar = useArrastar((de, para) =>
-    setLinhas((atual) => {
-      const a = atual.find((l) => l.id === de);
-      const b = atual.find((l) => l.id === para);
-      return a && b ? moverNaLista(atual, a, b) : atual;
-    }),
-  );
+  // Reordenar arrastando (lib/use-reordenar.ts).
+  const reordenar = useReordenar({
+    itens: linhas.map((l) => ({ id: l.id, grupo: "lista" })),
+    mudaGrupo: false,
+    aoSoltar: (lista) =>
+      setLinhas((atual) => lista.flatMap((x) => atual.find((l) => l.id === x.id) ?? [])),
+  });
 
   const totalJogadores = linhas.filter((l) => l.personagemId).length;
   const totalCriaturas = linhas.reduce((t, l) => t + (l.criaturaId ? l.quantidade : 0), 0);
@@ -509,13 +510,13 @@ function ParticipanteBuilder({
         </div>
       ) : (
         <div className="sessao-preparo-lista">
-          {linhas.map((linha) => (
+          {reordenar.ordenar(linhas).map((linha) => (
             <div
               key={linha.id}
-              className={`sessao-preparo-linha${arrastar.pega === linha.id ? " arrastando" : ""}`}
-              {...arrastar.linha(linha.id)}
+              className={`sessao-preparo-linha${reordenar.vaga(linha.id)}`}
+              {...reordenar.item(linha.id)}
             >
-              <Alca nome={linha.nome} {...arrastar.alca(linha.id)} />
+              <Alca nome={linha.nome} {...reordenar.alca(linha.id)} />
               <span className="sessao-preparo-iniciativa">
                 <input
                   type="number"
@@ -788,14 +789,14 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
     void comErro(() => revelarAcao(mesaId, combate.id, instanciaId, componenteId, revelada));
   }
 
-  // Ordem arrumada à mão: a lista se rearruma durante o arrasto e vai pro
-  // servidor ao soltar. A vez continua com quem já estava jogando.
-  const ordemArrastada = useRef<string[] | null>(null);
-  const arrastar = useArrastar(
-    (de, para) => {
+  // Ordem arrumada à mão (lib/use-reordenar.ts): a lista se rearruma durante o
+  // arrasto e vai pro servidor ao soltar. A vez continua com quem já estava jogando.
+  const reordenar = useReordenar({
+    itens: (combate?.participantes ?? []).map((p) => ({ id: p.id, grupo: "iniciativa" })),
+    mudaGrupo: false,
+    aoSoltar: (lista) => {
       if (!combate) return;
-      const ids = moverNaLista(ordemArrastada.current ?? combate.participantes.map((p) => p.id), de, para);
-      ordemArrastada.current = ids;
+      const ids = lista.map((x) => x.id);
       setSessao((s) => {
         const c = s?.combateAtivo;
         if (!s || !c) return s;
@@ -804,14 +805,9 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
         const turnoAtual = Math.max(0, participantes.findIndex((p) => p.id === daVezId));
         return { ...s, combateAtivo: { ...c, participantes, turnoAtual } };
       });
-    },
-    () => {
-      const ids = ordemArrastada.current;
-      ordemArrastada.current = null;
-      if (!ids || !combate) return;
       void comErro(() => reordenarIniciativa(mesaId, combate.id, ids)).then((nova) => nova && setSessao(nova));
     },
-  );
+  });
 
   const instanciaAberta = combate?.participantes.find((p) => p.id === criaturaAbertaInstanciaId) ?? null;
 
@@ -855,9 +851,10 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
     const instanciaId = instanciaAberta.id;
     const rotulo = `${instanciaAberta.nomeExibicao}: ${item.nome || "Ação"}`;
     const temAtaque = item.efeitos.some((e) => e.tipo === "ataque" && e.bonus.trim());
-    const resolveEmAlvo = item.efeitos.some(
-      (e) => e.tipo === "salvaguarda" || e.tipo === "condicao" || (e.tipo === "dano" && e.formula.trim()),
-    );
+    const resolveEmAlvo =
+      item.efeitos.some(
+        (e) => e.tipo === "salvaguarda" || e.tipo === "condicao" || (e.tipo === "dano" && e.formula.trim()),
+      ) || item.efeitosExtras.some((e) => e.tipo === "condicao_aplicar" && !e.emVoce);
 
     // Multiataque: os ataques comuns que ainda cabem na ação padrão deste turno,
     // cada um com o próprio alvo (linha sem alvo não é ataque feito).
@@ -1006,10 +1003,15 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
 
     if (uso.modo === "ataque" && uso.ataque) {
       const bonus = parseFormulaDados(uso.ataque);
+      // Bônus e penalidades de acerto das condições da criatura.
+      const daCondicao = bonusDasCondicoesNaCriatura(instanciaAberta.condicoes, {
+        tipo: "ataque",
+        corpoACorpo: inferirAlcance(item.alcance) === "corpo_a_corpo",
+      });
       empilharRolagem({
         dados: [D20, ...bonus.dados],
-        modificador: bonus.modificador,
-        nomePreset: rotulo,
+        modificador: bonus.modificador + daCondicao.valor,
+        nomePreset: daCondicao.valor ? `${rotulo} (${daCondicao.fontes.join(", ")})` : rotulo,
         contexto: { tipo: "ataque", alcance: "corpo_a_corpo" },
         modos,
         rolarAuto: true,
@@ -1045,6 +1047,9 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
             nome={c.nome}
             rodadas={c.rodadas}
             origem={[c.origem, c.porTurno ? textoDanoPorTurno(c.porTurno) : ""].filter(Boolean).join(" · ")}
+            mecanica={c.mecanica}
+            uso={c.uso}
+            fimDoTurno={!!c.fimDoTurno}
           >
             {c.salvaguarda && p.criaturaId && (
               <button
@@ -1312,7 +1317,7 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
               <span />
               <span />
             </div>
-            {combate.participantes.map((p, indice) => {
+            {reordenar.ordenar(combate.participantes).map((p) => {
               const personagem = p.personagemId ? personagensMesa.find((x) => x.id === p.personagemId) : null;
               const criatura = p.criaturaId ? criaturas.find((x) => x.id === p.criaturaId) : null;
               const pvServidor = p.personagemId ? personagem?.hpAtual ?? 0 : p.pvAtual ?? 0;
@@ -1320,7 +1325,7 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
               // de digitar em vez de esperar o roundtrip do servidor/realtime.
               const pvExibido = pvOverrides[p.id] ?? pvServidor;
               const pvMax = p.personagemId ? personagem?.hpMax ?? 0 : p.pvMax ?? 0;
-              const ehTurnoAtual = indice === combate.turnoAtual;
+              const ehTurnoAtual = p.id === combate.participantes[combate.turnoAtual]?.id;
               // PP só de criatura que tem PP (o máximo vem do bestiário).
               const ppMax = criatura?.pontosPoder ?? 0;
 
@@ -1330,12 +1335,12 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
                   className={
                     "sessao-linha-iniciativa" +
                     (ehTurnoAtual ? " ativo" : "") +
-                    (arrastar.pega === p.id ? " arrastando" : "") +
+                    reordenar.vaga(p.id) +
                     (criaturaAbertaInstanciaId === p.id ? " selecionada" : "")
                   }
-                  {...arrastar.linha(p.id)}
+                  {...reordenar.item(p.id)}
                 >
-                  <Alca nome={p.nomeExibicao} {...arrastar.alca(p.id)} />
+                  <Alca nome={p.nomeExibicao} {...reordenar.alca(p.id)} />
                   <span className="sessao-iniciativa-valor">{p.iniciativa}</span>
                   <Retrato criatura={!!p.criaturaId} foto={p.criaturaId ? criatura?.imagemUrl : personagem?.fotoUrl} />
                   <span className="sessao-iniciativa-nome">

@@ -12,7 +12,9 @@ import {
   ALVOS_SUBSTITUIVEIS,
   ALVOS_VALOR_FIXO,
   ALVOS_VALOR_IGUAL,
+  ACOES_EXTRAS,
   ATRIBUTOS,
+  COLATERAIS,
   DEFESAS_IGNORADAS,
   EVENTO_PASSOS,
   GRUPOS_PRESET,
@@ -21,6 +23,9 @@ import {
   PRESETS_EFEITO,
   alvoDeRolagem,
   comoDura,
+  escolheVale,
+  podeIrProAliado,
+  podeIrProInimigo,
   comPassosProgressivos,
   defesasIgnoradas,
   dependeDosUsos,
@@ -28,6 +33,7 @@ import {
   formatarMod,
   formulaResolvidaTexto,
   lerEfeitos,
+  modoDoDeslocamento,
   nomeDoEfeito,
   podeSerSempreAtivo,
   alvoDaCura,
@@ -38,6 +44,8 @@ import {
   type Atributo,
   type DuraEfeito,
   type EfeitoHabilidade,
+  type QuemEfeito,
+  type ValeEfeito,
   type PassosDoRolador,
 } from "@/lib/op-rpg";
 import {
@@ -48,9 +56,13 @@ import {
   TipoDanoCampo,
   TiposDanoCampo,
 } from "./campos-modal";
+import { Tooltip } from "@/components/tooltip";
 import { casaBusca, normalizarBusca } from "./barra-filtros";
 import { CampoFormula, FormulaContext } from "./campo-formula";
-import { DURACOES_CONDICAO, RODADAS_PADRAO } from "@/lib/condicoes";
+import { DURACOES_CONDICAO } from "@/lib/condicoes";
+import { MECANICA_VAZIA, lerMecanica, linhasDaMecanica, type MecanicaCondicao } from "@/lib/condicoes-mecanica";
+import { MecanicaCondicaoEditor } from "@/app/biblioteca/mecanica-condicao";
+import { useCatalogoCondicoes } from "@/components/tipos-dano/condicoes";
 import { DURACOES_PV_TEMP, type DuracaoPvTemp } from "@/lib/duracao";
 import { SeletorBusca } from "./seletor-busca";
 
@@ -71,6 +83,9 @@ export const EfeitoDeAcaoContext = createContext(false);
 
 // A ação dura mais que o uso: cada efeito escolhe se repete ou se mantém.
 export const EfeitosDuramContext = createContext(false);
+
+const TEXTO_QUEM: Record<QuemEfeito, string> = { aliado: "em aliado", inimigo: "no inimigo" };
+const TEXTO_VALE: Record<ValeEfeito, string> = { proxima: "próxima rolagem", turno: "próximo turno dele" };
 
 const TEXTO_DURA: Record<DuraEfeito, string> = {
   turno: "a cada turno",
@@ -226,6 +241,13 @@ export function ChipEfeito({
   const resumo = naAcao ?? resumoEfeito(efeito, nome, formula ? { ...formula, grau } : undefined);
   const cru = naAcao ?? resumoEfeito(efeito, nome);
   return (
+    <Tooltip
+      titulo={nomeDoEfeito(efeito)}
+      icone={meta.icone}
+      cor={meta.cor}
+      selo={dura ? TEXTO_DURA[dura] : undefined}
+      texto={[resumo, cru !== resumo && `Fórmula: ${cru}`, efeito.quem === "aliado" && "Vai num aliado, escolhido no uso", efeito.quem === "inimigo" && "Vai no inimigo que a ação pega"]}
+    >
     <span
       className="efeito-chip"
       style={{
@@ -233,10 +255,11 @@ export function ChipEfeito({
         color: meta.cor,
         borderColor: `color-mix(in oklch, ${meta.cor} 35%, transparent)`,
       }}
-      title={cru !== resumo ? cru : undefined}
     >
       <i className={`fas ${meta.icone}`} />
       <span className="efeito-chip-label">{nomeDoEfeito(efeito)}</span>
+      {efeito.quem === "aliado" && <i className="fas fa-hand-holding-heart" aria-label="em aliado" />}
+      {efeito.quem === "inimigo" && <i className="fas fa-crosshairs" aria-label="no inimigo" />}
       <span className="efeito-chip-resumo">{resumo}</span>
       {efeito.sempreAtivo && <i className="fas fa-infinity" title="Sempre ativo" />}
       {gastaUso && <i className="fas fa-bolt-lightning" title="Gasta 1 uso" />}
@@ -247,6 +270,7 @@ export function ChipEfeito({
         </span>
       )}
     </span>
+    </Tooltip>
   );
 }
 
@@ -260,9 +284,16 @@ export function StatsPorTurno({ efeitos, grau }: { efeitos: EfeitoHabilidade[]; 
     const resumo = resumoEfeito(e, nome, formula ? { ...formula, grau } : undefined);
     const cru = resumoEfeito(e, nome);
     return (
-      <span key={`turno-${i}`} className="acao-stat acao-por-turno" title={cru !== resumo ? cru : undefined}>
-        <i className="fas fa-clock-rotate-left" /> {resumo} por turno
-      </span>
+      <Tooltip
+        key={`turno-${i}`}
+        titulo="A cada turno"
+        icone="fa-clock-rotate-left"
+        texto={[`${resumo} por turno`, cru !== resumo && `Fórmula: ${cru}`]}
+      >
+        <span className="acao-stat acao-por-turno">
+          <i className="fas fa-clock-rotate-left" /> {resumo} por turno
+        </span>
+      </Tooltip>
     );
   });
 }
@@ -371,7 +402,8 @@ function PickerPreset({
 }) {
   const [busca, setBusca] = useState("");
   const oferecidos = PRESETS_EFEITO.filter(
-    (p) => (!presets || presets.includes(p.id)) && casaBusca(busca, [p.nome, p.descricao]),
+    // Sem lista, tudo menos o que só vale em ação (o colateral pesa em quem usa a técnica).
+    (p) => (presets ? presets.includes(p.id) : p.id !== "colateral") && casaBusca(busca, [p.nome, p.descricao]),
   );
   // Enter escolhe o que começa com o que foi digitado; senão, o primeiro da lista.
   const melhor =
@@ -423,7 +455,6 @@ function PickerPreset({
                   type="button"
                   className="picker-preset-card"
                   onClick={() => onPick(p.id)}
-                  title={p.descricao}
                   style={{ borderLeftColor: COR_DO_PRESET.get(p.id) }}
                 >
                   <i className={`fas ${p.icone}`} style={{ color: COR_DO_PRESET.get(p.id) }} />
@@ -518,15 +549,19 @@ function EditorEfeito({
     dependeDosUsos(efeito, new Set(periciasCustom.map((a) => a.slug)));
   // Efeito sem parâmetro não tem corpo.
   const corpo = renderCorpo(efeito, recursos, onPatch, periciasCustom, daAcao, gastaUso);
-  // Em ação com duração: repete a cada turno ou fica valendo.
-  const como = useContext(EfeitosDuramContext) ? comoDura(efeito) : null;
+  // Numa ação, o efeito escolhe em quem vai (você, um aliado ou o inimigo).
+  const escolheQuem = daAcao && (podeIrProAliado(efeito) || podeIrProInimigo(efeito));
+  // Em ação com duração: repete a cada turno ou fica valendo (só em quem usa).
+  const como = useContext(EfeitosDuramContext) && !efeito.quem ? comoDura(efeito) : null;
   const dura = como ? duraQueCabe(como, efeito.dura) : undefined;
   // Incompleto some ao salvar: avisa em vez de mostrar um resumo pela metade.
   const completo = lerEfeitos([efeito]).length > 0;
   const resumo = completo
     ? ((daAcao ? resumoNaAcao(efeito) : null) ??
         resumoEfeito(efeito, (id) => nomesRecurso.get(id), formula ?? undefined)) +
-      (dura ? ` · ${TEXTO_DURA[dura]}` : "")
+      (dura ? ` · ${TEXTO_DURA[dura]}` : "") +
+      (efeito.quem ? ` · ${TEXTO_QUEM[efeito.quem]}` : "") +
+      (efeito.quem && efeito.vale ? ` · ${TEXTO_VALE[efeito.vale]}` : "")
     : "falta preencher";
   const nome = nomeDoEfeito(efeito);
   // Quem já está marcado segue mostrando, pra dar pra desmarcar.
@@ -571,9 +606,12 @@ function EditorEfeito({
           </button>
         </span>
       </div>
-      {aberto && (corpo || ofereceSempre || como) && (
+      {aberto && (corpo || ofereceSempre || como || escolheQuem) && (
         <div className="efeito-editor-corpo">
           {corpo}
+          {escolheQuem && (
+            <CampoQuem valor={efeito.quem} efeito={efeito} onPatch={onPatch} />
+          )}
           {como && <CampoDura como={como} valor={dura} onPatch={onPatch} />}
           {ofereceSempre && (
             <div style={{ gridColumn: "1 / -1" }}>
@@ -585,6 +623,76 @@ function EditorEfeito({
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+// Numa ação: o efeito vai em quem usa, num aliado (escolhido no uso, o mesmo
+// pra todos os efeitos dela) ou, a desvantagem, no inimigo que ela pega. No
+// aliado, o na hora não repete; o que fica valendo vale nele. Vantagem e
+// desvantagem em outro escolhem quanto valem (`vale`).
+function CampoQuem({
+  valor,
+  efeito,
+  onPatch,
+}: {
+  valor: QuemEfeito | undefined;
+  efeito: EfeitoHabilidade;
+  onPatch: (p: Partial<EfeitoHabilidade>) => void;
+}) {
+  const fica = comoDura(efeito) === "mantem";
+  const opcoes: { valor: QuemEfeito | "voce"; rotulo: string; titulo?: string }[] = [
+    { valor: "voce", rotulo: "Você" },
+    ...(podeIrProAliado(efeito)
+      ? [{ valor: "aliado" as const, rotulo: "Aliado", titulo: "Escolhe o aliado na hora de usar" }]
+      : []),
+    ...(podeIrProInimigo(efeito)
+      ? [{ valor: "inimigo" as const, rotulo: "Inimigo", titulo: "Vale em quem a ação atinge no combate" }]
+      : []),
+  ];
+  const comVale = !!valor && escolheVale(efeito);
+  return (
+    <div style={{ gridColumn: "1 / -1" }}>
+      <label>Em quem</label>
+      <Segmentos
+        rotulo="Em quem"
+        valor={valor ?? "voce"}
+        opcoes={opcoes}
+        onChange={(v) =>
+          onPatch(
+            (v === "voce"
+              ? { quem: undefined, vale: undefined }
+              : { quem: v, dura: undefined }) as Partial<EfeitoHabilidade>,
+          )
+        }
+      />
+      {comVale && (
+        <>
+          <label style={{ marginTop: 8 }}>Vale</label>
+          <Segmentos
+            rotulo="Vale"
+            valor={efeito.vale ?? "acao"}
+            opcoes={[
+              { valor: "proxima", rotulo: "Na próxima rolagem", titulo: "Some depois da primeira rolagem em que vale" },
+              { valor: "turno", rotulo: "No próximo turno dele", titulo: "Em todas as rolagens do próximo turno dele" },
+              { valor: "acao", rotulo: "Enquanto a ação durar" },
+            ]}
+            onChange={(v) => onPatch({ vale: v === "acao" ? undefined : v } as Partial<EfeitoHabilidade>)}
+          />
+        </>
+      )}
+      {valor && (fica || comVale) && (
+        <small className="efeito-quem-dica">
+          {valor === "inimigo"
+            ? "Vira uma condição com o nome da ação em quem ela pega no combate (acerto ou salvaguarda que falha; sem esses, você escolhe o alvo ao usar). Só no combate."
+            : "No combate, vira uma condição com o nome da ação no aliado; fora dele, vale enquanto a ação estiver em curso."}{" "}
+          {efeito.vale === "proxima"
+            ? "Some na primeira rolagem em que vale, ou no início do seu próximo turno."
+            : efeito.vale === "turno"
+              ? "Vale até o fim do próximo turno dele."
+              : "Dura o que a ação dura (instantânea: até o início do seu próximo turno), contado na sua vez."}
+        </small>
       )}
     </div>
   );
@@ -676,7 +784,7 @@ function CampoQuando({
 const GRAUS = [1, 2, 3, 4, 5, 6, 7];
 
 // Atalhos do alcance que troca o da ação.
-const ALCANCES_TROCADOS = ["Campo de visão", "Toque"];
+const ALCANCES_TROCADOS = ["Campo de visão", "1,5 m"];
 
 // Efeito de dano só em certos graus de técnica ou tipos de dano.
 function FiltroDanoCampos({
@@ -977,24 +1085,96 @@ function renderCorpo(
           />
         </div>
       );
-    case "condicao_aplicar":
+    case "condicao_aplicar": {
+      const criada = !!e.mecanica;
       return (
         <>
+          {daAcao && (
+            <div style={{ gridColumn: "1 / -1" }}>
+              <label>Em quem</label>
+              <Segmentos
+                rotulo="Em quem a condição vai"
+                valor={e.emVoce ? "voce" : "alvo"}
+                opcoes={[
+                  { valor: "alvo", rotulo: "Alvo", titulo: "Em quem a ação pega" },
+                  { valor: "voce", rotulo: "Você", titulo: "Em quem usa (colateral, postura)" },
+                ]}
+                onChange={(v) =>
+                  onPatch({
+                    emVoce: v === "voce" || undefined,
+                    // Em você não tem salvaguarda.
+                    ...(v === "voce" ? { evita: undefined, repete: undefined } : { quando: undefined }),
+                  } as Partial<EfeitoHabilidade>)
+                }
+              />
+            </div>
+          )}
+          {daAcao && e.emVoce && (
+            <div style={{ gridColumn: "1 / -1" }}>
+              <label>Quando</label>
+              <Segmentos
+                rotulo="Quando a condição entra"
+                valor={e.quando ?? "uso"}
+                opcoes={[
+                  { valor: "uso", rotulo: "No uso" },
+                  { valor: "fim", rotulo: "No fim", titulo: "Quando a ação acaba (encerrada, duração, concentração)" },
+                ]}
+                onChange={(v) => onPatch({ quando: v === "fim" ? "fim" : undefined } as Partial<EfeitoHabilidade>)}
+              />
+            </div>
+          )}
           <div style={{ gridColumn: "1 / -1" }}>
-            <CondicaoCampo
-              valor={e.condicao}
-              onChange={(v) => onPatch({ condicao: v } as Partial<EfeitoHabilidade>)}
+            <label>Condição</label>
+            <Segmentos
+              rotulo="De onde vem a condição"
+              valor={criada ? "criar" : "biblioteca"}
+              opcoes={[
+                { valor: "biblioteca", rotulo: "Da Biblioteca" },
+                { valor: "criar", rotulo: "Criar aqui", titulo: "Nome e efeitos só desta ação" },
+              ]}
+              onChange={(v) =>
+                onPatch({ mecanica: v === "criar" ? { efeitos: [] } : undefined } as Partial<EfeitoHabilidade>)
+              }
             />
           </div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            {criada ? (
+              <Campo
+                label="Nome"
+                valor={e.condicao}
+                onChange={(v) => onPatch({ condicao: v } as Partial<EfeitoHabilidade>)}
+                placeholder="Ex: Postura de Ferro"
+              />
+            ) : (
+              <CondicaoCampo
+                valor={e.condicao}
+                onChange={(v) => onPatch({ condicao: v } as Partial<EfeitoHabilidade>)}
+              />
+            )}
+          </div>
+          {criada && (
+            <div style={{ gridColumn: "1 / -1" }}>
+              <CondicaoCriadaAqui
+                mecanica={lerMecanica(e.mecanica) ?? MECANICA_VAZIA}
+                onChange={(m) => onPatch({ mecanica: m } as Partial<EfeitoHabilidade>)}
+              />
+            </div>
+          )}
           <div style={{ gridColumn: "1 / -1" }}>
             <label>Dura</label>
             <Segmentos
               rotulo="Duração da condição"
-              valor={e.rodadas ?? RODADAS_PADRAO}
-              opcoes={DURACOES_CONDICAO.map((d) => ({ valor: d.rodadas, rotulo: d.nome }))}
-              onChange={(v) => onPatch({ rodadas: v } as Partial<EfeitoHabilidade>)}
+              valor={e.rodadas ?? 0}
+              opcoes={[
+                // A da condição na Biblioteca (1 rodada, se ela não tiver).
+                { valor: 0, rotulo: "Padrão", titulo: "A duração padrão da condição na Biblioteca" },
+                ...DURACOES_CONDICAO.map((d) => ({ valor: d.rodadas, rotulo: d.nome })),
+              ]}
+              onChange={(v) => onPatch({ rodadas: v || undefined } as Partial<EfeitoHabilidade>)}
             />
           </div>
+          {!e.emVoce && (
+          <>
           <label className="efeito-check" style={{ gridColumn: "1 / -1" }}>
             <input
               type="checkbox"
@@ -1003,13 +1183,30 @@ function renderCorpo(
             />
             O afetado pode repetir a salvaguarda pra sair antes
           </label>
-          {e.repete && (
+          <div style={{ gridColumn: "1 / -1" }}>
+            <label>Evita com salvaguarda de</label>
+            <Segmentos
+              rotulo="Salvaguarda que evita a condição"
+              valor={e.evita ?? ""}
+              opcoes={[
+                { valor: "", rotulo: "Nenhuma" },
+                ...ATRIBUTOS.map((a) => ({ valor: a.slug, rotulo: a.sigla, titulo: a.nome })),
+              ]}
+              onChange={(v) => onPatch({ evita: v || undefined } as Partial<EfeitoHabilidade>)}
+            />
+          </div>
+          </>
+          )}
+          {(e.evita || e.repete) && (
             <p className="campo-dica" style={{ gridColumn: "1 / -1" }}>
-              Ele rola a salvaguarda da ação contra a CD das suas técnicas (ficha lateral).
+              {e.evita
+                ? "Quem a ação seleciona como alvo rola essa salvaguarda contra a CD das suas técnicas (Atributo Primário); passando, não recebe."
+                : "Ele rola a salvaguarda da ação contra a CD das suas técnicas (Atributo Primário)."}
             </p>
           )}
         </>
       );
+    }
     case "resistencia":
     case "imunidade":
     case "vulnerabilidade":
@@ -1029,15 +1226,49 @@ function renderCorpo(
               label="Onde"
               valor={e.tipoMov}
               opcoes={MOVIMENTOS}
-              onChange={(v) => onPatch({ tipoMov: v } as Partial<EfeitoHabilidade>)}
+              // Troca de movimento volta pro modo padrão dele.
+              onChange={(v) => onPatch({ tipoMov: v, modo: undefined } as Partial<EfeitoHabilidade>)}
             />
           </div>
-          <CampoNum
-            label="Quanto (m)"
-            valor={e.valor}
-            step={0.5}
-            onChange={(v) => onPatch({ valor: v } as Partial<EfeitoHabilidade>)}
-          />
+          <div style={{ gridColumn: "1 / -1" }}>
+            <SelectLista
+              label="Como"
+              valor={modoDoDeslocamento(e)}
+              opcoes={[
+                { slug: "soma", nome: "Somar" },
+                { slug: "vira", nome: "Tornar" },
+                { slug: "reduz", nome: "Reduzir para" },
+              ]}
+              onChange={(v) =>
+                onPatch({
+                  modo: v === modoDoDeslocamento({ tipoMov: e.tipoMov }) ? undefined : v,
+                } as Partial<EfeitoHabilidade>)
+              }
+            />
+          </div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <CampoFormula
+              label="Quanto (m)"
+              valor={e.formula ?? String(e.valor)}
+              placeholder={modoDoDeslocamento(e) === "reduz" ? "6, DESLOC/2…" : "3, -3, DESLOC/2…"}
+              comDesloc
+              onChange={(v) => {
+                const numero = /^\s*-?\d+([.,]\d+)?\s*$/.test(v);
+                onPatch(
+                  (numero
+                    ? { valor: Number(v.replace(",", ".")), formula: undefined }
+                    : { valor: 0, formula: v }) as Partial<EfeitoHabilidade>,
+                );
+              }}
+            />
+          </div>
+          <p className="campo-dica" style={{ gridColumn: "1 / -1" }}>
+            {modoDoDeslocamento(e) === "soma"
+              ? "Número negativo diminui. DESLOC é o deslocamento atual (DESLOC/2 soma metade dele)."
+              : modoDoDeslocamento(e) === "vira"
+                ? "Passa a valer X, se for maior que o deslocamento atual. Vale o maior entre os efeitos."
+                : "O deslocamento cai pra no máximo X. DESLOC/2 deixa ele pela metade."}
+          </p>
         </>
       );
     case "valor_igual": {
@@ -1287,13 +1518,7 @@ function renderCorpo(
             <SelectLista
               label="Onde"
               valor={e.acao}
-              opcoes={[
-                { slug: "ataque", nome: "Ataque" },
-                { slug: "acao", nome: "Ação" },
-                { slug: "acao bônus", nome: "Ação bônus" },
-                { slug: "reacao", nome: "Reação" },
-                { slug: "movimento", nome: "Movimento" },
-              ]}
+              opcoes={ACOES_EXTRAS}
               onChange={(v) => onPatch({ acao: v } as Partial<EfeitoHabilidade>)}
             />
           </div>
@@ -1661,7 +1886,8 @@ function renderCorpo(
             label="Quanto"
             valor={e.formula ?? (e.valor ? String(e.valor) : "")}
             onChange={(v) => onPatch(patchDeFormula(v))}
-            placeholder="5, PROF…"
+            placeholder="5, PROF, 2d12+NIVEL…"
+            dados
           />
           <div style={{ gridColumn: "1 / -1" }}>
             <TiposDanoCampo
@@ -1964,8 +2190,16 @@ function renderCorpo(
                 ...ALVOS_DANO,
                 ...ALVOS_CONTEXTUAIS,
                 ...periciasCustom.map((a) => ({ ...a, grupo: "Perícia" })),
+                // Valores da ficha: valem enquanto a ação durar.
+                { slug: "hp-max", nome: "PV Máximo", grupo: "Ficha" },
+                { slug: "cr", nome: "Classe de Resistência", grupo: "Ficha" },
               ]}
-              onChange={(v) => onPatch({ em: v === "dano" ? undefined : v } as Partial<EfeitoHabilidade>)}
+              onChange={(v) =>
+                onPatch({
+                  em: v === "dano" ? undefined : v,
+                  ...(e.cresce === "rolagem" && progressivoNaFicha(v, slugsCustom) ? { cresce: undefined } : {}),
+                } as Partial<EfeitoHabilidade>)
+              }
             />
           ) : (
             <div>
@@ -1994,6 +2228,130 @@ function renderCorpo(
         </>
       );
     }
+    case "colateral":
+      return (
+        <>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <SelectLista
+              label="O que"
+              valor={e.o}
+              opcoes={COLATERAIS}
+              onChange={(v) =>
+                onPatch({
+                  o: v,
+                  // Cada um só guarda os campos dele.
+                  valor: v === "exaustao" ? "1" : v === "dano" ? "" : undefined,
+                  tipoDano: undefined,
+                  irredutivel: undefined,
+                  temporaria: undefined,
+                  minutos: v === "sem_pp" || v === "sem_haki" ? 1 : undefined,
+                  exaustaoSemPp: undefined,
+                } as Partial<EfeitoHabilidade>)
+              }
+            />
+          </div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <SelectLista
+              label="Quando"
+              valor={e.quando}
+              opcoes={[
+                { slug: "uso", nome: "No uso" },
+                { slug: "fim", nome: "No fim" },
+              ]}
+              onChange={(v) => onPatch({ quando: v } as Partial<EfeitoHabilidade>)}
+            />
+          </div>
+          {e.o === "dano" && (
+            <>
+              <CampoFormula
+                label="Dano"
+                valor={e.valor ?? ""}
+                onChange={(v) => onPatch({ valor: v } as Partial<EfeitoHabilidade>)}
+                placeholder="20, 2d6, NIVEL…"
+                dados
+                comGrau
+              />
+              <div style={{ gridColumn: "1 / -1" }}>
+                <TipoDanoCampo
+                  rotulo="Tipo de dano"
+                  valor={e.tipoDano ?? ""}
+                  onChange={(v) => onPatch({ tipoDano: v || undefined } as Partial<EfeitoHabilidade>)}
+                />
+              </div>
+              <label className="efeito-check" style={{ gridColumn: "1 / -1" }}>
+                <input
+                  type="checkbox"
+                  checked={!!e.irredutivel}
+                  onChange={(ev) => onPatch({ irredutivel: ev.target.checked || undefined } as Partial<EfeitoHabilidade>)}
+                />
+                Irredutível (não reduz e não sai do PV temporário)
+              </label>
+            </>
+          )}
+          {e.o === "exaustao" && (
+            <>
+              <CampoNum
+                label="Níveis"
+                valor={Number(e.valor) || 1}
+                min={1}
+                max={6}
+                onChange={(v) => onPatch({ valor: String(v) } as Partial<EfeitoHabilidade>)}
+              />
+              <label className="efeito-check" style={{ gridColumn: "1 / -1" }}>
+                <input
+                  type="checkbox"
+                  checked={!!e.temporaria}
+                  onChange={(ev) => onPatch({ temporaria: ev.target.checked || undefined } as Partial<EfeitoHabilidade>)}
+                />
+                Só até o descanso longo
+              </label>
+            </>
+          )}
+          {(e.o === "sem_pp" || e.o === "sem_haki") && (
+            <>
+              <CampoNum
+                label="Minutos"
+                valor={e.minutos ?? 1}
+                min={1}
+                max={600}
+                onChange={(v) => onPatch({ minutos: v } as Partial<EfeitoHabilidade>)}
+              />
+              {e.o === "sem_pp" && (
+                <label className="efeito-check" style={{ gridColumn: "1 / -1" }}>
+                  <input
+                    type="checkbox"
+                    checked={!!e.exaustaoSemPp}
+                    onChange={(ev) =>
+                      onPatch({ exaustaoSemPp: ev.target.checked || undefined } as Partial<EfeitoHabilidade>)
+                    }
+                  />
+                  Ficou sem PP depois do uso: 1 de exaustão
+                </label>
+              )}
+              <p className="campo-dica" style={{ gridColumn: "1 / -1" }}>
+                {e.o === "sem_pp"
+                  ? "Nesse tempo, ações e habilidades que gastam PP ficam travadas."
+                  : "Nesse tempo, habilidades de origem Haki (e ações que vêm delas) ficam travadas."}{" "}
+                1 minuto = 10 rodadas, contadas no Passar turno; o descanso acaba antes.
+              </p>
+            </>
+          )}
+        </>
+      );
+    case "interceptar":
+      return (
+        <p className="campo-dica" style={{ gridColumn: "1 / -1" }}>
+          Numa reação com o gatilho “Aliado alvo de ataque”: quem reage vira o alvo do ataque, que acerta sem comparar
+          a CR. 
+        </p>
+      );
+    case "evasao":
+      return (
+        <p className="campo-dica" style={{ gridColumn: "1 / -1" }}>
+          Salvaguarda que evita dano: passou, não sofre nada; falhou, sofre metade. Numa habilidade vale sempre; numa
+          reação com o gatilho “Salvaguarda”, vale só na que a disparou.
+        </p>
+      );
     case "livre":
       return (
         <div style={{ gridColumn: "1 / -1" }}>
@@ -2167,6 +2525,36 @@ function CampoNum({
           onChange={onChange}
         />
       )}
+    </div>
+  );
+}
+
+// Condição criada dentro do Aplica Condição: o mesmo editor da Biblioteca e a
+// prévia do que vale pra quem estiver com ela.
+function CondicaoCriadaAqui({
+  mecanica,
+  onChange,
+}: {
+  mecanica: MecanicaCondicao;
+  onChange: (m: MecanicaCondicao) => void;
+}) {
+  const catalogo = useCatalogoCondicoes();
+  const linhas = linhasDaMecanica(mecanica);
+  return (
+    <div className="condicao-criada">
+      <MecanicaCondicaoEditor mecanica={mecanica} condicoes={catalogo} onChange={onChange} />
+      <div className="condicao-previa">
+        <span className="trait-condicao-estilo-titulo">Quem estiver com ela:</span>
+        {linhas.length > 0 ? (
+          <ul>
+            {linhas.map((l, i) => (
+              <li key={i}>{l}</li>
+            ))}
+          </ul>
+        ) : (
+          <p className="campo-dica">Nada no jogo ainda: adicione efeitos acima.</p>
+        )}
+      </div>
     </div>
   );
 }

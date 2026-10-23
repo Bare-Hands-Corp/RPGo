@@ -1,6 +1,7 @@
 // O que uma reação faz quando é usada na janela de reação do combate: sobe a
-// CR (o ataque é comparado de novo), dá PV temporário (entra antes do dano) ou
-// reduz o dano. Sai dos mesmos efeitos da ficha. Puro (cliente e servidor).
+// CR (o ataque é comparado de novo), dá PV temporário (entra antes do dano),
+// reduz o dano, intercepta o ataque de um aliado ou dá Evasão na salvaguarda.
+// Sai dos mesmos efeitos da ficha. Puro (cliente e servidor).
 
 import { parseFormulaDados, rolarDados, type Dado } from "./dice";
 import { DURACOES_PV_TEMP, type DuracaoPvTemp } from "./duracao";
@@ -14,6 +15,10 @@ export type EfeitoDeReacao = {
   pvTemp: number;
   duracaoPv: DuracaoPvTemp;
   reducao: number;
+  // Quem reage vira o alvo do ataque (o de um aliado).
+  interceptar: boolean;
+  // Na salvaguarda que evita dano: sucesso = nada, falha = metade.
+  evasao: boolean;
 };
 
 type Resolver = (formula: string) => { dados: Dado[]; modificador: number };
@@ -23,12 +28,23 @@ const ehPvTemp = (alvo: string) => ["hp-temp", "hptemp"].includes(alvo.trim().to
 
 // Efeitos da reação já rolados. `resolver` troca atributos, nível e grau da
 // fórmula por número (na criatura, a fórmula já é só dado e número).
-export function efeitosDaReacao(efeitos: EfeitoHabilidade[], resolver: Resolver = parseFormulaDados): EfeitoDeReacao {
+export function efeitosDaReacao(
+  efeitos: EfeitoHabilidade[],
+  resolver: Resolver = parseFormulaDados,
+): EfeitoDeReacao {
   const rolar = (formula: string) => {
     const f = resolver(formula);
     return Math.trunc(f.dados.length > 0 ? rolarDados(f.dados, f.modificador).total : f.modificador);
   };
-  const out: EfeitoDeReacao = { cr: 0, crFixa: 0, pvTemp: 0, duracaoPv: "acabar", reducao: 0 };
+  const out: EfeitoDeReacao = {
+    cr: 0,
+    crFixa: 0,
+    pvTemp: 0,
+    duracaoPv: "acabar",
+    reducao: 0,
+    interceptar: false,
+    evasao: false,
+  };
   const darTemp = (valor: number, duracao?: DuracaoPvTemp) => {
     if (valor <= out.pvTemp) return;
     out.pvTemp = valor;
@@ -45,6 +61,10 @@ export function efeitosDaReacao(efeitos: EfeitoHabilidade[], resolver: Resolver 
       darTemp(rolar(e.valor), e.duracaoPv);
     } else if (e.tipo === "reducao_dano") {
       out.reducao += e.formula ? rolar(e.formula) : Math.trunc(e.valor);
+    } else if (e.tipo === "interceptar") {
+      out.interceptar = true;
+    } else if (e.tipo === "evasao") {
+      out.evasao = true;
     }
   }
   out.cr = Math.max(0, out.cr);
@@ -74,6 +94,8 @@ export function resumoDaReacao(efeitos: EfeitoHabilidade[]): string {
     else if (e.tipo === "valor_fixo" && ehCr(e.alvo)) partes.push(`CR ${e.valor}`);
     else if (e.tipo === "cura" && alvoDaCura(e) === "hp-temp") temp(e.valor, e.duracaoPv);
     else if (e.tipo === "reducao_dano") partes.push(`−${quanto(e)} de dano`);
+    else if (e.tipo === "interceptar") partes.push("recebe o ataque no lugar do aliado");
+    else if (e.tipo === "evasao") partes.push("Evasão");
   }
   return partes.join(" · ");
 }

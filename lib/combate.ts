@@ -19,6 +19,8 @@ export type ParticipanteVisto = {
   nome: string;
   foto: string | null;
   tipo: "personagem" | "criatura";
+  // Ficha do jogador (só em "personagem").
+  personagemId?: string;
   // É o personagem desta ficha.
   voce: boolean;
   iniciativa: number;
@@ -37,6 +39,10 @@ export type ParticipanteVisto = {
     rodadas: number;
     sair: { atributo: string; cd: number } | null;
     mecanica?: unknown;
+    // Some na próxima rolagem / no fim do próximo turno de quem está com ela.
+    uso?: "proxima";
+    fimDoTurno?: boolean;
+    origem?: string;
   }[];
 };
 
@@ -87,7 +93,10 @@ export const ACAO_DO_BLOCO: Record<string, TipoAcaoCombate> = {
   reacao: "react",
 };
 
-export type AcoesGastas = Partial<Record<TipoAcaoCombate, number>>;
+// Ações gastas no turno. `ganhas`: as que uma técnica deu neste turno (somem com ele).
+export type AcoesGastas = Partial<Record<TipoAcaoCombate, number>> & {
+  ganhas?: Partial<Record<TipoAcaoCombate, number>>;
+};
 
 export function ehAcaoDeCombate(tipo: string): tipo is TipoAcaoCombate {
   return (TIPOS_ACAO_COMBATE as readonly string[]).includes(tipo);
@@ -97,19 +106,41 @@ export function ehAcaoDeCombate(tipo: string): tipo is TipoAcaoCombate {
 export function lerAcoesGastas(raw: unknown): AcoesGastas {
   const obj = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const out: AcoesGastas = {};
+  const ganhasRaw = obj.ganhas && typeof obj.ganhas === "object" ? (obj.ganhas as Record<string, unknown>) : {};
+  const ganhas: Partial<Record<TipoAcaoCombate, number>> = {};
   for (const tipo of TIPOS_ACAO_COMBATE) {
     const n = Math.trunc(Number(obj[tipo]) || 0);
     if (n > 0) out[tipo] = n;
+    const g = Math.min(10, Math.trunc(Number(ganhasRaw[tipo]) || 0));
+    if (g > 0) ganhas[tipo] = g;
   }
+  if (Object.keys(ganhas).length > 0) out.ganhas = ganhas;
   return out;
 }
 
-// Quantas ações de cada tipo cabem num turno: uma, mais as extras.
+// Soma as ações que a técnica deu neste turno às que já tinham sido ganhas.
+export function comAcoesGanhas(
+  gastas: AcoesGastas,
+  novas: Partial<Record<TipoAcaoCombate, number>>,
+): AcoesGastas {
+  if (Object.keys(novas).length === 0) return gastas;
+  const ganhas = { ...gastas.ganhas };
+  for (const tipo of TIPOS_ACAO_COMBATE) {
+    if (novas[tipo]) ganhas[tipo] = Math.min(10, (ganhas[tipo] ?? 0) + (novas[tipo] ?? 0));
+  }
+  return { ...gastas, ganhas };
+}
+
+// Quantas ações de cada tipo cabem num turno: uma, mais as extras da ficha e as
+// que uma técnica deu neste turno.
 export function maximoDeAcoes(
   extras: Partial<Record<TipoAcaoCombate, { valor: number }>> = {},
+  ganhas: Partial<Record<TipoAcaoCombate, number>> = {},
 ): Record<TipoAcaoCombate, number> {
   const max = {} as Record<TipoAcaoCombate, number>;
-  for (const tipo of TIPOS_ACAO_COMBATE) max[tipo] = 1 + Math.max(0, extras[tipo]?.valor ?? 0);
+  for (const tipo of TIPOS_ACAO_COMBATE) {
+    max[tipo] = 1 + Math.max(0, extras[tipo]?.valor ?? 0) + Math.max(0, ganhas[tipo] ?? 0);
+  }
   return max;
 }
 
@@ -148,8 +179,11 @@ export type AlvoResolucao = {
   // ação espera (dano e condições); "nenhuma": não reagiu (ou não tinha como);
   // objeto: reagiu. Ausente = a janela não foi aberta.
   reacao?: "pendente" | "nenhuma" | ReacaoUsada | null;
-  // Com a janela aberta, as reações que cabem (pelo gatilho de cada uma).
+  // Com a janela aberta, as reações que cabem (pelo gatilho de cada uma): as
+  // dele e as de aliados (`de`).
   reacoes?: OpcaoReacao[];
+  // Evasão: no sucesso da salvaguarda não sofre dano, na falha sofre metade.
+  evasao?: boolean;
   // No ataque, a rolagem deste acerto: uma reação que sobe a CR compara de novo.
   lance?: LanceGuardado | null;
   // No ataque, o dano rolado pra este acerto (cada acerto tem a própria rolagem).
@@ -160,11 +194,26 @@ export type LanceGuardado = { total: number; natural: number | null; critico: bo
 
 // O que a reação fez: `reducao` sai do dano, `cr` foi o quanto a CR subiu,
 // `pvTemp` o PV temporário que entrou antes do dano, e `anulou` diz que o
-// ataque, comparado de novo, errou.
-export type ReacaoUsada = { nome: string; reducao: number; cr?: number; pvTemp?: number; anulou?: boolean };
+// ataque, comparado de novo, errou. `interceptou`: quem reage tomou o ataque no
+// lugar de (nome). `evasao`: a salvaguarda passou a valer com Evasão.
+export type ReacaoUsada = {
+  nome: string;
+  reducao: number;
+  cr?: number;
+  pvTemp?: number;
+  anulou?: boolean;
+  interceptou?: string;
+  evasao?: boolean;
+};
 
 // Reação que o alvo pode escolher na janela; `efeito` é o resumo pro botão.
-export type OpcaoReacao = { id: string; nome: string; efeito: string };
+// `de`: reação de um aliado do alvo (ausente = do próprio alvo).
+export type OpcaoReacao = {
+  id: string;
+  nome: string;
+  efeito: string;
+  de?: { instanciaId: string; personagemId: string; nome: string };
+};
 
 // ─── Gatilho de reação ─────────────────────────────────────────────────────
 // Em que situação a reação é oferecida a quem foi pego por uma ação.
@@ -173,6 +222,7 @@ export const GATILHOS_REACAO = [
   { slug: "ataque", nome: "Ataque", texto: "Alvo de uma jogada de ataque" },
   { slug: "salvaguarda", nome: "Salvaguarda", texto: "Alvo de uma salvaguarda para evitar dano" },
   { slug: "dano", nome: "Dano", texto: "Vai receber dano" },
+  { slug: "aliado_ataque", nome: "Aliado alvo de ataque", texto: "Um aliado é alvo de uma jogada de ataque" },
   { slug: "outro", nome: "Outra situação", texto: "Outra situação (usada à mão, fora da janela)" },
 ] as const;
 export type GatilhoReacao = (typeof GATILHOS_REACAO)[number]["slug"];
@@ -186,8 +236,15 @@ export function textoGatilho(g: GatilhoReacao): string {
   return GATILHOS_REACAO.find((x) => x.slug === g)!.texto;
 }
 
-// A reação cabe na ação que pegou o alvo?
-export function gatilhoCabe(gatilho: GatilhoReacao, acao: { modo: ModoResolucao; temDano: boolean }): boolean {
+// A reação cabe na ação que pegou o alvo? `deAliado`: quem reage não é o alvo,
+// é um aliado dele; só o gatilho próprio disso serve.
+export function gatilhoCabe(
+  gatilho: GatilhoReacao,
+  acao: { modo: ModoResolucao; temDano: boolean },
+  deAliado = false,
+): boolean {
+  if (gatilho === "aliado_ataque") return deAliado && acao.modo === "ataque";
+  if (deAliado) return false;
   if (gatilho === "qualquer") return true;
   if (gatilho === "ataque") return acao.modo === "ataque";
   if (gatilho === "salvaguarda") return acao.modo === "salvaguarda" && acao.temDano;
@@ -229,6 +286,8 @@ function lerReacaoUsada(o: Record<string, unknown>): ReacaoUsada {
     ...(inteiro(o.cr) > 0 ? { cr: inteiro(o.cr) } : {}),
     ...(inteiro(o.pvTemp) > 0 ? { pvTemp: inteiro(o.pvTemp) } : {}),
     ...(o.anulou === true ? { anulou: true } : {}),
+    ...(typeof o.interceptou === "string" && o.interceptou ? { interceptou: o.interceptou } : {}),
+    ...(o.evasao === true ? { evasao: true } : {}),
   };
 }
 
@@ -282,10 +341,22 @@ export function lerResolucoes(raw: unknown): Resolucao[] {
               : a?.reacao && typeof a.reacao === "object"
                 ? lerReacaoUsada(a.reacao as Record<string, unknown>)
                 : null,
+          ...(a?.evasao === true ? { evasao: true } : {}),
           reacoes: Array.isArray(a?.reacoes)
-            ? (a.reacoes as Record<string, unknown>[]).flatMap((o) =>
-                typeof o?.id === "string" ? [{ id: o.id, nome: String(o.nome ?? ""), efeito: String(o.efeito ?? "") }] : [],
-              )
+            ? (a.reacoes as Record<string, unknown>[]).flatMap((o): OpcaoReacao[] => {
+                if (typeof o?.id !== "string") return [];
+                const de = o.de as Record<string, unknown> | null | undefined;
+                return [
+                  {
+                    id: o.id,
+                    nome: String(o.nome ?? ""),
+                    efeito: String(o.efeito ?? ""),
+                    ...(de && typeof de.instanciaId === "string" && typeof de.personagemId === "string"
+                      ? { de: { instanciaId: de.instanciaId, personagemId: de.personagemId, nome: String(de.nome ?? "") } }
+                      : {}),
+                  },
+                ];
+              })
             : [],
           lance:
             a?.lance && typeof a.lance === "object"
@@ -333,6 +404,11 @@ export function resolucaoAberta(r: Resolucao): boolean {
 // Quanto do dano rolado o alvo leva: 1 = tudo, 0.5 = metade, 0 = nada.
 export function sofreDano(r: Resolucao, alvo: AlvoResolucao): number {
   if (r.modo === "direto") return 1;
+  // Evasão: passou na salvaguarda, não sofre nada; falhou, sofre metade.
+  if (alvo.evasao && r.modo === "salvaguarda") {
+    if (alvo.resultado === "sucesso") return 0;
+    if (alvo.resultado === "falha") return 0.5;
+  }
   if (alvo.resultado === "acerto" || alvo.resultado === "critico" || alvo.resultado === "falha") return 1;
   if (alvo.resultado === "sucesso") return r.salvaguarda?.emSucesso === "metade" ? 0.5 : 0;
   return 0;
@@ -390,7 +466,15 @@ export type SalvaguardaPedida = {
 
 // Janela de reação: a ação pegou o personagem e ele decide se reage antes de
 // ela valer. `opcoes` são as reações da ficha que cabem nessa ação.
-export type ReacaoPedida = { resolucaoId: string; de: string; nome: string; modo: ModoResolucao; opcoes: OpcaoReacao[] };
+// `aliado`: a janela é de um aliado dele, que foi o pego pela ação (ausente = ele).
+export type ReacaoPedida = {
+  resolucaoId: string;
+  de: string;
+  nome: string;
+  modo: ModoResolucao;
+  opcoes: OpcaoReacao[];
+  aliado?: { instanciaId: string; nome: string };
+};
 
 // Teste de concentração que um dano do combate pediu.
 export type ConcentracaoPedida = { resolucaoId: string; nome: string; cd: number };

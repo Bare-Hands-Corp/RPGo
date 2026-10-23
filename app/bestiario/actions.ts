@@ -242,6 +242,23 @@ export async function atualizarCriatura(criaturaId: string, payload: CriaturaPay
   return serializarCriatura(criatura);
 }
 
+// Grava a ordem arrastada da lista: `ids` é a lista toda na ordem nova. Um
+// UPDATE só, porque o banco é remoto e um por criatura estourava a transação.
+export async function reordenarCriaturas(ids: string[]) {
+  const user = await autorizarNarrador();
+  if (!Array.isArray(ids) || ids.length > 2000 || new Set(ids).size !== ids.length) {
+    throw new Error("Lista de criaturas inválida.");
+  }
+  const donas = await prisma.criatura.count({ where: { id: { in: ids }, userId: user.id } });
+  if (donas !== ids.length) throw new Error("Criatura não encontrada.");
+  const ordens = ids.map((_, i) => i + 1);
+  await prisma.$executeRaw`
+    UPDATE criaturas SET ordem = v.ordem
+    FROM (SELECT unnest(${ids}::text[]) AS id, unnest(${ordens}::int[]) AS ordem) v
+    WHERE criaturas.id::text = v.id AND criaturas.user_id::text = ${user.id}`;
+  revalidar();
+}
+
 export async function deletarCriatura(criaturaId: string) {
   const user = await autorizarNarrador();
 

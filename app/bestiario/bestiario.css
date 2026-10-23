@@ -1064,68 +1064,6 @@ button.bestiario-ficha-badge-rolavel:hover {
   margin-top: 8px;
 }
 
-/* Dica (tooltip) da condição — fixed via portal, segue o tema e a cor dela. */
-.bestiario-condicao-dica {
-  position: fixed;
-  z-index: 1000;
-  width: max-content;
-  max-width: min(340px, calc(100vw - 16px));
-  transform: translateX(-50%);
-  padding: 10px 12px;
-  background: var(--bg-card);
-  color: var(--text-main);
-  border: 1px solid var(--border);
-  border-top: 3px solid var(--dica-cor, var(--primary));
-  border-radius: 10px;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
-  font-size: 0.8rem;
-  line-height: 1.45;
-  pointer-events: none;
-  animation: bestiario-dica-entra 0.12s ease-out;
-}
-
-.bestiario-condicao-dica.acima {
-  transform: translate(-50%, -100%);
-}
-
-.bestiario-condicao-dica-topo {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.bestiario-condicao-dica-topo i {
-  color: var(--dica-cor, var(--primary));
-  font-size: 0.75rem;
-}
-
-.bestiario-condicao-dica-topo strong {
-  font-size: 0.85rem;
-}
-
-.bestiario-condicao-dica-duracao {
-  margin-left: auto;
-  padding: 1px 6px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--bg-surface);
-  color: var(--text-sec);
-  font-size: 0.68rem;
-  font-weight: 600;
-}
-
-.bestiario-condicao-dica p {
-  margin: 6px 0 0;
-  color: var(--text-sec);
-  white-space: pre-line;
-}
-
-@keyframes bestiario-dica-entra {
-  from {
-    opacity: 0;
-  }
-}
-
 /* ─── Testes roláveis (perícias/salvaguardas) e botão de dado inline ──── */
 
 .bestiario-ficha-linha-testes {
@@ -2161,4 +2099,44 @@ button.bestiario-ficha-badge-rolavel:hover {
 .fc input[type="number"]::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
+}
+
+/* Lista dos blocos: o espaço entre os cards continua o mesmo de antes. */
+.bestiario-componente-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* A alça de reordenar fica na linha do nome, não no canto do card. */
+.bestiario-componente-topo .btn-card-alca {
+  position: static;
+  flex: none;
+  height: 28px;
+}
+
+/* Card da lista: o botão do card e a alça de arrastar ficam lado a lado. */
+.bestiario-card-wrap {
+  position: relative;
+  display: flex;
+  border-radius: 12px;
+}
+
+.bestiario-card-wrap > .bestiario-card-item {
+  flex: 1;
+  min-width: 0;
+  padding-left: 30px;
+}
+
+.bestiario-card-wrap > .btn-card-alca {
+  top: 14px;
+}
+
+.bestiario-descricao-rica {
+  display: grid;
+  gap: 4px;
+}
+.bestiario-descricao-rica > span {
+  font-size: 0.8rem;
+  font-weight: 600;
 }

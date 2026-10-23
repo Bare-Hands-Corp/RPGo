@@ -4,6 +4,7 @@ import { useOptimistic, useState, useTransition } from "react";
 import { crBase, formatarMod } from "@/lib/op-rpg";
 import { patchPersonagem } from "./actions";
 import { exigir } from "@/lib/acoes";
+import { Tooltip } from "@/components/tooltip";
 
 type Props = {
   personagemId: string;
@@ -69,17 +70,17 @@ export function CrEditavel({
   }
 
   return (
+    <Tooltip titulo="CR" icone="fa-shield-halved" texto={[titulo, "Clique para editar o bônus"]}>
     <div
       className="derivado-card cr-editavel"
       onClick={() => !editando && setEditando(true)}
       role="button"
       tabIndex={0}
-      title={titulo}
     >
       <div className="derivado-label">
         CR
         {siglaSubstituida && (
-          <span className="cr-atributo-sub" title={titulo}>
+          <span className="cr-atributo-sub">
             {" "}
             {siglaSubstituida}
           </span>
@@ -106,5 +107,6 @@ export function CrEditavel({
         )
       )}
     </div>
+    </Tooltip>
   );
 }

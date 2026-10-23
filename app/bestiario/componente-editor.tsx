@@ -12,6 +12,9 @@ import { Segmentos, type OpcaoSegmento } from "@/app/ficha/[uid]/campos-modal";
 import { CATEGORIAS_COMPONENTE, FORMAS_AREA, META_EFEITO_ACAO, RECARGAS_ACAO, criarEfeitoAcao } from "./types";
 import type { AtributoSalvaguarda, ComponentePayload, EfeitoAcao, EfeitoAcaoTipo, FormaArea, RecargaAcao, TemplateSerializado } from "./types";
 import { NumeroInput } from "./inputs";
+import { EditorRico } from "@/components/descricao-rica/editor-rico";
+import { useCatalogoCondicoesCompleto } from "@/components/tipos-dano/condicoes";
+import { useCatalogoTiposCompleto } from "@/components/tipos-dano/tipos-dano";
 import { TiposDanoChips } from "./tipos-dano-chips";
 import { ppDoCusto, textoEfeitoAcao, textoEfeitoExtra, textoTecnica } from "./utils";
 
@@ -46,6 +49,8 @@ type Props = {
   // Fechado mostra só o nome e o resumo; a lista de ações cabe na tela.
   aberto: boolean;
   onAlternar: () => void;
+  // Arrastar pra reordenar: props do item, da alça e a classe da vaga.
+  reordenar?: { item: object; alca: object; vaga: string };
   onAtualizar: (patch: Partial<ComponentePayload>) => void;
   onRemover: () => void;
 };
@@ -58,8 +63,22 @@ type Props = {
 // criação de habilidades do jogador já usa. Usado tanto no editor de
 // criatura quanto no wizard, pra não ter dois formulários fazendo a mesma
 // coisa de jeitos diferentes.
-export function ComponenteEditor({ item, condicoesDisponiveis, recursos, aberto, onAlternar, onAtualizar, onRemover }: Props) {
+export function ComponenteEditor({
+  item,
+  condicoesDisponiveis,
+  recursos,
+  aberto,
+  onAlternar,
+  onAtualizar,
+  onRemover,
+  reordenar,
+}: Props) {
   const cor = CATEGORIAS_COMPONENTE.find((c) => c.key === item.categoria)?.cor;
+  // Catálogos da mesa pros chips da descrição (condição, tipo de dano).
+  const catalogoCondicoes = useCatalogoCondicoesCompleto();
+  const tiposDano = useCatalogoTiposCompleto();
+  const contextoRico = useMemo(() => ({ catalogoCondicoes, tiposDano }), [catalogoCondicoes, tiposDano]);
+  const nomesCondicoes = useMemo(() => catalogoCondicoes.map((x) => x.nome), [catalogoCondicoes]);
   const resumo = [
     ...(item.tecnica ? [textoTecnica(item)] : []),
     ...item.efeitos.map(textoEfeitoAcao).filter((t): t is string => t !== null),
@@ -70,10 +89,22 @@ export function ComponenteEditor({ item, condicoesDisponiveis, recursos, aberto,
   const custoAntigo = item.custo.trim() && pp === 0 ? item.custo.trim() : null;
   return (
     <div
-      className={`bestiario-componente-card${aberto ? " aberto" : ""}`}
+      className={`bestiario-componente-card${aberto ? " aberto" : ""}${reordenar?.vaga ?? ""}`}
       style={{ "--acao-cor": cor } as React.CSSProperties}
+      {...reordenar?.item}
     >
       <div className="bestiario-componente-topo">
+        {reordenar && (
+          <button
+            type="button"
+            className="btn-card-alca"
+            title="Arraste pra mudar a ordem ou o bloco (ou use as setas)"
+            aria-label={`Mudar ${item.nome || "ação"} de posição`}
+            {...reordenar.alca}
+          >
+            <i className="fas fa-grip-vertical" />
+          </button>
+        )}
         <button type="button" className="bestiario-componente-abrir" aria-expanded={aberto} onClick={onAlternar}>
           <i className="fas fa-chevron-right bestiario-componente-seta" />
           <strong>{item.nome.trim() || "(sem nome)"}</strong>
@@ -158,14 +189,16 @@ export function ComponenteEditor({ item, condicoesDisponiveis, recursos, aberto,
             onChange={(efeitosExtras) => onAtualizar({ efeitosExtras })}
           />
 
-          <label>
-            Descrição
-            <textarea
-              className="bestiario-textarea-descricao"
-              value={item.descricao}
-              onChange={(e) => onAtualizar({ descricao: e.target.value })}
+          <div className="bestiario-descricao-rica">
+            <span>Descrição</span>
+            <EditorRico
+              valor={item.descricao}
+              onChange={(t) => onAtualizar({ descricao: t })}
+              condicoes={nomesCondicoes}
+              contexto={contextoRico}
+              placeholder="Descreva a ação… (@ insere, / blocos)"
             />
-          </label>
+          </div>
         </>
       )}
     </div>
@@ -538,7 +571,6 @@ function renderCampos(
               <option value="nadar">Nadar</option>
               <option value="voar">Voar</option>
               <option value="escalar">Escalar</option>
-              <option value="cavar">Cavar</option>
             </select>
           </label>
           <label>
@@ -616,6 +648,54 @@ function renderCampos(
               Duração (turnos, vazio = indefinida)
               <NumeroInput allowNull value={efeito.duracaoTurnos} onChange={(v) => onAtualizar({ duracaoTurnos: v })} />
             </label>
+          )}
+          {condicao && (
+            <>
+              {/* Quem a ação pega rola pra não receber (além da salvaguarda da própria ação). */}
+              <label>
+                Evita com salvaguarda de
+                <select
+                  value={efeito.evita?.atributo ?? ""}
+                  onChange={(e) =>
+                    onAtualizar({
+                      evita: e.target.value
+                        ? {
+                            atributo: e.target.value as AtributoSalvaguarda,
+                            cd: efeito.evita?.cd ?? sugestoes.cd ?? 10,
+                          }
+                        : null,
+                    })
+                  }
+                >
+                  <option value="">Nenhuma</option>
+                  {ATRIBUTOS_DO_JOGO.map((a) => (
+                    <option key={a.slug} value={a.slug}>
+                      {a.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {efeito.evita && (
+                <label>
+                  CD pra evitar
+                  <NumeroInput
+                    value={efeito.evita.cd}
+                    onChange={(v) => onAtualizar({ evita: { ...efeito.evita!, cd: v ?? 10 } })}
+                  />
+                </label>
+              )}
+              {efeito.evita && sugestoes.cd !== null && efeito.evita.cd !== sugestoes.cd && (
+                <div className="bestiario-atalhos">
+                  <button
+                    type="button"
+                    className="sugestao chip-opcao"
+                    onClick={() => onAtualizar({ evita: { ...efeito.evita!, cd: sugestoes.cd ?? 10 } })}
+                  >
+                    Usar a CD da criatura ({sugestoes.cd})
+                  </button>
+                </div>
+              )}
+            </>
           )}
           {condicao && (
             <>

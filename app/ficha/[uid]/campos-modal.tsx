@@ -1,6 +1,6 @@
 "use client";
 
-import { Children, useState } from "react";
+import { Children, useState, type ReactNode } from "react";
 import { lerCobertura, mesmoTipo, tiposDaCobertura } from "@/lib/dano";
 import { useCatalogoTipos, useEstiloTipoDano } from "@/components/tipos-dano/tipos-dano";
 import { useCatalogoCondicoes, useEstiloCondicao } from "@/components/tipos-dano/condicoes";
@@ -14,6 +14,34 @@ export type OpcaoSegmento<T extends string | number> = {
   // Fica apagada, mas ainda clica (ex.: grau acima do nível).
   apagada?: boolean;
 };
+
+// Seção do modal que minimiza. Abre conforme `aberta` (em geral: tem algo
+// preenchido) na hora em que o modal abre; depois, só quem usa abre e fecha.
+// Fechada, mostra o `resumo` ao lado do título.
+export function SecaoModal({
+  titulo,
+  icone,
+  aberta = false,
+  resumo,
+  children,
+}: {
+  titulo: string;
+  icone: string;
+  aberta?: boolean;
+  resumo?: ReactNode;
+  children: ReactNode;
+}) {
+  const [abertaNoInicio] = useState(aberta);
+  return (
+    <details className="modal-secao-detalhe" open={abertaNoInicio}>
+      <summary>
+        <i className={`fas ${icone}`} /> {titulo}
+        {resumo && <span className="modal-secao-resumo">{resumo}</span>}
+      </summary>
+      <div className="modal-secao-corpo">{children}</div>
+    </details>
+  );
+}
 
 // Escolha única em segmentos colados.
 export function Segmentos<T extends string | number>({

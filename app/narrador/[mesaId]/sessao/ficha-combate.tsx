@@ -5,9 +5,11 @@
 // um caminho só pra usar: alvo, acerto e dano. A ficha do bestiário é a de
 // consulta; esta é a de jogo.
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { EditavelComDelta } from "@/app/bestiario/inputs";
-import { ChipCondicao as CondicaoDoTexto, separarCondicoes } from "@/app/bestiario/destacar-condicoes";
+import { ChipCondicao as CondicaoDoTexto, descricaoDeCriatura } from "@/app/bestiario/destacar-condicoes";
+import { useCatalogoCondicoesCompleto } from "@/components/tipos-dano/condicoes";
+import { useCatalogoTiposCompleto } from "@/components/tipos-dano/tipos-dano";
 import { CATEGORIAS_COMPONENTE } from "@/app/bestiario/types";
 import type { CondicaoEfeito, ComponenteCategoria, ComponentePayload } from "@/app/bestiario/types";
 import { RecursoBarra } from "@/app/bestiario/recursos-editor";
@@ -105,6 +107,10 @@ export function FichaCombate({
   onAnterior,
   onProxima,
 }: Props) {
+  // Catálogos da mesa pros chips da descrição (condição, tipo de dano).
+  const catalogoCondicoes = useCatalogoCondicoesCompleto();
+  const tiposDano = useCatalogoTiposCompleto();
+  const contextoRico = useMemo(() => ({ catalogoCondicoes, tiposDano }), [catalogoCondicoes, tiposDano]);
   const pvMax = instancia.pvMax ?? 0;
   const ppMax = c.pontosPoder;
   const pp = Math.max(0, ppMax - instancia.ppGasto);
@@ -313,7 +319,7 @@ export function FichaCombate({
             </h4>
             {itens.map((item) => {
               const cond = item.efeitos.filter((e): e is CondicaoEfeito => e.tipo === "condicao");
-              const { conteudo, faltantes } = separarCondicoes(item.descricao, cond);
+              const { conteudo, faltantes } = descricaoDeCriatura(item.descricao, cond, contextoRico);
               const resumo = [
                 ...item.efeitos.map(textoEfeitoAcao).filter((t): t is string => t !== null),
                 ...item.efeitosExtras.map((e) => textoEfeitoExtra(e, c.recursos)),

@@ -53,6 +53,8 @@ const CAMPOS: Record<TipoModelo, readonly string[]> = {
     "usosFormula",
     "recarga",
     "atributoAtaque",
+    "bonusAcerto",
+    "multiataque",
     "atributoSalv",
     "atributoCd",
     "dano",
@@ -64,6 +66,7 @@ const CAMPOS: Record<TipoModelo, readonly string[]> = {
     "grau",
     "efeitos",
     "aliado",
+    "alvo",
     "duracao",
   ],
 };

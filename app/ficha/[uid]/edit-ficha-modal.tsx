@@ -8,6 +8,7 @@ import { tetoAtributo, type Atributo, type EfeitosAgregados } from "@/lib/op-rpg
 import { perfilDe, type PerfilFicha } from "@/lib/subficha";
 
 type Atributos = {
+  nome: string;
   hpMax: number;
   ppMax: number;
   tipoDadoVida: string;
@@ -51,7 +52,7 @@ export function EditFichaModal({
   }
 
   function set<K extends keyof Atributos>(key: K, raw: string) {
-    if (key === "tipoDadoVida") {
+    if (key === "tipoDadoVida" || key === "nome") {
       setValores((v) => ({ ...v, [key]: raw as Atributos[K] }));
       return;
     }
@@ -60,7 +61,9 @@ export function EditFichaModal({
 
   function salvar(e: React.FormEvent) {
     e.preventDefault();
-    const patch = valores;
+    const nome = valores.nome.trim();
+    if (!nome) return;
+    const patch = { ...valores, nome };
     setAberto(false); // fecha imediatamente — patch otimista cuida da UI
     startTransition(async () => {
       onOtimista?.(patch);
@@ -95,10 +98,19 @@ export function EditFichaModal({
             <button type="button" className="modal-close" onClick={() => !pending && setAberto(false)} aria-label="Fechar">
               <i className="fas fa-times" />
             </button>
-            <h2>{mostra("atributos") ? "Editar Atributos" : "Editar Ficha"}</h2>
+            <h2>Editar Ficha</h2>
 
             <form onSubmit={salvar}>
-              <div style={{ display: "flex", gap: 10 }}>
+              <label>Nome</label>
+              <input
+                type="text"
+                value={valores.nome}
+                maxLength={80}
+                required
+                onChange={(e) => set("nome", e.target.value)}
+              />
+
+              <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
                 <div style={{ flex: 1 }}>
                   <label>Vida Máxima</label>
                   <input

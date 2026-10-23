@@ -5,6 +5,7 @@
 // abaixo do botão que a criou, sem descer a lista.
 
 import { useState } from "react";
+import { useReordenar } from "@/lib/use-reordenar";
 import { ComponenteEditor, SugestoesAcaoContext, type SugestoesAcao } from "./componente-editor";
 import { PickerAcaoPreset, type PresetAcao } from "./presets-acao";
 import { CATEGORIAS_COMPONENTE } from "./types";
@@ -45,6 +46,19 @@ export function ComponentesEditor({ componentes, onChange, templates, recursos, 
   const [presetPickerCategoria, setPresetPickerCategoria] = useState<ComponenteCategoria | null>(null);
   const condicoesDisponiveis = templates.filter((t) => t.categoria === "condicao");
 
+  // Reordenar arrastando (lib/use-reordenar.ts); arrastar pra outro bloco
+  // troca a categoria. A ordem do vetor é a que vai pro banco.
+  const reordenar = useReordenar({
+    itens: componentes.map((c) => ({ id: c.id, grupo: c.categoria })),
+    aoSoltar: (lista) =>
+      onChange((atual) =>
+        lista.flatMap((x) => {
+          const c = atual.find((y) => y.id === x.id);
+          return c ? [{ ...c, categoria: x.grupo as ComponenteCategoria }] : [];
+        }),
+      ),
+  });
+
   function alternar(id: string) {
     setAbertos((atual) => {
       const novo = new Set(atual);
@@ -71,7 +85,7 @@ export function ComponentesEditor({ componentes, onChange, templates, recursos, 
   return (
     <SugestoesAcaoContext.Provider value={sugestoes}>
       {CATEGORIAS_COMPONENTE.filter((c) => comCondicoes || c.key !== "condicao").map(({ key, label, icone }) => {
-        const itens = componentes.filter((c) => c.categoria === key);
+        const itens = reordenar.ordenar(componentes).filter((c) => reordenar.grupoDe(c.id, c.categoria) === key);
         const daBiblioteca = porDono(templates.filter((t) => t.categoria === key));
         return (
           <div key={key} className="bestiario-componente-grupo">
@@ -123,10 +137,15 @@ export function ComponentesEditor({ componentes, onChange, templates, recursos, 
                 onPular={() => adicionarComPreset(key)}
               />
             )}
+            <div
+              className={`bestiario-componente-lista${reordenar.arrastando ? ` reordenar-zona${reordenar.recebendo(key)}` : ""}`}
+              {...reordenar.zona(key)}
+            >
             {itens.map((item) => (
               <ComponenteEditor
                 key={item.id}
                 item={item}
+                reordenar={{ item: reordenar.item(item.id), alca: reordenar.alca(item.id), vaga: reordenar.vaga(item.id) }}
                 condicoesDisponiveis={condicoesDisponiveis}
                 recursos={recursos}
                 aberto={abertos.has(item.id)}
@@ -135,6 +154,7 @@ export function ComponentesEditor({ componentes, onChange, templates, recursos, 
                 onRemover={() => onChange((atual) => atual.filter((c) => c.id !== item.id))}
               />
             ))}
+            </div>
           </div>
         );
       })}

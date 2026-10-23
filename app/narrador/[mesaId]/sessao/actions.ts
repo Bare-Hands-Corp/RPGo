@@ -5,7 +5,9 @@ import { prisma } from "@/lib/prisma";
 import { usuarioDaRequest } from "@/lib/supabase/server";
 import { pvComSinal, separarPv } from "@/lib/dano";
 import { parseFormulaDados, rolarD20Contextual, rolarDados } from "@/lib/dice";
-import { modoDaSalvaguarda } from "@/lib/condicoes-mecanica";
+import { bonusDasCondicoesNaCriatura, modoDaSalvaguarda } from "@/lib/condicoes-mecanica";
+import { ATRIBUTOS } from "@/lib/op-rpg";
+import type { Prisma } from "@prisma/client";
 import { defesasDaCriatura, resolverDano, type ParteDano } from "@/lib/dano";
 import { comoResistencias } from "@/app/bestiario/utils";
 import {
@@ -19,7 +21,10 @@ import {
   aplicarCondicoes,
   avancarTurnoDoCombate,
   bonusDeSalvaguardaDaCriatura,
+  condicoesQueEntram,
+  devolverCondicoesAFicha,
   encerrarTecnicasDoEncontro,
+  esvaziarCondicoesDaFicha,
   mudarResolucoes,
   tirarCondicao,
 } from "@/lib/combate-servidor";
@@ -101,7 +106,7 @@ async function montarLinhas(
   const criaturaIds = participantes.filter((p) => p.criaturaId).map((p) => p.criaturaId!);
   const personagemIds = participantes.filter((p) => p.personagemId).map((p) => p.personagemId!);
 
-  const [criaturas, personagens] = await Promise.all([
+  const [criaturas, personagens, daFicha] = await Promise.all([
     criaturaIds.length
       ? prisma.criatura.findMany({
           where: { id: { in: criaturaIds }, OR: [{ userId: narradorId }, { userId: null }] },
@@ -111,6 +116,8 @@ async function montarLinhas(
     personagemIds.length
       ? prisma.personagem.findMany({ where: { id: { in: personagemIds }, mesaId, molde: false }, select: { id: true, nome: true } })
       : Promise.resolve([]),
+    // As condições da ficha entram no combate com ele.
+    condicoesQueEntram(personagemIds),
   ]);
 
   const linhas: {
@@ -121,6 +128,7 @@ async function montarLinhas(
     ordem: number;
     pvAtual: number | null;
     pvMax: number | null;
+    condicoesAtivas?: Prisma.InputJsonValue;
   }[] = [];
 
   // Criatura que entra mais de uma vez neste lote sai numerada ("Soldado 2"),
@@ -177,6 +185,7 @@ async function montarLinhas(
         ordem: ordem++,
         pvAtual: null,
         pvMax: null,
+        condicoesAtivas: (daFicha.get(p.personagemId) ?? []) as unknown as Prisma.InputJsonValue,
       });
     }
   }
@@ -243,8 +252,10 @@ export async function encerrarSessao(mesaId: string, sessaoId: string) {
   // encerrar o combate explicitamente antes, isso é só uma rede de segurança.
   const residuais = await prisma.combate.findMany({
     where: { sessaoId, encerradoEm: null },
-    select: { id: true, participantes: { select: { personagemId: true } } },
+    select: { id: true, participantes: { select: { personagemId: true, condicoesAtivas: true } } },
   });
+  // As condições que ainda valem voltam pra ficha.
+  for (const c of residuais) await devolverCondicoesAFicha(c.participantes);
   for (const c of residuais) await finalizarRegistro(c.id);
   const noCombate = residuais.flatMap((c) =>
     c.participantes.flatMap((p) => (p.personagemId ? [p.personagemId] : [])),
@@ -268,6 +279,7 @@ export async function iniciarCombate(mesaId: string, sessaoId: string, participa
   await prisma.instanciaCombate.createMany({
     data: linhas.map((l) => ({ ...l, combateId: combate.id })),
   });
+  await esvaziarCondicoesDaFicha(linhas.flatMap((l) => (l.personagemId ? [l.personagemId] : [])));
   await iniciarRegistro(combate.id, sessaoId);
 
   revalidar(mesaId);
@@ -307,6 +319,7 @@ export async function adicionarParticipantes(mesaId: string, combateId: string, 
       }),
     ]),
   );
+  await esvaziarCondicoesDaFicha(linhas.flatMap((l) => (l.personagemId ? [l.personagemId] : [])));
   await registrarReforco(combateId);
 
   revalidar(mesaId);
@@ -347,10 +360,12 @@ export async function removerParticipante(mesaId: string, instanciaId: string) {
 
   const instancia = await prisma.instanciaCombate.findFirst({
     where: { id: instanciaId, combate: { sessao: { mesaId } } },
-    select: { combateId: true, combate: { select: { sessaoId: true } } },
+    select: { combateId: true, personagemId: true, condicoesAtivas: true, combate: { select: { sessaoId: true } } },
   });
   if (!instancia) throw new Error("Participante não encontrado nesta mesa.");
   await registrarSaida(instancia.combateId, instanciaId);
+  // As condições que ainda valem voltam pra ficha dele.
+  await devolverCondicoesAFicha([instancia]);
   await mudarParticipantes(
     instancia.combateId,
     () => prisma.instanciaCombate.delete({ where: { id: instanciaId } }),
@@ -654,7 +669,7 @@ export async function aplicarCondicao(
   mesaId: string,
   combateId: string,
   instanciaId: string,
-  condicao: { nome: string; rodadas: number },
+  condicao: { nome: string; rodadas: number; salvaguarda?: { atributo: string; cd: number } | null },
 ) {
   await autorizarNarrador(mesaId);
   const combate = await combateDaMesa(mesaId, combateId);
@@ -662,11 +677,15 @@ export async function aplicarCondicao(
   const nome = String(condicao?.nome ?? "").trim().slice(0, 40);
   if (!nome) throw new Error("Escolha a condição.");
   const rodadas = lerRodadas(condicao?.rodadas);
+  const s = condicao?.salvaguarda;
+  const cd = Math.min(40, Math.trunc(Number(s?.cd) || 0));
+  const salvaguarda =
+    s && ATRIBUTOS.some((a) => a.slug === s.atributo) && cd > 0 ? { atributo: String(s.atributo), cd } : null;
   const daVez = ordenarParticipantes(combate.participantes)[combate.turnoAtual];
   const { receberam, imunes } = await aplicarCondicoes({
     combateId,
     instanciaIds: [instanciaId],
-    condicoes: [{ nome, rodadas, salvaguarda: null }],
+    condicoes: [{ nome, rodadas, salvaguarda }],
     fonteId: daVez?.id ?? null,
     origem: "",
   });
@@ -706,7 +725,9 @@ export async function rolarSaidaDeCondicao(mesaId: string, combateId: string, in
   // As outras condições dela pesam (falha automática, vantagem, desvantagem).
   const outras = lerCondicoesAtivas(instancia.condicoesAtivas).filter((c) => c.id !== condicaoId);
   const pelaCondicao = modoDaSalvaguarda(outras, condicao.salvaguarda.atributo);
-  const bonus = bonusDeSalvaguardaDaCriatura(criatura, condicao.salvaguarda.atributo);
+  const bonus =
+    bonusDeSalvaguardaDaCriatura(criatura, condicao.salvaguarda.atributo) +
+    bonusDasCondicoesNaCriatura(outras, { tipo: "salvaguarda", atributo: condicao.salvaguarda.atributo }).valor;
   const natural = pelaCondicao.falha
     ? 1
     : rolarD20Contextual({
@@ -808,6 +829,8 @@ export async function encerrarCombate(mesaId: string, combateId: string) {
     await encerrarTecnicasDoEncontro(personagemIds);
     for (const id of personagemIds) revalidatePath(`/ficha/${id}`);
   }
+  // As condições que ainda valem voltam pra ficha de cada personagem.
+  await devolverCondicoesAFicha(combate.participantes);
   await prisma.combate.update({ where: { id: combateId }, data: { encerradoEm: new Date(), resolucoes: [] } });
   await prisma.instanciaCombate.deleteMany({ where: { combateId } });
 

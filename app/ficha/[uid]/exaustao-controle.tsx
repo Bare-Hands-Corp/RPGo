@@ -1,5 +1,6 @@
 "use client";
 
+import { Tooltip } from "@/components/tooltip";
 import { useOptimistic, useTransition } from "react";
 import { patchPersonagem } from "./actions";
 import { exigir } from "@/lib/acoes";
@@ -9,12 +10,14 @@ type Props = {
   exaustao: number;
   // Efeitos que fazem a exaustão atual não pesar.
   ignoradaPor?: string[];
+  // Níveis que vieram de colateral e somem no descanso longo.
+  temporaria?: number;
 };
 
 const MAX_NIVEL = 6;
 
 // Controle compacto de exaustão (0–6) com botões −/+.
-export function ExaustaoControle({ personagemId, exaustao, ignoradaPor }: Props) {
+export function ExaustaoControle({ personagemId, exaustao, ignoradaPor, temporaria = 0 }: Props) {
   const [otimista, aplicar] = useOptimistic(exaustao, (_: number, novo: number) => novo);
   const [, startTransition] = useTransition();
 
@@ -40,11 +43,16 @@ export function ExaustaoControle({ personagemId, exaustao, ignoradaPor }: Props)
   }
 
   return (
+    <Tooltip
+      titulo={otimista > 0 && ignoradaPor?.length ? "Exaustão" : undefined}
+      icone="fa-bed"
+      cor="var(--warning)"
+      texto={otimista > 0 && ignoradaPor?.length ? `Ignorada por ${ignoradaPor.join(", ")}` : undefined}
+    >
     <div
       className={`recurso-linha exaustao-linha ${otimista > 0 ? "ativo" : ""}${
         otimista > 0 && ignoradaPor?.length ? " ignorada" : ""
       }`}
-      title={otimista > 0 && ignoradaPor?.length ? `Ignorada por ${ignoradaPor.join(", ")}` : undefined}
     >
       <span className="recurso-icone">
         <i className="fas fa-bed" />
@@ -52,6 +60,12 @@ export function ExaustaoControle({ personagemId, exaustao, ignoradaPor }: Props)
       <span className="recurso-nome">
         Exaustão
         {otimista > 0 && ignoradaPor?.length ? <i className="fas fa-link prof-fonte" /> : null}
+        {temporaria > 0 && (
+          <small className="exaustao-temporaria" title="Vem de colateral e some no descanso longo">
+            {" "}
+            ({temporaria} temporária)
+          </small>
+        )}
       </span>
       <div className="exaustao-controles">
         <button
@@ -78,5 +92,6 @@ export function ExaustaoControle({ personagemId, exaustao, ignoradaPor }: Props)
         </button>
       </div>
     </div>
+    </Tooltip>
   );
 }

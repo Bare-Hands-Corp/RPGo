@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { SeletorCor } from "@/components/cor/seletor-cor";
+import { Tooltip } from "@/components/tooltip";
 import {
   EFEITOS_COR,
   EFEITO_COR_PADRAO,
@@ -46,19 +47,12 @@ export function TextoFx({
     familia === "chip" ? "chip" : "texto",
   );
 
-  if (familia === "texto") {
-    return (
-      <span className={`${className} ${fx}`.trim()} style={style} title={title}>
-        {texto}
-      </span>
-    );
-  }
-
-  return (
-    <span className={`${className} ${fx}`.trim()} style={style} title={title}>
-      <span className="fx-texto">{texto}</span>
+  const el = (
+    <span className={`${className} ${fx}`.trim()} style={style}>
+      {familia === "texto" ? texto : <span className="fx-texto">{texto}</span>}
     </span>
   );
+  return title ? <Tooltip texto={title}>{el}</Tooltip> : el;
 }
 
 export function TagChip({

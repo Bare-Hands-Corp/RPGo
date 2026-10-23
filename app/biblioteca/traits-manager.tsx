@@ -23,8 +23,9 @@ import { IconePicker } from "@/components/icone-picker";
 import { estiloAplicado } from "@/lib/estilos-cor";
 import { CATALOGO_PADRAO, caraDoLivro } from "@/lib/tipos-dano";
 import { CONDICOES_DO_LIVRO } from "@/lib/condicoes";
-import { MECANICA_VAZIA, linhasDaMecanica, mecanicaDoLivro } from "@/lib/condicoes-mecanica";
-import { MecanicaCondicaoEditor } from "./mecanica-condicao";
+import { origemDaMecanica } from "@/lib/condicoes-mecanica";
+import { CondicaoDaBiblioteca, linhasDaCondicao } from "./mecanica-condicao";
+import { useVisaoNoHistorico } from "@/lib/use-visao-no-historico";
 
 function draftDeTemplate(t: TemplateSerializado): TemplatePayload {
   const { id: _id, criadoEm: _criadoEm, ...payload } = t;
@@ -113,8 +114,13 @@ export function TraitsManager({ templatesIniciais }: Props) {
 
   const condicoesDisponiveis = templates.filter((t) => t.categoria === "condicao" && t.id !== selecionadoId);
 
+  // Ficha e editor entram no histórico: o Voltar (da página ou do navegador)
+  // recua uma tela, em vez de sair da Biblioteca.
+  const visoes = useVisaoNoHistorico<Visualizacao>("lista", (v) => setVisualizacao(v));
+
   function voltarParaLista() {
     setVisualizacao("lista");
+    visoes.trocar("lista");
   }
 
   function abrirNovo() {
@@ -127,6 +133,7 @@ export function TraitsManager({ templatesIniciais }: Props) {
       setMostrarPicker(true);
     }
     setVisualizacao("editor");
+    visoes.abrir("editor");
   }
 
   function escolherCategoria(categoria: TemplatePayload["categoria"]) {
@@ -137,6 +144,7 @@ export function TraitsManager({ templatesIniciais }: Props) {
   function abrirFicha(t: TemplateSerializado) {
     setSelecionadoId(t.id);
     setVisualizacao("ficha");
+    visoes.abrir("ficha");
   }
 
   function abrirEdicaoDaFicha() {
@@ -145,6 +153,7 @@ export function TraitsManager({ templatesIniciais }: Props) {
     setDraft(comCaraDoLivro(draftDeTemplate(t)));
     setMostrarPicker(false);
     setVisualizacao("editor");
+    visoes.abrir("editor");
   }
 
   function campo<K extends keyof TemplatePayload>(chave: K, valor: TemplatePayload[K]) {
@@ -171,6 +180,7 @@ export function TraitsManager({ templatesIniciais }: Props) {
       setSelecionadoId(salvo.id);
       setDraft(draftDeTemplate(salvo));
       setVisualizacao("ficha");
+      visoes.trocar("ficha");
       router.refresh();
     } catch (err) {
       void Swal.fire({
@@ -250,15 +260,27 @@ export function TraitsManager({ templatesIniciais }: Props) {
       .map((x) => x.t);
     const semTiposProprios = !templates.some((t) => t.categoria === "tipoDano");
     const naPastaDeTipos = pastaAtiva?.key === "tipoDano";
-    const cartao = (t: TemplateSerializado) => (
-      <button key={t.id} type="button" className="bestiario-card-item biblioteca-card" onClick={() => abrirFicha(t)}>
-        {temChip(t.categoria) ? <ChipDoTemplate t={t} /> : <span className="bestiario-card-nome">{t.nome}</span>}
-        {t.textoTemplate && <span className="biblioteca-card-descricao">{t.textoTemplate}</span>}
-        <span className="bestiario-card-meta">
-          <i className={`fas ${metaCategoria(t.categoria).icone}`} /> {metaCategoria(t.categoria).label}
-        </span>
-      </button>
-    );
+    const cartao = (t: TemplateSerializado) => {
+      // Condição: as linhas do que ela faz vêm antes da descrição.
+      const ehCond = t.categoria === "condicao";
+      const linhas = ehCond ? linhasDaCondicao(t.nome, t.formula.mecanica, t.formula.padroes) : [];
+      const doLivro = ehCond && origemDaMecanica(t.nome, t.formula.mecanica) === "livro";
+      return (
+        <button key={t.id} type="button" className="bestiario-card-item biblioteca-card" onClick={() => abrirFicha(t)}>
+          {temChip(t.categoria) ? <ChipDoTemplate t={t} /> : <span className="bestiario-card-nome">{t.nome}</span>}
+          {linhas.length > 0 && <span className="biblioteca-card-descricao">{linhas.join(" · ")}</span>}
+          {doLivro && (
+            <span className="biblioteca-card-aviso">
+              <i className="fas fa-book" /> Usando a regra do livro
+            </span>
+          )}
+          {t.textoTemplate && <span className="biblioteca-card-descricao">{t.textoTemplate}</span>}
+          <span className="bestiario-card-meta">
+            <i className={`fas ${metaCategoria(t.categoria).icone}`} /> {metaCategoria(t.categoria).label}
+          </span>
+        </button>
+      );
+    };
 
     return (
       <div className="bestiario-lista-view">
@@ -363,16 +385,21 @@ export function TraitsManager({ templatesIniciais }: Props) {
       ...f.efeitosExtras.map((e) => textoEfeitoExtra(e)),
     ];
     const condicoes = f.efeitos.filter((e): e is CondicaoEfeito => e.tipo === "condicao");
-    // Condição: o que ela faz, em linhas curtas.
-    const mecanica = t.categoria === "condicao" ? (f.mecanica ?? mecanicaDoLivro(t.nome)) : null;
-    if (mecanica) badges.push(...linhasDaMecanica(mecanica));
+    // Condição: o que ela faz, em linhas curtas, e de onde vem.
+    if (t.categoria === "condicao") {
+      badges.push(...linhasDaCondicao(t.nome, f.mecanica, f.padroes));
+      const origem = origemDaMecanica(t.nome, f.mecanica);
+      badges.push(
+        origem === "livro" ? "Mecânica: do livro" : origem === "texto" ? "Mecânica: só texto" : "Mecânica: personalizada",
+      );
+    }
     return (
       <div className="bestiario-ficha-view">
         <div className="bestiario-ficha-toolbar">
           <button type="button" className="bestiario-btn-salvar" onClick={abrirEdicaoDaFicha}>
             <i className="fas fa-pen" /> Editar
           </button>
-          <button type="button" className="bestiario-ficha-fechar" onClick={voltarParaLista} title="Fechar">
+          <button type="button" className="bestiario-ficha-fechar" onClick={visoes.voltar} title="Fechar">
             <i className="fas fa-xmark" />
           </button>
         </div>
@@ -440,7 +467,7 @@ export function TraitsManager({ templatesIniciais }: Props) {
       {mostrarPicker ? (
         <>
           <div className="bestiario-editor-header">
-            <button type="button" className="bestiario-voltar-lista" onClick={voltarParaLista}>
+            <button type="button" className="bestiario-voltar-lista" onClick={visoes.voltar}>
               <i className="fas fa-arrow-left" /> Voltar
             </button>
             <h2>O que você quer criar?</h2>
@@ -462,7 +489,7 @@ export function TraitsManager({ templatesIniciais }: Props) {
       ) : (
         <>
           <div className="bestiario-editor-header">
-            <button type="button" className="bestiario-voltar-lista" onClick={voltarParaLista}>
+            <button type="button" className="bestiario-voltar-lista" onClick={visoes.voltar}>
               <i className="fas fa-arrow-left" /> Voltar
             </button>
             <h2>{selecionadoId ? `Editar ${oQue}` : `Novo ${oQue}`}</h2>
@@ -570,17 +597,13 @@ export function TraitsManager({ templatesIniciais }: Props) {
               </label>
             ) : ehCondicao ? (
               <>
-                <label>
-                  Descrição
-                  <textarea
-                    className="bestiario-textarea-descricao"
-                    value={draft.textoTemplate}
-                    onChange={(e) => campo("textoTemplate", e.target.value)}
-                    placeholder="Ex: não pode se mover nem usar reações até o fim do próximo turno."
-                  />
-                </label>
-                <MecanicaCondicaoEditor
-                  mecanica={draft.formula.mecanica ?? mecanicaDoLivro(draft.nome) ?? MECANICA_VAZIA}
+                <CondicaoDaBiblioteca
+                  nome={draft.nome}
+                  mecanica={draft.formula.mecanica}
+                  padroes={draft.formula.padroes}
+                  descricao={draft.textoTemplate}
+                  onDescricao={(texto) => campo("textoTemplate", texto)}
+                  onPadroes={(p) => formulaCampo("padroes", p)}
                   condicoes={[
                     ...new Set([
                       ...templates.filter((t) => t.categoria === "condicao").map((t) => t.nome),
@@ -588,7 +611,7 @@ export function TraitsManager({ templatesIniciais }: Props) {
                       "Queimadura",
                     ]),
                   ].filter((nome) => nome !== draft.nome)}
-                  onChange={(m) => formulaCampo("mecanica", m)}
+                  onMecanica={(m) => formulaCampo("mecanica", m)}
                 />
               </>
             ) : (

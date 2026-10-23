@@ -381,35 +381,6 @@
   font-weight: 600;
 }
 
-/* Deslocamento + Nadar lado a lado, ocupando a altura de uma linha só. */
-.recurso-dupla {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-/* Um deslocamento só (veículo) ocupa a linha inteira. */
-.recurso-dupla.sozinha {
-  grid-template-columns: 1fr;
-}
-
-.recurso-dupla .recurso-linha {
-  gap: 6px;
-  padding: 6px 8px;
-  min-width: 0;
-}
-
-.recurso-dupla .recurso-nome {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.recurso-dupla .stat-values {
-  white-space: nowrap;
-}
-
 /* Valor reduzido por exaustão (deslocamento, bônus de testes de d20) —
    amarelo pra deixar claro que não é o valor base da ficha. */
 .valor-exausto,
@@ -945,6 +916,70 @@
   opacity: 1;
 }
 
+/* ─── CONDIÇÕES (fora do combate) ─────────────────────────── */
+.condicoes-ficha {
+  flex-wrap: wrap;
+}
+
+.condicoes-ficha .recurso-nome {
+  flex: 1;
+}
+
+.condicoes-ficha.ativo .recurso-icone {
+  color: var(--warning);
+}
+
+.condicoes-ficha-lista {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.condicoes-ficha-nova {
+  flex-basis: 100%;
+  display: grid;
+  gap: 6px;
+}
+
+/* Bloqueios dos colaterais (sem PP / sem Haki). */
+.bloqueios-ficha {
+  flex-wrap: wrap;
+  border-color: var(--danger);
+}
+
+.bloqueios-ficha .recurso-icone {
+  color: var(--danger);
+}
+
+.bloqueio-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--danger);
+  font-size: 0.78rem;
+}
+
+.exaustao-temporaria {
+  color: var(--text-sec);
+}
+
+/* Condição criada no Aplica Condição: o editor e a prévia. */
+.condicao-criada {
+  display: grid;
+  gap: 8px;
+}
+
+.condicao-previa ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+  display: grid;
+  gap: 2px;
+}
+
 /* ─── EXAUSTÃO ────────────────────────────────────────────── */
 .exaustao-linha {
   cursor: help;
@@ -1069,12 +1104,53 @@
   color: var(--text-sec);
 }
 
+/* Seção que recolhe pelo título (tipos de ação, origens de habilidade). */
+.secao-recolhivel-topo {
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.secao-recolhivel-topo:disabled {
+  cursor: default;
+}
+
+.secao-recolhivel-topo:hover h3,
+.secao-recolhivel-topo:focus-visible h3 {
+  color: var(--text-main);
+}
+
+.secao-recolhivel-contagem {
+  color: var(--text-sec);
+  font-size: 0.85rem;
+}
+
+.secao-recolhivel-seta {
+  color: var(--text-sec);
+  font-size: 0.8rem;
+  transition: transform 0.15s;
+}
+
+.secao-recolhivel.recolhida .secao-recolhivel-seta {
+  transform: rotate(-90deg);
+}
+
+.secao-recolhivel-topo:disabled .secao-recolhivel-seta {
+  visibility: hidden;
+}
+
 /* ─── CARDS DE AÇÃO / ITEM ─────────────────────────────────── */
 .action-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
   gap: 15px;
-  align-items: start;
+  /* Cards da mesma linha com a mesma altura; as tags descem pro pé. */
+  align-items: stretch;
 }
 
 .action-card {
@@ -1121,6 +1197,30 @@
   line-height: 1.4;
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+
+/* Cortada em 4 linhas até o "mostrar mais". */
+.card-desc.recolhida {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+}
+
+.card-desc-alternar {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--primary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.card-desc-alternar:hover {
+  text-decoration: underline;
 }
 
 .card-tags {
@@ -7460,6 +7560,20 @@ form > .turno-campo,
   background: var(--border);
 }
 
+/* Linha de filtros a mais (tipo, origem…): rótulo e botões. */
+.filtros-grupo {
+  gap: 6px;
+}
+
+.filtros-grupo-rotulo {
+  min-width: 56px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-sec);
+}
+
 .hab-filtro.filtro-pasta {
   display: inline-flex;
   align-items: center;
@@ -8075,6 +8189,14 @@ form > .turno-campo,
 }
 
 /* O que vai aparecer no card, enquanto edita. */
+/* Dica do "Em quem" quando o efeito fica valendo no aliado. */
+.efeito-quem-dica {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-sec);
+  font-size: 0.78rem;
+}
+
 .efeito-editor-resumo {
   min-width: 0;
   overflow: hidden;
@@ -8518,17 +8640,17 @@ form > .turno-campo,
 }
 
 /* ─── Deslocamentos: os modos lado a lado na barra lateral ─── */
+/* Quatro por linha (andar, nadar, voar, escalar); modo a mais quebra a linha
+   com o mesmo tamanho. */
 .movimentos {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(48px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
 }
 
-/* Andar e nadar em cima, os outros deslocamentos embaixo. */
-.movimentos-bloco {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+/* Um deslocamento só (veículo) ocupa a linha inteira. */
+.movimentos.sozinha {
+  grid-template-columns: 1fr;
 }
 
 .movimento {
@@ -8545,11 +8667,18 @@ form > .turno-campo,
   position: relative;
 }
 
-/* Marca de "vem de efeito" fica no canto. */
+/* Marcas nos cantos, fora do fluxo, pra não desalinhar o texto. */
 .movimento .prof-fonte {
   position: absolute;
   top: 4px;
   right: 4px;
+  font-size: 0.55rem;
+}
+
+.movimento .exausto-marca {
+  position: absolute;
+  top: 4px;
+  left: 4px;
   font-size: 0.55rem;
 }
 
@@ -8565,9 +8694,9 @@ form > .turno-campo,
 }
 
 .movimento-nome {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 0.66rem;
   font-weight: 600;
   color: var(--sidebar-text-sec);
@@ -8656,4 +8785,167 @@ form > .turno-campo,
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+}
+
+/* ─── Alça de reordenar nas ações (estilo em globals.css) ───── */
+.action-card.com-alca .card-title {
+  padding-left: 18px;
+}
+
+/* ─── Filtros recolhidos atrás de um ícone ─────────────────── */
+.filtros-toggle {
+  position: relative;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-sec);
+  cursor: pointer;
+}
+
+.filtros-toggle:hover,
+.filtros-toggle.ativo {
+  color: var(--primary);
+}
+
+.filtros-toggle-total {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+}
+
+.filtros-painel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+
+.filtros-limpar-tudo {
+  align-self: flex-start;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-sec);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.filtros-limpar-tudo:hover {
+  background: var(--bg-surface);
+  color: var(--text-main);
+}
+
+/* ─── Card compacto (ação e habilidade) ─────────────────────── */
+.action-card.card2 {
+  min-height: 0;
+  justify-content: flex-start;
+  gap: 0;
+  padding: 12px 14px;
+}
+.card2-topo {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.card2-topo .card-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  line-height: 1.25;
+}
+.card2-topo .hab-usar {
+  flex: none;
+  margin-left: 0;
+}
+/* Micro-especificações: uma linha de texto discreto, pontos entre os itens. */
+.card2-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1px 0;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--text-sec);
+}
+.card2-sep { margin: 0 7px; opacity: 0.6; font-weight: 700; }
+.card2-meta i { margin-right: 2px; font-size: 0.85em; opacity: 0.8; }
+.card2-custo { color: var(--highlight); font-weight: 700; }
+/* O grau: único selo da linha, reconhecível pelo símbolo. */
+.card2-grau {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: color-mix(in oklch, var(--color-power) 18%, transparent);
+  color: var(--color-power);
+  font-weight: 800;
+  line-height: 1.5;
+}
+/* Faixa dos números que se rolam: acerto, dano, salvaguarda. */
+.card2-nums {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin-top: 8px;
+}
+.card2-num {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: color-mix(in oklch, var(--text-main) 6%, transparent);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 0.84rem;
+  font-variant-numeric: tabular-nums;
+}
+.card2-num i { font-size: 0.8em; color: var(--text-sec); }
+.card2-num small { font-size: 0.72rem; color: var(--text-sec); }
+.card2-rolar { cursor: pointer; }
+.card2-rolar:hover {
+  border-color: color-mix(in srgb, var(--primary) 40%, transparent);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+}
+.card2 .card-desc-rica {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+.card2-pe {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 0.72rem;
+  font-style: italic;
+  color: var(--text-sec);
+}
+.card2-pe .hab-usar { margin-left: auto; font-style: normal; }
+
+
+/* Na descrição do card o chip quebra de linha como o texto (ver .desc-l .desc-chip). */
+
+/* Em curso, usos e por turno: linha própria, só quando existe. */
+.card2 .card2-estado {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+}
+.card2 > .card-tags {
+  margin-top: auto;
+  padding-top: 8px;
 }

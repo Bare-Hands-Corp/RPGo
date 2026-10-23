@@ -101,6 +101,17 @@ export function FichaRealtime({
         },
         refresh,
       )
+      // Ação de aliado que deixou efeitos valendo neste personagem (começou ou acabou).
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "acoes",
+          filter: `aliado_em_curso_id=eq.${personagemId}`,
+        },
+        refresh,
+      )
       .on(
         "postgres_changes",
         {

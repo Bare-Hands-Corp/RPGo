@@ -6,6 +6,8 @@ import { faixaDaRolagem, parseFormulaDados, type Dado } from "./dice";
 import { avaliarFormula, formulaUsaGrau, formulaVariavel } from "./formula";
 import { cobre, lerCobertura } from "./dano";
 import { duraAlemDoUso, duracaoPvTempNoBanco, lerDuracaoPvTemp, type DuracaoPvTemp } from "./duracao";
+import type { TipoAcaoCombate } from "./combate";
+import type { MecanicaCondicao } from "./condicoes-mecanica";
 
 export function modificador(valor: number): number {
   return Math.floor((valor - 10) / 2);
@@ -92,10 +94,12 @@ function valorDaSigla(
   atributos: Record<Atributo, number>,
   nivel: number,
   grau: number,
+  desloc: number,
 ): number {
   if (sigla === "PROF") return bonusProficiencia(nivel);
   if (sigla === "NIVEL") return nivel;
   if (sigla === "GRAU") return grau;
+  if (sigla === "DESLOC") return desloc;
   const slug = SIGLA_PARA_SLUG[sigla];
   return slug ? modificador(atributos[slug]) : 0;
 }
@@ -107,11 +111,11 @@ export function resolverFormula(
   bruta: string,
   atributos: Record<Atributo, number>,
   nivel: number,
-  { grau = 0 }: { grau?: number } = {},
+  { grau = 0, desloc = 0 }: { grau?: number; desloc?: number } = {},
 ): FormulaResolvida {
   const r = avaliarFormula(bruta, {
     nivel,
-    valor: (sigla) => valorDaSigla(sigla, atributos, nivel, grau),
+    valor: (sigla) => valorDaSigla(sigla, atributos, nivel, grau, desloc),
   });
   if (r.ok) {
     return {
@@ -129,11 +133,11 @@ export function conferirFormula(
   bruta: string,
   atributos: Record<Atributo, number>,
   nivel: number,
-  { grau = 0 }: { grau?: number } = {},
+  { grau = 0, desloc = 0 }: { grau?: number; desloc?: number } = {},
 ): { ok: true; texto: string } | { ok: false; erro: string } {
   const r = avaliarFormula(bruta, {
     nivel,
-    valor: (sigla) => valorDaSigla(sigla, atributos, nivel, grau),
+    valor: (sigla) => valorDaSigla(sigla, atributos, nivel, grau, desloc),
   });
   if (!r.ok) return r;
   return { ok: true, texto: formulaAgrupada(r.rolagem.dados, r.rolagem.modificador) };
@@ -158,7 +162,7 @@ export function valorDaFormula(
   formula: string,
   atributos: Record<Atributo, number>,
   nivel: number,
-  extras: { grau?: number } = {},
+  extras: { grau?: number; desloc?: number } = {},
 ): number {
   return resolverFormula(formula, atributos, nivel, extras).modificador;
 }
@@ -381,6 +385,12 @@ export const ALCANCES_ARMA: {
   { slug: "corpo_a_corpo", nome: "Corpo a Corpo", icone: "fa-fist-raised" },
   { slug: "distancia", nome: "À Distância", icone: "fa-crosshairs" },
 ];
+
+// Toque e 1,5 m são o mesmo alcance; o texto salvo antes como "Toque" passa a
+// mostrar (e salvar) "1,5 m".
+export function normalizarAlcance(alcance: string): string {
+  return alcance.trim().toLowerCase() === "toque" ? "1,5 m" : alcance;
+}
 
 export type PropriedadeArma =
   | "acuidade"
@@ -656,6 +666,8 @@ export function resolverDanoArma(opts: {
   dadoFixo?: string | null;
   // Grau da técnica, pro GRAU das fórmulas.
   grau?: number;
+  // Dano a mais da ação que usa a arma ("1d6 fogo", "2").
+  adicional?: string | null;
 }): DanoArmaResolvido | null {
   const partes: ParteDano[] = [];
   const dados: Dado[] = [];
@@ -690,6 +702,14 @@ export function resolverDanoArma(opts: {
     dados.push(...p.dados);
     total += p.modificador;
     partes.push({ rotulo: "Dano bônus", texto: bonus });
+  }
+
+  const adicional = opts.adicional?.trim() ?? "";
+  if (adicional) {
+    const p = resolverFormula(adicional, opts.atributos, opts.nivel, extras);
+    dados.push(...p.dados);
+    total += p.modificador;
+    partes.push({ rotulo: "Adicional", texto: adicional });
   }
 
   if (opts.somaAtributo && opts.atributoDano) {
@@ -935,6 +955,8 @@ export type TipoEfeito =
   | "valor_fixo"
   | "falha_auto"
   | "reducao_dano"
+  | "interceptar"
+  | "evasao"
   | "dano_maximo"
   | "piso_dado"
   | "critico_extra"
@@ -946,7 +968,20 @@ export type TipoEfeito =
   | "explosao"
   | "progressivo"
   | "valor_igual"
+  | "colateral"
   | "livre";
+
+// O que o efeito colateral faz em quem usa a técnica.
+export type OColateral = "dano" | "exaustao" | "sem_pp" | "sem_haki";
+export const COLATERAIS: { slug: OColateral; nome: string }[] = [
+  { slug: "dano", nome: "Dano em você" },
+  { slug: "exaustao", nome: "Exaustão" },
+  { slug: "sem_pp", nome: "Sem PP" },
+  { slug: "sem_haki", nome: "Sem Haki" },
+];
+
+// Quando um efeito em quem usa acontece: no uso ou quando a ação acaba.
+export type QuandoColateral = "uso" | "fim";
 
 export type FiltroArmaDeFogo = "exceto" | "so";
 
@@ -964,7 +999,20 @@ export type GatilhoProgressivo = "turno" | "rolagem";
 export type DuraEfeito = "turno" | "mantem";
 
 // `sempreAtivo`: vale sempre, mesmo em habilidade de Usar, desligada ou com usos limitados.
-export type EfeitoHabilidade = EfeitoCru & { sempreAtivo?: boolean; dura?: DuraEfeito };
+// `quem`: numa ação, o efeito vai pro aliado escolhido no uso (o na hora acontece
+// nele; o que fica valendo vale nele enquanto a ação durar) ou pro inimigo que
+// ela pega (fica valendo nele, como condição, enquanto a ação durar); ausente =
+// quem usa.
+// `vale`: vantagem ou desvantagem no aliado ou no inimigo só na próxima
+// rolagem dele ou durante o próximo turno dele; ausente = enquanto a ação durar.
+export type QuemEfeito = "aliado" | "inimigo";
+export type ValeEfeito = "proxima" | "turno";
+export type EfeitoHabilidade = EfeitoCru & {
+  sempreAtivo?: boolean;
+  dura?: DuraEfeito;
+  quem?: QuemEfeito;
+  vale?: ValeEfeito;
+};
 
 type EfeitoCru =
   // `formula` (ex: "PROF/2+1", "3*NIVEL") vale no lugar de `valor` quando existe.
@@ -980,12 +1028,47 @@ type EfeitoCru =
   // `rodadas`: quanto dura no combate (1, 3 ou 10 = um minuto; ausente = 1).
   // `repete`: o afetado pode repetir a salvaguarda pra sair antes. `duracao`
   // é o texto livre de antes das rodadas, só descritivo.
-  | { tipo: "condicao_aplicar"; condicao: string; cd?: number; duracao?: string; rodadas?: number; repete?: boolean }
+  // `evita`: salvaguarda (atributo) que o alvo rola contra a CD das técnicas
+  // pra não receber; ausente = sem salvaguarda própria.
+  // `mecanica`: condição criada aqui (crua, lib/condicoes-mecanica.ts), sem
+  // passar pela Biblioteca; `condicao` é o nome dela. `emVoce`: vai em quem usa
+  // (colateral, postura), não em quem a ação pega.
+  | {
+      tipo: "condicao_aplicar";
+      condicao: string;
+      cd?: number;
+      duracao?: string;
+      rodadas?: number;
+      repete?: boolean;
+      evita?: Atributo;
+      mecanica?: MecanicaCondicao;
+      emVoce?: boolean;
+      // Em você: no uso (padrão) ou quando a ação acaba.
+      quando?: "fim";
+    }
+  // Efeito colateral (livro: Colateral, Debilitante, Devoradora, Exaustiva):
+  // pesa em quem usa, no uso ou quando a ação acaba. dano: `valor` (fórmula),
+  // `tipoDano`, `irredutivel` (sem defesa nem PV temporário). exaustao: `valor`
+  // (níveis), `temporaria` (some no descanso longo). sem_pp / sem_haki:
+  // `minutos` sem gastar PP / sem usar Haki; `exaustaoSemPp`: ficou sem PP
+  // depois do uso = 1 de exaustão.
+  | {
+      tipo: "colateral";
+      o: OColateral;
+      quando: QuandoColateral;
+      valor?: string;
+      tipoDano?: string;
+      irredutivel?: boolean;
+      temporaria?: boolean;
+      minutos?: number;
+      exaustaoSemPp?: boolean;
+    }
   | { tipo: "resistencia"; tipoDano: string }
   | { tipo: "imunidade"; tipoDano: string }
   // Recebe o dobro do tipo de dano (depois da resistência).
   | { tipo: "vulnerabilidade"; tipoDano: string }
-  | { tipo: "deslocamento"; tipoMov: string; valor: number }
+  // `modo` ausente: andar soma no base, os outros modos viram o valor (vale o maior).
+  | { tipo: "deslocamento"; tipoMov: string; valor: number; modo?: ModoDeslocamento; formula?: string }
   // Em dano ("dano", "dano-cc", "dano-distancia"), `armaDeFogo` deixa a
   // arma de fogo de fora ("exceto") ou só vale nela ("so").
   | { tipo: "multiplicador"; alvo: string; fator: number; armaDeFogo?: FiltroArmaDeFogo }
@@ -1005,9 +1088,9 @@ type EfeitoCru =
   // Sentido especial (visão no escuro, sentir presença, percepção sísmica…).
   // alcance opcional em metros — 0 = sem alcance explícito (passivo).
   | { tipo: "sentido"; sentido: string; alcance: number }
-  // Ação/ataque/reação adicional. quantidade default = 1.
-  // gatilho descreve quando se aplica (ex: "no turno", "1× por descanso").
-  | { tipo: "acao_extra"; acao: string; quantidade: number; gatilho?: string }
+  // Ação a mais no turno (Padrão, Bônus, Poderosa ou Reação). quantidade default = 1.
+  // gatilho descreve quando se aplica (ex: "1× por descanso"); com ele, é só descritivo.
+  | { tipo: "acao_extra"; acao: TipoAcaoCombate; quantidade: number; gatilho?: string }
   // Sucesso automático no tipo de jogada `alvo`.
   | { tipo: "sucesso_auto"; alvo: string; quando?: string }
   // Piso de dano: garante metade do dano MÁXIMO da fórmula rolada (arredonda
@@ -1057,6 +1140,12 @@ type EfeitoCru =
   | { tipo: "falha_auto"; alvo: string; quando?: string }
   // Reduz o dano recebido; `tipos` vazio = todos.
   | { tipo: "reducao_dano"; valor: number; formula?: string; tipos?: string; quando?: string }
+  // Reação: quem reage vira o alvo do ataque no lugar do aliado (o ataque acerta,
+  // sem comparar a CR dele).
+  | { tipo: "interceptar" }
+  // Salvaguarda que evita dano: sucesso = nada, falha = metade. Passivo, ou o
+  // que uma reação faz na salvaguarda que a disparou.
+  | { tipo: "evasao" }
   // Dados do dano no máximo. `apartir` liga sozinho com esse d20 (ou mais) no ataque.
   | ({ tipo: "dano_maximo"; em?: string; sempre?: boolean; apartir?: number } & FiltroDano)
   // Dado de dano que rolar até `ate` vira `vira` (0 = o máximo do dado).
@@ -1142,6 +1231,8 @@ export const META_EFEITOS: Record<
   valor_fixo:       { nome: "Valor Fixo",         icone: "fa-equals",         cor: "var(--efeito-neutro)" },
   falha_auto:       { nome: "Falha Automática",         icone: "fa-xmark",          cor: "var(--efeito-ruim)" },
   reducao_dano:     { nome: "Redução de Dano",    icone: "fa-shield-halved",  cor: "var(--efeito-defesa)" },
+  interceptar:      { nome: "Interceptar",        icone: "fa-people-arrows",  cor: "var(--efeito-defesa)" },
+  evasao:           { nome: "Evasão",             icone: "fa-wind",           cor: "var(--efeito-defesa)" },
   dano_maximo:      { nome: "Dano Máximo",        icone: "fa-maximize",       cor: "var(--efeito-ataque)" },
   piso_dado:        { nome: "Dado Mínimo",        icone: "fa-dice-five",      cor: "var(--efeito-ataque)" },
   critico_extra:    { nome: "Crítico Maior",      icone: "fa-skull-crossbones", cor: "var(--efeito-ataque)" },
@@ -1153,6 +1244,7 @@ export const META_EFEITOS: Record<
   explosao:         { nome: "Explosão",           icone: "fa-explosion",      cor: "var(--efeito-ataque)" },
   progressivo:      { nome: "Bônus Progressivo",  icone: "fa-arrow-trend-up", cor: "var(--efeito-ataque)" },
   valor_igual:      { nome: "Valor Igual",        icone: "fa-right-long",     cor: "var(--efeito-neutro)" },
+  colateral:        { nome: "Efeito Colateral",   icone: "fa-heart-crack",    cor: "var(--danger)" },
   livre:            { nome: "Texto Livre",             icone: "fa-feather",        cor: "var(--text-sec)" },
 };
 
@@ -1335,6 +1427,24 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     grupo: "defesa",
     criar: () => ({ tipo: "reducao_dano", valor: 5 }),
   },
+  {
+    id: "interceptar",
+    nome: "Interceptar",
+    descricao: "Reação: recebe o ataque no lugar de um aliado",
+    icone: "fa-people-arrows",
+    cor: "var(--color-react)",
+    grupo: "defesa",
+    criar: () => ({ tipo: "interceptar" }),
+  },
+  {
+    id: "evasao",
+    nome: "Evasão",
+    descricao: "Salvaguarda que evita dano: sucesso não sofre, falha sofre metade",
+    icone: "fa-wind",
+    cor: "var(--color-react)",
+    grupo: "defesa",
+    criar: () => ({ tipo: "evasao" }),
+  },
   // ─ Condição ─
   {
     id: "condicao_imune",
@@ -1376,7 +1486,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   {
     id: "deslocamento",
     nome: "Deslocamento",
-    descricao: "Velocidade extra (voar, nadar, escalar…)",
+    descricao: "Soma, vira ou reduz o deslocamento (andar, voar, nadar…)",
     icone: "fa-person-running",
     cor: "var(--primary)",
     grupo: "movimento",
@@ -1467,7 +1577,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   {
     id: "multi_ataque",
     nome: "Multiataque",
-    descricao: "Ataca várias vezes de uma vez",
+    descricao: "Ataca várias vezes nas ações marcadas com \"Recebe Multiataque\"",
     icone: "fa-layer-group",
     cor: "var(--color-power)",
     grupo: "ativo",
@@ -1557,11 +1667,20 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   {
     id: "acao_extra",
     nome: "Ação Extra",
-    descricao: "1 ataque/ação/reação a mais por turno",
+    descricao: "Ação Padrão, Bônus, Poderosa ou Reação a mais por turno",
     icone: "fa-forward",
     cor: "var(--color-power)",
     grupo: "ativo",
-    criar: () => ({ tipo: "acao_extra", acao: "ataque", quantidade: 1 }),
+    criar: () => ({ tipo: "acao_extra", acao: "padrao", quantidade: 1 }),
+  },
+  {
+    id: "colateral",
+    nome: "Efeito Colateral",
+    descricao: "Pesa em quem usa: dano, exaustão, sem PP ou sem Haki",
+    icone: "fa-heart-crack",
+    cor: "var(--danger)",
+    grupo: "ativo",
+    criar: () => ({ tipo: "colateral", o: "dano", quando: "uso", valor: "" }),
   },
   {
     id: "sucesso_auto",
@@ -1689,6 +1808,28 @@ export function comoDura(e: EfeitoHabilidade): "repete" | "mantem" | null {
   return e.tipo !== "por_turno" && efeitoEhSustentado(e) ? "mantem" : null;
 }
 
+// ─── Alvo do ataque ───────────────────────────────────────────────────
+// Quem a ação ataca, faz a salvaguarda ou leva o dano (vale pra qualquer tipo
+// de ação, inclusive a Livre). "inimigo" e "qualquer" escolhem na iniciativa do
+// combate. Os efeitos na hora dizem, cada um, em quem vão (`quem`).
+export type AlvoAcao = "nenhum" | "inimigo" | "qualquer";
+
+export const ALVOS_ACAO: { slug: AlvoAcao; nome: string; icone: string }[] = [
+  { slug: "nenhum", nome: "Nenhum", icone: "fa-ban" },
+  { slug: "inimigo", nome: "Inimigo", icone: "fa-crosshairs" },
+  { slug: "qualquer", nome: "Qualquer criatura", icone: "fa-users" },
+];
+
+// Gravado antes ("voce", "aliado") ou ausente: sem alvo de ataque.
+export function lerAlvoAcao(acao: { alvo?: unknown }): AlvoAcao {
+  return ALVOS_ACAO.find((a) => a.slug === acao.alvo)?.slug ?? "nenhum";
+}
+
+// Alvo que se escolhe na iniciativa do combate.
+export function alvoDeCombate(alvo: AlvoAcao): boolean {
+  return alvo === "inimigo" || alvo === "qualquer";
+}
+
 // O `dura` dos efeitos só vale em ação que dura mais que o uso e age em quem usa.
 export function efeitosDuram(acao: { duracao?: unknown; aliado?: boolean }): boolean {
   return !acao.aliado && duraAlemDoUso(acao.duracao);
@@ -1770,7 +1911,75 @@ export function normalizarEfeito(
   obj: Record<string, unknown>,
 ): EfeitoHabilidade | null {
   const e = normalizarCampos(tipo, obj);
-  return e && obj.sempreAtivo === true && podeSerSempreAtivo(e) ? { ...e, sempreAtivo: true } : e;
+  if (!e) return null;
+  return {
+    ...e,
+    ...(obj.sempreAtivo === true && podeSerSempreAtivo(e) ? { sempreAtivo: true } : {}),
+    ...(obj.quem === "aliado" && podeIrProAliado(e) ? { quem: "aliado" as const } : {}),
+    ...(obj.quem === "inimigo" && podeIrProInimigo(e) ? { quem: "inimigo" as const } : {}),
+    ...((obj.quem === "aliado" || obj.quem === "inimigo") &&
+    escolheVale(e) &&
+    (obj.vale === "proxima" || obj.vale === "turno")
+      ? { vale: obj.vale }
+      : {}),
+  };
+}
+
+// Efeito que dá pra mandar pra um aliado: o que mexe nos pools dele (cura, PV
+// temporário, PP, exaustão), tira condição dele ou fica valendo nele
+// (vantagem, bônus…) enquanto a ação durar. Recurso próprio (PC, PN…) é de
+// quem usa e fica nele.
+export function podeIrProAliado(e: EfeitoHabilidade): boolean {
+  if (e.tipo === "recurso_delta") return e.recurso === "pp" || e.recurso === "exaustao";
+  return e.tipo === "condicao_remover" || efeitoInstantaneo(e) || comoDura(e) === "mantem";
+}
+
+// Efeito que dá pra pôr no inimigo que a ação pega: só a desvantagem. Dano e
+// condição já vão nele pelos campos da ação e pelo Aplica Condição.
+export function podeIrProInimigo(e: EfeitoHabilidade): boolean {
+  return e.tipo === "desvantagem" || e.tipo === "deslocamento";
+}
+
+// Vantagem e desvantagem em outro podem valer só na próxima rolagem ou no
+// próximo turno dele.
+export function escolheVale(e: EfeitoHabilidade): boolean {
+  return e.tipo === "vantagem" || e.tipo === "desvantagem";
+}
+
+export function efeitoNoInimigo(e: EfeitoHabilidade): boolean {
+  return e.quem === "inimigo" && podeIrProInimigo(e);
+}
+
+// A ação põe condição que se evita ou se repete com salvaguarda: usa a CD das técnicas.
+export function condicaoPedeSalvaguarda(acao: { efeitos: unknown }): boolean {
+  return lerEfeitos(acao.efeitos).some((e) => e.tipo === "condicao_aplicar" && (!!e.evita || !!e.repete));
+}
+
+// Efeitos da ação que valem no inimigo que ela pega.
+export function efeitosNoInimigo(acao: { efeitos: unknown }): EfeitoHabilidade[] {
+  return lerEfeitos(acao.efeitos).filter(efeitoNoInimigo);
+}
+
+// Efeitos da ação que ficam valendo no aliado escolhido no uso, enquanto ela
+// estiver em curso (ação instantânea: até o próximo turno de quem usa).
+export function efeitosQueFicamNoAliado(acao: { efeitos: unknown; aliado?: boolean }): EfeitoHabilidade[] {
+  return lerEfeitos(acao.efeitos).filter((e) => comoDura(e) === "mantem" && efeitoNoAliado(e, acao));
+}
+
+// O efeito vai pra um aliado? Ação de antes do "Em quem" (aliado na ação
+// inteira) manda todos os que podem e não escolheram outro destino.
+export function efeitoNoAliado(e: EfeitoHabilidade, acao: { aliado?: boolean }): boolean {
+  return podeIrProAliado(e) && (e.quem === "aliado" || (!e.quem && !!acao.aliado));
+}
+
+// As rolagens da ficha vêm pelo índice na lista de efeitos na hora; num pedaço
+// dela (`posicoes`), cada uma passa pro índice novo.
+export function rolagensDoPedaco<T>(rolagens: Record<number, T> | undefined, posicoes: number[]): Record<number, T> {
+  const out: Record<number, T> = {};
+  posicoes.forEach((pos, novo) => {
+    if (rolagens && pos in rolagens) out[novo] = rolagens[pos];
+  });
+  return out;
 }
 
 // Metros de deslocamento andam de meio em meio (1,5 · 4,5 · 7,5).
@@ -1843,7 +2052,17 @@ function normalizarCampos(tipo: TipoEfeito, obj: Record<string, unknown>): Efeit
       if (str(obj.duracao)) e.duracao = str(obj.duracao);
       const rodadas = Math.trunc(num(obj.rodadas));
       if (rodadas > 0) e.rodadas = Math.min(100, rodadas);
-      if (obj.repete === true) e.repete = true;
+      // Conferida por lerMecanica ao salvar (actions) e ao usar.
+      if (obj.mecanica && typeof obj.mecanica === "object") e.mecanica = obj.mecanica as MecanicaCondicao;
+      if (obj.emVoce === true) {
+        e.emVoce = true;
+        if (obj.quando === "fim") e.quando = "fim";
+      }
+      // Em você não tem salvaguarda: vale direto.
+      else {
+        if (obj.repete === true) e.repete = true;
+        if (ATRIBUTOS_SET.has(str(obj.evita))) e.evita = str(obj.evita) as Atributo;
+      }
       return e;
     }
     case "resistencia":
@@ -1851,9 +2070,22 @@ function normalizarCampos(tipo: TipoEfeito, obj: Record<string, unknown>): Efeit
     case "vulnerabilidade":
       if (!str(obj.tipoDano)) return null;
       return { tipo, tipoDano: str(obj.tipoDano) };
-    case "deslocamento":
-      if (!str(obj.tipoMov)) return null;
-      return { tipo, tipoMov: str(obj.tipoMov), valor: meioMetro(num(obj.valor)) };
+    case "deslocamento": {
+      const tipoMov = str(obj.tipoMov);
+      if (!tipoMov) return null;
+      // Fórmula (PROF, NIVEL, DESLOC/2…) só quando não é um número.
+      const formula = str(obj.formula).trim();
+      const comFormula = formula !== "" && !/^-?\d+([.,]\d+)?$/.test(formula);
+      const e = {
+        tipo,
+        tipoMov,
+        valor: comFormula ? 0 : meioMetro(num(obj.valor)),
+        ...(comFormula ? { formula } : {}),
+      };
+      // Só grava o modo quando foge do padrão do movimento.
+      const modo = obj.modo === "soma" || obj.modo === "vira" || obj.modo === "reduz" ? obj.modo : null;
+      return modo && modo !== modoDoDeslocamento(e) ? { ...e, modo } : e;
+    }
     case "valor_igual": {
       const alvo = str(obj.alvo).trim().toLowerCase();
       const de = str(obj.de).trim().toLowerCase();
@@ -1908,12 +2140,22 @@ function normalizarCampos(tipo: TipoEfeito, obj: Record<string, unknown>): Efeit
       return { tipo, sentido, alcance: Math.max(0, num(obj.alcance)) };
     }
     case "acao_extra": {
-      const acao = str(obj.acao);
-      if (!acao) return null;
       const qtd = Math.max(1, Math.trunc(num(obj.quantidade)) || 1);
-      const e: EfeitoHabilidade = { tipo, acao, quantidade: qtd };
-      if (str(obj.gatilho)) e.gatilho = str(obj.gatilho);
-      return e;
+      const gatilho = str(obj.gatilho);
+      const acao = ACAO_EXTRA_ANTIGA[str(obj.acao)] ?? str(obj.acao);
+      // Ataque extra antigo vira Multiataque; com condição, fica como texto.
+      if (acao === "ataque") {
+        return gatilho
+          ? { tipo: "livre", texto: `${qtd > 1 ? `${qtd} ataques` : "1 ataque"} a mais: ${gatilho}` }
+          : { tipo: "multi_ataque", vezes: qtd, soma: true };
+      }
+      // Movimento extra antigo era só descritivo: vira texto (o novo é o efeito Deslocamento).
+      if (acao === "movimento") {
+        return { tipo: "livre", texto: `Movimento extra${qtd > 1 ? ` ${qtd}×` : ""}${gatilho ? `: ${gatilho}` : ""}` };
+      }
+      const slug = ACOES_EXTRAS.find((a) => a.slug === acao)?.slug;
+      if (!slug) return null;
+      return { tipo, acao: slug, quantidade: qtd, ...(gatilho ? { gatilho } : {}) };
     }
     case "sucesso_auto": {
       if (!str(obj.alvo)) return null;
@@ -2018,6 +2260,9 @@ function normalizarCampos(tipo: TipoEfeito, obj: Record<string, unknown>): Efeit
         alvo: str(obj.alvo),
         ...(str(obj.quando) ? { quando: str(obj.quando) } : {}),
       };
+    case "interceptar":
+    case "evasao":
+      return { tipo };
     case "reducao_dano": {
       const formula = str(obj.formula).trim();
       const numerica = formula !== "" && Number.isFinite(Number(formula));
@@ -2145,6 +2390,27 @@ function normalizarCampos(tipo: TipoEfeito, obj: Record<string, unknown>): Efeit
         ...(cresce ? { cresce } : {}),
       };
     }
+    case "colateral": {
+      const o = COLATERAIS.find((c) => c.slug === obj.o)?.slug ?? "dano";
+      const quando: QuandoColateral = obj.quando === "fim" ? "fim" : "uso";
+      if (o === "dano") {
+        const valor = str(obj.valor).trim().slice(0, 40);
+        return {
+          tipo,
+          o,
+          quando,
+          valor,
+          ...(str(obj.tipoDano).trim() ? { tipoDano: str(obj.tipoDano).trim().slice(0, 40) } : {}),
+          ...(obj.irredutivel === true ? { irredutivel: true } : {}),
+        };
+      }
+      if (o === "exaustao") {
+        const niveis = Math.min(6, Math.max(1, Math.trunc(num(obj.valor)) || 1));
+        return { tipo, o, quando, valor: String(niveis), ...(obj.temporaria === true ? { temporaria: true } : {}) };
+      }
+      const minutos = Math.min(600, Math.max(1, Math.trunc(num(obj.minutos)) || 1));
+      return { tipo, o, quando, minutos, ...(o === "sem_pp" && obj.exaustaoSemPp === true ? { exaustaoSemPp: true } : {}) };
+    }
     case "livre":
       if (!str(obj.texto)) return null;
       return { tipo, texto: str(obj.texto) };
@@ -2153,13 +2419,42 @@ function normalizarCampos(tipo: TipoEfeito, obj: Record<string, unknown>): Efeit
   }
 }
 
+// Ações que a Ação Extra dá (as mesmas do turno de combate).
+export const ACOES_EXTRAS: { slug: TipoAcaoCombate; nome: string }[] = [
+  { slug: "padrao", nome: "Padrão" },
+  { slug: "bonus", nome: "Bônus" },
+  { slug: "power", nome: "Poderosa" },
+  { slug: "react", nome: "Reação" },
+];
+
+// Ações que a Ação Extra de uma ação dá ao ser usada (valem só naquele turno).
+export function acoesGanhasNoUso(efeitos: EfeitoHabilidade[]): Partial<Record<TipoAcaoCombate, number>> {
+  const out: Partial<Record<TipoAcaoCombate, number>> = {};
+  for (const e of efeitos) {
+    if (e.tipo === "acao_extra") out[e.acao] = (out[e.acao] ?? 0) + e.quantidade;
+  }
+  return out;
+}
+
+// Valores gravados antes da Fase 2A.
+const ACAO_EXTRA_ANTIGA: Record<string, string> = { acao: "padrao", "acao bônus": "bonus", reacao: "react" };
+
+// soma: soma (ou tira, se negativo); vira: passa a valer o maior; reduz: o deslocamento cai pra no máximo o valor.
+export type ModoDeslocamento = "soma" | "vira" | "reduz";
+
+export type AjusteDeslocamento = { tipo: string; modo: ModoDeslocamento; formula: string; fonte: string };
+
+// Andar soma no deslocamento base; nadar, voar… viram o valor (vale o maior).
+export function modoDoDeslocamento(e: { tipoMov: string; modo?: ModoDeslocamento }): ModoDeslocamento {
+  return e.modo ?? (e.tipoMov.trim().toLowerCase() === "caminhar" ? "soma" : "vira");
+}
+
 // Deslocamentos que um efeito mexe; "caminhar" é o deslocamento base.
 export const MOVIMENTOS: { slug: string; nome: string }[] = [
   { slug: "caminhar", nome: "Andar" },
   { slug: "nadar", nome: "Nadar" },
   { slug: "voar", nome: "Voar" },
   { slug: "escalar", nome: "Escalar" },
-  { slug: "cavar", nome: "Cavar" },
 ];
 
 // Modos além de andar; como alvo de bônus, somam em quem já tem o modo.
@@ -2345,7 +2640,6 @@ export const ALVOS_VALOR_FIXO: { slug: string; nome: string; grupo: string }[] =
   { slug: "nadar", nome: "Nadar", grupo: "Deslocamento" },
   { slug: "voar", nome: "Voar", grupo: "Deslocamento" },
   { slug: "escalar", nome: "Escalar", grupo: "Deslocamento" },
-  { slug: "cavar", nome: "Cavar", grupo: "Deslocamento" },
   ...ATRIBUTOS.map((a) => ({ slug: a.slug, nome: a.nome, grupo: "Atributo" })),
   { slug: "dado-arma", nome: "Dado da arma", grupo: "Combate" },
 ];
@@ -2486,10 +2780,12 @@ export function rotuloAlvo(slug: string): string {
 // efeito daquele alvo se aplica.
 export type ContextoRolagem =
   // `municao`: item que o ataque gasta ao rolar.
+  // `multiataque`: ação que o jogador marcou pra receber o Multiataque da ficha.
   | {
       tipo: "ataque";
       alcance: "corpo_a_corpo" | "distancia";
       tecnica?: boolean;
+      multiataque?: boolean;
       municao?: { id: string; nome: string };
     }
   // `concentracao`: a salvaguarda de CON pra manter a concentração.
@@ -2635,11 +2931,13 @@ type FonteProficiencia = FonteLista & { dobrada: boolean };
 // "cru" no agregado com alvo + fonte; quem rola decide se casa com o contexto
 // atual (ataque CC, perícia X…). Diferente de crit_range/floor_d20 (globais) e
 // reroll (por gatilho), que já têm bucket próprio.
+// `consome`: a condição de uso único que o chip gasta ao rolar.
 export type EfeitoContextual = Gasto & {
   tipo: "vantagem" | "desvantagem" | "sucesso_auto" | "falha_auto";
   alvo: string;
   fonte: string;
   quando?: string;
+  consome?: string;
 };
 
 // Uso limitado de quem dá o efeito: o chip nasce desligado e gasta 1 uso ao
@@ -2756,12 +3054,15 @@ export type EfeitosAgregados = {
   // Sentidos especiais (visão escuro, sentir presença…). Indexado por nome
   // do sentido; o maior alcance vence.
   sentidos: Partial<Record<string, FonteValor>>;
-  // Deslocamentos especiais (voar/nadar/escalar/cavar). Indexado pelo tipo de
+  // Deslocamentos especiais (voar/nadar/escalar). Indexado pelo tipo de
   // movimento; o maior valor por tipo vence (é o modo, não soma — "prevalece o
   // maior", regra das espécies). "caminhar" NÃO entra aqui: soma no
   // bonusDeslocamento (deslocamento base) pra casar com `modificador→deslocamento`.
   deslocamentosExtra: Partial<Record<string, FonteValor>>;
-  // Bônus em nadar/voar/escalar/cavar: soma em quem já tem o modo.
+  // Deslocamento que depende do valor atual (DESLOC) ou que reduz pra no máximo
+  // X: só dá pra resolver com o deslocamento já calculado (`ajustarDeslocamento`).
+  ajustesDeslocamento: AjusteDeslocamento[];
+  // Bônus em nadar/voar/escalar: soma em quem já tem o modo.
   bonusMovimento: Partial<Record<string, FonteValor>>;
   // Fatores multiplicativos (ex: Espécie Gigante ×2 carga). Indexado pelo
   // slug do alvo. Vários multiplicadores compõem por produto (×2 × ×1.5 = ×3).
@@ -2794,7 +3095,10 @@ export type EfeitosAgregados = {
   // Acerto por dano (alvo de ataque).
   ataquesPoderosos: { penalidade: number; bonus: number; alvo: string; fonte: string }[];
   // Redução de dano recebido (painel de defesas).
-  reducoesDano: { valor: number; tipos: string; quando?: string; fonte: string; passiva: boolean }[];
+  reducoesDano: { valor: number; formula?: string; tipos: string; quando?: string; fonte: string; passiva: boolean }[];
+  // Evasão passiva: quem tem não sofre dano na salvaguarda que evita (sucesso) e
+  // sofre metade (falha). Nomes das fontes.
+  evasao: string[];
   // Maior nível de exaustão ignorado.
   ignoraExaustao: { ate: number; fontes: string[] } | null;
   // A mais em cada descanso.
@@ -2804,11 +3108,12 @@ export type EfeitosAgregados = {
   // O que acontece a cada turno; `habilidadeId` = ligada que desliga se o gasto zerar.
   porTurno: PorTurno[];
   // Ações a mais por turno ("Ação Extra" sem condição), por tipo de ação.
-  acoesExtras: Partial<Record<"padrao" | "bonus" | "react", FonteValor>>;
+  acoesExtras: Partial<Record<TipoAcaoCombate, FonteValor>>;
   // Valor igual a outro (ou à metade dele): CR, deslocamentos e atributos.
   valoresIguais: ValorIgual[];
   // Multiataque por alvo de ataque: vale o maior total, mais os ataques a mais.
-  multiAtaques: (Gasto & { vezes: number; soma: boolean; alvo: string; fonte: string })[];
+  // `daAcao`: o Multiataque da própria ação, que vale nela mesmo sem a marca.
+  multiAtaques: (Gasto & { vezes: number; soma: boolean; alvo: string; fonte: string; daAcao?: boolean })[];
   // Explosões de dano e de ataque.
   explosoes: (Gasto & {
     gatilho: GatilhoExplosao;
@@ -2917,6 +3222,7 @@ function vazio(): EfeitosAgregados {
     rerolls: {},
     sentidos: {},
     deslocamentosExtra: {},
+    ajustesDeslocamento: [],
     bonusMovimento: {},
     multiplicadores: {},
     contextuais: [],
@@ -2928,6 +3234,7 @@ function vazio(): EfeitosAgregados {
     critsExtra: [],
     ataquesPoderosos: [],
     reducoesDano: [],
+    evasao: [],
     ignoraExaustao: null,
     descansoExtra: {
       curto: { exaustao: 0, pp: 0, dv: 0, fontes: [] },
@@ -3029,13 +3336,18 @@ export function curaFixa(valor: string): number | null {
 }
 
 // Curas que rolam no cliente ao usar, pelo índice do efeito: as com fórmula e,
-// com dado a mais na cura, também as de PV com valor fixo.
+// com dado a mais na cura, também as de PV com valor fixo. Bônus de PV
+// temporário com fórmula ("2d10+NIVEL") rola junto, pelo mesmo caminho.
 export function curasComFormula(
   efeitos: EfeitoHabilidade[],
   comDadoNaCura = false,
 ): { idx: number; valor: string; alvo: AlvoCura }[] {
   const out: { idx: number; valor: string; alvo: AlvoCura }[] = [];
   efeitos.forEach((e, idx) => {
+    if (e.tipo === "modificador" && e.formula && ehAlvoPvTemp(e.alvo)) {
+      out.push({ idx, valor: e.formula, alvo: "hp-temp" });
+      return;
+    }
     if (e.tipo !== "cura") return;
     const alvo = alvoDaCura(e);
     if (curaFixa(e.valor) === null || (comDadoNaCura && alvo === "hp")) {
@@ -3043,6 +3355,11 @@ export function curasComFormula(
     }
   });
   return out;
+}
+
+function ehAlvoPvTemp(alvo: string): boolean {
+  const a = alvo.trim().toLowerCase();
+  return a === "hp-temp" || a === "hptemp";
 }
 
 // Dados a mais que valem sempre na cura de PV ("+1d6"), já resolvidos.
@@ -3072,7 +3389,7 @@ export function computarDeltasInstantaneos(
   // uma habilidade sustentada: bônus de PV/PP máximo são revertíveis, então
   // vivem no agregado (bonusHpMax/bonusPpMax enquanto ligada) em vez de baterem
   // permanentemente no valor armazenado. cura/PV-temp/recurso seguem instantâneos.
-  // `rolagens`: total rolado de cada cura com fórmula, pelo índice do efeito.
+  // `rolagens`: total rolado de cada cura (ou PV temporário) com fórmula, pelo índice do efeito.
   // `ctx`: nível, atributos e grau da técnica pras fórmulas (ex: PV temporário
   // "2d10+CON" já rolado, ou "10*NIVEL" fixo).
   {
@@ -3122,7 +3439,8 @@ export function computarDeltasInstantaneos(
     } else if (e.tipo === "modificador") {
       const alvo = e.alvo.trim().toLowerCase();
       const v = Math.trunc(valorDe(e));
-      if (alvo === "hp-temp" || alvo === "hptemp") darTemp(v, e.duracaoPv);
+      // PV temporário com fórmula: vale o rolado (o fixo da fórmula só sem rolagem).
+      if (ehAlvoPvTemp(alvo)) darTemp(Math.trunc(rolagens[idx] ?? v), e.duracaoPv);
       else if (incluirMax && (alvo === "hp-max" || alvo === "hpmax")) d.hpMax += v;
       else if (incluirMax && (alvo === "pp-max" || alvo === "ppmax")) d.ppMax += v;
     } else if (e.tipo === "recurso_delta") {
@@ -3139,11 +3457,13 @@ export function computarDeltasInstantaneos(
   return d;
 }
 
-// Voar/nadar/escalar/cavar: o maior entre o efeito de deslocamento, o valor fixo
+// Voar/nadar/escalar: o maior entre o efeito de deslocamento, o valor fixo
 // e, no nado, o da ficha (`nado`); o bônus soma por cima de quem tem o modo.
 export function modosDeDeslocamento(
   agg: Pick<EfeitosAgregados, "deslocamentosExtra" | "valoresFixos"> & {
     bonusMovimento?: EfeitosAgregados["bonusMovimento"];
+    ajustesDeslocamento?: EfeitosAgregados["ajustesDeslocamento"];
+    ctxFormula?: EfeitosAgregados["ctxFormula"];
   },
   nado = 0,
 ): Record<string, { valor: number; fontes: string[] }> {
@@ -3151,7 +3471,7 @@ export function modosDeDeslocamento(
   for (const [tipo, fv] of Object.entries(agg.deslocamentosExtra)) {
     if (fv) out[tipo] = fv;
   }
-  for (const tipo of ["nadar", "voar", "escalar", "cavar"]) {
+  for (const tipo of ["nadar", "voar", "escalar"]) {
     const fixo = agg.valoresFixos[tipo];
     if (fixo && fixo.valor > (out[tipo]?.valor ?? 0)) out[tipo] = fixo;
   }
@@ -3164,7 +3484,52 @@ export function modosDeDeslocamento(
       fontes: dedup([...atual.fontes, ...bonus.fontes]),
     };
   }
+  for (const tipo of new Set((agg.ajustesDeslocamento ?? []).map((a) => a.tipo))) {
+    if (tipo === "caminhar") continue;
+    const r = ajustarDeslocamento(agg, tipo, out[tipo]?.valor ?? 0);
+    if (r.fontes.length > 0) out[tipo] = { valor: r.valor, fontes: dedup([...(out[tipo]?.fontes ?? []), ...r.fontes]) };
+  }
   return out;
+}
+
+// A fórmula só divide em inteiros: "DESLOC/2" de 9 m daria 4. Metade e dobro do
+// deslocamento (DESLOC/2, DESLOC*2) saem em passos de meio metro.
+function valorDoAjuste(formula: string, f: ContextoFormula, desloc: number): number {
+  const simples = formula.match(/^\s*DESLOC(?:AMENTO)?\s*([/*x×])\s*(\d+(?:[.,]\d+)?)\s*$/i);
+  if (simples) {
+    const n = Number(simples[2].replace(",", "."));
+    if (n > 0) return Math.floor((simples[1] === "/" ? desloc / n : desloc * n) * 2) / 2;
+  }
+  return meioMetro(valorDaFormula(formula, f.atributos, f.nivel, { desloc }));
+}
+
+// Efeitos Deslocamento que dependem do valor atual (DESLOC) ou que reduzem pra
+// no máximo X, aplicados em cima do deslocamento já calculado: primeiro o que
+// soma e o que vira (vale o maior), depois o que reduz. Nunca fica negativo.
+export function ajustarDeslocamento(
+  agg: { ajustesDeslocamento?: AjusteDeslocamento[]; ctxFormula?: ContextoFormula | null },
+  tipo: string,
+  valor: number,
+): { valor: number; fontes: string[] } {
+  const ajustes = (agg.ajustesDeslocamento ?? []).filter((a) => a.tipo === tipo);
+  const f = agg.ctxFormula;
+  let atual = valor;
+  const fontes: string[] = [];
+  const ordem: ModoDeslocamento[] = ["soma", "vira", "reduz"];
+  for (const modo of ordem) {
+    for (const a of ajustes.filter((x) => x.modo === modo)) {
+      // Sem nível e atributos a fórmula não se resolve: não mexe.
+      if (!f) continue;
+      // Nadar, voar…: só soma em quem já tem o modo.
+      if (modo === "soma" && tipo !== "caminhar" && atual <= 0) continue;
+      const n = valorDoAjuste(a.formula, f, atual);
+      const novo = modo === "soma" ? atual + n : modo === "vira" ? Math.max(atual, n) : Math.min(atual, n);
+      const resultado = Math.max(0, novo);
+      if (resultado !== atual && !fontes.includes(a.fonte)) fontes.push(a.fonte);
+      atual = resultado;
+    }
+  }
+  return { valor: atual, fontes };
 }
 
 // Máximos efetivos de PV e PP: (base + bônus) × fator, arredondado pra baixo.
@@ -3341,6 +3706,7 @@ export function efeitoEhSustentado(e: EfeitoHabilidade): boolean {
     case "valor_fixo":
     case "falha_auto":
     case "reducao_dano":
+    case "evasao":
     case "piso_dado":
     case "critico_extra":
     case "ataque_poderoso":
@@ -3577,6 +3943,8 @@ export type HabilidadeFonte = {
   custoPp?: number;
   custoRecursoId?: string | null;
   custoRecursoValor?: number;
+  // Condição de uso único de onde vêm os efeitos: rolar com eles a gasta.
+  consome?: string;
 };
 
 // Recurso do personagem, pro custo dos chips sob demanda (ex.: Dados Brutais).
@@ -3756,6 +4124,8 @@ export function agregarEfeitos(
     grau?: number;
     recursos?: RecursoFonte[];
     ppAtual?: number;
+    // Efeitos da própria ação que está rolando (efeitosDaTecnica).
+    daAcao?: boolean;
   },
 ): EfeitosAgregados {
   // Base de um render anterior pode não ter os campos mais novos.
@@ -3968,7 +4338,14 @@ export function agregarEfeitos(
       ) {
         const alvo = e.alvo.trim().toLowerCase();
         if (alvo && !semUsos) {
-          out.contextuais.push({ tipo: e.tipo, alvo, fonte: h.nome, quando: e.quando, ...gasto });
+          out.contextuais.push({
+            tipo: e.tipo,
+            alvo,
+            fonte: h.nome,
+            quando: e.quando,
+            ...gasto,
+            ...(h.consome ? { consome: h.consome } : {}),
+          });
         }
       } else if (e.tipo === "dano_min") {
         if (semUsos) continue;
@@ -4017,16 +4394,26 @@ export function agregarEfeitos(
           });
         }
       } else if (e.tipo === "reducao_dano") {
-        const valor = e.formula ? numero(e.formula) : e.valor;
+        // Com dados ("2d12+NIVEL"), `valor` é a média e `formula` rola na hora do dano.
+        const r = e.formula && f ? resolverFormula(e.formula, f.atributos, f.nivel, { grau }) : null;
+        const comDados = !!r && r.dados.length > 0;
+        const valor = comDados
+          ? Math.round(r.dados.reduce((s, d) => s + d.sinal * (d.faces + 1) / 2, r.modificador))
+          : e.formula
+            ? numero(e.formula)
+            : e.valor;
         if (valor > 0) {
           out.reducoesDano.push({
             valor,
+            ...(comDados ? { formula: formulaAgrupada(r.dados, r.modificador) } : {}),
             tipos: e.tipos ?? "",
             ...(e.quando?.trim() ? { quando: e.quando.trim() } : {}),
             fonte: h.nome,
             passiva: ehPassiva,
           });
         }
+      } else if (e.tipo === "evasao") {
+        if (!out.evasao.includes(h.nome)) out.evasao.push(h.nome);
       } else if (e.tipo === "ignora_exaustao") {
         const atual = out.ignoraExaustao ?? { ate: 0, fontes: [] };
         atual.ate = Math.max(atual.ate, e.ate);
@@ -4043,14 +4430,11 @@ export function agregarEfeitos(
         }
       } else if (e.tipo === "acao_extra") {
         // Com condição ("1× por descanso") fica descritivo: não vira ação de todo turno.
-        const tipoAcao = ({ acao: "padrao", "acao bônus": "bonus", reacao: "react" } as const)[
-          e.acao as "acao" | "acao bônus" | "reacao"
-        ];
-        if (tipoAcao && !e.gatilho) {
-          const atual = out.acoesExtras[tipoAcao] ?? { valor: 0, fontes: [] };
+        if (!e.gatilho) {
+          const atual = out.acoesExtras[e.acao] ?? { valor: 0, fontes: [] };
           atual.valor += e.quantidade;
           if (!atual.fontes.includes(h.nome)) atual.fontes.push(h.nome);
-          out.acoesExtras[tipoAcao] = atual;
+          out.acoesExtras[e.acao] = atual;
         }
       } else if (e.tipo === "por_turno") {
         out.porTurno.push({
@@ -4134,6 +4518,7 @@ export function agregarEfeitos(
           soma: !!e.soma,
           alvo: (e.alvo ?? "ataque").trim().toLowerCase() || "ataque",
           fonte: h.nome,
+          ...(ctx?.daAcao ? { daAcao: true } : {}),
           ...gasto,
         });
       } else if (e.tipo === "explosao") {
@@ -4168,14 +4553,27 @@ export function agregarEfeitos(
         out.valoresIguais.push({ alvo: e.alvo, de: e.de, metade: !!e.metade, fonte: h.nome });
       } else if (e.tipo === "deslocamento") {
         const tipo = e.tipoMov.trim().toLowerCase();
-        if (tipo && e.valor) {
-          if (tipo === "caminhar") {
+        const modo = modoDoDeslocamento(e);
+        const soma = modo === "soma";
+        if (tipo && (modo === "reduz" || (e.formula && /DESLOC/i.test(e.formula)))) {
+          // Depende do deslocamento atual: resolve depois, em `ajustarDeslocamento`.
+          out.ajustesDeslocamento.push({ tipo, modo, formula: e.formula ?? String(e.valor), fonte: h.nome });
+        } else if (tipo && (e.formula ? meioMetro(numero(e.formula)) : e.valor)) {
+          const valor = e.formula ? meioMetro(numero(e.formula)) : e.valor;
+          if (tipo === "caminhar" && soma) {
             // Deslocamento terrestre é o base — soma como bônus.
-            somarBucketSimples(out.bonusDeslocamento, e.valor, h.nome);
+            somarBucketSimples(out.bonusDeslocamento, valor, h.nome);
+          } else if (tipo === "caminhar") {
+            // Vira o valor: como o Valor Fixo, vale o maior.
+            const atual = out.valoresFixos.deslocamento;
+            if (!atual || valor > atual.valor) out.valoresFixos.deslocamento = { valor: valor, fontes: [h.nome] };
+          } else if (soma) {
+            // Soma em quem já tem o modo.
+            somarFonteValor(out.bonusMovimento, tipo, valor, h.nome);
           } else {
-            // Voar/nadar/escalar/cavar: modo próprio, prevalece o maior.
+            // Voar/nadar/escalar: modo próprio, prevalece o maior.
             const atual = out.deslocamentosExtra[tipo] ?? { valor: 0, fontes: [] };
-            if (e.valor > atual.valor) atual.valor = e.valor;
+            if (valor > atual.valor) atual.valor = valor;
             if (!atual.fontes.includes(h.nome)) atual.fontes.push(h.nome);
             out.deslocamentosExtra[tipo] = atual;
           }
@@ -4192,14 +4590,17 @@ export function efeitosDaTecnica(
   base: EfeitosAgregados,
   acao: { nome: string; efeitos: unknown; grau: number; duracao?: unknown; aliado?: boolean },
 ): EfeitosAgregados {
-  // O que fica valendo na ficha entra por lá (ação em curso), não na rolagem dela.
+  // O que fica valendo na ficha entra por lá (ação em curso), não na rolagem
+  // dela; o que vai pro aliado ou pro inimigo vale nele.
   const dura = efeitosDuram(acao);
   const proprios = lerEfeitos(acao.efeitos).filter(
-    (e) => !efeitoInstantaneo(e) && !(dura && e.dura === "mantem"),
+    (e) =>
+      !efeitoInstantaneo(e) && !(dura && e.dura === "mantem") && !efeitoNoAliado(e, acao) && !efeitoNoInimigo(e),
   );
   if (proprios.length === 0) return base;
   return agregarEfeitos([{ nome: acao.nome, tipo: "passiva", efeitos: proprios }], new Set(), base, {
     grau: acao.grau,
+    daAcao: true,
   });
 }
 
@@ -4271,6 +4672,8 @@ export type ChipContexto = {
   // Habilidade que o chip gasta ao rolar, e o saldo de usos dela ("2/3").
   gasta?: string;
   usos?: string;
+  // Condições de uso único (de uma técnica) que somem ao rolar com o chip.
+  consome?: string[];
   // Explosão: quando dispara e quantas vezes.
   explosao?: { gatilho: GatilhoExplosao; valor: number; limite: number };
   // Teto da contagem: passos do bônus progressivo, ou usos empilháveis do chip sob demanda.
@@ -4406,11 +4809,13 @@ export function chipsDoContexto(
       const casados = agg.contextuais.filter((c) => c.tipo === tipo && casaContexto(c.alvo, ctx));
       const sempre = casados.filter((c) => !c.quando?.trim() && !c.gasta);
       if (sempre.length) {
+        const consome = dedup(sempre.flatMap((c) => (c.consome ? [c.consome] : [])));
         chips.push({
           chave: tipo,
           tipo,
           rotulo: ROTULO_CONTEXTUAL[tipo],
           fontes: dedup(sempre.map((c) => c.fonte)),
+          ...(consome.length ? { consome } : {}),
         });
       }
       casados
@@ -4423,6 +4828,7 @@ export function chipsDoContexto(
             fontes: [c.fonte],
             opcional: true,
             ...gastoDoChip(c),
+            ...(c.consome ? { consome: [c.consome] } : {}),
             detalhe: juntarDetalhes(
               c.quando?.trim() ? `quando: ${c.quando.trim()}` : undefined,
               detalheDoGasto(c),
@@ -4522,7 +4928,8 @@ export function chipsDoContexto(
       });
       // Multiataque: o maior total que casa, mais os ataques a mais. Com uso
       // limitado, um chip desligado por fonte, já somado aos que valem sempre.
-      const casados = multiAtaques.filter((m) => casaContexto(m.alvo, ctx));
+      // O da ficha só vale nas ações marcadas; o da própria ação, nela.
+      const casados = multiAtaques.filter((m) => (m.daAcao || ctx.multiataque) && casaContexto(m.alvo, ctx));
       const multis = casados.filter((m) => !m.gasta);
       const vezes =
         Math.max(1, ...multis.filter((m) => !m.soma).map((m) => m.vezes)) +
@@ -5036,17 +5443,28 @@ export function resumoEfeito(
     case "condicao_imune":
     case "condicao_remover":
       return e.condicao;
-    case "condicao_aplicar":
+    case "condicao_aplicar": {
+      const r = e.rodadas;
+      const dura = !r ? "padrão" : r >= 100 ? "até tirar" : r === 10 ? "1 minuto" : `${r} rodada${r === 1 ? "" : "s"}`;
       return (
         (e.cd ? `${e.condicao} (CD ${e.cd})` : e.condicao) +
-        ` · ${e.rodadas === 10 ? "1 minuto" : `${e.rodadas ?? 1} rodada${(e.rodadas ?? 1) === 1 ? "" : "s"}`}`
+        (e.emVoce ? ` em você${e.quando === "fim" ? " no fim" : ""}` : "") +
+        ` · ${dura}` +
+        (e.evita ? ` · evita: salv. ${ATRIBUTOS.find((a) => a.slug === e.evita)?.sigla ?? e.evita}` : "")
       );
+    }
     case "resistencia":
     case "imunidade":
     case "vulnerabilidade":
       return e.tipoDano;
-    case "deslocamento":
-      return `${e.tipoMov} ${String(e.valor).replace(".", ",")}m`;
+    case "deslocamento": {
+      const nome = MOVIMENTOS.find((m) => m.slug === e.tipoMov)?.nome ?? e.tipoMov;
+      const modo = modoDoDeslocamento(e);
+      const metros = e.formula ?? `${String(Math.abs(e.valor)).replace(".", ",")}m`;
+      if (modo === "reduz") return `${nome} cai pra ${metros}`;
+      if (modo === "vira") return `${nome} vira ${metros}`;
+      return e.formula ? `${nome} +${metros}` : `${nome} ${e.valor < 0 ? "−" : "+"}${metros}`;
+    }
     case "valor_igual": {
       const nome = (slug: string) => ALVOS_VALOR_IGUAL.find((a) => a.slug === slug)?.nome ?? slug;
       return `${nome(e.alvo)} = ${e.metade ? "metade de " : ""}${nome(e.de)}`;
@@ -5072,8 +5490,10 @@ export function resumoEfeito(
       return `≤${e.minimo} ⇒ ${e.minimo} · ${rotuloAlvo(e.alvo ?? "qualquer")}`;
     case "sentido":
       return e.alcance > 0 ? `${e.sentido} ${e.alcance}m` : e.sentido;
-    case "acao_extra":
-      return e.quantidade > 1 ? `${e.quantidade}× ${e.acao}` : e.acao;
+    case "acao_extra": {
+      const nome = ACOES_EXTRAS.find((a) => a.slug === e.acao)?.nome ?? e.acao;
+      return `${e.quantidade > 1 ? `${e.quantidade}× ` : ""}${nome}${e.gatilho ? ` · ${e.gatilho}` : ""}`;
+    }
     case "sucesso_auto":
     case "falha_auto":
       return `${rotuloAlvo(e.alvo)}${quando(e.quando)}`;
@@ -5117,7 +5537,11 @@ export function resumoEfeito(
     case "valor_fixo":
       return `${ALVOS_VALOR_FIXO.find((a) => a.slug === e.alvo)?.nome ?? e.alvo} vira ${texto(e.valor)}`;
     case "reducao_dano":
-      return `−${e.formula ? numero(e.formula) : e.valor}${e.tipos ? ` ${e.tipos}` : ""}${quando(e.quando)}`;
+      return `−${e.formula ? texto(e.formula) : e.valor}${e.tipos ? ` ${e.tipos}` : ""}${quando(e.quando)}`;
+    case "interceptar":
+      return "recebe o ataque no lugar do aliado";
+    case "evasao":
+      return "salvaguarda: sucesso sem dano, falha pela metade";
     case "dano_maximo":
       return `${e.em && e.em !== "dano" ? rotuloAlvo(e.em) : "todo dano"}${e.apartir ? ` · d20 ${e.apartir}+` : ""}`;
     case "piso_dado":
@@ -5163,9 +5587,24 @@ export function resumoEfeito(
       return `+${texto(e.formula).replace(/^\+\s*/, "")} por ${porDoProgressivo(e)} · até ${e.max}×${
         e.em && e.em !== "dano" ? ` · ${rotuloAlvo(e.em)}` : ""
       }`;
+    case "colateral":
+      return textoDoColateral(e);
     case "livre":
       return e.texto;
   }
+}
+
+// "2d6 Fogo em você no fim", "2 de exaustão (até o descanso longo)", "1 min sem PP".
+export function textoDoColateral(e: Extract<EfeitoHabilidade, { tipo: "colateral" }>): string {
+  const quando = e.quando === "fim" ? " no fim" : "";
+  if (e.o === "dano") {
+    return `${e.valor || "?"}${e.tipoDano ? ` ${e.tipoDano}` : ""} em você${e.irredutivel ? " (irredutível)" : ""}${quando}`;
+  }
+  if (e.o === "exaustao") {
+    return `${e.valor ?? 1} de exaustão${e.temporaria ? " (até o descanso longo)" : ""}${quando}`;
+  }
+  const t = `${e.minutos ?? 1} min ${e.o === "sem_pp" ? "sem PP" : "sem Haki"}`;
+  return `${t}${e.exaustaoSemPp ? " (sem PP: 1 de exaustão)" : ""}${quando}`;
 }
 
 // "cura 1d6+3", "+5 PV temporário", "1d6 fogo em você", "−1 PP".

@@ -15,6 +15,7 @@ import {
 } from "./actions";
 import { casaBusca, normalizarBusca } from "./barra-filtros";
 import { Segmentos } from "./campos-modal";
+import { textoPuroRico } from "@/lib/descricao-rica";
 
 // Pasta que só este personagem enxerga.
 const SO_AQUI = "Só nesta ficha";
@@ -60,7 +61,7 @@ export function resumoDosDados(tipo: TipoModelo, d: Record<string, unknown>): st
     Number(d.custoPp) > 0 ? `${d.custoPp} PP` : null,
     efeitos > 0 ? `${efeitos} efeito${efeitos === 1 ? "" : "s"}` : null,
   ].filter(Boolean);
-  return partes.join(" · ") || (typeof d.descricao === "string" ? d.descricao : "");
+  return partes.join(" · ") || (typeof d.descricao === "string" ? textoPuroRico(d.descricao) : "");
 }
 
 // Modelos que a ficha enxerga; `null` enquanto carrega.

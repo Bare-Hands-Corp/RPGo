@@ -18,7 +18,7 @@ import { juntarTipos, tiposDoDano, tiposDosEfeitos } from "@/lib/dano";
 import {
   SELECT_ACAO_QUE_DURA,
   carregarRecebidas,
-  condicoesEmCombate,
+  condicoesDoPersonagem,
   fonteRecebida,
 } from "@/lib/efeitos-servidor";
 import { fontesDasCondicoes } from "@/lib/condicoes-mecanica";
@@ -75,7 +75,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
       },
     }),
     carregarRecebidas(uid),
-    condicoesEmCombate(uid),
+    condicoesDoPersonagem(uid),
   ]);
   if (!user) redirect("/login");
   if (!carregado) notFound();
@@ -110,8 +110,14 @@ export default async function FichaPage({ params, searchParams }: Params) {
   const personagem = {
     ...carregado,
     recursos: carregado.recursos.map((r) => ({ ...r, valorMax: maximoDoRecurso(r, ctxFormula) })),
-    habilidades: carregado.habilidades.map((h) => comCustosResolvidos(h, ctxFormula)),
-    acoes: carregado.acoes.map((a) => comCustosResolvidos(a, ctxFormula, a.grau)),
+    // Na ordem arrastada pelo jogador; ordem 0 (nunca arrastada) segue por criação.
+    habilidades: carregado.habilidades
+      .map((h) => comCustosResolvidos(h, ctxFormula))
+      .sort((a, b) => (a.ordem || Number.MAX_SAFE_INTEGER) - (b.ordem || Number.MAX_SAFE_INTEGER)),
+    // Na ordem arrastada pelo jogador; ordem 0 (recém-criada) vai pro fim.
+    acoes: carregado.acoes
+      .map((a) => comCustosResolvidos(a, ctxFormula, a.grau))
+      .sort((a, b) => (a.ordem || Number.MAX_SAFE_INTEGER) - (b.ordem || Number.MAX_SAFE_INTEGER)),
   };
 
   // Autorização: dono OU narrador da mesa; subficha da mesa, qualquer membro.
@@ -308,6 +314,8 @@ export default async function FichaPage({ params, searchParams }: Params) {
       )}
       <CatalogoTiposProvider tipos={catalogoTipos}>
       <PerfilSidebar
+        condicoes={condicoes}
+        emCombate={!!combate}
         navio={
           perfil.slug === "veiculo"
             ? {

@@ -1,11 +1,13 @@
 "use client";
 
+import { Tooltip } from "@/components/tooltip";
 // Iniciativa do combate na ficha: quem está envolvido, em que ordem e de quem
 // é a vez. No desktop é uma faixa com todos; no celular, uma barra com a vez
 // atual que abre a lista. De criatura só aparece o que o narrador liberou.
 
 import { useEffect, useRef, useState } from "react";
-import type { CombateVisto, ModoResolucao, ParticipanteVisto } from "@/lib/combate";
+import type { CombateVisto, ModoResolucao, OpcaoReacao, ParticipanteVisto } from "@/lib/combate";
+import { textoPuroRico } from "@/lib/descricao-rica";
 import {
   BotaoFinalizarTurno,
   EVENTO_ROLAR_CONCENTRACAO,
@@ -76,6 +78,13 @@ const PEGOU: Record<ModoResolucao, string> = {
   direto: "pegou você",
 };
 
+// O mesmo, quando quem foi pego é um aliado.
+const PEGOU_ALIADO: Record<ModoResolucao, string> = {
+  ataque: "acertou",
+  salvaguarda: "pegou",
+  direto: "pegou",
+};
+
 export function IniciativaJogador({
   combate,
   personagemId,
@@ -85,11 +94,11 @@ export function IniciativaJogador({
 }) {
   // Decisão de reagir em andamento (evita dois cliques).
   const [reagindo, setReagindo] = useState(false);
-  async function reagir(resolucaoId: string, acaoId: string | null) {
+  async function reagir(resolucaoId: string, opcao: Pick<OpcaoReacao, "id"> | null, alvoId?: string) {
     if (reagindo) return;
     setReagindo(true);
     try {
-      const r = await reagirEmCombate(personagemId, resolucaoId, acaoId);
+      const r = await reagirEmCombate(personagemId, resolucaoId, opcao?.id ?? null, { alvoId });
       if (!r.ok) {
         void Swal.fire({
           icon: "error",
@@ -166,10 +175,12 @@ export function IniciativaJogador({
                 <span className="iniciativa-item-texto">
                   <span className="iniciativa-nome">{nomeDe(p)}</span>
                   {p.condicoes.length > 0 && (
-                    <span className="iniciativa-meta iniciativa-condicoes" title={p.condicoes.map((c) => c.nome).join(", ")}>
-                      <i className="fas fa-triangle-exclamation" />
-                      {p.condicoes.length === 1 ? p.condicoes[0].nome : `${p.condicoes.length} condições`}
-                    </span>
+                    <Tooltip titulo="Condições" icone="fa-triangle-exclamation" texto={p.condicoes.map((c) => c.nome)}>
+                      <span className="iniciativa-meta iniciativa-condicoes">
+                        <i className="fas fa-triangle-exclamation" />
+                        {p.condicoes.length === 1 ? p.condicoes[0].nome : `${p.condicoes.length} condições`}
+                      </span>
+                    </Tooltip>
                   )}
                   {(p.pv || p.cr != null) && (
                     <span className="iniciativa-meta">
@@ -203,7 +214,7 @@ export function IniciativaJogador({
           <span>
             <i className="fas fa-shield-halved" />{" "}
             <strong>
-              {r.de} {PEGOU[r.modo]}
+              {r.de} {r.aliado ? `${PEGOU_ALIADO[r.modo]} ${r.aliado.nome}` : PEGOU[r.modo]}
             </strong>{" "}
             com {r.nome}. Reagir?
           </span>
@@ -215,7 +226,7 @@ export function IniciativaJogador({
                 className="turno-finalizar compacto"
                 disabled={reagindo}
                 title={`${a.efeito ? `${a.efeito}. ` : ""}Gasta a reação do turno e os custos da ação.`}
-                onClick={() => void reagir(r.resolucaoId, a.id)}
+                onClick={() => void reagir(r.resolucaoId, a, r.aliado?.instanciaId)}
               >
                 {a.nome}
                 {a.efeito && <small className="iniciativa-reacao-efeito"> · {a.efeito}</small>}
@@ -225,7 +236,7 @@ export function IniciativaJogador({
               type="button"
               className="turno-finalizar compacto secundario"
               disabled={reagindo}
-              onClick={() => void reagir(r.resolucaoId, null)}
+              onClick={() => void reagir(r.resolucaoId, null, r.aliado?.instanciaId)}
             >
               Não reagir
             </button>
@@ -238,7 +249,15 @@ export function IniciativaJogador({
           <span className="iniciativa-minhas-condicoes">
             <strong>Você está com</strong>
             {voce!.condicoes.map((c) => (
-              <ChipCondicao key={c.id} nome={c.nome} rodadas={c.rodadas}>
+              <ChipCondicao
+                key={c.id}
+                nome={c.nome}
+                rodadas={c.rodadas}
+                origem={c.origem}
+                mecanica={c.mecanica}
+                uso={c.uso}
+                fimDoTurno={c.fimDoTurno}
+              >
                 {c.sair && (
                   <button
                     type="button"
@@ -397,7 +416,15 @@ export function IniciativaJogador({
             {detalhe.condicoes.length > 0 && (
               <div className="iniciativa-detalhe-condicoes">
                 {detalhe.condicoes.map((c) => (
-                  <ChipCondicao key={c.id} nome={c.nome} rodadas={c.rodadas} />
+                  <ChipCondicao
+                    key={c.id}
+                    nome={c.nome}
+                    rodadas={c.rodadas}
+                    origem={c.origem}
+                    mecanica={c.mecanica}
+                    uso={c.uso}
+                    fimDoTurno={c.fimDoTurno}
+                  />
                 ))}
               </div>
             )}
@@ -425,7 +452,7 @@ export function IniciativaJogador({
                           ))}
                         </div>
                       )}
-                      {a.descricao && <p>{a.descricao}</p>}
+                      {a.descricao && <p>{textoPuroRico(a.descricao)}</p>}
                     </div>
                   ))
                 )}

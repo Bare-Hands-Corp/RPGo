@@ -11,6 +11,7 @@ import {
   criarHabilidade,
   deletarHabilidade,
   guardarNaPasta,
+  reordenarHabilidades,
   usarHabilidade,
 } from "./actions";
 import {
@@ -36,6 +37,15 @@ import {
   type OrigemHabilidade,
   type TipoHabilidade,
 } from "@/lib/op-rpg";
+import { DescricaoCard } from "@/components/descricao-rica/descricao-card";
+import type { ContextoRico } from "@/components/descricao-rica/atomos";
+import { textoPuroRico } from "@/lib/descricao-rica";
+import { CardMeta } from "@/components/card-meta";
+import { condicoesCatalogoNomes, contextoDaAcao, useContextoRico } from "./contexto-rico";
+import { EditorRico } from "@/components/descricao-rica/editor-rico";
+import { gerarDaEntrada } from "./descricao-da-acao";
+import { SecaoRecolhivel } from "./secao-recolhivel";
+import { Tooltip } from "@/components/tooltip";
 import { SeletorUnico } from "./seletor-multiplo";
 import { doModelo, type ModeloView } from "@/lib/pastas";
 import { agruparFormas } from "@/lib/formas";
@@ -46,7 +56,6 @@ import { useConfirmarUso, type ItemDeUso } from "./usar-modal";
 import { Segmentos } from "./campos-modal";
 import {
   AlvosCustomContext,
-  ChipEfeito,
   FormulaContext,
   NomesRecursoContext,
   DatalistAlvos,
@@ -63,6 +72,7 @@ import { useEscolherAlvo } from "./escolher-alvo";
 import { ACadaTurnoCampo, DuracaoCampo, comPorTurno, porTurnoDe } from "./duracao-campo";
 import { CustosCampo } from "./custos-campo";
 import { CampoFormula } from "./campo-formula";
+import { useReordenar } from "@/lib/use-reordenar";
 import {
   anunciarConcentracao,
   lerDuracao,
@@ -136,19 +146,43 @@ type Props = {
   efeitosAgregados: EfeitosAgregados;
   /** Graus das técnicas do personagem (GRAU nos chips). */
   grausTecnicas: number[];
+  /** Ações da ficha (as descrições citam `[[acao:…]]`). */
+  acoes: { id: string; nome: string; tipo: string; tecnica: boolean; grau: number }[];
+  /** Atributo da CD das técnicas (o chip de salvaguarda sem CD usa). */
+  atributoCdTecnicas: string | null;
 };
 
 type Patch =
   | { kind: "create"; habilidade: Habilidade }
   | { kind: "update"; id: string; patch: Partial<Habilidade> }
   | { kind: "delete"; id: string }
-  | { kind: "usar"; id: string; vezes?: number };
+  | { kind: "usar"; id: string; vezes?: number }
+  // A lista toda na ordem nova, cada habilidade com a origem que passou a ter.
+  | { kind: "reordenar"; itens: { id: string; origem: string }[] };
 
 function aplicarPatch(state: Habilidade[], p: Patch): Habilidade[] {
   if (p.kind === "create") return [...state, p.habilidade];
   if (p.kind === "update")
     return state.map((h) => (h.id === p.id ? { ...h, ...p.patch } : h));
   if (p.kind === "delete") return state.filter((h) => h.id !== p.id);
+  if (p.kind === "reordenar") {
+    const arrastadas = new Map(p.itens.map((x, i) => [x.id, { ...x, pos: i }]));
+    const origemAntes = new Map(state.map((h) => [h.id, h.origem]));
+    const contagem = new Map<string, number>();
+    return state
+      .map((h) => {
+        const x = arrastadas.get(h.id);
+        if (x) {
+          const ordem = (contagem.get(x.origem) ?? 0) + 1;
+          contagem.set(x.origem, ordem);
+          return { ...h, origem: x.origem, ordem };
+        }
+        // A forma alternativa acompanha a origem se tinha a mesma origem dela.
+        const raiz = h.formaDe ? arrastadas.get(h.formaDe) : undefined;
+        return raiz && origemAntes.get(h.formaDe!) === h.origem ? { ...h, origem: raiz.origem } : h;
+      })
+      .sort((a, b) => (arrastadas.get(a.id)?.pos ?? 1e9) - (arrastadas.get(b.id)?.pos ?? 1e9));
+  }
   return state.map((h) =>
     h.id === p.id && h.usosAtual != null
       ? { ...h, usosAtual: Math.max(0, h.usosAtual - (p.vezes ?? 1)) }
@@ -173,6 +207,9 @@ const FILTROS = [
   ["disponiveis", "Disponíveis"],
   ["sem_custo", "Sem custo"],
 ] as const;
+
+const FILTROS_TIPO = TIPOS_HABILIDADE.map((t) => [t.slug, t.nome] as const);
+const FILTROS_ORIGEM = ORIGENS_HABILIDADE.map((o) => [o.slug, o.nome] as const);
 
 // Habilidade recém-trazida de uma pasta, antes do servidor responder.
 const HABILIDADE_BASE: Omit<Habilidade, "id"> = {
@@ -216,8 +253,20 @@ export function HabilidadesTab({
   tripulantes,
   efeitosAgregados,
   grausTecnicas,
+  acoes,
+  atributoCdTecnicas,
 }: Props) {
   const travadasSet = useMemo(() => new Set(travadas), [travadas]);
+  // Contexto dos chips da descrição: o que vale pra ficha inteira, montado uma vez.
+  const { ficha: fichaRica, base: contextoBaseRico } = useContextoRico({
+    nivel,
+    atributos,
+    atributoCd: atributoCdTecnicas,
+    acoes,
+    habilidades,
+    itens,
+    recursos,
+  });
   const alvo = useEscolherAlvo(tripulantes, personagemId);
   const nomeDoTripulante = (id: string | null) => tripulantes.find((t) => t.id === id)?.nome;
   const [otimistas, aplicar] = useOptimistic(habilidades, aplicarPatch);
@@ -233,6 +282,8 @@ export function HabilidadesTab({
   const [filtro, setFiltro] = useState<Filtro>("todas");
   const [busca, setBusca] = useState("");
   const [pastaFiltro, setPastaFiltro] = useState<string | null>(null);
+  const [tipoFiltro, setTipoFiltro] = useState<string | null>(null);
+  const [origemFiltro, setOrigemFiltro] = useState<string | null>(null);
   const uso = useConfirmarUso();
 
   // Itens por id.
@@ -280,15 +331,17 @@ export function HabilidadesTab({
   const filtradas = porFiltro.filter(
     (h) =>
       (!pastaAtiva || h.pasta === pastaAtiva) &&
+      (!tipoFiltro || h.tipo === tipoFiltro) &&
+      (!origemFiltro || h.origem === origemFiltro) &&
       casaBusca(busca, [
         h.nome,
-        h.descricao,
+        textoPuroRico(h.descricao),
         h.tags,
         h.pasta,
         ORIGENS_HABILIDADE.find((o) => o.slug === h.origem)?.nome,
       ]),
   );
-  const filtrando = filtro !== "todas" || !!pastaAtiva || busca.trim() !== "";
+  const filtrando = filtro !== "todas" || !!pastaAtiva || !!tipoFiltro || !!origemFiltro || busca.trim() !== "";
 
   // Formas alternativas ficam dentro do card da habilidade de origem.
   const { origemDe, grupoDe } = agruparFormas(otimistas);
@@ -298,6 +351,27 @@ export function HabilidadesTab({
     (h) => !origemDe(h) && grupoDe(h).some((f) => casam.has(f.id)),
   );
   const favoritas = visiveis.filter((h) => h.favorita);
+
+  // Reordenar arrastando (lib/use-reordenar.ts); arrastar pra outra origem
+  // troca a origem. Com filtro a lista está incompleta, então não reordena.
+  const reordenar = useReordenar({
+    itens: otimistas
+      .filter((h) => !origemDe(h) && !ehTemporario(h.id))
+      .map((h) => ({ id: h.id, grupo: h.origem })),
+    aoSoltar: (lista) => {
+      const itens = lista.map((x) => ({ id: x.id, origem: x.grupo }));
+      startTransition(async () => {
+        aplicar({ kind: "reordenar", itens });
+        try {
+          exigir(await reordenarHabilidades(personagemId, itens));
+        } catch (err) {
+          atualizar();
+          mostrarErro(err);
+        }
+      });
+    },
+  });
+  const podeArrastar = !filtrando;
 
   // Turnos que faltam, contados pelo Passar turno antes do servidor responder.
   const [turnosOverlay, setTurnosOverlay] = useState<Record<string, number>>({});
@@ -708,7 +782,7 @@ export function HabilidadesTab({
   }
 
   // Card da habilidade de origem, com a forma escolhida à mostra.
-  function card(origem: Habilidade, chave: string) {
+  function card(origem: Habilidade, chave: string, arrastavel = false) {
     const formas = grupoDe(origem);
     // A forma escolhida; senão a ligada ou a primeira, entre as que casam com o filtro.
     const candidatas = filtrando ? formas.filter((f) => casam.has(f.id)) : formas;
@@ -737,6 +811,8 @@ export function HabilidadesTab({
         recursoNomePorId={recursoNomePorId}
         atributos={atributos}
         nivel={nivel}
+        fichaRica={fichaRica}
+        contextoBaseRico={contextoBaseRico}
         nomeDoAlvo={nomeDoTripulante(h.alvoPersonagemId)}
         turnosRestantes={turnosDe(h)}
         onEdit={() => abrirEdit(h)}
@@ -746,6 +822,11 @@ export function HabilidadesTab({
         onAlternar={() => acionar(h, !h.ligada)}
         favorita={origem.favorita}
         onFavorita={() => toggleFavorita(origem)}
+        reordenar={
+          arrastavel && podeArrastar && !ehTemporario(origem.id)
+            ? { item: reordenar.item(origem.id), alca: reordenar.alca(origem.id), vaga: reordenar.vaga(origem.id) }
+            : undefined
+        }
       />
     );
   }
@@ -791,6 +872,10 @@ export function HabilidadesTab({
           pastas={pastas}
           pasta={pastaAtiva}
           onPasta={setPastaFiltro}
+          grupos={[
+            { rotulo: "Tipo", opcoes: FILTROS_TIPO, valor: tipoFiltro, onValor: setTipoFiltro },
+            { rotulo: "Origem", opcoes: FILTROS_ORIGEM, valor: origemFiltro, onValor: setOrigemFiltro },
+          ]}
         >
           {pastaAtiva && otimistas.some((h) => h.pasta === pastaAtiva && h.tipo !== "passiva") && (
             <>
@@ -807,29 +892,37 @@ export function HabilidadesTab({
         </BarraFiltros>
 
         {favoritas.length > 0 && (
-          <section>
-            <div className="section-header">
-              <i className="fas fa-star" style={{ color: "var(--highlight)" }} />
-              <h3>Destaques</h3>
-            </div>
+          <SecaoRecolhivel
+            chave="habilidades:destaques"
+            icone="fa-star"
+            cor="var(--highlight)"
+            titulo="Destaques"
+            forcarAberta={filtrando}
+          >
             <div className="action-grid">{favoritas.map((h) => card(h, `fav-${h.id}`))}</div>
-          </section>
+          </SecaoRecolhivel>
         )}
 
         {ORIGENS_HABILIDADE.map((origem) => {
-          const lista = visiveis.filter((h) => h.origem === origem.slug);
-          if (lista.length === 0) return null;
+          const lista = reordenar.ordenar(visiveis).filter((h) => reordenar.grupoDe(h.id, h.origem) === origem.slug);
+          // Arrastando, todas as origens aparecem pra poderem receber.
+          if (lista.length === 0 && !reordenar.arrastando) return null;
           return (
-            <section key={origem.slug}>
-              <div className="section-header">
-                <i className={`fas ${origem.icone}`} style={{ color: origem.cor }} />
-                <h3>{origem.nome}</h3>
-                <span style={{ color: "var(--text-sec)", fontSize: "0.85rem" }}>
-                  ({lista.length})
-                </span>
+            <SecaoRecolhivel
+              key={origem.slug}
+              chave={`habilidades:${origem.slug}`}
+              icone={origem.icone}
+              cor={origem.cor}
+              titulo={origem.nome}
+              contagem={lista.length}
+              forcarAberta={filtrando}
+              zona={reordenar.zona(origem.slug)}
+              recebendo={!!reordenar.recebendo(origem.slug)}
+            >
+              <div className="reordenar-zona" {...reordenar.zona(origem.slug)}>
+                <div className="action-grid">{lista.map((h) => card(h, h.id, true))}</div>
               </div>
-              <div className="action-grid">{lista.map((h) => card(h, h.id))}</div>
-            </section>
+            </SecaoRecolhivel>
           );
         })}
 
@@ -861,6 +954,8 @@ export function HabilidadesTab({
             itens={itens}
             atributos={atributos}
             nivel={nivel}
+            fichaRica={fichaRica}
+            contextoBaseRico={contextoBaseRico}
             onCancelar={() => setModalAberto(false)}
             onSalvar={salvarForm}
           />
@@ -886,6 +981,8 @@ function CardHabilidade({
   recursoNomePorId,
   atributos,
   nivel,
+  fichaRica,
+  contextoBaseRico,
   nomeDoAlvo,
   turnosRestantes,
   onEdit,
@@ -895,6 +992,7 @@ function CardHabilidade({
   onAlternar,
   favorita,
   onFavorita,
+  reordenar,
 }: {
   personagemId: string;
   // Pastas que já existem na ficha.
@@ -913,6 +1011,9 @@ function CardHabilidade({
   recursoNomePorId: Map<string, string>;
   atributos: Record<Atributo, number>;
   nivel: number;
+  // Ficha e contexto dos chips da descrição (montados uma vez na aba).
+  fichaRica: Parameters<typeof contextoDaAcao>[1];
+  contextoBaseRico: ContextoRico;
   // Aliado em que está ligada.
   nomeDoAlvo?: string;
   // Ligada com duração em turnos: quanto falta.
@@ -925,10 +1026,10 @@ function CardHabilidade({
   // Destaque da habilidade de origem.
   favorita: boolean;
   onFavorita: () => void;
+  // Arrastar pra reordenar: props do item, da alça e a classe da vaga.
+  reordenar?: { item: object; alca: object; vaga: string };
 }) {
   const efeitos = lerEfeitos(habilidade.efeitos);
-  // O "a cada turno" aparece junto da duração.
-  const chips = efeitos.filter((e) => e.tipo !== "por_turno");
   // Concedida por item: só vale com ele equipado.
   const travadaPorItem = !!habilidade.itemId && !itemOrigem?.equipado;
   const bloqueada = travada || travadaPorItem;
@@ -997,17 +1098,29 @@ function CardHabilidade({
 
   return (
     <div
-      className={`action-card com-copia ${tipoClass}${ligadaAtiva ? " hab-card-ligada" : ""}${
+      className={`action-card card2 com-copia ${tipoClass}${ligadaAtiva ? " hab-card-ligada" : ""}${
         bloqueada ? " hab-travada" : ""
-      }${pendente ? " item-pendente" : ""}`}
+      }${pendente ? " item-pendente" : ""}${reordenar?.vaga ?? ""}`}
       inert={pendente}
+      {...reordenar?.item}
     >
+      {reordenar && (
+        <button
+          type="button"
+          className="btn-card-alca"
+          title="Arraste pra mudar a ordem ou a origem (ou use as setas)"
+          aria-label={`Mudar ${habilidade.nome} de posição`}
+          {...reordenar.alca}
+        >
+          <i className="fas fa-grip-vertical" />
+        </button>
+      )}
       <button
         type="button"
         className={`btn-favorito ${favorita ? "ativo" : ""}`}
         title="Favoritar"
         onClick={onFavorita}
-        style={{ position: "absolute", top: 12, left: 12 }}
+        style={{ position: "absolute", top: 12, left: reordenar ? 30 : 12 }}
       >
         <i className={`fa-star ${favorita ? "fas" : "far"}`} />
       </button>
@@ -1045,7 +1158,7 @@ function CardHabilidade({
       </button>
 
       <div>
-        <div className="card-title" style={{ paddingLeft: 26 }}>
+        <div className="card-title" style={{ paddingLeft: reordenar ? 46 : 26 }}>
           {habilidade.nome}
         </div>
         {formas.length > 1 && (
@@ -1065,87 +1178,95 @@ function CardHabilidade({
             ))}
           </div>
         )}
-        <div className="acao-stats">
-          {tipoMeta && (
-            <span className="acao-stat" style={{ color: tipoMeta.cor }}>
-              <i className={`fas ${tipoMeta.icone}`} /> {tipoMeta.nome}
-            </span>
-          )}
-          {usosMax != null && (
-            <span
-              className="acao-stat"
-              title={habilidade.usosFormula ? `Máximo: ${habilidade.usosFormula}` : undefined}
-            >
-              <i className="fas fa-bolt-lightning" /> {habilidade.usosAtual ?? usosMax}/{usosMax}
-            </span>
-          )}
-          {habilidade.recarga && (
-            <span className="acao-stat">
-              <i className="fas fa-rotate" />{" "}
-              {RECARGAS_HABILIDADE.find((r) => r.slug === habilidade.recarga)?.nome ??
-                habilidade.recarga}
-            </span>
-          )}
-          {textoDuracao(lerDuracao(habilidade.duracao)) && (
-            <span
-              className="acao-stat"
-              title={ligadaAtiva && turnosRestantes != null ? textoDuracao(lerDuracao(habilidade.duracao)) ?? undefined : undefined}
-            >
-              <i className="fas fa-hourglass-half" />{" "}
-              {ligadaAtiva && turnosRestantes != null
-                ? textoTurnosRestantes(turnosRestantes)
-                : textoDuracao(lerDuracao(habilidade.duracao))}
-            </span>
-          )}
-          <StatsPorTurno efeitos={efeitos} />
-          {habilidade.aliado && (
-            <span className="acao-stat acao-aliado">
-              <i className="fas fa-hand-holding-heart" />{" "}
-              {ligadaAtiva && nomeDoAlvo ? `em ${nomeDoAlvo}` : "Em aliado"}
-            </span>
-          )}
-          {itemOrigem && !travadaPorItem && (
-            <span className="acao-stat">
-              <i className={`fas ${habilidade.itemUsa ? "fa-khanda" : "fa-sack-dollar"}`} />{" "}
-              {habilidade.itemUsa ? "Usa" : "Vem de"} {itemOrigem.nome}
-            </span>
-          )}
-        </div>
+        <CardMeta
+          itens={[
+            ...custos.map((c, i) => (
+              <span key={`c${i}`} className="card2-custo">
+                {c}
+              </span>
+            )),
+            tipoMeta && (
+              <span key="tipo" style={{ color: tipoMeta.cor }}>
+                <i className={`fas ${tipoMeta.icone}`} /> {tipoMeta.nome}
+              </span>
+            ),
+            textoDuracao(lerDuracao(habilidade.duracao)) && (
+              <Tooltip
+                key="dur"
+                titulo="Duração"
+                icone="fa-hourglass-half"
+                texto={ligadaAtiva && turnosRestantes != null ? (textoDuracao(lerDuracao(habilidade.duracao)) ?? undefined) : undefined}
+              >
+                <span>
+                  <i className="fas fa-hourglass-half" />{" "}
+                  {ligadaAtiva && turnosRestantes != null
+                    ? textoTurnosRestantes(turnosRestantes)
+                    : textoDuracao(lerDuracao(habilidade.duracao))}
+                </span>
+              </Tooltip>
+            ),
+            habilidade.aliado && (
+              <span key="ali" className="acao-aliado">
+                <i className="fas fa-hand-holding-heart" />{" "}
+                {ligadaAtiva && nomeDoAlvo ? `em ${nomeDoAlvo}` : "Em aliado"}
+              </span>
+            ),
+            itemOrigem && !travadaPorItem && (
+              <span key="item">
+                <i className={`fas ${habilidade.itemUsa ? "fa-khanda" : "fa-sack-dollar"}`} />{" "}
+                {habilidade.itemUsa ? "Usa" : "Vem de"} {itemOrigem.nome}
+              </span>
+            ),
+          ]}
+        />
+        {(usosMax != null || habilidade.recarga || efeitos.some((e) => e.tipo === "por_turno")) && (
+          <div className="acao-stats card2-estado">
+            {usosMax != null && (
+              <Tooltip
+                titulo="Usos"
+                icone="fa-bolt-lightning"
+                texto={habilidade.usosFormula ? `Máximo: ${habilidade.usosFormula}` : undefined}
+              >
+                <span className="acao-stat">
+                  <i className="fas fa-bolt-lightning" /> {habilidade.usosAtual ?? usosMax}/{usosMax}
+                </span>
+              </Tooltip>
+            )}
+            {habilidade.recarga && (
+              <span className="acao-stat">
+                <i className="fas fa-rotate" />{" "}
+                {RECARGAS_HABILIDADE.find((r) => r.slug === habilidade.recarga)?.nome ??
+                  habilidade.recarga}
+              </span>
+            )}
+            <StatsPorTurno efeitos={efeitos} />
+          </div>
+        )}
         {bloqueada && (
           <div className="hab-travada-nota">
             <i className="fas fa-lock" /> Habilidade travada ·{" "}
             {travadaPorItem ? `equipe ${itemOrigem?.nome ?? "o item"}` : "talento não liberado"}
           </div>
         )}
-        {chips.length > 0 && (
-          <div className="efeito-chips">
-            {chips.map((e, i) => (
-              <ChipEfeito
-                key={i}
-                efeito={e}
-                comUsos={habilidade.tipo === "passiva" && usosMax != null}
-              />
-            ))}
-          </div>
-        )}
         <PassosProgressivos efeitos={efeitos} onChange={onEfeitos} travado={bloqueada} />
-        {habilidade.descricao && (
-          <div className="card-desc">{habilidade.descricao}</div>
-        )}
+        <DescricaoCard
+          texto={habilidade.descricao}
+          contexto={contextoDaAcao(
+            contextoBaseRico,
+            fichaRica,
+            { nome: habilidade.nome, tecnica: false, grau: 0 },
+            efeitos,
+            lerDuracao(habilidade.duracao),
+          )}
+        />
       </div>
 
-      {(custos.length > 0 ||
-        tags.length > 0 ||
+      {(tags.length > 0 ||
         !!habilidade.pasta ||
         mostrarUsar ||
         mostrarToggle ||
         rolagens.length > 0) && (
         <div className="card-tags">
-          {custos.map((c, i) => (
-            <span key={`c${i}`} className="tag tag-custo">
-              {c}
-            </span>
-          ))}
           {tags.map((t, i) => (
             <TagChip key={`t${i}`} nome={t} estilo={estilosTag[t]} />
           ))}
@@ -1237,6 +1358,8 @@ function HabilidadeModal({
   itens,
   atributos,
   nivel,
+  fichaRica,
+  contextoBaseRico,
   onCancelar,
   onSalvar,
 }: {
@@ -1249,6 +1372,9 @@ function HabilidadeModal({
   itens: ItemRef[];
   atributos: Record<Atributo, number>;
   nivel: number;
+  // Ficha e contexto dos chips da descrição (montados uma vez na aba).
+  fichaRica: Parameters<typeof contextoDaAcao>[1] & { habilidades: { id: string; nome: string }[] };
+  contextoBaseRico: ContextoRico;
   onCancelar: () => void;
   onSalvar: (d: HabilidadeFormDados) => void;
 }) {
@@ -1265,6 +1391,8 @@ function HabilidadeModal({
     (base?.tipo as TipoHabilidade) ?? "passiva",
   );
   const [descricao, setDescricao] = useState(base?.descricao ?? "");
+  // A descrição segue o texto gerado dos efeitos e da duração (habilidade nova ou sem descrição).
+  const [descAuto, setDescAuto] = useState(!(base?.descricao ?? "").trim());
   const [custoPp, setCustoPp] = useState(
     base?.custoPpFormula ?? (base?.custoPp ? String(base.custoPp) : ""),
   );
@@ -1294,6 +1422,40 @@ function HabilidadeModal({
   // Com efeito que fica valendo, a habilidade só pode ser de Liga e desliga.
   const temSustentado = temEfeitoSustentado(efeitos);
   const ligaDesliga = alternavel || temSustentado;
+  const descricaoGerada = useMemo(
+    () => gerarDaEntrada({ efeitos, duracao, passiva: tipo === "passiva" }),
+    [efeitos, duracao, tipo],
+  );
+  const descricaoDoForm = descAuto ? descricaoGerada : descricao;
+  const contextoEditor = useMemo(
+    () => contextoDaAcao(contextoBaseRico, fichaRica, { nome, tecnica: false, grau: 0 }, efeitos, duracao),
+    [contextoBaseRico, fichaRica, nome, efeitos, duracao],
+  );
+  const refsEditor = useMemo(
+    () => [
+      ...fichaRica.acoes.map((x) => ({ tipo: "acao" as const, id: x.id, nome: x.nome })),
+      ...fichaRica.habilidades.filter((h) => h.id !== inicial?.id).map((h) => ({ tipo: "hab" as const, id: h.id, nome: h.nome })),
+      ...itens.map((i) => ({ tipo: "item" as const, id: i.id, nome: i.nome })),
+    ],
+    [fichaRica, itens, inicial?.id],
+  );
+  const condicoesEditor = useMemo(() => condicoesCatalogoNomes(contextoBaseRico), [contextoBaseRico]);
+  async function regenerarDescricao() {
+    if (!descAuto && descricao.trim()) {
+      const r = await Swal.fire({
+        icon: "question",
+        title: "Regenerar a descrição?",
+        text: "O texto escrito à mão é trocado pelo gerado dos efeitos e da duração (Ctrl+Z no editor desfaz).",
+        showCancelButton: true,
+        confirmButtonText: "Regenerar",
+        cancelButtonText: "Cancelar",
+        background: "var(--bg-card)",
+        color: "var(--text-main)",
+      });
+      if (!r.isConfirmed) return;
+    }
+    setDescAuto(true);
+  }
   function submit(e: React.FormEvent) {
     e.preventDefault();
     const nomeLimpo = nome.trim();
@@ -1322,7 +1484,7 @@ function HabilidadeModal({
       nome: nomeLimpo,
       origem,
       tipo,
-      descricao,
+      descricao: descricaoDoForm,
       custoPp: pp.numero,
       custoPpFormula: pp.formula,
       custoPa: base?.custoPa ?? 0,
@@ -1479,10 +1641,18 @@ function HabilidadeModal({
           )}
 
           <label>Descrição</label>
-          <textarea
-            value={descricao}
-            onChange={(e) => setDescricao(e.target.value)}
-            placeholder="Como funciona, quando se aplica, regras especiais..."
+          <EditorRico
+            valor={descricaoDoForm}
+            onChange={(t) => {
+              if (descAuto && t === descricaoGerada) return; // eco do editor
+              setDescricao(t);
+              setDescAuto(false);
+            }}
+            refs={refsEditor}
+            condicoes={condicoesEditor}
+            contexto={contextoEditor}
+            automatica={{ ativa: descAuto, regenerar: regenerarDescricao }}
+            placeholder="Como funciona, quando se aplica, regras especiais… (@ insere, / blocos)"
           />
 
           <label>Item</label>

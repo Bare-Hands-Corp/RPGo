@@ -1,5 +1,6 @@
 "use client";
 
+import { Tooltip } from "@/components/tooltip";
 import { useContext, useEffect, useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { ehTemporario, exigir, idTemporario } from "@/lib/acoes";
@@ -330,13 +331,12 @@ export function RecursosSidebar({
               </span>
               <span className="recurso-card-valor">
                 <strong>{r.valorAtual}</strong>
-                <span
-                  className="recurso-card-max"
-                  title={r.valorMaxFormula ? `Máximo: ${r.valorMaxFormula}` : undefined}
-                >
-                  {" "}
-                  / {r.valorMax}
-                </span>
+                <Tooltip titulo={r.nome} texto={r.valorMaxFormula ? `Máximo: ${r.valorMaxFormula}` : undefined}>
+                  <span className="recurso-card-max">
+                    {" "}
+                    / {r.valorMax}
+                  </span>
+                </Tooltip>
               </span>
               <span className="recurso-btns">
                 <button

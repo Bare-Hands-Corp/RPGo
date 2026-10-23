@@ -8,7 +8,7 @@ import type { Dado } from "./dice";
 export type Rolagem = { dados: Dado[]; modificador: number };
 
 export type ContextoAvaliacao = {
-  // Valor de uma sigla canônica (FOR…PRE = modificador, PROF, NIVEL, GRAU).
+  // Valor de uma sigla canônica (FOR…PRE = modificador, PROF, NIVEL, GRAU, DESLOC).
   valor: (sigla: string) => number;
   nivel: number;
 };
@@ -28,6 +28,7 @@ export const SIGLAS_FORMULA: { sigla: string; nome: string; grupo: "atributo" | 
   { sigla: "PROF", nome: "Bônus de proficiência", grupo: "personagem" },
   { sigla: "NIVEL", nome: "Nível do personagem", grupo: "personagem" },
   { sigla: "GRAU", nome: "Grau da técnica", grupo: "personagem" },
+  { sigla: "DESLOC", nome: "Deslocamento atual (só no efeito Deslocamento)", grupo: "personagem" },
 ];
 
 // Funções aceitas; `modelo` é o que o atalho escreve.
@@ -48,6 +49,7 @@ const APELIDOS_SIGLA: Record<string, string> = {
   NV: "NIVEL",
   LEVEL: "NIVEL",
   LVL: "NIVEL",
+  DESLOCAMENTO: "DESLOC",
 };
 const SIGLAS = new Set([...SIGLAS_FORMULA.map((s) => s.sigla), ...Object.keys(APELIDOS_SIGLA)]);
 

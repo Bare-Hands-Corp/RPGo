@@ -2,7 +2,7 @@ import type { EfeitoCor } from "@/lib/estilos-cor";
 import type { EfeitoHabilidade } from "@/lib/op-rpg";
 import type { DanoPorTurno } from "@/lib/condicoes";
 import type { GatilhoReacao } from "@/lib/combate";
-import type { MecanicaCondicao } from "@/lib/condicoes-mecanica";
+import type { MecanicaSalva, PadroesCondicao } from "@/lib/condicoes-mecanica";
 
 // Categorias possíveis de um TraitInstance — mesmos blocos do statblock do
 // manual, mais "condicao": não é algo que uma criatura "tem" como as outras,
@@ -97,6 +97,8 @@ export type EfeitoAcao =
       duracaoTurnos: number | null;
       // Dano que o afetado leva a cada turno enquanto a condição durar.
       danoPorTurno?: DanoPorTurno | null;
+      // Salvaguarda que quem a ação pega rola pra não receber a condição.
+      evita?: { atributo: AtributoSalvaguarda; cd: number } | null;
     }
   // Catch-all pra mecânica que não cabe nos tipos acima (comum em ações
   // lendárias e poderosas, que variam demais pra modelar tudo).
@@ -324,8 +326,11 @@ export type TemplateFormula = {
   grau: number;
   custoLendario: number;
   gatilho: GatilhoReacao;
-  // Só da condição: o que ela faz no jogo; null = a do livro pelo nome.
-  mecanica: MecanicaCondicao | null;
+  // Só da condição: o que ela faz no jogo; null = a do livro pelo nome;
+  // "nenhuma" = só texto.
+  mecanica: MecanicaSalva;
+  // Só da condição: duração e salvaguarda pra sair padrão.
+  padroes: PadroesCondicao | null;
 };
 
 export type TemplatePayload = {

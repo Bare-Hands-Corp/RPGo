@@ -618,6 +618,27 @@ a {
   padding: 0 14px 14px;
 }
 
+/* Resumo da seção, só com ela fechada ("3 PP", "2d6 fogo"). */
+.modal-secao-resumo {
+  margin-left: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  font-size: 0.8rem;
+  color: var(--text-sec);
+}
+
+.modal-secao-detalhe[open] .modal-secao-resumo {
+  display: none;
+}
+
+/* Seção opcional ainda vazia ("+ Dano"): botão no lugar dela. */
+.secao-adicionar {
+  margin-top: 14px;
+}
+
 /* ─── BOTÃO PADRÃO ───────────────────────────────── */
 .btn-rect {
   padding: 10px 20px;
@@ -784,6 +805,13 @@ a {
   border-color: var(--danger);
   background: color-mix(in oklch, var(--danger) 14%, var(--bg-card));
   color: var(--danger);
+}
+
+/* O efeito que vai pra quem for marcado, embaixo do título. */
+.ataque-detalhe {
+  margin: -4px 0 12px;
+  font-size: 0.85rem;
+  color: var(--text-sec);
 }
 
 .ataque-motivos {
@@ -971,3 +999,175 @@ input[type="checkbox"]:disabled {
   color: var(--text-main);
 }
 
+
+/* ─── Dica (tooltip) — components/tooltip.tsx ─────────────── */
+.dica {
+  position: fixed;
+  z-index: 1000;
+  width: max-content;
+  max-width: min(340px, calc(100vw - 16px));
+  transform: translateX(-50%);
+  padding: 10px 12px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--dica-cor, var(--primary));
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  pointer-events: none;
+  animation: dica-entra 0.12s ease-out;
+}
+
+.dica.acima {
+  transform: translate(-50%, -100%);
+}
+
+.dica-topo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dica-topo i {
+  color: var(--dica-cor, var(--primary));
+  font-size: 0.75rem;
+}
+
+.dica-topo strong {
+  font-size: 0.85rem;
+}
+
+.dica-selo {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-sec);
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.dica-texto {
+  margin: 0;
+  color: var(--text-sec);
+  white-space: pre-line;
+}
+
+.dica-topo + .dica-texto {
+  margin-top: 6px;
+}
+
+@keyframes dica-entra {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ─── Reordenar arrastando (lib/use-reordenar.ts) ──────────── */
+/* Lugar do item arrastado: uma vaga marcada na lista. */
+.reordenar-vaga,
+.reordenar-vaga[class*="type-"] {
+  border: 2px dashed var(--primary) !important;
+  background: color-mix(in oklch, var(--primary) 8%, transparent) !important;
+  box-shadow: none !important;
+  transform: none;
+}
+
+.reordenar-vaga > * {
+  visibility: hidden;
+}
+
+/* Cópia que segue o cursor. */
+body > .reordenar-flutuante {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 9999;
+  margin: 0;
+  pointer-events: none;
+  scale: 1;
+  rotate: 0deg;
+  cursor: grabbing;
+  will-change: transform;
+  transition:
+    scale 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+    rotate 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 0.18s;
+}
+
+body > .reordenar-flutuante.levantado {
+  scale: 1.03;
+  rotate: 1deg;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.4);
+}
+
+body.reordenando {
+  user-select: none;
+  cursor: grabbing;
+}
+
+body.reordenando * {
+  cursor: grabbing !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reordenar-flutuante {
+    transition: none;
+  }
+}
+
+/* Categoria que recebe o item arrastado, mesmo vazia. */
+.reordenar-zona {
+  min-height: 56px;
+  border-radius: 12px;
+  transition: background 0.15s, outline-color 0.15s;
+}
+
+.reordenar-zona.recebendo {
+  outline: 2px dashed var(--primary);
+  outline-offset: 4px;
+  background: color-mix(in oklch, var(--primary) 8%, transparent);
+}
+
+/* Alça de arrastar dentro de um card (canto superior esquerdo). */
+.btn-card-alca {
+  position: absolute;
+  top: 12px;
+  left: 8px;
+  width: 20px;
+  height: 26px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-sec);
+  font-size: 0.8rem;
+  opacity: 0.45;
+  cursor: grab;
+  touch-action: none;
+  transition: opacity 0.2s, color 0.2s;
+}
+
+.btn-card-alca:hover,
+.btn-card-alca:focus-visible {
+  opacity: 1;
+  color: var(--primary);
+}
+
+.btn-card-alca:active {
+  cursor: grabbing;
+}
+
+
+/* Categoria (seção) que recebe o item arrastado, aberta ou fechada. */
+.secao-recolhivel.recebendo {
+  outline: 2px dashed var(--primary);
+  outline-offset: 4px;
+  border-radius: 12px;
+  background: color-mix(in oklch, var(--primary) 8%, transparent);
+}

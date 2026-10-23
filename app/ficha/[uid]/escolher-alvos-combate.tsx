@@ -9,11 +9,16 @@ import { modoDoAtaque, type CondicaoComMecanica } from "@/lib/condicoes-mecanica
 export type AtaqueEscolhido = { alvo: string; modo: ModoRolagem };
 
 // `atacante`: condições de quem ataca, pra quem não tem ficha (criatura); a
-// ficha do jogador já soma as dele no Rolador.
-export type OpcoesAtaque = { corpoACorpo?: boolean; atacante?: CondicaoComMecanica[] };
+// ficha do jogador já soma as dele no Rolador e só avisa (`daFicha`:
+// "Vantagem: Ajudar (condição)").
+export type OpcoesAtaque = { corpoACorpo?: boolean; atacante?: CondicaoComMecanica[]; daFicha?: string[] };
+
+// `detalhe`: linha embaixo do título (o efeito que vai pra quem for marcado).
+// `so`: quais participantes aparecem; `um`: só um alvo.
+export type OpcoesAlvos = { detalhe?: string; so?: (p: ParticipanteVisto) => boolean; um?: boolean };
 
 type Pedido =
-  | { tipo: "alvos"; titulo: string; resolver: (ids: string[] | null) => void }
+  | { tipo: "alvos"; titulo: string; opcoes: OpcoesAlvos; resolver: (ids: string[] | null) => void }
   | {
       tipo: "ataques";
       titulo: string;
@@ -47,9 +52,9 @@ export function useEscolherAlvosCombate(participantes: ParticipanteVisto[]) {
   const [marcados, setMarcados] = useState<string[]>([]);
   const [linhas, setLinhas] = useState<Linha[]>([]);
 
-  function escolher(titulo: string): Promise<string[] | null> {
+  function escolher(titulo: string, opcoes: OpcoesAlvos = {}): Promise<string[] | null> {
     setMarcados([]);
-    return new Promise((resolver) => setPedido({ tipo: "alvos", titulo, resolver }));
+    return new Promise((resolver) => setPedido({ tipo: "alvos", titulo, opcoes, resolver }));
   }
 
   function escolherAtaques(
@@ -113,15 +118,18 @@ export function useEscolherAlvosCombate(participantes: ParticipanteVisto[]) {
           <i className="fas fa-times" />
         </button>
         <h2>{pedido.titulo}</h2>
+        {pedido.tipo === "alvos" && pedido.opcoes.detalhe && (
+          <p className="ataque-detalhe">{pedido.opcoes.detalhe}</p>
+        )}
 
         {pedido.tipo === "alvos" ? (
           <div className="ataques-lista">
             <div className="ataque-linha">
               <div className="ataque-topo">
-                <span>Marque um ou mais alvos</span>
+                <span>{pedido.opcoes.um ? "Marque o alvo" : "Marque um ou mais alvos"}</span>
               </div>
               <div className="ataque-alvos">
-                {participantes.map((p) => {
+                {participantes.filter((p) => pedido.opcoes.so?.(p) ?? true).map((p) => {
                   const marcado = marcados.includes(p.id);
                   return (
                     <button
@@ -129,7 +137,11 @@ export function useEscolherAlvosCombate(participantes: ParticipanteVisto[]) {
                       key={p.id}
                       className={`ataque-alvo${marcado ? " marcado" : ""}`}
                       aria-pressed={marcado}
-                      onClick={() => setMarcados((m) => (marcado ? m.filter((x) => x !== p.id) : [...m, p.id]))}
+                      onClick={() =>
+                        setMarcados((m) =>
+                          marcado ? m.filter((x) => x !== p.id) : pedido.opcoes.um ? [p.id] : [...m, p.id],
+                        )
+                      }
                     >
                       <Retrato p={p} />
                       {p.voce ? "Você" : p.nome}
@@ -165,6 +177,11 @@ export function useEscolherAlvosCombate(participantes: ParticipanteVisto[]) {
                     ))}
                   </span>
                 </div>
+                {pedido.opcoes.daFicha && pedido.opcoes.daFicha.length > 0 && (
+                  <small className="ataque-motivos">
+                    <i className="fas fa-dice-d20" /> Já no Rolador · {pedido.opcoes.daFicha.join(" · ")}
+                  </small>
+                )}
                 {linha.motivos.length > 0 && (
                   <small className="ataque-motivos">
                     <i className="fas fa-circle-info" /> {linha.motivos.join(" · ")}
