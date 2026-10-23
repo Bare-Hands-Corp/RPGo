@@ -172,6 +172,12 @@ export function sincronizar(root: HTMLElement) {
     const br = l.querySelector(":scope > br");
     if (!temConteudo && !br) l.append(document.createElement("br"));
     if (temConteudo && br) br.remove();
+    // Chip no fim da linha: o cursor não consegue ficar depois dele. Um caractere
+    // invisível dá onde pousar (some na hora de gravar, ver ZERO).
+    const ultimo = l.lastChild;
+    if (ultimo instanceof HTMLElement && ultimo.dataset.no !== undefined) {
+      l.append(document.createTextNode("\u200b"));
+    }
   }
   const numeros = numerarBlocos(
     linhas.map((l) => ({ b: l.dataset.b ?? "p", nivel: Number(l.dataset.n ?? 0) })),

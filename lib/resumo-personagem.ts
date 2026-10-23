@@ -26,6 +26,7 @@ import {
   contextoDasFormulas,
   crBase,
   deslocamentoEfetivo,
+  ajustarDeslocamento,
   exaustaoQueConta,
   fontesDeEfeitoDeItens,
   iniciativa,
@@ -110,9 +111,10 @@ export function resumirPersonagem(
     p.deslocamento + ef.bonusDeslocamento.valor,
     ef.valoresFixos["deslocamento"]?.valor ?? 0,
   );
-  const deslocBruto = multDesloc
+  const deslocMultiplicado = multDesloc
     ? Math.floor(deslocSemMult * multDesloc.fator * 2) / 2
     : deslocSemMult;
+  const deslocBruto = ajustarDeslocamento(ef, "caminhar", deslocMultiplicado).valor;
   const valores = comValoresIguais(
     {
       ...modos,

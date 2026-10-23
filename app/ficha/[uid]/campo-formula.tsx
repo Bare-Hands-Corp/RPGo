@@ -39,12 +39,18 @@ function palavraNoCursor(texto: string, cursor: number): string {
   return m[0];
 }
 
-function sugestoesPara(palavra: string, comGrau: boolean, valores: Record<string, string>): Sugestao[] {
+function sugestoesPara(
+  palavra: string,
+  comGrau: boolean,
+  valores: Record<string, string>,
+  comDesloc = false,
+): Sugestao[] {
   if (!palavra) return [];
   const p = palavra.toLowerCase();
   const out: Sugestao[] = [];
   for (const s of SIGLAS_FORMULA) {
     if (s.sigla === "GRAU" && !comGrau) continue;
+    if (s.sigla === "DESLOC" && !comDesloc) continue;
     if (s.sigla.toLowerCase().startsWith(p)) {
       out.push({ texto: s.sigla, insere: s.sigla, nome: s.nome, valor: valores[s.sigla] });
     }
@@ -66,6 +72,7 @@ export function CampoFormula({
   dados = false,
   comGrau = false,
   grau,
+  comDesloc = false,
 }: {
   label: string;
   valor: string;
@@ -77,6 +84,8 @@ export function CampoFormula({
   comGrau?: boolean;
   // Grau da técnica, pra prévia.
   grau?: number;
+  // Oferece DESLOC, o deslocamento atual (efeito Deslocamento).
+  comDesloc?: boolean;
 }) {
   const ctx = useContext(FormulaContext);
   const id = useId();
@@ -91,18 +100,20 @@ export function CampoFormula({
 
   const valores = ctx ? valoresDasSiglas(ctx.atributos, ctx.nivel, usaGrau ? (grau ?? 0) : undefined) : {};
   const palavra = focado ? palavraNoCursor(valor, cursor) : "";
-  const sugestoes = fechouSugestoes ? [] : sugestoesPara(palavra, usaGrau, valores);
+  const sugestoes = fechouSugestoes ? [] : sugestoesPara(palavra, usaGrau, valores, comDesloc);
 
   // Erro aparece sempre; o valor, só quando a fórmula depende do personagem.
   let previa: { texto: string; erro?: boolean } | null = null;
   if (ctx && valor.trim()) {
-    const r = conferirFormula(valor, ctx.atributos, ctx.nivel, { grau });
+    const r = conferirFormula(valor, ctx.atributos, ctx.nivel, { grau, desloc: 0 });
     if (!r.ok) previa = { texto: r.erro, erro: true };
     else if (formulaVariavel(valor)) {
       previa =
         formulaUsaGrau(valor) && grau === undefined
           ? { texto: "GRAU conforme a técnica" }
-          : { texto: `= ${r.texto}` };
+          : comDesloc && /DESLOC/i.test(valor)
+            ? { texto: "Conforme o deslocamento atual" }
+            : { texto: `= ${r.texto}` };
     }
   }
 
@@ -165,7 +176,7 @@ export function CampoFormula({
     }
   }
 
-  const siglas = SIGLAS_FORMULA.filter((s) => s.sigla !== "GRAU" || usaGrau);
+  const siglas = SIGLAS_FORMULA.filter((s) => (s.sigla !== "GRAU" || usaGrau) && (s.sigla !== "DESLOC" || comDesloc));
 
   // Clique num atalho não tira o foco do campo.
   const manterFoco = (e: React.MouseEvent) => e.preventDefault();

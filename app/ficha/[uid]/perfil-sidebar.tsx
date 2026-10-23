@@ -82,6 +82,7 @@ import {
   crBase,
   crescerPorTurno,
   deslocamentoEfetivo,
+  ajustarDeslocamento,
   exaustaoQueConta,
   fonteDeAliado,
   formatarMod,
@@ -739,9 +740,12 @@ export function PerfilSidebar({
   const deslocFixo = efeitosAgregados.valoresFixos["deslocamento"];
   const deslocSemMult = Math.max(0, p.deslocamento + deslocBonus.valor, deslocFixo?.valor ?? 0);
   // Com fator, arredonda pra baixo de meio em meio metro.
-  const deslocBruto = multDesloc
+  const deslocMultiplicado = multDesloc
     ? Math.floor(deslocSemMult * multDesloc.fator * 2) / 2
     : deslocSemMult;
+  // Deslocamento que depende do valor atual ou reduz pra no máximo X.
+  const deslocAjustado = ajustarDeslocamento(efeitosAgregados, "caminhar", deslocMultiplicado);
+  const deslocBruto = deslocAjustado.valor;
   const deslocProprio = deslocamentoEfetivo(deslocBruto, 0, exaustaoConta);
   // Nado: stat base de espécie (não reduzido pela exaustão). Um efeito que
   // concede nado (`deslocamento`/`nadar`) prevalece o maior contra o base.
@@ -785,6 +789,7 @@ export function PerfilSidebar({
     deslocBonus.fontes.length ? `${formatarMod(deslocBonus.valor)} ${unidadeMov} de ${deslocBonus.fontes.join(", ")}` : null,
     deslocFixo ? `Vira ${metros(deslocFixo.valor)} por ${deslocFixo.fontes.join(", ")} (vale o maior)` : null,
     multDesloc ? `×${String(multDesloc.fator).replace(".", ",")} de ${multDesloc.fontes.join(", ")}` : null,
+    deslocAjustado.fontes.length ? `Ajustado de ${metros(deslocMultiplicado)} para ${metros(deslocBruto)} por ${deslocAjustado.fontes.join(", ")}` : null,
     deslocIgual.length ? `Igual a outro valor por ${deslocIgual.join(", ")}` : null,
     deslocReduzido ? `Exaustão: de ${metros(deslocBruto)} para ${metros(deslocEfetivo)}` : null,
   ];
@@ -819,7 +824,7 @@ export function PerfilSidebar({
       icone: perfilSlug === "veiculo" ? perfil.deslocamento.icone : "fa-person-running",
       valor: deslocEfetivo,
       titulo: deslocTitulo,
-      deEfeito: deslocBonus.fontes.length > 0 || !!multDesloc || !!deslocFixo || deslocIgual.length > 0,
+      deEfeito: deslocBonus.fontes.length > 0 || !!multDesloc || !!deslocFixo || deslocIgual.length > 0 || deslocAjustado.fontes.length > 0,
       reduzido: deslocReduzido,
     },
     {

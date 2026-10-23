@@ -277,6 +277,8 @@ const PRESETS_ACAO = [
   "trocar_dano",
   "alcance",
   "recurso_delta",
+  "deslocamento",
+  "ignora_exaustao",
   "condicao_aplicar",
   "condicao_remover",
   "acao_extra",

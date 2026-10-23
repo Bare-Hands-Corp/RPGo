@@ -541,3 +541,16 @@
 /* Salvaguarda ("CON | CD 18") e atributo ("FOR"). */
 .desc-chip--salv { --chip-cor: var(--color-warning, #d4a017); }
 .desc-chip--attr { --chip-cor: var(--text-sec); }
+
+/* Chip dentro da descrição quebra de linha junto com o texto: em texto longo o
+   chip não vira uma caixa larga que empurra tudo. */
+.desc-l .desc-chip {
+  display: inline;
+  white-space: normal;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+/* Chip de rolagem é <button>, que não vira inline: sem estourar a largura. */
+.desc-l button.desc-chip { max-width: 100%; text-align: left; }
+.desc-l .desc-chip > i { margin-right: 4px; }
+.desc-l .desc-chip .desc-chip-detalhe { margin-left: 6px; }

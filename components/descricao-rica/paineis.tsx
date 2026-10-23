@@ -411,7 +411,12 @@ export function PainelIcone({
   const [busca, setBusca] = useState("");
   const todos = useMemo(() => ICONES_CATALOGO.flatMap((g) => g.icones), []);
   const q = busca.trim().toLowerCase();
-  const lista = q ? todos.filter((i) => i.nome.toLowerCase().includes(q) || i.slug.includes(q)) : todos;
+  // Uma grade só: os sugeridos vêm primeiro e não se repetem no resto do catálogo.
+  const sugeridos = sugestoes ? SUGESTOES_MARCADOR.map((s) => ({ slug: `fa-${s}`, nome: s })) : [];
+  const jaSugeridos = new Set(sugeridos.map((i) => i.slug));
+  const lista = q
+    ? todos.filter((i) => i.nome.toLowerCase().includes(q) || i.slug.includes(q))
+    : [...sugeridos, ...todos.filter((i) => !jaSugeridos.has(i.slug))];
   const grade = (itens: { slug: string; nome: string }[]) =>
     itens.map((i) => (
       <button key={i.slug} type="button" title={i.nome} onClick={() => aoEscolher(i.slug.replace(/^fa-/, ""))}>
@@ -422,11 +427,6 @@ export function PainelIcone({
     <div className="desc-painel-rico" onKeyDown={(e) => e.key === "Escape" && aoFechar()}>
       <span className="desc-painel-dica">{titulo}</span>
       <input type="text" autoFocus placeholder="Buscar ícone…" value={busca} onChange={(e) => setBusca(e.target.value)} />
-      {sugestoes && !q && (
-        <div className="desc-grade-icones">
-          {grade(SUGESTOES_MARCADOR.map((s) => ({ slug: `fa-${s}`, nome: s })))}
-        </div>
-      )}
       <div className="desc-grade-icones">{grade(lista)}</div>
     </div>
   );

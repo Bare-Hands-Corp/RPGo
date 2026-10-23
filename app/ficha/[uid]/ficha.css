@@ -8938,15 +8938,7 @@ form > .turno-campo,
 .card2-pe .hab-usar { margin-left: auto; font-style: normal; }
 
 
-/* Na descrição do card o chip nunca passa da largura: o que sobra do valor vira
-   reticências (a dica mostra completo). Chip curto fica como sempre. */
-.card2 .desc-chip { max-width: 100%; }
-.card2 .desc-chip-detalhe {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.card2 .desc-chip-nome { flex: none; }
+/* Na descrição do card o chip quebra de linha como o texto (ver .desc-l .desc-chip). */
 
 /* Em curso, usos e por turno: linha própria, só quando existe. */
 .card2 .card2-estado {

@@ -94,10 +94,12 @@ function valorDaSigla(
   atributos: Record<Atributo, number>,
   nivel: number,
   grau: number,
+  desloc: number,
 ): number {
   if (sigla === "PROF") return bonusProficiencia(nivel);
   if (sigla === "NIVEL") return nivel;
   if (sigla === "GRAU") return grau;
+  if (sigla === "DESLOC") return desloc;
   const slug = SIGLA_PARA_SLUG[sigla];
   return slug ? modificador(atributos[slug]) : 0;
 }
@@ -109,11 +111,11 @@ export function resolverFormula(
   bruta: string,
   atributos: Record<Atributo, number>,
   nivel: number,
-  { grau = 0 }: { grau?: number } = {},
+  { grau = 0, desloc = 0 }: { grau?: number; desloc?: number } = {},
 ): FormulaResolvida {
   const r = avaliarFormula(bruta, {
     nivel,
-    valor: (sigla) => valorDaSigla(sigla, atributos, nivel, grau),
+    valor: (sigla) => valorDaSigla(sigla, atributos, nivel, grau, desloc),
   });
   if (r.ok) {
     return {
@@ -131,11 +133,11 @@ export function conferirFormula(
   bruta: string,
   atributos: Record<Atributo, number>,
   nivel: number,
-  { grau = 0 }: { grau?: number } = {},
+  { grau = 0, desloc = 0 }: { grau?: number; desloc?: number } = {},
 ): { ok: true; texto: string } | { ok: false; erro: string } {
   const r = avaliarFormula(bruta, {
     nivel,
-    valor: (sigla) => valorDaSigla(sigla, atributos, nivel, grau),
+    valor: (sigla) => valorDaSigla(sigla, atributos, nivel, grau, desloc),
   });
   if (!r.ok) return r;
   return { ok: true, texto: formulaAgrupada(r.rolagem.dados, r.rolagem.modificador) };
@@ -160,7 +162,7 @@ export function valorDaFormula(
   formula: string,
   atributos: Record<Atributo, number>,
   nivel: number,
-  extras: { grau?: number } = {},
+  extras: { grau?: number; desloc?: number } = {},
 ): number {
   return resolverFormula(formula, atributos, nivel, extras).modificador;
 }
@@ -1066,7 +1068,7 @@ type EfeitoCru =
   // Recebe o dobro do tipo de dano (depois da resistência).
   | { tipo: "vulnerabilidade"; tipoDano: string }
   // `modo` ausente: andar soma no base, os outros modos viram o valor (vale o maior).
-  | { tipo: "deslocamento"; tipoMov: string; valor: number; modo?: ModoDeslocamento }
+  | { tipo: "deslocamento"; tipoMov: string; valor: number; modo?: ModoDeslocamento; formula?: string }
   // Em dano ("dano", "dano-cc", "dano-distancia"), `armaDeFogo` deixa a
   // arma de fogo de fora ("exceto") ou só vale nela ("so").
   | { tipo: "multiplicador"; alvo: string; fator: number; armaDeFogo?: FiltroArmaDeFogo }
@@ -1484,7 +1486,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   {
     id: "deslocamento",
     nome: "Deslocamento",
-    descricao: "Velocidade extra (voar, nadar, escalar…)",
+    descricao: "Soma, vira ou reduz o deslocamento (andar, voar, nadar…)",
     icone: "fa-person-running",
     cor: "var(--primary)",
     grupo: "movimento",
@@ -1935,7 +1937,7 @@ export function podeIrProAliado(e: EfeitoHabilidade): boolean {
 // Efeito que dá pra pôr no inimigo que a ação pega: só a desvantagem. Dano e
 // condição já vão nele pelos campos da ação e pelo Aplica Condição.
 export function podeIrProInimigo(e: EfeitoHabilidade): boolean {
-  return e.tipo === "desvantagem";
+  return e.tipo === "desvantagem" || e.tipo === "deslocamento";
 }
 
 // Vantagem e desvantagem em outro podem valer só na próxima rolagem ou no
@@ -2071,9 +2073,17 @@ function normalizarCampos(tipo: TipoEfeito, obj: Record<string, unknown>): Efeit
     case "deslocamento": {
       const tipoMov = str(obj.tipoMov);
       if (!tipoMov) return null;
-      const e = { tipo, tipoMov, valor: meioMetro(num(obj.valor)) };
+      // Fórmula (PROF, NIVEL, DESLOC/2…) só quando não é um número.
+      const formula = str(obj.formula).trim();
+      const comFormula = formula !== "" && !/^-?\d+([.,]\d+)?$/.test(formula);
+      const e = {
+        tipo,
+        tipoMov,
+        valor: comFormula ? 0 : meioMetro(num(obj.valor)),
+        ...(comFormula ? { formula } : {}),
+      };
       // Só grava o modo quando foge do padrão do movimento.
-      const modo = obj.modo === "soma" || obj.modo === "vira" ? obj.modo : null;
+      const modo = obj.modo === "soma" || obj.modo === "vira" || obj.modo === "reduz" ? obj.modo : null;
       return modo && modo !== modoDoDeslocamento(e) ? { ...e, modo } : e;
     }
     case "valor_igual": {
@@ -2429,7 +2439,10 @@ export function acoesGanhasNoUso(efeitos: EfeitoHabilidade[]): Partial<Record<Ti
 // Valores gravados antes da Fase 2A.
 const ACAO_EXTRA_ANTIGA: Record<string, string> = { acao: "padrao", "acao bônus": "bonus", reacao: "react" };
 
-export type ModoDeslocamento = "soma" | "vira";
+// soma: soma (ou tira, se negativo); vira: passa a valer o maior; reduz: o deslocamento cai pra no máximo o valor.
+export type ModoDeslocamento = "soma" | "vira" | "reduz";
+
+export type AjusteDeslocamento = { tipo: string; modo: ModoDeslocamento; formula: string; fonte: string };
 
 // Andar soma no deslocamento base; nadar, voar… viram o valor (vale o maior).
 export function modoDoDeslocamento(e: { tipoMov: string; modo?: ModoDeslocamento }): ModoDeslocamento {
@@ -2442,7 +2455,6 @@ export const MOVIMENTOS: { slug: string; nome: string }[] = [
   { slug: "nadar", nome: "Nadar" },
   { slug: "voar", nome: "Voar" },
   { slug: "escalar", nome: "Escalar" },
-  { slug: "cavar", nome: "Cavar" },
 ];
 
 // Modos além de andar; como alvo de bônus, somam em quem já tem o modo.
@@ -2628,7 +2640,6 @@ export const ALVOS_VALOR_FIXO: { slug: string; nome: string; grupo: string }[] =
   { slug: "nadar", nome: "Nadar", grupo: "Deslocamento" },
   { slug: "voar", nome: "Voar", grupo: "Deslocamento" },
   { slug: "escalar", nome: "Escalar", grupo: "Deslocamento" },
-  { slug: "cavar", nome: "Cavar", grupo: "Deslocamento" },
   ...ATRIBUTOS.map((a) => ({ slug: a.slug, nome: a.nome, grupo: "Atributo" })),
   { slug: "dado-arma", nome: "Dado da arma", grupo: "Combate" },
 ];
@@ -3043,12 +3054,15 @@ export type EfeitosAgregados = {
   // Sentidos especiais (visão escuro, sentir presença…). Indexado por nome
   // do sentido; o maior alcance vence.
   sentidos: Partial<Record<string, FonteValor>>;
-  // Deslocamentos especiais (voar/nadar/escalar/cavar). Indexado pelo tipo de
+  // Deslocamentos especiais (voar/nadar/escalar). Indexado pelo tipo de
   // movimento; o maior valor por tipo vence (é o modo, não soma — "prevalece o
   // maior", regra das espécies). "caminhar" NÃO entra aqui: soma no
   // bonusDeslocamento (deslocamento base) pra casar com `modificador→deslocamento`.
   deslocamentosExtra: Partial<Record<string, FonteValor>>;
-  // Bônus em nadar/voar/escalar/cavar: soma em quem já tem o modo.
+  // Deslocamento que depende do valor atual (DESLOC) ou que reduz pra no máximo
+  // X: só dá pra resolver com o deslocamento já calculado (`ajustarDeslocamento`).
+  ajustesDeslocamento: AjusteDeslocamento[];
+  // Bônus em nadar/voar/escalar: soma em quem já tem o modo.
   bonusMovimento: Partial<Record<string, FonteValor>>;
   // Fatores multiplicativos (ex: Espécie Gigante ×2 carga). Indexado pelo
   // slug do alvo. Vários multiplicadores compõem por produto (×2 × ×1.5 = ×3).
@@ -3208,6 +3222,7 @@ function vazio(): EfeitosAgregados {
     rerolls: {},
     sentidos: {},
     deslocamentosExtra: {},
+    ajustesDeslocamento: [],
     bonusMovimento: {},
     multiplicadores: {},
     contextuais: [],
@@ -3442,11 +3457,13 @@ export function computarDeltasInstantaneos(
   return d;
 }
 
-// Voar/nadar/escalar/cavar: o maior entre o efeito de deslocamento, o valor fixo
+// Voar/nadar/escalar: o maior entre o efeito de deslocamento, o valor fixo
 // e, no nado, o da ficha (`nado`); o bônus soma por cima de quem tem o modo.
 export function modosDeDeslocamento(
   agg: Pick<EfeitosAgregados, "deslocamentosExtra" | "valoresFixos"> & {
     bonusMovimento?: EfeitosAgregados["bonusMovimento"];
+    ajustesDeslocamento?: EfeitosAgregados["ajustesDeslocamento"];
+    ctxFormula?: EfeitosAgregados["ctxFormula"];
   },
   nado = 0,
 ): Record<string, { valor: number; fontes: string[] }> {
@@ -3454,7 +3471,7 @@ export function modosDeDeslocamento(
   for (const [tipo, fv] of Object.entries(agg.deslocamentosExtra)) {
     if (fv) out[tipo] = fv;
   }
-  for (const tipo of ["nadar", "voar", "escalar", "cavar"]) {
+  for (const tipo of ["nadar", "voar", "escalar"]) {
     const fixo = agg.valoresFixos[tipo];
     if (fixo && fixo.valor > (out[tipo]?.valor ?? 0)) out[tipo] = fixo;
   }
@@ -3467,7 +3484,52 @@ export function modosDeDeslocamento(
       fontes: dedup([...atual.fontes, ...bonus.fontes]),
     };
   }
+  for (const tipo of new Set((agg.ajustesDeslocamento ?? []).map((a) => a.tipo))) {
+    if (tipo === "caminhar") continue;
+    const r = ajustarDeslocamento(agg, tipo, out[tipo]?.valor ?? 0);
+    if (r.fontes.length > 0) out[tipo] = { valor: r.valor, fontes: dedup([...(out[tipo]?.fontes ?? []), ...r.fontes]) };
+  }
   return out;
+}
+
+// A fórmula só divide em inteiros: "DESLOC/2" de 9 m daria 4. Metade e dobro do
+// deslocamento (DESLOC/2, DESLOC*2) saem em passos de meio metro.
+function valorDoAjuste(formula: string, f: ContextoFormula, desloc: number): number {
+  const simples = formula.match(/^\s*DESLOC(?:AMENTO)?\s*([/*x×])\s*(\d+(?:[.,]\d+)?)\s*$/i);
+  if (simples) {
+    const n = Number(simples[2].replace(",", "."));
+    if (n > 0) return Math.floor((simples[1] === "/" ? desloc / n : desloc * n) * 2) / 2;
+  }
+  return meioMetro(valorDaFormula(formula, f.atributos, f.nivel, { desloc }));
+}
+
+// Efeitos Deslocamento que dependem do valor atual (DESLOC) ou que reduzem pra
+// no máximo X, aplicados em cima do deslocamento já calculado: primeiro o que
+// soma e o que vira (vale o maior), depois o que reduz. Nunca fica negativo.
+export function ajustarDeslocamento(
+  agg: { ajustesDeslocamento?: AjusteDeslocamento[]; ctxFormula?: ContextoFormula | null },
+  tipo: string,
+  valor: number,
+): { valor: number; fontes: string[] } {
+  const ajustes = (agg.ajustesDeslocamento ?? []).filter((a) => a.tipo === tipo);
+  const f = agg.ctxFormula;
+  let atual = valor;
+  const fontes: string[] = [];
+  const ordem: ModoDeslocamento[] = ["soma", "vira", "reduz"];
+  for (const modo of ordem) {
+    for (const a of ajustes.filter((x) => x.modo === modo)) {
+      // Sem nível e atributos a fórmula não se resolve: não mexe.
+      if (!f) continue;
+      // Nadar, voar…: só soma em quem já tem o modo.
+      if (modo === "soma" && tipo !== "caminhar" && atual <= 0) continue;
+      const n = valorDoAjuste(a.formula, f, atual);
+      const novo = modo === "soma" ? atual + n : modo === "vira" ? Math.max(atual, n) : Math.min(atual, n);
+      const resultado = Math.max(0, novo);
+      if (resultado !== atual && !fontes.includes(a.fonte)) fontes.push(a.fonte);
+      atual = resultado;
+    }
+  }
+  return { valor: atual, fontes };
 }
 
 // Máximos efetivos de PV e PP: (base + bônus) × fator, arredondado pra baixo.
@@ -4491,22 +4553,27 @@ export function agregarEfeitos(
         out.valoresIguais.push({ alvo: e.alvo, de: e.de, metade: !!e.metade, fonte: h.nome });
       } else if (e.tipo === "deslocamento") {
         const tipo = e.tipoMov.trim().toLowerCase();
-        const soma = modoDoDeslocamento(e) === "soma";
-        if (tipo && e.valor) {
+        const modo = modoDoDeslocamento(e);
+        const soma = modo === "soma";
+        if (tipo && (modo === "reduz" || (e.formula && /DESLOC/i.test(e.formula)))) {
+          // Depende do deslocamento atual: resolve depois, em `ajustarDeslocamento`.
+          out.ajustesDeslocamento.push({ tipo, modo, formula: e.formula ?? String(e.valor), fonte: h.nome });
+        } else if (tipo && (e.formula ? meioMetro(numero(e.formula)) : e.valor)) {
+          const valor = e.formula ? meioMetro(numero(e.formula)) : e.valor;
           if (tipo === "caminhar" && soma) {
             // Deslocamento terrestre é o base — soma como bônus.
-            somarBucketSimples(out.bonusDeslocamento, e.valor, h.nome);
+            somarBucketSimples(out.bonusDeslocamento, valor, h.nome);
           } else if (tipo === "caminhar") {
             // Vira o valor: como o Valor Fixo, vale o maior.
             const atual = out.valoresFixos.deslocamento;
-            if (!atual || e.valor > atual.valor) out.valoresFixos.deslocamento = { valor: e.valor, fontes: [h.nome] };
+            if (!atual || valor > atual.valor) out.valoresFixos.deslocamento = { valor: valor, fontes: [h.nome] };
           } else if (soma) {
             // Soma em quem já tem o modo.
-            somarFonteValor(out.bonusMovimento, tipo, e.valor, h.nome);
+            somarFonteValor(out.bonusMovimento, tipo, valor, h.nome);
           } else {
-            // Voar/nadar/escalar/cavar: modo próprio, prevalece o maior.
+            // Voar/nadar/escalar: modo próprio, prevalece o maior.
             const atual = out.deslocamentosExtra[tipo] ?? { valor: 0, fontes: [] };
-            if (e.valor > atual.valor) atual.valor = e.valor;
+            if (valor > atual.valor) atual.valor = valor;
             if (!atual.fontes.includes(h.nome)) atual.fontes.push(h.nome);
             out.deslocamentosExtra[tipo] = atual;
           }
@@ -5392,8 +5459,11 @@ export function resumoEfeito(
       return e.tipoDano;
     case "deslocamento": {
       const nome = MOVIMENTOS.find((m) => m.slug === e.tipoMov)?.nome ?? e.tipoMov;
-      const metros = `${String(e.valor).replace(".", ",")}m`;
-      return modoDoDeslocamento(e) === "soma" ? `${nome} +${metros}` : `${nome} vira ${metros}`;
+      const modo = modoDoDeslocamento(e);
+      const metros = e.formula ?? `${String(Math.abs(e.valor)).replace(".", ",")}m`;
+      if (modo === "reduz") return `${nome} cai pra ${metros}`;
+      if (modo === "vira") return `${nome} vira ${metros}`;
+      return e.formula ? `${nome} +${metros}` : `${nome} ${e.valor < 0 ? "−" : "+"}${metros}`;
     }
     case "valor_igual": {
       const nome = (slug: string) => ALVOS_VALOR_IGUAL.find((a) => a.slug === slug)?.nome ?? slug;

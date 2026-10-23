@@ -571,7 +571,6 @@ function renderCampos(
               <option value="nadar">Nadar</option>
               <option value="voar">Voar</option>
               <option value="escalar">Escalar</option>
-              <option value="cavar">Cavar</option>
             </select>
           </label>
           <label>

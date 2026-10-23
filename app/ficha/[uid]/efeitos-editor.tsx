@@ -1230,25 +1230,45 @@ function renderCorpo(
               onChange={(v) => onPatch({ tipoMov: v, modo: undefined } as Partial<EfeitoHabilidade>)}
             />
           </div>
-          <SelectLista
-            label="Como"
-            valor={modoDoDeslocamento(e)}
-            opcoes={[
-              { slug: "soma", nome: "Soma" },
-              { slug: "vira", nome: "Vira" },
-            ]}
-            onChange={(v) =>
-              onPatch({
-                modo: v === modoDoDeslocamento({ tipoMov: e.tipoMov }) ? undefined : v,
-              } as Partial<EfeitoHabilidade>)
-            }
-          />
-          <CampoNum
-            label="Quanto (m)"
-            valor={e.valor}
-            step={0.5}
-            onChange={(v) => onPatch({ valor: v } as Partial<EfeitoHabilidade>)}
-          />
+          <div style={{ gridColumn: "1 / -1" }}>
+            <SelectLista
+              label="Como"
+              valor={modoDoDeslocamento(e)}
+              opcoes={[
+                { slug: "soma", nome: "Somar" },
+                { slug: "vira", nome: "Tornar" },
+                { slug: "reduz", nome: "Reduzir para" },
+              ]}
+              onChange={(v) =>
+                onPatch({
+                  modo: v === modoDoDeslocamento({ tipoMov: e.tipoMov }) ? undefined : v,
+                } as Partial<EfeitoHabilidade>)
+              }
+            />
+          </div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <CampoFormula
+              label="Quanto (m)"
+              valor={e.formula ?? String(e.valor)}
+              placeholder={modoDoDeslocamento(e) === "reduz" ? "6, DESLOC/2…" : "3, -3, DESLOC/2…"}
+              comDesloc
+              onChange={(v) => {
+                const numero = /^\s*-?\d+([.,]\d+)?\s*$/.test(v);
+                onPatch(
+                  (numero
+                    ? { valor: Number(v.replace(",", ".")), formula: undefined }
+                    : { valor: 0, formula: v }) as Partial<EfeitoHabilidade>,
+                );
+              }}
+            />
+          </div>
+          <p className="campo-dica" style={{ gridColumn: "1 / -1" }}>
+            {modoDoDeslocamento(e) === "soma"
+              ? "Número negativo diminui. DESLOC é o deslocamento atual (DESLOC/2 soma metade dele)."
+              : modoDoDeslocamento(e) === "vira"
+                ? "Passa a valer X, se for maior que o deslocamento atual. Vale o maior entre os efeitos."
+                : "O deslocamento cai pra no máximo X. DESLOC/2 deixa ele pela metade."}
+          </p>
         </>
       );
     case "valor_igual": {
