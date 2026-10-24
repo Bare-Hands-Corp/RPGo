@@ -41,7 +41,7 @@ export default async function DashboardPage() {
         </h1>
         <div className="dashboard-header-actions">
           <BotaoEntrarMesa personagens={personagens} />
-          <BotaoNovidades fichas={personagens.map((p) => p.id)} mesas={mesas.map((m) => m.id)} />
+          <BotaoNovidades />
           <ThemeButton />
           <LogoutButton />
         </div>

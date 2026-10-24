@@ -2,16 +2,7 @@
 
 import { Fragment, useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
-import {
-  NOVIDADES,
-  ULTIMA_NOVIDADE,
-  rotuloDaData,
-  urlDaMidia,
-  type Mudanca,
-  type ZonaNovidade,
-} from "@/lib/novidades";
-import { lerUltimaFicha } from "@/lib/novidades/ultima-ficha";
+import { NOVIDADES, ULTIMA_NOVIDADE, rotuloDaData, urlDaMidia, type ZonaNovidade } from "@/lib/novidades";
 import "./novidades.css";
 
 const CHAVE_VISTA = "rpgo:novidades:vista";
@@ -36,22 +27,8 @@ function lerVista(): string {
   }
 }
 
-function destinoDe(m: Mudanca, fichas: string[], mesas: string[]): string | null {
-  if (m.tela === "dashboard") return null;
-  if (m.tela === "narrador") return mesas[0] ? `/narrador/${mesas[0]}` : null;
-  const ultima = lerUltimaFicha();
-  const uid = ultima && fichas.includes(ultima) ? ultima : fichas[0];
-  if (!uid) return null;
-  return m.aba ? `/ficha/${uid}?aba=${m.aba}` : `/ficha/${uid}`;
-}
-
-function temDestino(m: Mudanca, fichas: string[], mesas: string[]): boolean {
-  if (m.tela === "dashboard") return false;
-  return m.tela === "narrador" ? mesas.length > 0 : fichas.length > 0;
-}
-
 // Botão do topo do dashboard; abre sozinho quando há atualização que este aparelho não viu.
-export function BotaoNovidades({ fichas, mesas }: { fichas: string[]; mesas: string[] }) {
+export function BotaoNovidades() {
   const vista = useSyncExternalStore(assinar, lerVista, () => ULTIMA_NOVIDADE);
   const temNova = vista < ULTIMA_NOVIDADE;
   // null segue o automático.
@@ -79,7 +56,7 @@ export function BotaoNovidades({ fichas, mesas }: { fichas: string[]; mesas: str
         <i className="fas fa-wand-magic-sparkles" />
         {temNova && <span className="btn-novidades-ponto" />}
       </button>
-      {mostrando && <ModalNovidades vista={vista} fichas={fichas} mesas={mesas} onFechar={fechar} />}
+      {mostrando && <ModalNovidades vista={vista} onFechar={fechar} />}
     </>
   );
 }
@@ -98,18 +75,7 @@ function MiniMapa({ zona, grande }: { zona?: ZonaNovidade; grande?: boolean }) {
   );
 }
 
-function ModalNovidades({
-  vista,
-  fichas,
-  mesas,
-  onFechar,
-}: {
-  vista: string;
-  fichas: string[];
-  mesas: string[];
-  onFechar: () => void;
-}) {
-  const router = useRouter();
+function ModalNovidades({ vista, onFechar }: { vista: string; onFechar: () => void }) {
   const [data, setData] = useState(NOVIDADES[0].data);
   const [sel, setSel] = useState(0);
   const [mid, setMid] = useState(0);
@@ -130,13 +96,6 @@ function ModalNovidades({
     setSel(0);
     setMid(0);
     setMenuDatas(false);
-  }
-
-  function abrir() {
-    const href = destinoDe(mudanca, fichas, mesas);
-    if (!href) return;
-    onFechar();
-    router.push(href);
   }
 
   useEffect(() => {
@@ -237,11 +196,6 @@ function ModalNovidades({
                   </Fragment>
                 ))}
               </div>
-              {temDestino(mudanca, fichas, mesas) && (
-                <button type="button" className="btn-rect primary novidades-abrir" onClick={abrir}>
-                  Abrir <i className="fas fa-arrow-up-right-from-square" />
-                </button>
-              )}
             </div>
 
             <div className="novidades-texto">

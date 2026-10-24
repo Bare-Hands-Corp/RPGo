@@ -273,13 +273,6 @@
   color: var(--primary);
 }
 
-.novidades-abrir {
-  margin-left: auto;
-  flex-shrink: 0;
-  padding: 7px 14px;
-  font-size: 0.8rem;
-}
-
 .novidades-texto {
   padding: 10px 14px 0;
 }

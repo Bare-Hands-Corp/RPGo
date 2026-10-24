@@ -4,7 +4,6 @@ import type { CombateVisto } from "@/lib/combate";
 import { useEffect, useMemo, useState } from "react";
 import { EVENTO_GASTAR_CONDICAO } from "@/lib/condicoes";
 import { EVENTO_ABRIR_ARVORE } from "@/lib/pontos";
-import { lembrarUltimaFicha } from "@/lib/novidades/ultima-ficha";
 import { gastarCondicaoDaRolagem } from "./actions";
 import { AcoesTab } from "./acoes-tab";
 import { ArvoresTab, type Arvore, type ArvoreCopiavel } from "./arvores-tab";
@@ -120,8 +119,6 @@ export function FichaTabs({
     window.addEventListener(EVENTO_GASTAR_CONDICAO, ouvir);
     return () => window.removeEventListener(EVENTO_GASTAR_CONDICAO, ouvir);
   }, [personagemId]);
-
-  useEffect(() => lembrarUltimaFicha(personagemId), [personagemId]);
 
   const tabs = ABAS.filter((a) => abas.includes(a.id));
   const primeira = tabs[0]?.id ?? "combate";

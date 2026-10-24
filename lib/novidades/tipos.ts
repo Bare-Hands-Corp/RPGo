@@ -1,6 +1,4 @@
-import type { AbaFicha } from "@/lib/subficha";
-
-/** Tela onde a mudança aparece: dá a cor da miniatura e o destino do "Abrir". */
+/** Tela onde a mudança aparece: dá a cor da miniatura. */
 export type TelaNovidade = "ficha" | "subficha" | "navio" | "narrador" | "dashboard";
 
 /** Parte da tela que o mini-mapa acende. */
@@ -14,8 +12,6 @@ export interface Mudanca {
   zona?: ZonaNovidade;
   /** Caminho até a mudança, ex.: ["Ficha", "Lateral", "Pontos"]. */
   trilha: string[];
-  /** Aba da ficha que o "Abrir" abre. */
-  aba?: AbaFicha;
   /** Arquivos em public/novidades/<data>/ (png, gif, webp). */
   midias: string[];
 }

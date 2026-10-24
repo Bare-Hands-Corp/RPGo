@@ -17,7 +17,6 @@ export default {
       tela: "ficha",
       zona: "conteudo",
       trilha: ["Ficha", "Habilidade", "PV ou PP Máximo"],
-      aba: "habilidades",
       midias: [],
     },
     {
@@ -34,7 +33,6 @@ export default {
       tela: "ficha",
       zona: "conteudo",
       trilha: ["Ficha", "Habilidade", "Cura"],
-      aba: "habilidades",
       midias: ["cura-pool-editor.png", "cura-pool-chip.png"],
     },
     {
@@ -43,7 +41,6 @@ export default {
       tela: "ficha",
       zona: "conteudo",
       trilha: ["Ficha", "Habilidade", "+ Efeito"],
-      aba: "habilidades",
       midias: ["seletor-familias.png", "condicao-familia.png"],
     },
     {
@@ -52,7 +49,6 @@ export default {
       tela: "ficha",
       zona: "conteudo",
       trilha: ["Ficha", "Habilidade", "Bônus Progressivo"],
-      aba: "habilidades",
       midias: ["progressivo-eventos.png"],
     },
     {
@@ -61,7 +57,6 @@ export default {
       tela: "ficha",
       zona: "conteudo",
       trilha: ["Ficha", "Combate", "Efeito Item"],
-      aba: "combate",
       midias: ["item-berries.png"],
     },
     {
@@ -70,7 +65,6 @@ export default {
       tela: "ficha",
       zona: "conteudo",
       trilha: ["Ficha", "Inventário", "Arma"],
-      aba: "inventario",
       midias: ["arma-tipo-dano.png"],
     },
     {
@@ -79,7 +73,6 @@ export default {
       tela: "ficha",
       zona: "conteudo",
       trilha: ["Ficha", "Habilidade", "Gatilho", "Faz"],
-      aba: "habilidades",
       midias: ["gatilho-oferece-acao.png"],
     },
     {
@@ -88,7 +81,6 @@ export default {
       tela: "ficha",
       zona: "conteudo",
       trilha: ["Ficha", "Combate", "Ataque"],
-      aba: "combate",
       midias: ["atalho-oferta.gif", "oferta-ao-acertar.png"],
     },
     {
@@ -97,7 +89,6 @@ export default {
       tela: "ficha",
       zona: "conteudo",
       trilha: ["Ficha", "Combate", "+ Efeito", "Item"],
-      aba: "combate",
       midias: ["efeito-item.png", "arco-de-cobra.png"],
     },
     {
@@ -106,7 +97,6 @@ export default {
       tela: "ficha",
       zona: "conteudo",
       trilha: ["Ficha", "Habilidade", "Condição"],
-      aba: "habilidades",
       midias: ["condicao-sai-com.png"],
     },
     {
@@ -115,7 +105,6 @@ export default {
       tela: "ficha",
       zona: "conteudo",
       trilha: ["Ficha", "Inventário"],
-      aba: "inventario",
       midias: ["inventario.png", "inventario-filtros.png"],
     },
     {
@@ -124,7 +113,6 @@ export default {
       tela: "ficha",
       zona: "conteudo",
       trilha: ["Ficha", "Inventário", "Editar item"],
-      aba: "inventario",
       midias: ["item-formulario.png"],
     },
     {
@@ -133,7 +121,6 @@ export default {
       tela: "ficha",
       zona: "conteudo",
       trilha: ["Ficha", "Inventário", "Card do item"],
-      aba: "inventario",
       midias: ["passar-item.png", "pasta-do-item.png"],
     },
     {
@@ -142,7 +129,6 @@ export default {
       tela: "subficha",
       zona: "conteudo",
       trilha: ["Ficha", "Subfichas"],
-      aba: "subfichas",
       midias: ["subfichas.png", "subficha-no-combate.png"],
     },
     {
@@ -166,7 +152,6 @@ export default {
       tela: "navio",
       zona: "conteudo",
       trilha: ["Navio", "Ações"],
-      aba: "subfichas",
       midias: ["veiculo-tipos-de-acao.png", "veiculo-habilidades.png"],
     },
   ],
