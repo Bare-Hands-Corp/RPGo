@@ -24,6 +24,7 @@ import {
 import { fontesDasCondicoes } from "@/lib/condicoes-mecanica";
 import { lerNavio } from "@/lib/navio";
 import { habilidadesTravadas } from "@/lib/arvore";
+import { saldosDosPontos, type GanhoDeEfeito } from "@/lib/pontos";
 import { INCLUDE_ACESSO, acessoAFicha, fichasDoGrupo, sessaoDoChat } from "@/lib/acesso-ficha";
 import { resumirSubficha } from "@/lib/resumo-personagem";
 import { abasDaFicha, ehSubficha, perfilDe } from "@/lib/subficha";
@@ -107,9 +108,16 @@ export default async function FichaPage({ params, searchParams }: Params) {
     ],
     { nivel: carregado.nivel, atributos: atributosBase },
   );
+  // Ponto (PA, PT…) não guarda saldo: os livres saem do nível e das árvores.
+  const saldos = saldosDosPontos(carregado.recursos, carregado.arvores, carregado.nivel);
   const personagem = {
     ...carregado,
-    recursos: carregado.recursos.map((r) => ({ ...r, valorMax: maximoDoRecurso(r, ctxFormula) })),
+    recursos: carregado.recursos.map((r) => ({
+      ...r,
+      deEfeitos: [] as GanhoDeEfeito[],
+      valorMax: maximoDoRecurso(r, ctxFormula),
+      ...(saldos.has(r.id) ? { valorAtual: saldos.get(r.id)!.livres } : {}),
+    })),
     // Na ordem arrastada pelo jogador; ordem 0 (nunca arrastada) segue por criação.
     habilidades: carregado.habilidades
       .map((h) => comCustosResolvidos(h, ctxFormula))
@@ -169,6 +177,20 @@ export default async function FichaPage({ params, searchParams }: Params) {
     acoesEmCurso(personagem.acoes, personagem.concentracao),
     slugsPericiaCustom,
   );
+
+  // Ganho de ponto por efeito entra no saldo depois do agregado.
+  const ganhoPonto = efeitosAgregados.ganhoPonto ?? {};
+  const saldosComEfeitos = saldosDosPontos(
+    carregado.recursos.map((r) => ({ ...r, deEfeitos: ganhoPonto[r.id] ?? [] })),
+    carregado.arvores,
+    carregado.nivel,
+  );
+  for (const r of personagem.recursos) {
+    const saldo = saldosComEfeitos.get(r.id);
+    if (!saldo) continue;
+    r.deEfeitos = saldo.deEfeitos;
+    r.valorAtual = saldo.livres;
+  }
 
   // Penalidade de DES das armaduras equipadas (geralmente negativa). Reduz o
   // modificador de DES em todos os cálculos derivados (CR, iniciativa, salv/
@@ -243,7 +265,8 @@ export default async function FichaPage({ params, searchParams }: Params) {
             recursos: { orderBy: [{ ordem: "asc" }, { nome: "asc" }] },
             periciasCustom: { select: { slug: true } },
             arvores: { select: { id: true, nos: true } },
-            acoes: { select: SELECT_ACAO_QUE_DURA },
+            // As que duram (efeitos) e os atalhos do card.
+            acoes: { select: { ...SELECT_ACAO_QUE_DURA, tipo: true, formaDe: true, ordem: true } },
           },
           orderBy: { nome: "asc" },
         }),
@@ -277,14 +300,22 @@ export default async function FichaPage({ params, searchParams }: Params) {
   }));
 
   // Habilidades deste personagem ligadas numa subficha entram no card dela.
-  const subfichas = subfichasCarregadas.map((sub) =>
-    resumirSubficha(
+  // O card também diz se ela está no combate da mesa e quem comanda o navio.
+  const daVez = combate?.participantes[combate.turno]?.personagemId ?? null;
+  const subfichas = subfichasCarregadas.map((sub) => {
+    const card = resumirSubficha(
       sub,
       habilidadesAtivas
         .filter((h) => h.aliado && h.ligada && h.alvoPersonagemId === sub.id)
         .map((h) => fonteDeAliado({ nome: h.nome, de: personagem.nome, efeitos: h.efeitos })),
-    ),
-  );
+    );
+    const noCombate = combate?.participantes.find((p) => p.personagemId === sub.id);
+    return {
+      ...card,
+      emCombate: noCombate ? { iniciativa: noCombate.iniciativa, vez: daVez === sub.id } : null,
+      comandante: card.comandanteId ? (grupo.find((g) => g.id === card.comandanteId)?.nome ?? null) : null,
+    };
+  });
 
   const perfil = perfilDe(personagem.perfil);
   const abas = abasDaFicha({
@@ -320,8 +351,13 @@ export default async function FichaPage({ params, searchParams }: Params) {
           perfil.slug === "veiculo"
             ? {
                 comandanteId: lerNavio(personagem.navio)?.comandanteId ?? null,
+                montagem: lerNavio(personagem.navio)?.montagem ?? null,
                 doNarrador: personagem.doNarrador,
-                tripulantes: tripulantes.map((t) => ({ id: t.id, nome: t.nome })),
+                // Fora de mesa, quem comanda é o dono.
+                tripulantes: (personagem.mesaId ? tripulantes : personagem.dono ? [personagem.dono] : []).map((t) => ({
+                  id: t.id,
+                  nome: t.nome,
+                })),
               }
             : null
         }
@@ -358,6 +394,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
       />
       <FichaTabs
         personagemId={personagem.id}
+        veiculo={perfil.slug === "veiculo"}
         personagemNome={personagem.nome}
         abas={abas}
         abaInicial={typeof aba === "string" ? aba : null}
@@ -393,6 +430,8 @@ export default async function FichaPage({ params, searchParams }: Params) {
           efeito: r.efeito,
           valorAtual: r.valorAtual,
           valorMax: r.valorMax,
+          tipo: r.tipo,
+          sigla: r.sigla,
         }))}
         habilidades={personagem.habilidades}
         habilidadesTravadas={[...travadasPorArvore]}

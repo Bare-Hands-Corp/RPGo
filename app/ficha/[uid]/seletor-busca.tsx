@@ -82,7 +82,7 @@ export function SeletorBusca({
         onClick={() => setAberto(true)}
       >
         <span className="busca-botao-texto">
-          {atual ? atual.nome : valor || placeholder}
+          <span className="busca-botao-nome">{atual ? atual.nome : valor || placeholder}</span>
           {(atual?.grupo || (valor && !atual)) && (
             <span className="busca-botao-grupo">{atual?.grupo ?? "texto livre"}</span>
           )}

@@ -969,6 +969,9 @@ export type TipoEfeito =
   | "progressivo"
   | "valor_igual"
   | "colateral"
+  | "pp_no_erro"
+  | "item"
+  | "oferece_acao"
   | "livre";
 
 // O que o efeito colateral faz em quem usa a técnica.
@@ -989,8 +992,127 @@ export type FiltroArmaDeFogo = "exceto" | "so";
 // crítico ou d20 a partir de um número.
 export type GatilhoExplosao = "maximo" | "valor" | "total" | "critico";
 
-// O que faz o bônus progressivo subir sozinho; sem isso, só na mão.
-export type GatilhoProgressivo = "turno" | "rolagem";
+// O que mexe na contagem do bônus progressivo sozinho (sobe, perde ou zera):
+// Passar turno, a rolagem dele, os eventos do Gatilho e o descanso.
+export type GatilhoProgressivo =
+  | "turno"
+  | "rolagem"
+  | "critico"
+  | "falha_critica"
+  | "acertou"
+  | "errou"
+  | "recebeu_dano"
+  | "recebeu_critico"
+  | "caiu"
+  | "derrubou"
+  | "usou_reacao"
+  | "usou_tecnica"
+  | "descanso_curto"
+  | "descanso_longo";
+// `texto` entra no resumo ("por acerto", "zera com descanso longo").
+export const EVENTOS_PROGRESSIVO: { slug: GatilhoProgressivo; nome: string; grupo: string; texto: string }[] = [
+  { slug: "turno", nome: "Passar turno", grupo: "Na ficha", texto: "turno" },
+  { slug: "rolagem", nome: "Rolagem em que vale", grupo: "Na ficha", texto: "rolagem" },
+  { slug: "critico", nome: "Crítico", grupo: "No d20", texto: "crítico" },
+  { slug: "falha_critica", nome: "1 natural", grupo: "No d20", texto: "1 natural" },
+  { slug: "acertou", nome: "Acertou um ataque", grupo: "No combate", texto: "acerto" },
+  { slug: "errou", nome: "Errou um ataque", grupo: "No combate", texto: "erro" },
+  { slug: "recebeu_dano", nome: "Recebeu dano", grupo: "No combate", texto: "dano recebido" },
+  { slug: "recebeu_critico", nome: "Levou um crítico", grupo: "No combate", texto: "crítico recebido" },
+  { slug: "caiu", nome: "Caiu a 0 PV", grupo: "No combate", texto: "queda a 0 PV" },
+  { slug: "derrubou", nome: "Derrubou alguém a 0 PV", grupo: "No combate", texto: "inimigo derrubado" },
+  { slug: "usou_reacao", nome: "Usou uma reação", grupo: "No uso", texto: "reação usada" },
+  { slug: "usou_tecnica", nome: "Usou uma técnica", grupo: "No uso", texto: "técnica usada" },
+  { slug: "descanso_curto", nome: "Descanso curto", grupo: "No descanso", texto: "descanso curto" },
+  { slug: "descanso_longo", nome: "Descanso longo", grupo: "No descanso", texto: "descanso longo" },
+];
+// Descanso só zera (ou enche de novo); não sobe nem tira um passo.
+export function eventoSoZera(evento: GatilhoProgressivo): boolean {
+  return evento === "descanso_curto" || evento === "descanso_longo";
+}
+
+// Situação que dispara o efeito Gatilho. As de d20 o Rolador avisa; as de
+// combate, turno e uso, o servidor. `comN`: pede o número; `comEm`: pede em
+// qual jogada (as de ataque, só entre os ataques).
+export type QuandoGatilho =
+  | "critico"
+  | "falha_critica"
+  | "natural_ate"
+  | "natural_min"
+  | "acertou"
+  | "errou"
+  | "recebeu_dano"
+  | "recebeu_critico"
+  | "caiu"
+  | "derrubou"
+  | "inicio_turno"
+  | "fim_turno"
+  | "usou_reacao"
+  | "usou_tecnica";
+export const QUANDOS_GATILHO: {
+  slug: QuandoGatilho;
+  nome: string;
+  grupo: string;
+  comN?: boolean;
+  comEm?: "rolagem" | "ataque";
+}[] = [
+  { slug: "critico", nome: "Crítico", grupo: "No d20", comEm: "rolagem" },
+  { slug: "falha_critica", nome: "1 natural", grupo: "No d20", comEm: "rolagem" },
+  { slug: "natural_ate", nome: "d20 N ou menos", grupo: "No d20", comN: true, comEm: "rolagem" },
+  { slug: "natural_min", nome: "d20 N ou mais", grupo: "No d20", comN: true, comEm: "rolagem" },
+  { slug: "acertou", nome: "Acertou um ataque", grupo: "No combate", comEm: "ataque" },
+  { slug: "errou", nome: "Errou um ataque", grupo: "No combate", comEm: "ataque" },
+  { slug: "recebeu_dano", nome: "Recebeu dano", grupo: "No combate" },
+  { slug: "recebeu_critico", nome: "Levou um crítico", grupo: "No combate" },
+  { slug: "caiu", nome: "Caiu a 0 PV", grupo: "No combate" },
+  { slug: "derrubou", nome: "Derrubou alguém a 0 PV", grupo: "No combate" },
+  { slug: "inicio_turno", nome: "Início do seu turno", grupo: "No turno" },
+  { slug: "fim_turno", nome: "Fim do seu turno", grupo: "No turno" },
+  { slug: "usou_reacao", nome: "Usou uma reação", grupo: "No uso" },
+  { slug: "usou_tecnica", nome: "Usou uma técnica", grupo: "No uso" },
+];
+
+// O que um Gatilho pode fazer (presets do editor) e o filtro do que é lido.
+export const PRESETS_FAZ_GATILHO = [
+  "recurso_delta",
+  "cura",
+  "condicao_aplicar",
+  "condicao_remover",
+  "colateral",
+  "acao_extra",
+  "item",
+];
+// No acerto (e no crítico), o Gatilho também oferece uma ação.
+export const QUANDOS_QUE_OFERECEM: QuandoGatilho[] = ["acertou", "critico"];
+export function fazNoGatilho(e: { tipo: string; alvo?: string }): boolean {
+  if (e.tipo === "modificador") return (e.alvo ?? "").trim().toLowerCase() === "hp-temp";
+  return [
+    "recurso_delta",
+    "cura",
+    "condicao_aplicar",
+    "condicao_remover",
+    "colateral",
+    "acao_extra",
+    "item",
+    "oferece_acao",
+  ].includes(e.tipo);
+}
+
+// O que o efeito Item faz com o item no uso.
+export type FazItem = "equipa" | "desequipa" | "alterna" | "usa" | "gasta" | "ganha";
+export const FAZ_ITEM: { slug: FazItem; nome: string; titulo: string }[] = [
+  { slug: "equipa", nome: "Equipa", titulo: "Fica equipado" },
+  { slug: "desequipa", nome: "Desequipa", titulo: "Sai do equipado" },
+  { slug: "alterna", nome: "Alterna", titulo: "Equipado vira desequipado e vice-versa" },
+  { slug: "usa", nome: "Usa", titulo: "Gasta 1 e vale o que ele faz na hora (cura, PV temporário, recurso)" },
+  { slug: "gasta", nome: "Gasta", titulo: "Tira da ficha sem valer o que ele faz" },
+  { slug: "ganha", nome: "Ganha", titulo: "Soma na quantidade" },
+];
+// Os Berries da ficha no efeito Item: só gasta ou ganha.
+export const ITEM_BERRIES = "berries";
+export function fazComQuantidade(faz: FazItem): boolean {
+  return faz === "gasta" || faz === "ganha";
+}
 
 // Em ação com duração, o que o efeito faz depois do uso. Efeito na hora (cura,
 // PV temporário, recurso): "turno" acontece no uso e repete a cada turno. Os
@@ -1045,6 +1167,8 @@ type EfeitoCru =
       emVoce?: boolean;
       // Em você: no uso (padrão) ou quando a ação acaba.
       quando?: "fim";
+      // Sem salvaguarda que evita, a que tira a condição quando `repete`.
+      sai?: Atributo;
     }
   // Efeito colateral (livro: Colateral, Debilitante, Devoradora, Exaustiva):
   // pesa em quem usa, no uso ou quando a ação acaba. dano: `valor` (fórmula),
@@ -1076,12 +1200,37 @@ type EfeitoCru =
   // outro atributo no lugar do padrão; `seMaior` só troca quando é melhor.
   | { tipo: "substituir_atributo"; alvo: string; atributo: Atributo; seMaior?: boolean }
   | { tipo: "rolagem"; formula: string; quando?: string }
-  | { tipo: "trigger"; gatilho: string; efeito: string }
+  // Gatilho. Com `quando` (QUANDOS_GATILHO), a situação acontece e os efeitos
+  // de `faz` (os de PRESETS_FAZ_GATILHO) valem em quem tem; `em` filtra a jogada.
+  // `recurso`/`valor` é o formato antigo (vira um Recurso no `faz`). Sem
+  // `quando`, `gatilho` e `efeito` são só o texto da situação.
+  | {
+      tipo: "trigger";
+      gatilho: string;
+      efeito: string;
+      quando?: QuandoGatilho;
+      n?: number;
+      em?: string;
+      faz?: EfeitoHabilidade[];
+      recurso?: string;
+      valor?: number;
+    }
   // Faixa de crítico expandida (19-20, 18-20…). minimo = 19 significa
   // crítico em 19 e 20. `alvo` = em qual ataque (ausente = qualquer).
   | { tipo: "crit_range"; minimo: number; alvo?: string }
-  // Rerrola uma jogada do contexto `gatilho`; `usos` por descanso longo.
-  | { tipo: "reroll"; gatilho: string; usos: number }
+  // Rerrola uma jogada do contexto `gatilho`; `usos` por descanso longo. Com
+  // `ate`, só quando o d20 natural sai até ele (1 = "Hoje Não!"), e aí vale
+  // sozinho, sem ligar o chip.
+  | { tipo: "reroll"; gatilho: string; usos: number; ate?: number }
+  // Técnica com jogada de ataque que erra todos os alvos devolve o PP gasto.
+  | { tipo: "pp_no_erro"; modo: "tudo" | "metade" }
+  // Item da própria ficha, no uso: equipa, desequipa, alterna, usa (gasta 1 e
+  // vale o que ele faz na hora), gasta ou ganha `quantidade` (ausente = 1).
+  // `itemId` ITEM_BERRIES são os Berries. `nome` é só pra mostrar.
+  | { tipo: "item"; itemId: string; nome?: string; faz: FazItem; quantidade?: number }
+  // Só no "Faz" do Gatilho de acerto: no combate, oferece usar uma ação da ficha
+  // no alvo atingido, no card dela. `trocaDano`: no lugar do dano daquele acerto.
+  | { tipo: "oferece_acao"; acaoId: string; nome?: string; trocaDano?: boolean }
   // Floor no d20: resultados ≤ minimo são tratados como minimo, nas jogadas
   // de `alvo` (slug contextual; ausente = qualquer d20).
   | { tipo: "floor_d20"; minimo: number; alvo?: string }
@@ -1173,7 +1322,8 @@ type EfeitoCru =
   // No gatilho, rola de novo e soma (dano) ou ataca de novo (ataque), até `limite` vezes.
   | { tipo: "explosao"; gatilho: GatilhoExplosao; valor?: number; limite: number; em?: string }
   // Bônus que cresce: `formula` por passo, até `max`. `passos` é a contagem, mexida
-  // no card ou no Rolador; `cresce` sobe um passo sozinho (Passar turno ou rolagem).
+  // no card ou no Rolador. Sozinha, ela sobe um passo com `cresce`, perde um com
+  // `perde` e volta ao começo com `zera`; `inicio` "cheio" começa (e volta) no máximo.
   | {
       tipo: "progressivo";
       formula: string;
@@ -1182,6 +1332,9 @@ type EfeitoCru =
       por?: string;
       passos?: number;
       cresce?: GatilhoProgressivo;
+      perde?: GatilhoProgressivo;
+      zera?: GatilhoProgressivo;
+      inicio?: "cheio";
     }
   // O valor de `alvo` passa a ser o de `de` (com `metade`, a metade); vale o maior.
   | { tipo: "valor_igual"; alvo: string; de: string; metade?: boolean }
@@ -1233,6 +1386,9 @@ export const META_EFEITOS: Record<
   reducao_dano:     { nome: "Redução de Dano",    icone: "fa-shield-halved",  cor: "var(--efeito-defesa)" },
   interceptar:      { nome: "Interceptar",        icone: "fa-people-arrows",  cor: "var(--efeito-defesa)" },
   evasao:           { nome: "Evasão",             icone: "fa-wind",           cor: "var(--efeito-defesa)" },
+  pp_no_erro:       { nome: "PP de Volta no Erro", icone: "fa-rotate-left",   cor: "var(--efeito-bom)" },
+  item:             { nome: "Item",               icone: "fa-sack-dollar",    cor: "var(--efeito-neutro)" },
+  oferece_acao:     { nome: "Oferece Ação",       icone: "fa-bell",           cor: "var(--efeito-neutro)" },
   dano_maximo:      { nome: "Dano Máximo",        icone: "fa-maximize",       cor: "var(--efeito-ataque)" },
   piso_dado:        { nome: "Dado Mínimo",        icone: "fa-dice-five",      cor: "var(--efeito-ataque)" },
   critico_extra:    { nome: "Crítico Maior",      icone: "fa-skull-crossbones", cor: "var(--efeito-ataque)" },
@@ -1257,28 +1413,34 @@ export type PresetEfeito = {
   descricao: string;
   icone: string;
   cor: string;
-  grupo: "ajuste" | "buff" | "defesa" | "condicao" | "ativo" | "movimento" | "avancado";
+  grupo: GrupoPreset;
+  // Efeitos irmãos que este card representa no seletor (a troca fica no efeito).
+  irmaos?: string[];
   criar: () => EfeitoHabilidade;
 };
+
+export type GrupoPreset =
+  | "pools"
+  | "numeros"
+  | "d20"
+  | "critico"
+  | "dano"
+  | "defesa"
+  | "condicao"
+  | "tecnica"
+  | "movimento"
+  | "avancado";
 
 export const PRESETS_EFEITO: PresetEfeito[] = [
   // ─ Ajuste numérico ─
   {
-    id: "pv_temp",
-    nome: "PV Temporário",
-    descricao: "Dá pontos de vida temporários",
-    icone: "fa-shield-heart",
-    cor: "var(--color-bonus)",
-    grupo: "ajuste",
-    criar: () => ({ tipo: "modificador", alvo: "hp-temp", valor: 0 }),
-  },
-  {
     id: "pv_max",
-    nome: "PV Máximo",
-    descricao: "Aumenta o limite de PV",
+    nome: "PV ou PP Máximo",
+    descricao: "Aumenta o limite de PV ou de PP",
+    irmaos: ["pp_max"],
     icone: "fa-heart-pulse",
     cor: "var(--bar-hp)",
-    grupo: "ajuste",
+    grupo: "pools",
     criar: () => ({ tipo: "modificador", alvo: "hp-max", valor: 0 }),
   },
   {
@@ -1287,16 +1449,16 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Aumenta o limite de Pontos de Poder",
     icone: "fa-bolt",
     cor: "var(--color-power)",
-    grupo: "ajuste",
+    grupo: "pools",
     criar: () => ({ tipo: "modificador", alvo: "pp-max", valor: 0 }),
   },
   {
     id: "cura",
-    nome: "Cura",
-    descricao: "Recupera PV (fórmula ou valor fixo)",
+    nome: "Cura ou PV Temporário",
+    descricao: "Recupera PV ou PP, ou dá PV temporário",
     icone: "fa-heart",
     cor: "var(--success)",
-    grupo: "ajuste",
+    grupo: "pools",
     criar: () => ({ tipo: "cura", valor: "" }),
   },
   {
@@ -1305,17 +1467,8 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Bônus numérico (perícia, atributo, CR, ataque…)",
     icone: "fa-plus-minus",
     cor: "var(--primary)",
-    grupo: "ajuste",
+    grupo: "numeros",
     criar: () => ({ tipo: "modificador", alvo: "", valor: 0 }),
-  },
-  {
-    id: "dado_em",
-    nome: "Dado Extra",
-    descricao: "Soma dados num ataque, teste ou salvaguarda (+1d4)",
-    icone: "fa-dice-four",
-    cor: "var(--primary)",
-    grupo: "ajuste",
-    criar: () => ({ tipo: "dano_extra", formula: "", em: "teste", sempre: true }),
   },
   {
     id: "multiplicador",
@@ -1323,16 +1476,17 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Dobra capacidade de carga, etc",
     icone: "fa-xmark",
     cor: "var(--color-power)",
-    grupo: "ajuste",
+    grupo: "numeros",
     criar: () => ({ tipo: "multiplicador", alvo: "", fator: 2 }),
   },
   {
     id: "valor_fixo",
     nome: "Valor Fixo",
-    descricao: "CR, deslocamento, atributo ou dado da arma vira um número",
+    descricao: "CR, deslocamento ou atributo vira um número ou outro valor",
+    irmaos: ["valor_igual"],
     icone: "fa-equals",
     cor: "var(--primary)",
-    grupo: "ajuste",
+    grupo: "numeros",
     criar: () => ({ tipo: "valor_fixo", alvo: "cr", valor: "" }),
   },
   {
@@ -1341,7 +1495,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Um valor passa a ser igual a outro, ou à metade",
     icone: "fa-right-long",
     cor: "var(--primary)",
-    grupo: "ajuste",
+    grupo: "numeros",
     criar: () => ({ tipo: "valor_igual", alvo: "nadar", de: "deslocamento" }),
   },
   {
@@ -1350,7 +1504,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Recupera mais exaustão, PP ou Dados de Vida",
     icone: "fa-bed",
     cor: "var(--color-bonus)",
-    grupo: "ajuste",
+    grupo: "pools",
     criar: () => ({ tipo: "descanso", em: "longo", exaustao: 1, pp: "", dv: 0 }),
   },
   {
@@ -1359,17 +1513,18 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "CR, iniciativa ou teste usa outro atributo (ex: CR via FOR)",
     icone: "fa-right-left",
     cor: "var(--primary)",
-    grupo: "avancado",
+    grupo: "numeros",
     criar: () => ({ tipo: "substituir_atributo", alvo: "", atributo: "forca" }),
   },
   // ─ Buff / Debuff ─
   {
     id: "vantagem",
-    nome: "Vantagem",
-    descricao: "Vantagem em um tipo de teste",
+    nome: "Vantagem ou Desvantagem",
+    descricao: "Vantagem ou desvantagem num tipo de jogada",
+    irmaos: ["desvantagem"],
     icone: "fa-arrow-up",
     cor: "var(--color-bonus)",
-    grupo: "buff",
+    grupo: "d20",
     criar: () => ({ tipo: "vantagem", alvo: "" }),
   },
   {
@@ -1378,7 +1533,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Desvantagem em um tipo de teste",
     icone: "fa-arrow-down",
     cor: "var(--danger)",
-    grupo: "buff",
+    grupo: "d20",
     criar: () => ({ tipo: "desvantagem", alvo: "" }),
   },
   {
@@ -1387,14 +1542,15 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Proficiência em perícia ou salvaguarda",
     icone: "fa-check-double",
     cor: "var(--color-power)",
-    grupo: "buff",
+    grupo: "d20",
     criar: () => ({ tipo: "proficiencia", alvo: "" }),
   },
   // ─ Defesa ─
   {
     id: "resistencia",
-    nome: "Resistência",
-    descricao: "Reduz dano de um tipo pela metade",
+    nome: "Resistência e Imunidade",
+    descricao: "Resistência, imunidade ou vulnerabilidade a um tipo de dano",
+    irmaos: ["imunidade", "vulnerabilidade"],
     icone: "fa-shield-halved",
     cor: "var(--color-react)",
     grupo: "defesa",
@@ -1447,13 +1603,14 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   },
   // ─ Condição ─
   {
-    id: "condicao_imune",
-    nome: "Imune a Condição",
-    descricao: "Imune a envenenado, atordoado, etc",
-    icone: "fa-virus-slash",
-    cor: "var(--color-react)",
+    id: "condicao_aplicar",
+    nome: "Condição",
+    descricao: "Aplica, remove ou dá imunidade a uma condição",
+    irmaos: ["condicao_remover", "condicao_imune"],
+    icone: "fa-bolt",
+    cor: "var(--color-power)",
     grupo: "condicao",
-    criar: () => ({ tipo: "condicao_imune", condicao: "" }),
+    criar: () => ({ tipo: "condicao_aplicar", condicao: "" }),
   },
   {
     id: "condicao_remover",
@@ -1465,13 +1622,13 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     criar: () => ({ tipo: "condicao_remover", condicao: "" }),
   },
   {
-    id: "condicao_aplicar",
-    nome: "Aplica Condição",
-    descricao: "Causa uma condição, com CD de salvaguarda",
-    icone: "fa-bolt",
-    cor: "var(--color-power)",
+    id: "condicao_imune",
+    nome: "Imune a Condição",
+    descricao: "Imune a envenenado, atordoado, etc",
+    icone: "fa-virus-slash",
+    cor: "var(--color-react)",
     grupo: "condicao",
-    criar: () => ({ tipo: "condicao_aplicar", condicao: "" }),
+    criar: () => ({ tipo: "condicao_imune", condicao: "" }),
   },
   {
     id: "ignora_exaustao",
@@ -1496,10 +1653,11 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   {
     id: "crit_range",
     nome: "Crítico Expandido",
-    descricao: "Crítico em 19-20 ou mais amplo",
+    descricao: "Crítico em 19-20 ou mais amplo, ou margem que soma com outras",
+    irmaos: ["margem_critico"],
     icone: "fa-burst",
     cor: "var(--color-power)",
-    grupo: "ativo",
+    grupo: "critico",
     criar: () => ({ tipo: "crit_range", minimo: 19 }),
   },
   {
@@ -1508,7 +1666,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Critica um número antes; soma com outras faixas",
     icone: "fa-burst",
     cor: "var(--color-power)",
-    grupo: "ativo",
+    grupo: "critico",
     criar: () => ({ tipo: "margem_critico", valor: 1 }),
   },
   {
@@ -1517,7 +1675,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Sobe o dado de dano (1d8 → 1d10 → 1d12 → 2d6)",
     icone: "fa-angles-up",
     cor: "var(--color-power)",
-    grupo: "ativo",
+    grupo: "dano",
     criar: () => ({ tipo: "passo_dano", passos: 1, alvo: "arma" }),
   },
   {
@@ -1526,8 +1684,35 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Técnicas custam menos PP ou PA",
     icone: "fa-tag",
     cor: "var(--color-bonus)",
-    grupo: "ativo",
+    grupo: "tecnica",
     criar: () => ({ tipo: "desconto_tecnica", valor: 1, custo: "pp", minimo: 1 }),
+  },
+  {
+    id: "pp_no_erro",
+    nome: "PP de Volta no Erro",
+    descricao: "Técnica com ataque que erra devolve o PP, todo ou metade",
+    icone: "fa-rotate-left",
+    cor: "var(--color-bonus)",
+    grupo: "tecnica",
+    criar: () => ({ tipo: "pp_no_erro", modo: "tudo" }),
+  },
+  {
+    id: "item",
+    nome: "Item ou Berries",
+    descricao: "No uso, equipa, usa, gasta ou ganha um item da ficha, ou Berries",
+    icone: "fa-sack-dollar",
+    cor: "var(--color-bonus)",
+    grupo: "tecnica",
+    criar: () => ({ tipo: "item", itemId: "", faz: "equipa" }),
+  },
+  {
+    id: "oferece_acao",
+    nome: "Oferece Ação",
+    descricao: "No combate, oferece usar uma ação no alvo atingido",
+    icone: "fa-bell",
+    cor: "var(--color-bonus)",
+    grupo: "tecnica",
+    criar: () => ({ tipo: "oferece_acao", acaoId: "" }),
   },
   {
     id: "dano_melhor_de",
@@ -1535,16 +1720,17 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Rola o dano N vezes e fica com o maior",
     icone: "fa-dice",
     cor: "var(--color-bonus)",
-    grupo: "ativo",
+    grupo: "dano",
     criar: () => ({ tipo: "dano_melhor_de", vezes: 2, usos: 0 }),
   },
   {
     id: "dano_extra",
-    nome: "Dano Extra",
-    descricao: "Soma dados no dano (+1d4, +1d10 fogo)",
+    nome: "Dano ou Dado Extra",
+    descricao: "Soma dados no dano, ataque ou teste (+1d10 fogo, +1d4)",
+    irmaos: ["dados_extra"],
     icone: "fa-plus",
     cor: "var(--color-power)",
-    grupo: "ativo",
+    grupo: "dano",
     criar: () => ({ tipo: "dano_extra", formula: "" }),
   },
   {
@@ -1553,25 +1739,16 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Mais dados iguais aos do dano (+2 dados)",
     icone: "fa-dice-d6",
     cor: "var(--color-power)",
-    grupo: "ativo",
+    grupo: "dano",
     criar: () => ({ tipo: "dados_extra", quantidade: "1" }),
-  },
-  {
-    id: "potencializacao",
-    nome: "Potencialização",
-    descricao: "Dados de dano a mais pelo grau da técnica",
-    icone: "fa-dice-d6",
-    cor: "var(--color-power)",
-    grupo: "ativo",
-    criar: () => ({ tipo: "dados_extra", quantidade: "GRAU", em: "dano-tecnica", sempre: true }),
   },
   {
     id: "progressivo",
     nome: "Bônus Progressivo",
-    descricao: "Cresce a cada turno, acerto ou ponto gasto; em rolagem ou valor",
+    descricao: "Sobe ou perde carga com turno, acerto, dano ou descanso",
     icone: "fa-arrow-trend-up",
     cor: "var(--color-power)",
-    grupo: "ativo",
+    grupo: "numeros",
     criar: () => ({ tipo: "progressivo", formula: "", max: 5 }),
   },
   {
@@ -1580,7 +1757,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Ataca várias vezes nas ações marcadas com \"Recebe Multiataque\"",
     icone: "fa-layer-group",
     cor: "var(--color-power)",
-    grupo: "ativo",
+    grupo: "dano",
     criar: () => ({ tipo: "multi_ataque", vezes: 2 }),
   },
   {
@@ -1589,16 +1766,17 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "No dado máximo ou no crítico, rola de novo",
     icone: "fa-explosion",
     cor: "var(--color-power)",
-    grupo: "ativo",
+    grupo: "dano",
     criar: () => ({ tipo: "explosao", gatilho: "maximo", limite: 1 }),
   },
   {
     id: "dano_maximo",
-    nome: "Dano Máximo",
-    descricao: "Os dados do dano saem no máximo",
+    nome: "Dano Máximo ou Mínimo",
+    descricao: "Dados no máximo, dado baixo que vira outro ou metade do máximo",
+    irmaos: ["piso_dado", "dano_min"],
     icone: "fa-maximize",
     cor: "var(--color-power)",
-    grupo: "ativo",
+    grupo: "dano",
     criar: () => ({ tipo: "dano_maximo" }),
   },
   {
@@ -1607,7 +1785,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Dado de dano baixo vira o máximo (1-2 vira 6)",
     icone: "fa-dice-five",
     cor: "var(--color-power)",
-    grupo: "ativo",
+    grupo: "dano",
     criar: () => ({ tipo: "piso_dado", ate: 2, vira: 0 }),
   },
   {
@@ -1616,7 +1794,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Mais dados no crítico, ou crítico ×3",
     icone: "fa-skull-crossbones",
     cor: "var(--color-power)",
-    grupo: "ativo",
+    grupo: "critico",
     criar: () => ({ tipo: "critico_extra", dados: 1, vezes: 2 }),
   },
   {
@@ -1625,7 +1803,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "−5 no ataque, +10 no dano",
     icone: "fa-scale-unbalanced",
     cor: "var(--color-power)",
-    grupo: "ativo",
+    grupo: "dano",
     criar: () => ({ tipo: "ataque_poderoso", penalidade: 5, bonus: 10 }),
   },
   {
@@ -1634,7 +1812,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Rerrola um teste ou ataque",
     icone: "fa-rotate",
     cor: "var(--color-bonus)",
-    grupo: "ativo",
+    grupo: "d20",
     criar: () => ({ tipo: "reroll", gatilho: "ataque", usos: 1 }),
   },
   {
@@ -1643,7 +1821,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Resultados baixos viram o piso (ex: ≤9 vira 10)",
     icone: "fa-circle-up",
     cor: "var(--primary)",
-    grupo: "ativo",
+    grupo: "d20",
     criar: () => ({ tipo: "floor_d20", minimo: 10, alvo: "teste" }),
   },
   {
@@ -1652,7 +1830,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Mexe num recurso customizado (PC, PN…)",
     icone: "fa-droplet",
     cor: "var(--color-bonus)",
-    grupo: "ativo",
+    grupo: "pools",
     criar: () => ({ tipo: "recurso_delta", recurso: "", valor: 0 }),
   },
   {
@@ -1661,7 +1839,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Visão noturna, sentir presença, sonar…",
     icone: "fa-eye",
     cor: "var(--color-react)",
-    grupo: "ativo",
+    grupo: "movimento",
     criar: () => ({ tipo: "sentido", sentido: "", alcance: 0 }),
   },
   {
@@ -1670,7 +1848,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Ação Padrão, Bônus, Poderosa ou Reação a mais por turno",
     icone: "fa-forward",
     cor: "var(--color-power)",
-    grupo: "ativo",
+    grupo: "tecnica",
     criar: () => ({ tipo: "acao_extra", acao: "padrao", quantidade: 1 }),
   },
   {
@@ -1679,16 +1857,17 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Pesa em quem usa: dano, exaustão, sem PP ou sem Haki",
     icone: "fa-heart-crack",
     cor: "var(--danger)",
-    grupo: "ativo",
+    grupo: "tecnica",
     criar: () => ({ tipo: "colateral", o: "dano", quando: "uso", valor: "" }),
   },
   {
     id: "sucesso_auto",
-    nome: "Sucesso Automático",
-    descricao: "Passa sem rolar em algum teste/condição",
+    nome: "Sucesso ou Falha Automática",
+    descricao: "Passa ou falha sem rolar num tipo de teste",
+    irmaos: ["falha_auto"],
     icone: "fa-check",
     cor: "var(--color-bonus)",
-    grupo: "buff",
+    grupo: "d20",
     criar: () => ({ tipo: "sucesso_auto", alvo: "" }),
   },
   {
@@ -1697,7 +1876,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Falha sem rolar em algum teste",
     icone: "fa-xmark",
     cor: "var(--color-danger)",
-    grupo: "buff",
+    grupo: "d20",
     criar: () => ({ tipo: "falha_auto", alvo: "" }),
   },
   {
@@ -1706,7 +1885,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Garante metade do dano máximo da rolagem",
     icone: "fa-shield-halved",
     cor: "var(--color-power)",
-    grupo: "ativo",
+    grupo: "dano",
     criar: () => ({ tipo: "dano_min" }),
   },
   {
@@ -1715,7 +1894,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Soma metros ao alcance, ou troca por outro (campo de visão)",
     icone: "fa-ruler-horizontal",
     cor: "var(--primary)",
-    grupo: "ativo",
+    grupo: "tecnica",
     criar: () => ({ tipo: "alcance", valor: 0 }),
   },
   {
@@ -1724,7 +1903,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Passa por resistência, imunidade ou redução de dano do alvo",
     icone: "fa-bolt-lightning",
     cor: "var(--color-power)",
-    grupo: "ativo",
+    grupo: "dano",
     criar: () => ({ tipo: "ignora", alvo: "Resistência" }),
   },
   {
@@ -1733,7 +1912,7 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
     descricao: "Muda o tipo de dano (vira Verdadeiro, Fogo…)",
     icone: "fa-fire",
     cor: "var(--color-power)",
-    grupo: "ativo",
+    grupo: "dano",
     criar: () => ({ tipo: "trocar_dano", tipoDano: "" }),
   },
   // ─ Defesa ─
@@ -1759,11 +1938,11 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   {
     id: "trigger",
     nome: "Gatilho",
-    descricao: "Reage a uma situação específica",
+    descricao: "Crítico, acerto, dano ou turno: faz outros efeitos",
     icone: "fa-bell",
     cor: "var(--color-power)",
     grupo: "avancado",
-    criar: () => ({ tipo: "trigger", gatilho: "", efeito: "" }),
+    criar: () => ({ tipo: "trigger", gatilho: "", efeito: "", quando: "critico", em: "ataque", faz: [] }),
   },
   {
     id: "livre",
@@ -1776,15 +1955,72 @@ export const PRESETS_EFEITO: PresetEfeito[] = [
   },
 ];
 
-export const GRUPOS_PRESET: { slug: PresetEfeito["grupo"]; nome: string }[] = [
-  { slug: "ajuste", nome: "Números" },
-  { slug: "buff", nome: "Vantagem / Desvantagem" },
+export const GRUPOS_PRESET: { slug: GrupoPreset; nome: string }[] = [
+  { slug: "pools", nome: "PV, PP e recursos" },
+  { slug: "numeros", nome: "Bônus e valores" },
+  { slug: "d20", nome: "Testes e d20" },
+  { slug: "critico", nome: "Crítico" },
+  { slug: "dano", nome: "Dano" },
   { slug: "defesa", nome: "Defesa" },
   { slug: "condicao", nome: "Condições" },
-  { slug: "movimento", nome: "Movimento" },
-  { slug: "ativo", nome: "Combate" },
+  { slug: "tecnica", nome: "Técnica e ação" },
+  { slug: "movimento", nome: "Movimento e sentidos" },
   { slug: "avancado", nome: "Avançado" },
 ];
+
+// Famílias de efeito: um card no seletor, troca dentro do efeito. `rotulo` é o
+// do campo da troca (ausente = "Qual efeito").
+export const FAMILIAS_EFEITO: { tipos: TipoEfeito[]; rotulos: string[]; rotulo?: string }[] = [
+  { tipos: ["vantagem", "desvantagem"], rotulos: ["Vantagem", "Desvantagem"] },
+  { tipos: ["sucesso_auto", "falha_auto"], rotulos: ["Sucesso", "Falha"] },
+  { tipos: ["resistencia", "imunidade", "vulnerabilidade"], rotulos: ["Resistente", "Imune", "Vulnerável"] },
+  { tipos: ["condicao_aplicar", "condicao_remover", "condicao_imune"], rotulos: ["Aplica", "Remove", "Imune"], rotulo: "Faz" },
+  { tipos: ["crit_range", "margem_critico"], rotulos: ["A partir de", "Margem a mais"], rotulo: "Como" },
+  { tipos: ["dano_extra", "dados_extra"], rotulos: ["Fórmula", "Dados iguais aos do dano"], rotulo: "Soma" },
+  {
+    tipos: ["dano_maximo", "piso_dado", "dano_min"],
+    rotulos: ["Dados no máximo", "Dado baixo vira", "Metade do máximo"],
+    rotulo: "Como",
+  },
+  { tipos: ["valor_fixo", "valor_igual"], rotulos: ["Um número", "Outro valor"], rotulo: "Vira" },
+];
+
+// Campos que passam de um efeito da família pro outro na troca.
+const LEVA_NA_TROCA = new Set([
+  "alvo",
+  "quando",
+  "em",
+  "graus",
+  "tipos",
+  "sempre",
+  "condicao",
+  "tipoDano",
+  "sempreAtivo",
+  "dura",
+  "quem",
+  "vale",
+]);
+
+// O mesmo efeito com outro tipo da família: nasce do preset e leva o que dá.
+export function trocarNaFamilia(e: EfeitoHabilidade, tipo: TipoEfeito): EfeitoHabilidade {
+  const base = PRESETS_EFEITO.find((p) => p.id === tipo)?.criar() ?? ({ tipo } as EfeitoHabilidade);
+  const leva = Object.fromEntries(Object.entries(e).filter(([k, v]) => LEVA_NA_TROCA.has(k) && v !== undefined));
+  const novo = { ...base, ...leva } as EfeitoHabilidade & Record<string, unknown>;
+  // Faixa e margem dizem o mesmo número de jeitos diferentes (19-20 = margem 1).
+  if (novo.tipo === "margem_critico" && e.tipo === "crit_range") novo.valor = Math.max(1, 20 - e.minimo);
+  if (novo.tipo === "crit_range" && e.tipo === "margem_critico") novo.minimo = Math.min(19, Math.max(17, 20 - e.valor));
+  // Dados iguais aos do dano só no dano.
+  if (novo.tipo === "dados_extra" && !extraNoDano((e as { em?: string }).em)) delete novo.em;
+  if (novo.tipo === "valor_igual") {
+    const alvo = ALVOS_VALOR_IGUAL.some((a) => a.slug === novo.alvo) ? String(novo.alvo) : "nadar";
+    const atributo = ATRIBUTOS.some((a) => a.slug === alvo);
+    const de = ALVOS_VALOR_IGUAL.find((a) => a.slug !== alvo && (!atributo || a.grupo === "Atributo"))!.slug;
+    Object.assign(novo, { alvo, de });
+  }
+  // Remover e imune não têm o "quando" do aplicar em você.
+  if (e.tipo === "condicao_aplicar" && novo.tipo !== "condicao_aplicar") delete novo.quando;
+  return novo;
+}
 
 // Lê efeitos do Json do banco com defaults defensivos. Descarta entradas que
 // não casam com nenhuma forma conhecida — UI nunca precisa lidar com lixo.
@@ -1952,7 +2188,9 @@ export function efeitoNoInimigo(e: EfeitoHabilidade): boolean {
 
 // A ação põe condição que se evita ou se repete com salvaguarda: usa a CD das técnicas.
 export function condicaoPedeSalvaguarda(acao: { efeitos: unknown }): boolean {
-  return lerEfeitos(acao.efeitos).some((e) => e.tipo === "condicao_aplicar" && (!!e.evita || !!e.repete));
+  return lerEfeitos(acao.efeitos).some(
+    (e) => e.tipo === "condicao_aplicar" && (!!e.evita || !!e.repete) && e.cd == null,
+  );
 }
 
 // Efeitos da ação que valem no inimigo que ela pega.
@@ -2062,6 +2300,7 @@ function normalizarCampos(tipo: TipoEfeito, obj: Record<string, unknown>): Efeit
       else {
         if (obj.repete === true) e.repete = true;
         if (ATRIBUTOS_SET.has(str(obj.evita))) e.evita = str(obj.evita) as Atributo;
+        else if (e.repete && ATRIBUTOS_SET.has(str(obj.sai))) e.sai = str(obj.sai) as Atributo;
       }
       return e;
     }
@@ -2114,9 +2353,28 @@ function normalizarCampos(tipo: TipoEfeito, obj: Record<string, unknown>): Efeit
         formula: str(obj.formula),
         ...(str(obj.quando) ? { quando: str(obj.quando) } : {}),
       };
-    case "trigger":
+    case "trigger": {
+      const quando = QUANDOS_GATILHO.find((q) => q.slug === obj.quando);
+      if (quando) {
+        const n = Math.min(20, Math.max(1, Math.trunc(num(obj.n)) || (quando.slug === "natural_ate" ? 8 : 15)));
+        let faz = lerEfeitos(obj.faz).filter(fazNoGatilho);
+        // Formato antigo: um recurso e quanto.
+        if (faz.length === 0 && str(obj.recurso) && Math.trunc(num(obj.valor))) {
+          faz = [{ tipo: "recurso_delta", recurso: str(obj.recurso), valor: Math.trunc(num(obj.valor)) }];
+        }
+        return {
+          tipo,
+          gatilho: str(obj.gatilho),
+          efeito: str(obj.efeito),
+          quando: quando.slug,
+          ...(quando.comN ? { n } : {}),
+          ...(quando.comEm ? { em: str(obj.em).trim() || "ataque" } : {}),
+          faz,
+        };
+      }
       if (!str(obj.gatilho) && !str(obj.efeito)) return null;
       return { tipo, gatilho: str(obj.gatilho), efeito: str(obj.efeito) };
+    }
     case "crit_range": {
       const minimo = Math.trunc(num(obj.minimo));
       // Faixa válida: 2-20. Default 20 (sem efeito) se vier lixo.
@@ -2126,7 +2384,35 @@ function normalizarCampos(tipo: TipoEfeito, obj: Record<string, unknown>): Efeit
     case "reroll": {
       const gatilho = str(obj.gatilho) || "ataque";
       const usos = Math.max(1, Math.trunc(num(obj.usos)) || 1);
-      return { tipo, gatilho, usos };
+      const ate = Math.trunc(num(obj.ate));
+      return { tipo, gatilho, usos, ...(ate >= 1 && ate <= 19 ? { ate } : {}) };
+    }
+    case "pp_no_erro":
+      return { tipo, modo: obj.modo === "metade" ? "metade" : "tudo" };
+    case "oferece_acao": {
+      const acaoId = str(obj.acaoId);
+      if (!acaoId) return null;
+      return {
+        tipo,
+        acaoId,
+        ...(str(obj.nome) ? { nome: str(obj.nome).slice(0, 80) } : {}),
+        ...(obj.trocaDano === true ? { trocaDano: true } : {}),
+      };
+    }
+    case "item": {
+      const itemId = str(obj.itemId);
+      if (!itemId) return null;
+      const lido = FAZ_ITEM.find((f) => f.slug === obj.faz)?.slug;
+      // Berries só gasta ou ganha.
+      const faz = itemId === ITEM_BERRIES ? (lido === "ganha" ? "ganha" : "gasta") : (lido ?? "equipa");
+      const quantidade = fazComQuantidade(faz) ? Math.min(9999999, Math.max(1, Math.trunc(num(obj.quantidade)) || 1)) : 1;
+      return {
+        tipo,
+        itemId,
+        faz,
+        ...(quantidade > 1 ? { quantidade } : {}),
+        ...(str(obj.nome) ? { nome: str(obj.nome).slice(0, 80) } : {}),
+      };
     }
     case "floor_d20": {
       const minimo = Math.trunc(num(obj.minimo));
@@ -2378,7 +2664,11 @@ function normalizarCampos(tipo: TipoEfeito, obj: Record<string, unknown>): Efeit
       const por = str(obj.por).trim().slice(0, 24);
       const max = Math.min(20, Math.max(1, Math.trunc(num(obj.max)) || 5));
       const passos = Math.min(max, Math.max(0, Math.trunc(num(obj.passos))));
-      const cresce = obj.cresce === "turno" || obj.cresce === "rolagem" ? obj.cresce : null;
+      const evento = (v: unknown) => EVENTOS_PROGRESSIVO.find((x) => x.slug === v)?.slug ?? null;
+      // Um evento faz uma coisa só; descanso só zera.
+      const cresce = [evento(obj.cresce)].find((x) => x && !eventoSoZera(x)) ?? null;
+      const perde = [evento(obj.perde)].find((x) => x && !eventoSoZera(x) && x !== cresce) ?? null;
+      const zera = [evento(obj.zera)].find((x) => x && x !== cresce && x !== perde) ?? null;
       return {
         tipo,
         formula,
@@ -2388,6 +2678,9 @@ function normalizarCampos(tipo: TipoEfeito, obj: Record<string, unknown>): Efeit
         ...(por && !cresce ? { por } : {}),
         ...(passos ? { passos } : {}),
         ...(cresce ? { cresce } : {}),
+        ...(perde ? { perde } : {}),
+        ...(zera ? { zera } : {}),
+        ...(obj.inicio === "cheio" ? { inicio: "cheio" as const } : {}),
       };
     }
     case "colateral": {
@@ -2624,8 +2917,21 @@ export function fatorDeDano(
 // Nome do efeito no card; Dano Extra numa jogada de d20 vira "Dado Extra".
 export function nomeDoEfeito(e: EfeitoHabilidade): string {
   if (e.tipo === "dano_extra" && !extraNoDano(e.em)) return "Dado Extra";
+  if (e.tipo === "item" && e.itemId === ITEM_BERRIES) return "Berries";
+  if (e.tipo === "cura") return CURA_POR_POOL[alvoDaCura(e)].nome;
+  if (e.tipo === "modificador") {
+    const fixo = NOME_DO_POOL[e.alvo.trim().toLowerCase()];
+    if (fixo) return fixo;
+  }
   return META_EFEITOS[e.tipo].nome;
 }
+
+// Bônus num pool fixo leva o nome do pool (o card que o criou).
+const NOME_DO_POOL: Record<string, string> = {
+  "hp-temp": "PV Temporário",
+  "hp-max": "PV Máximo",
+  "pp-max": "PP Máximo",
+};
 
 // Alvo de bônus que cai numa rolagem (teste, ataque ou dano), não num valor fixo.
 export function alvoDeRolagem(alvoRaw: string, slugsPericiaCustom: Set<string> = new Set()): boolean {
@@ -2698,9 +3004,52 @@ export function progressivoNaFicha(
   return !!alvo && !alvoDeRolagem(alvo, slugsPericiaCustom);
 }
 
-// "turno", "rolagem" ou o texto livre do efeito.
-function porDoProgressivo(e: { cresce?: GatilhoProgressivo; por?: string }): string {
-  return e.cresce ?? e.por ?? "vez";
+// "turno", "acerto" (o que faz subir) ou o texto livre do efeito; cheio, "carga".
+function porDoProgressivo(e: { cresce?: GatilhoProgressivo; por?: string; inicio?: "cheio" }): string {
+  return textoDoEvento(e.cresce) ?? e.por ?? (e.inicio === "cheio" ? "carga" : "vez");
+}
+
+function textoDoEvento(evento: GatilhoProgressivo | undefined): string | undefined {
+  return evento ? EVENTOS_PROGRESSIVO.find((x) => x.slug === evento)?.texto : undefined;
+}
+
+type ContagemProgressivo = {
+  max: number;
+  cresce?: GatilhoProgressivo;
+  perde?: GatilhoProgressivo;
+  zera?: GatilhoProgressivo;
+  inicio?: "cheio";
+};
+
+// A contagem depois do evento: sobe, perde ou volta ao começo (vazio ou cheio).
+export function passosNoEvento(e: ContagemProgressivo, atual: number, evento: GatilhoProgressivo, vezes = 1): number {
+  let n = atual;
+  if (e.cresce === evento) n += vezes;
+  if (e.perde === evento) n -= vezes;
+  if (e.zera === evento) n = e.inicio === "cheio" ? e.max : 0;
+  return Math.min(e.max, Math.max(0, n));
+}
+
+// Os eventos que mexem na contagem.
+export function eventosDoProgressivo(e: ContagemProgressivo): GatilhoProgressivo[] {
+  return [e.cresce, e.perde, e.zera].filter((x): x is GatilhoProgressivo => !!x);
+}
+
+// Rolagem que mexe na contagem, pro Rolador avisar: `passos` grava, `soma` sobe a partir da da ficha.
+export function contagemDaRolagem(e: ContagemProgressivo): { soma: number } | { passos: number } | null {
+  if (e.zera === "rolagem") return { passos: e.inicio === "cheio" ? e.max : 0 };
+  const soma = (e.cresce === "rolagem" ? 1 : 0) - (e.perde === "rolagem" ? 1 : 0);
+  return soma ? { soma } : null;
+}
+
+// Eventos do d20 pros progressivos: quantos críticos e quantos 1 natural.
+export function eventosDoD20(lances: { natural: number | null; critico: boolean }[]): { evento: GatilhoProgressivo; vezes: number }[] {
+  const criticos = lances.filter((l) => l.critico).length;
+  const uns = lances.filter((l) => l.natural === 1).length;
+  return [
+    ...(criticos ? [{ evento: "critico" as const, vezes: criticos }] : []),
+    ...(uns ? [{ evento: "falha_critica" as const, vezes: uns }] : []),
+  ];
 }
 
 // Evento do Rolador: a contagem de um bônus progressivo mudou lá.
@@ -2729,18 +3078,26 @@ export function comPassosProgressivos(
   return mudou ? novos : null;
 }
 
-// Passar turno: os progressivos "por turno" sobem um passo; null se nenhum sobe.
-export function crescerPorTurno(
+// Os progressivos com a contagem depois dos eventos (em ordem); null se nenhum muda.
+export function moverProgressivos(
   raw: unknown,
+  eventos: { evento: GatilhoProgressivo; vezes?: number }[],
 ): { efeitos: EfeitoHabilidade[]; textos: string[] } | null {
   const textos: string[] = [];
   const efeitos = lerEfeitos(raw).map((e) => {
-    if (e.tipo !== "progressivo" || e.cresce !== "turno" || (e.passos ?? 0) >= e.max) return e;
-    const passos = (e.passos ?? 0) + 1;
-    textos.push(`bônus progressivo ${passos} de ${e.max}`);
-    return { ...e, passos };
+    if (e.tipo !== "progressivo") return e;
+    const antes = Math.min(e.max, e.passos ?? 0);
+    const depois = eventos.reduce((n, x) => passosNoEvento(e, n, x.evento, x.vezes ?? 1), antes);
+    if (depois === antes) return e;
+    textos.push(`bônus progressivo ${depois} de ${e.max}`);
+    return { ...e, passos: depois || undefined };
   });
   return textos.length ? { efeitos, textos } : null;
+}
+
+// Passar turno: o que sobe, perde ou zera por turno; null se nada muda.
+export function crescerPorTurno(raw: unknown): { efeitos: EfeitoHabilidade[]; textos: string[] } | null {
+  return moverProgressivos(raw, [{ evento: "turno" }]);
 }
 
 export type Substituicao = { atributo: Atributo; fontes: string[]; seMaior?: boolean };
@@ -2787,6 +3144,8 @@ export type ContextoRolagem =
       tecnica?: boolean;
       multiataque?: boolean;
       municao?: { id: string; nome: string };
+      // Ação de onde saiu o ataque (os gatilhos dela valem nele).
+      acaoId?: string;
     }
   // `concentracao`: a salvaguarda de CON pra manter a concentração.
   | { tipo: "salvaguarda"; atributo: Atributo; concentracao?: boolean }
@@ -2804,6 +3163,123 @@ export type ContextoRolagem =
       grau?: number;
       tiposDano?: string[];
     };
+
+// Gatilho já agregado, com a habilidade (ou item) de onde veio.
+export type GatilhoDaFicha = {
+  quando: QuandoGatilho;
+  n?: number;
+  em?: string;
+  faz: EfeitoHabilidade[];
+  fonte: string;
+};
+
+// "d20 8 ou menos · Ataque", "Acertou um ataque · Ataque CC", "Caiu a 0 PV".
+export function situacaoDoGatilho(e: { quando?: QuandoGatilho; n?: number; em?: string }): string {
+  const q = QUANDOS_GATILHO.find((x) => x.slug === e.quando);
+  if (!q) return "";
+  const nome = q.comN ? q.nome.replace("N", String(e.n ?? (q.slug === "natural_ate" ? 8 : 15))) : q.nome;
+  return q.comEm ? `${nome} · ${rotuloAlvo(e.em || "ataque")}` : nome;
+}
+
+// O que aconteceu: um d20 com contexto (cada lance), ataques que acertaram ou
+// erraram (num contexto de ataque), ou uma das situações sem jogada.
+export type EventoGatilho =
+  | { tipo: "d20"; contexto: ContextoRolagem; lances: { natural: number | null; critico: boolean }[] }
+  | { tipo: "acertou" | "errou"; contexto: ContextoRolagem; vezes: number }
+  | {
+      tipo: Exclude<QuandoGatilho, "critico" | "falha_critica" | "natural_ate" | "natural_min" | "acertou" | "errou">;
+      vezes?: number;
+    };
+
+// Gatilhos que estão nos efeitos de uma ação: valem nos eventos dela (o ataque
+// dela, o uso) e, se ela dura, enquanto estiver em curso.
+export function gatilhosDosEfeitos(efeitos: unknown, fonte: string): GatilhoDaFicha[] {
+  return lerEfeitos(efeitos).flatMap((e) =>
+    e.tipo === "trigger" && e.quando && e.faz?.length
+      ? [{ quando: e.quando, ...(e.n ? { n: e.n } : {}), ...(e.em ? { em: e.em.trim().toLowerCase() } : {}), faz: e.faz, fonte }]
+      : [],
+  );
+}
+
+// Um acerto (ou crítico) nesse contexto faz algum gatilho oferecer a ação?
+// Devolve se é no lugar do dano; null = não oferece.
+export function ofereceAcao(
+  gatilhos: GatilhoDaFicha[],
+  resultado: "acerto" | "critico",
+  contexto: ContextoRolagem,
+  acaoId: string,
+): { trocaDano: boolean } | null {
+  let oferece = false;
+  let trocaDano = false;
+  for (const g of gatilhos) {
+    if (g.quando !== "acertou" && !(g.quando === "critico" && resultado === "critico")) continue;
+    if (!casaContexto(g.em ?? "ataque", contexto)) continue;
+    for (const e of g.faz) {
+      if (e.tipo !== "oferece_acao" || e.acaoId !== acaoId) continue;
+      oferece = true;
+      if (e.trocaDano) trocaDano = true;
+    }
+  }
+  return oferece ? { trocaDano } : null;
+}
+
+// Gatilhos que o evento dispara, com quantas vezes (multiataque conta cada ataque).
+export function gatilhosDoEvento(
+  gatilhos: GatilhoDaFicha[],
+  evento: EventoGatilho,
+): (GatilhoDaFicha & { vezes: number })[] {
+  const out: (GatilhoDaFicha & { vezes: number })[] = [];
+  for (const g of gatilhos) {
+    if (g.faz.length === 0) continue;
+    let vezes = 0;
+    if (evento.tipo === "d20") {
+      if (evento.contexto.tipo === "dano" || !casaContexto(g.em ?? "ataque", evento.contexto)) continue;
+      vezes = evento.lances.filter((l) => {
+        if (g.quando === "critico") return l.critico;
+        if (l.natural == null) return false;
+        if (g.quando === "falha_critica") return l.natural === 1;
+        if (g.quando === "natural_ate") return l.natural <= (g.n ?? 8);
+        if (g.quando === "natural_min") return l.natural >= (g.n ?? 15);
+        return false;
+      }).length;
+    } else if (evento.tipo === "acertou" || evento.tipo === "errou") {
+      if (g.quando !== evento.tipo || !casaContexto(g.em ?? "ataque", evento.contexto)) continue;
+      vezes = evento.vezes;
+    } else if (g.quando === evento.tipo) {
+      vezes = evento.vezes ?? 1;
+    }
+    if (vezes > 0) out.push({ ...g, vezes });
+  }
+  return out;
+}
+
+// Contexto de d20 que veio do cliente; null = não é d20 ou veio torto.
+export function lerContextoRolagem(raw: unknown): ContextoRolagem | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const atributo = ATRIBUTOS.find((a) => a.slug === o.atributo)?.slug;
+  switch (o.tipo) {
+    case "ataque":
+      return {
+        tipo: "ataque",
+        alcance: o.alcance === "distancia" ? "distancia" : "corpo_a_corpo",
+        tecnica: o.tecnica === true,
+        ...(typeof o.acaoId === "string" && o.acaoId ? { acaoId: o.acaoId.slice(0, 64) } : {}),
+      };
+    case "salvaguarda":
+      return atributo ? { tipo: "salvaguarda", atributo, concentracao: o.concentracao === true } : null;
+    case "pericia":
+      return typeof o.pericia === "string" && o.pericia
+        ? { tipo: "pericia", pericia: o.pericia, ...(atributo ? { atributo } : {}) }
+        : null;
+    case "teste-atributo":
+      return atributo ? { tipo: "teste-atributo", atributo } : null;
+    case "iniciativa":
+      return { tipo: "iniciativa" };
+    default:
+      return null;
+  }
+}
 
 // Verifica se um alvo (slug salvo no efeito) casa com o contexto da
 // rolagem. Slugs livres (fora de ALVOS_CONTEXTUAIS) NUNCA casam — viram
@@ -3023,6 +3499,8 @@ export type EfeitosAgregados = {
   bonusHpMax: FonteValor;
   bonusHpTemp: FonteValor;
   bonusPpMax: FonteValor;
+  // Ganho de ponto (PA, PT) por efeito, por id do ponto, uma linha por fonte (lib/pontos.ts).
+  ganhoPonto: Partial<Record<string, { nome: string; valor: number }[]>>;
   bonusAtaque: FonteValor;
   bonusAtaqueCC: FonteValor;
   bonusAtaqueDistancia: FonteValor;
@@ -3051,6 +3529,12 @@ export type EfeitosAgregados = {
   floorsD20: (Gasto & { minimo: number; alvo: string; fonte: string })[];
   // Rerrolagens por gatilho (ataque/salvaguarda/teste). Usos somam.
   rerolls: Partial<Record<string, UsoLimitado>>;
+  // Efeito Gatilho: situação (d20, combate, turno, uso) que muda um recurso.
+  gatilhos: GatilhoDaFicha[];
+  // Rerrolar sozinho quando o d20 natural sai até `ate` ("Hoje Não!").
+  rerollsAte: { alvo: string; ate: number; fonte: string }[];
+  // PP de volta quando a técnica erra; `gasta` = habilidade de usos limitados.
+  ppNoErro: (Gasto & { modo: "tudo" | "metade"; fonte: string })[];
   // Sentidos especiais (visão escuro, sentir presença…). Indexado por nome
   // do sentido; o maior alcance vence.
   sentidos: Partial<Record<string, FonteValor>>;
@@ -3130,8 +3614,13 @@ export type EfeitosAgregados = {
     por: string;
     passos: number;
     cresce?: GatilhoProgressivo;
+    perde?: GatilhoProgressivo;
+    zera?: GatilhoProgressivo;
+    inicio?: "cheio";
     fonte: string;
   }[];
+  // Eventos que mexem em algum bônus progressivo das fontes que valem (o d20 só avisa o servidor com eles).
+  eventosProgressivo?: GatilhoProgressivo[];
   // Valor fixo por alvo (CR, deslocamentos): vale o maior.
   valoresFixos: Partial<Record<string, FonteValor>>;
   // Dado da arma fixo (vale o maior).
@@ -3200,6 +3689,7 @@ function vazio(): EfeitosAgregados {
     bonusHpMax: { valor: 0, fontes: [] },
     bonusHpTemp: { valor: 0, fontes: [] },
     bonusPpMax: { valor: 0, fontes: [] },
+    ganhoPonto: {},
     bonusAtaque: { valor: 0, fontes: [] },
     bonusAtaqueCC: { valor: 0, fontes: [] },
     bonusAtaqueDistancia: { valor: 0, fontes: [] },
@@ -3220,6 +3710,9 @@ function vazio(): EfeitosAgregados {
     critsFaixa: [],
     floorsD20: [],
     rerolls: {},
+    gatilhos: [],
+    rerollsAte: [],
+    ppNoErro: [],
     sentidos: {},
     deslocamentosExtra: {},
     ajustesDeslocamento: [],
@@ -3247,6 +3740,7 @@ function vazio(): EfeitosAgregados {
     multiAtaques: [],
     explosoes: [],
     progressivos: [],
+    eventosProgressivo: [],
     valoresFixos: {},
     dadoArmaFixo: null,
     trocaDano: null,
@@ -3326,6 +3820,24 @@ export function alvoDaCura(e: { alvoCura?: string }): AlvoCura {
   if (onde === "pp") return "pp";
   if (onde === "hp-temp" || onde === "hptemp" || onde === "pv-temp" || onde === "ppv") return "hp-temp";
   return "hp";
+}
+
+// O que a cura dá: a unidade, o verbo, o nome e o ícone mudam com o pool.
+const CURA_POR_POOL: Record<AlvoCura, { unidade: string; verbo: string; nome: string; icone: string }> = {
+  hp: { unidade: "PV", verbo: "Cura", nome: "Cura", icone: "fa-heart" },
+  "hp-temp": { unidade: "PV temporário", verbo: "Ganha", nome: "PV Temporário", icone: "fa-shield-heart" },
+  pp: { unidade: "PP", verbo: "Recupera", nome: "Pontos de Poder", icone: "fa-bolt" },
+};
+
+// "Cura 2d8+3 PV", "Ganha 10 PV temporário", "Recupera 12 PP".
+export function textoDaCura(e: { alvoCura?: string }, valor: string): string {
+  const c = CURA_POR_POOL[alvoDaCura(e)];
+  return `${c.verbo} ${valor} ${c.unidade}`;
+}
+
+// Ícone do efeito; o da cura muda com o pool.
+export function iconeDoEfeito(e: EfeitoHabilidade): string {
+  return e.tipo === "cura" ? CURA_POR_POOL[alvoDaCura(e)].icone : META_EFEITOS[e.tipo].icone;
 }
 
 // Valor de cura fixo ("10"); null quando é fórmula ("2d10+CON").
@@ -3681,6 +4193,9 @@ export function efeitoEhSustentado(e: EfeitoHabilidade): boolean {
       const a = e.alvo.trim().toLowerCase();
       return a !== "hp-temp" && a !== "hptemp";
     }
+    // Gatilho fica valendo: numa ação que dura, vale enquanto ela estiver em curso.
+    case "trigger":
+      return !!e.quando;
     case "vantagem":
     case "desvantagem":
     case "sucesso_auto":
@@ -3717,6 +4232,7 @@ export function efeitoEhSustentado(e: EfeitoHabilidade): boolean {
     case "explosao":
     case "progressivo":
     case "valor_igual":
+    case "pp_no_erro":
       return true;
     default:
       return false;
@@ -3749,7 +4265,8 @@ export function podeSerSempreAtivo(e: EfeitoCru): boolean {
     e.tipo === "dados_extra" ||
     e.tipo === "dano_maximo" ||
     e.tipo === "ignora" ||
-    e.tipo === "alcance"
+    e.tipo === "alcance" ||
+    (e.tipo === "trigger" && !!e.quando)
   );
 }
 
@@ -4288,7 +4805,20 @@ export function agregarEfeitos(
       } else if (e.tipo === "reroll") {
         const limite = limiteDeUso(h, f);
         if (limite === "esgotado") continue;
-        out.rerolls[e.gatilho] = somarUsoLimitado(out.rerolls[e.gatilho], h.nome, limite);
+        if (e.ate) out.rerollsAte.push({ alvo: (e.gatilho || "qualquer").trim().toLowerCase(), ate: e.ate, fonte: h.nome });
+        else out.rerolls[e.gatilho] = somarUsoLimitado(out.rerolls[e.gatilho], h.nome, limite);
+      } else if (e.tipo === "pp_no_erro") {
+        if (!semUsos) out.ppNoErro.push({ modo: e.modo, fonte: h.nome, ...(gasto ?? {}) });
+      } else if (e.tipo === "trigger") {
+        if (e.quando && e.faz?.length && !semUsos) {
+          out.gatilhos.push({
+            quando: e.quando,
+            ...(e.n ? { n: e.n } : {}),
+            ...(e.em ? { em: e.em.trim().toLowerCase() } : {}),
+            faz: e.faz,
+            fonte: h.nome,
+          });
+        }
       } else if (e.tipo === "sentido") {
         const key = e.sentido.trim().toLowerCase();
         if (!key) continue;
@@ -4533,6 +5063,9 @@ export function agregarEfeitos(
         });
       } else if (e.tipo === "progressivo") {
         const em = (e.em ?? "dano").trim().toLowerCase() || "dano";
+        for (const ev of eventosDoProgressivo(e)) {
+          if (!out.eventosProgressivo!.includes(ev)) out.eventosProgressivo!.push(ev);
+        }
         if (progressivoNaFicha(em, slugsPericiaCustom)) {
           // Valor da ficha: a fórmula uma vez por passo contado no card.
           if (e.passos) {
@@ -4546,6 +5079,9 @@ export function agregarEfeitos(
             por: porDoProgressivo(e),
             passos: e.passos ?? 0,
             ...(e.cresce ? { cresce: e.cresce } : {}),
+            ...(e.perde ? { perde: e.perde } : {}),
+            ...(e.zera ? { zera: e.zera } : {}),
+            ...(e.inicio ? { inicio: e.inicio } : {}),
             fonte: h.nome,
           });
         }
@@ -4679,7 +5215,16 @@ export type ChipContexto = {
   // Teto da contagem: passos do bônus progressivo, ou usos empilháveis do chip sob demanda.
   max?: number;
   memoria?: string;
-  progressivo?: { fonte: string; formula: string; em: string; passos: number; cresce?: GatilhoProgressivo };
+  progressivo?: {
+    fonte: string;
+    formula: string;
+    em: string;
+    passos: number;
+    cresce?: GatilhoProgressivo;
+    perde?: GatilhoProgressivo;
+    zera?: GatilhoProgressivo;
+    inicio?: "cheio";
+  };
 };
 
 // Subconjunto do agregado que o Rolador precisa pra montar os chips — evita
@@ -4691,6 +5236,8 @@ export type EfeitosContexto = Pick<
   | "margemCritico"
   | "floorsD20"
   | "rerolls"
+  | "gatilhos"
+  | "rerollsAte"
   | "danosMin"
   | "trocaDano"
   | "ignoras"
@@ -4706,6 +5253,7 @@ export type EfeitosContexto = Pick<
   | "multiAtaques"
   | "explosoes"
   | "progressivos"
+  | "eventosProgressivo"
 >;
 
 export function efeitosDoContexto(agg: EfeitosAgregados): EfeitosContexto {
@@ -4715,6 +5263,8 @@ export function efeitosDoContexto(agg: EfeitosAgregados): EfeitosContexto {
     margemCritico: agg.margemCritico,
     floorsD20: agg.floorsD20,
     rerolls: agg.rerolls,
+    gatilhos: agg.gatilhos ?? [],
+    rerollsAte: agg.rerollsAte ?? [],
     danosMin: agg.danosMin,
     trocaDano: agg.trocaDano,
     ignoras: agg.ignoras ?? [],
@@ -4730,6 +5280,7 @@ export function efeitosDoContexto(agg: EfeitosAgregados): EfeitosContexto {
     multiAtaques: agg.multiAtaques ?? [],
     explosoes: agg.explosoes ?? [],
     progressivos: agg.progressivos ?? [],
+    eventosProgressivo: agg.eventosProgressivo ?? [],
   };
 }
 
@@ -5001,6 +5552,9 @@ export function chipsDoContexto(
         em: p.em,
         passos: p.passos ?? 0,
         ...(p.cresce ? { cresce: p.cresce } : {}),
+        ...(p.perde ? { perde: p.perde } : {}),
+        ...(p.zera ? { zera: p.zera } : {}),
+        ...(p.inicio ? { inicio: p.inicio } : {}),
       },
       detalhe: `por ${p.por ?? "vez"}`,
     });
@@ -5272,6 +5826,13 @@ function aplicarModificador(
 ) {
   const alvo = alvoRaw.trim().toLowerCase();
   if (!alvo || !valor) return;
+  if (alvo.startsWith("ponto:")) {
+    const lista = (out.ganhoPonto[alvo.slice(6)] ??= []);
+    const linha = lista.find((l) => l.nome === fonte);
+    if (linha) linha.valor += valor;
+    else lista.push({ nome: fonte, valor });
+    return;
+  }
   if (PERICIAS_SET.has(alvo)) {
     somarFonteValor(out.bonusPericia, alvo, valor, fonte);
     return;
@@ -5386,6 +5947,24 @@ export type ContextoResumo = {
 
 // Resumo curto do efeito pro chip; `nomeRecurso` traduz id de recurso. Com `ctx`,
 // as fórmulas saem resolvidas ("+PROF/2" → "+2"); sem grau, GRAU fica escrito.
+// "+1 Pontos de Resiliência, Cura 1d8 PV": o que o `faz` de um Gatilho faz. Recurso
+// e PV temporário já dizem o que são; os outros levam o nome do efeito.
+export function textoDoFaz(
+  faz: EfeitoHabilidade[],
+  nomeRecurso?: (id: string) => string | undefined,
+  ctx?: ContextoResumo,
+): string {
+  const comNome = new Set(["condicao_aplicar", "condicao_remover", "colateral", "acao_extra"]);
+  const antes = (f: EfeitoHabilidade) => (comNome.has(f.tipo) ? `${META_EFEITOS[f.tipo]?.nome ?? f.tipo} ` : "");
+  return faz
+    .map((f) =>
+      f.tipo === "cura"
+        ? textoDaCura(f, resumoEfeito(f, nomeRecurso, ctx))
+        : `${antes(f)}${resumoEfeito(f, nomeRecurso, ctx)}`.trim(),
+    )
+    .join(", ");
+}
+
 export function resumoEfeito(
   e: EfeitoHabilidade,
   nomeRecurso?: (id: string) => string | undefined,
@@ -5450,7 +6029,8 @@ export function resumoEfeito(
         (e.cd ? `${e.condicao} (CD ${e.cd})` : e.condicao) +
         (e.emVoce ? ` em você${e.quando === "fim" ? " no fim" : ""}` : "") +
         ` · ${dura}` +
-        (e.evita ? ` · evita: salv. ${ATRIBUTOS.find((a) => a.slug === e.evita)?.sigla ?? e.evita}` : "")
+        (e.evita ? ` · evita: salv. ${ATRIBUTOS.find((a) => a.slug === e.evita)?.sigla ?? e.evita}` : "") +
+        (e.sai ? ` · sai: salv. ${ATRIBUTOS.find((a) => a.slug === e.sai)?.sigla ?? e.sai}` : "")
       );
     }
     case "resistencia":
@@ -5481,11 +6061,21 @@ export function resumoEfeito(
     case "rolagem":
       return texto(e.formula);
     case "trigger":
-      return e.gatilho || e.efeito;
+      return e.quando ? `${situacaoDoGatilho(e)} → ${textoDoFaz(e.faz ?? [], nomeRecurso, ctx) || "nada"}` : e.gatilho || e.efeito;
     case "crit_range":
       return `${e.minimo}-20${e.alvo && e.alvo !== "ataque" ? ` · ${rotuloAlvo(e.alvo)}` : ""}`;
     case "reroll":
-      return rotuloAlvo(e.gatilho);
+      return `${rotuloAlvo(e.gatilho)}${e.ate ? ` · d20 até ${e.ate}` : ""}`;
+    case "pp_no_erro":
+      return e.modo === "metade" ? "metade do PP" : "todo o PP";
+    case "item": {
+      const verbo = FAZ_ITEM.find((f) => f.slug === e.faz)?.nome ?? "Equipa";
+      const n = e.quantidade ?? 1;
+      if (e.itemId === ITEM_BERRIES) return `${verbo} ฿ ${n.toLocaleString("pt-BR")}`;
+      return `${verbo} ${fazComQuantidade(e.faz) && n > 1 ? `${n}× ` : ""}${e.nome || "item"}`;
+    }
+    case "oferece_acao":
+      return `Oferece ${e.nome || "ação"}${e.trocaDano ? " no lugar do dano" : ""}`;
     case "floor_d20":
       return `≤${e.minimo} ⇒ ${e.minimo} · ${rotuloAlvo(e.alvo ?? "qualquer")}`;
     case "sentido":
@@ -5584,9 +6174,15 @@ export function resumoEfeito(
       }`;
     }
     case "progressivo":
-      return `+${texto(e.formula).replace(/^\+\s*/, "")} por ${porDoProgressivo(e)} · até ${e.max}×${
-        e.em && e.em !== "dano" ? ` · ${rotuloAlvo(e.em)}` : ""
-      }`;
+      return [
+        `+${texto(e.formula).replace(/^\+\s*/, "")} por ${porDoProgressivo(e)} · até ${e.max}×`,
+        e.em && e.em !== "dano" ? rotuloAlvo(e.em) : null,
+        e.inicio === "cheio" ? "começa cheio" : null,
+        e.perde ? `−1 por ${textoDoEvento(e.perde)}` : null,
+        e.zera ? `${e.inicio === "cheio" ? "enche" : "zera"} com ${textoDoEvento(e.zera)}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
     case "colateral":
       return textoDoColateral(e);
     case "livre":

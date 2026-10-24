@@ -14,7 +14,8 @@ import type {
 } from "@prisma/client";
 import { pvComSinal } from "./dano";
 import { agregadoDaFicha, penalidadeDesDasArmaduras } from "./efeitos-servidor";
-import { lerAbas, type AbaFicha } from "./subficha";
+import { combateDaSubficha, lerAbas, type AbaFicha, type CombateSubficha } from "./subficha";
+import { lerNavio } from "./navio";
 import { acoesEmCurso, type AcaoQueDura } from "./turno";
 import {
   ATRIBUTOS,
@@ -192,12 +193,27 @@ export type SubfichaCard = ResumoPersonagem & {
   daMesa: boolean;
   deslocamento: number;
   recursos: { id: string; nome: string; valorAtual: number; valorMax: number }[];
+  // Se entra no combate com o dono e de onde vem a iniciativa.
+  combate: CombateSubficha;
+  // Atalhos do card: as ações dela, sem as formas alternativas.
+  acoes: { id: string; nome: string; tipo: string }[];
+  // Munição no inventário (nome e unidades).
+  municao: { nome: string; quantidade: number }[];
+  // Navio: canhões e quem comanda.
+  canhoes: number | null;
+  comandanteId: string | null;
+  // No combate da mesa agora (a iniciativa e se é a vez dela); null = fora.
+  emCombate?: { iniciativa: number; vez: boolean } | null;
+  comandante?: string | null;
 };
+
+type AcaoDoCard = { id: string; nome: string; tipo?: string; formaDe?: string | null; ordem?: number };
 
 export function resumirSubficha(
   p: PersonagemComFontes & { recursos: Recurso[] },
   recebidas: HabilidadeFonte[] = [],
 ): SubfichaCard {
+  const navio = lerNavio(p.navio);
   const ctx = contextoDasFormulas([...p.habilidades, ...fontesDeEfeitoDeItens(p.itens)], {
     nivel: p.nivel,
     atributos: p,
@@ -210,11 +226,22 @@ export function resumirSubficha(
     moldeId: p.moldeId,
     daMesa: !!p.donoMesaId,
     deslocamento: p.deslocamento,
-    recursos: p.recursos.map((r) => ({
+    // Ponto (PA, PT) não tem barra: fica fora do card.
+    recursos: p.recursos.filter((r) => r.tipo !== "ponto").map((r) => ({
       id: r.id,
       nome: r.nome,
       valorAtual: r.valorAtual,
       valorMax: maximoDoRecurso(r, ctx),
     })),
+    combate: combateDaSubficha(p, !!p.donoMesaId),
+    acoes: ((p.acoes ?? []) as AcaoDoCard[])
+      .filter((a) => !a.formaDe)
+      .sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0) || a.nome.localeCompare(b.nome))
+      .map((a) => ({ id: a.id, nome: a.nome, tipo: a.tipo ?? "padrao" })),
+    municao: p.itens
+      .filter((i) => i.tipo === "municao")
+      .map((i) => ({ nome: i.nome, quantidade: i.quantidade })),
+    canhoes: navio ? navio.montagem.canhoes : null,
+    comandanteId: navio?.comandanteId ?? null,
   };
 }

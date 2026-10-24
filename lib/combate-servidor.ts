@@ -176,7 +176,13 @@ export async function carregarCombateDoJogador(
                 nome: r.nome,
                 modo: r.modo,
                 etapa: r.etapa,
-                alvos: r.alvos.map((a) => ({ nome: a.nome, resultado: a.resultado, danoAplicado: a.danoAplicado })),
+                ...(r.corpoACorpo ? { corpoACorpo: true } : {}),
+                alvos: r.alvos.map((a) => ({
+                  instanciaId: a.instanciaId,
+                  nome: a.nome,
+                  resultado: a.resultado,
+                  danoAplicado: a.danoAplicado,
+                })),
               })),
             salvaguardas: resolucoes.flatMap((r) =>
               r.salvaguarda && r.alvos.some((a) => a.instanciaId === minha.id && a.resultado === null)
@@ -293,7 +299,9 @@ export type DanoPeriodico = {
 // começa o turno com todas as ações de volta. O dano por turno das condições
 // roda aqui: no fim do turno de quem passa a vez e no início do de quem recebe.
 // O das criaturas já sai descontado; o dos jogadores volta em `periodicos`.
-export async function avancarTurnoDoCombate(combateId: string): Promise<{ periodicos: DanoPeriodico[] }> {
+export async function avancarTurnoDoCombate(
+  combateId: string,
+): Promise<{ periodicos: DanoPeriodico[]; vez: { saiu: string | null; entrou: string | null } }> {
   const combate = await prisma.combate.findUniqueOrThrow({
     where: { id: combateId },
     select: {
@@ -454,7 +462,7 @@ export async function avancarTurnoDoCombate(combateId: string): Promise<{ period
     ),
   ]);
   await marcarVez(combateId, proximo?.id ?? null);
-  return { periodicos };
+  return { periodicos, vez: { saiu: anterior?.personagemId ?? null, entrou: proximo?.personagemId ?? null } };
 }
 
 // Começo do turno de uma criatura: volta o que é "por turno" (usos que

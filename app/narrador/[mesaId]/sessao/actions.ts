@@ -51,6 +51,7 @@ import {
   registrarSaida,
 } from "@/lib/estatisticas-servidor";
 import { soltarOQueDuravaComPvTemp } from "@/lib/efeitos-servidor";
+import { gatilhosDaVez } from "@/lib/gatilhos-servidor";
 import type { NovoParticipante } from "./types";
 import { lerUsosAcoes, serializarSessao } from "./utils";
 
@@ -612,12 +613,13 @@ export async function avancarTurno(mesaId: string, combateId: string) {
   if (daVez?.personagemId) {
     await passarTurno(daVez.personagemId).catch((err) => console.error("[sessao] passar turno", err));
   }
-  const { periodicos } = await avancarTurnoDoCombate(combateId);
+  const { periodicos, vez } = await avancarTurnoDoCombate(combateId);
   if (periodicos.length > 0) {
     await descontarPeriodicosDoNarrador(mesaId, combateId, periodicos).catch((err) =>
       console.error("[sessao] dano por turno", err),
     );
   }
+  await gatilhosDaVez(vez);
 
   revalidar(mesaId);
   return serializarSessao(await buscarSessaoCompleta(combate.sessaoId));

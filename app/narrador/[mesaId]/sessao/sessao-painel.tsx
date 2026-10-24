@@ -132,8 +132,9 @@ function Olhos({
 }
 
 // `bonus` é o que soma no d20: a iniciativa da ficha (jogador) ou o
-// modificador de Destreza (criatura).
-type LinhaBuilder = NovoParticipante & { id: string; nome: string; bonus: number };
+// modificador de Destreza (criatura). `segue`: subficha com a iniciativa do
+// dono (personagemId dele).
+type LinhaBuilder = NovoParticipante & { id: string; nome: string; bonus: number; segue?: string };
 
 function rolarIniciativa(bonus: number): number {
   return rolarDados([{ faces: 20, sinal: 1 }], bonus).total;
@@ -260,6 +261,21 @@ function encaixar(linhas: LinhaBuilder[], linha: LinhaBuilder): LinhaBuilder[] {
   return resto;
 }
 
+// Subficha que segue o dono fica com o valor dele, logo depois dele.
+function seguirDonos(linhas: LinhaBuilder[]): LinhaBuilder[] {
+  const temDono = (l: LinhaBuilder) => !!l.segue && linhas.some((d) => d.personagemId === l.segue);
+  const seguidoras = linhas.filter(temDono);
+  if (seguidoras.length === 0) return linhas;
+  const resto = linhas.filter((l) => !temDono(l));
+  for (const sub of seguidoras) {
+    const i = resto.findIndex((d) => d.personagemId === sub.segue);
+    let j = i + 1;
+    while (j < resto.length && resto[j].segue === sub.segue) j++;
+    resto.splice(j, 0, { ...sub, iniciativa: resto[i].iniciativa });
+  }
+  return resto;
+}
+
 // Escolha de participantes, reaproveitada tanto pra preparar um combate
 // quanto pra adicionar reforços no meio de um já em andamento (ex: Tropas
 // Intermináveis, que spawna soldados quando um morre).
@@ -273,6 +289,7 @@ function ParticipanteBuilder({
   textoBotao,
   processando,
   personagemIdsNoCombate = [],
+  iniciativaNoCombate = {},
 }: {
   titulo: string;
   criaturas: CriaturaParaCombate[];
@@ -285,6 +302,8 @@ function ParticipanteBuilder({
   // Jogadores já em combate (relevante só ao adicionar reforço no meio de um
   // combate ativo) — não aparecem nos seletores, pra não duplicar a entrada.
   personagemIdsNoCombate?: string[];
+  // Iniciativa de quem já está no combate (a subficha que segue o dono copia).
+  iniciativaNoCombate?: Record<string, number>;
 }) {
   const [linhas, setLinhas] = useState<LinhaBuilder[]>([]);
   const [criaturaEscolhida, setCriaturaEscolhida] = useState("");
@@ -295,23 +314,44 @@ function ParticipanteBuilder({
   );
 
   function adicionar(novas: LinhaBuilder[]) {
-    setLinhas((atual) => novas.reduce(encaixar, atual));
+    setLinhas((atual) => seguirDonos(novas.reduce(encaixar, atual)));
   }
 
   function mudar(id: string, patch: Partial<LinhaBuilder>) {
     setLinhas((atual) => atual.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   }
 
-  // Jogador: d20 + a iniciativa da ficha.
-  const linhaDoJogador = (p: PersonagemParaCombate): LinhaBuilder => ({
-    id: uuid(),
-    nome: p.nome,
-    personagemId: p.id,
-    quantidade: 1,
-    bonus: p.iniciativa,
-    iniciativa: rolarIniciativa(p.iniciativa),
-    agrupar: true,
-  });
+  // Jogador: d20 + a iniciativa da ficha. Subficha que segue o dono: o valor dele.
+  const linhaDoJogador = (p: PersonagemParaCombate, atuais: LinhaBuilder[]): LinhaBuilder => {
+    const segue = p.segueDono && p.donoId ? p.donoId : undefined;
+    const doDono = segue
+      ? (atuais.find((l) => l.personagemId === segue)?.iniciativa ?? iniciativaNoCombate[segue])
+      : undefined;
+    return {
+      id: uuid(),
+      nome: p.nome,
+      personagemId: p.id,
+      quantidade: 1,
+      bonus: p.iniciativa,
+      iniciativa: doDono ?? rolarIniciativa(p.iniciativa),
+      agrupar: true,
+      ...(segue ? { segue } : {}),
+    };
+  };
+
+  // O jogador e as subfichas dele que entram junto.
+  function adicionarJogadores(lista: PersonagemParaCombate[]) {
+    let novas = linhas;
+    const fora = (id: string) => !personagemIdsNoCombate.includes(id) && !novas.some((l) => l.personagemId === id);
+    for (const p of lista) {
+      if (!fora(p.id)) continue;
+      novas = encaixar(novas, linhaDoJogador(p, novas));
+      for (const sub of personagensMesa) {
+        if (sub.donoId === p.id && sub.entraJunto && fora(sub.id)) novas = encaixar(novas, linhaDoJogador(sub, novas));
+      }
+    }
+    setLinhas(seguirDonos(novas));
+  }
 
   // Criatura: d20 + o modificador de Destreza.
   const linhaDaCriatura = (c: CriaturaParaCombate, qtd: number): LinhaBuilder => {
@@ -351,9 +391,9 @@ function ParticipanteBuilder({
   function rolarDeNovo(id?: string) {
     setLinhas((atual) => {
       const rolada = (l: LinhaBuilder) => ({ ...l, iniciativa: rolarIniciativa(l.bonus) });
-      if (!id) return porIniciativa(atual.map(rolada));
+      if (!id) return seguirDonos(porIniciativa(atual.map(rolada)));
       const linha = atual.find((l) => l.id === id);
-      return linha ? encaixar(atual, rolada(linha)) : atual;
+      return linha ? seguirDonos(encaixar(atual, rolada(linha))) : atual;
     });
   }
 
@@ -404,7 +444,7 @@ function ParticipanteBuilder({
                   type="button"
                   key={p.id}
                   className="sessao-chip-jogador"
-                  onClick={() => adicionar([linhaDoJogador(p)])}
+                  onClick={() => adicionarJogadores([p])}
                   title={`Adicionar ${p.nome}`}
                 >
                   <Retrato foto={p.fotoUrl} criatura={false} />
@@ -415,7 +455,8 @@ function ParticipanteBuilder({
                 <button
                   type="button"
                   className="sessao-chip-jogador todos"
-                  onClick={() => adicionar(jogadoresDisponiveis.map(linhaDoJogador))}
+                  // Subficha só vem com o dono (ou pelo chip dela).
+                  onClick={() => adicionarJogadores(jogadoresDisponiveis.filter((p) => !p.subficha))}
                 >
                   <i className="fas fa-plus" /> Todos
                 </button>
@@ -510,7 +551,9 @@ function ParticipanteBuilder({
         </div>
       ) : (
         <div className="sessao-preparo-lista">
-          {reordenar.ordenar(linhas).map((linha) => (
+          {reordenar.ordenar(linhas).map((linha) => {
+            const dono = linha.segue ? linhas.find((l) => l.personagemId === linha.segue) : undefined;
+            return (
             <div
               key={linha.id}
               className={`sessao-preparo-linha${reordenar.vaga(linha.id)}`}
@@ -521,20 +564,29 @@ function ParticipanteBuilder({
                 <input
                   type="number"
                   value={linha.iniciativa}
+                  readOnly={!!dono}
                   aria-label={`Iniciativa de ${linha.nome}`}
-                  title={`d20 ${comSinal(linha.bonus)}`}
+                  title={dono ? `A de ${dono.nome}` : `d20 ${comSinal(linha.bonus)}`}
                   onChange={(e) => mudar(linha.id, { iniciativa: Number(e.target.value) || 0 })}
                   // Vai pro lugar novo só ao sair do campo, pra linha não pular enquanto digita.
-                  onBlur={() => setLinhas((atual) => encaixar(atual, atual.find((l) => l.id === linha.id) ?? linha))}
+                  onBlur={() =>
+                    setLinhas((atual) => seguirDonos(encaixar(atual, atual.find((l) => l.id === linha.id) ?? linha)))
+                  }
                 />
-                <button
-                  type="button"
-                  onClick={() => rolarDeNovo(linha.id)}
-                  title={`Rolar de novo (d20 ${comSinal(linha.bonus)})`}
-                  aria-label="Rolar de novo"
-                >
-                  <i className="fas fa-dice-d20" />
-                </button>
+                {dono ? (
+                  <button type="button" disabled title={`Segue a iniciativa de ${dono.nome}`} aria-label="Iniciativa do dono">
+                    <i className="fas fa-link" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => rolarDeNovo(linha.id)}
+                    title={`Rolar de novo (d20 ${comSinal(linha.bonus)})`}
+                    aria-label="Rolar de novo"
+                  >
+                    <i className="fas fa-dice-d20" />
+                  </button>
+                )}
               </span>
               <Retrato
                 criatura={!!linha.criaturaId}
@@ -547,7 +599,11 @@ function ParticipanteBuilder({
               <span className="sessao-preparo-nome">
                 {linha.nome}
                 <small>
-                  {linha.criaturaId ? `Criatura · DES ${comSinal(linha.bonus)}` : `Jogador · ficha ${comSinal(linha.bonus)}`}
+                  {linha.criaturaId
+                    ? `Criatura · DES ${comSinal(linha.bonus)}`
+                    : dono
+                      ? `Iniciativa de ${dono.nome}`
+                      : `${personagensMesa.find((p) => p.id === linha.personagemId)?.subficha ? "Subficha" : "Jogador"} · d20 ${comSinal(linha.bonus)}`}
                 </small>
               </span>
               {linha.criaturaId ? (
@@ -588,7 +644,8 @@ function ParticipanteBuilder({
                 <i className="fas fa-xmark" />
               </button>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -1518,6 +1575,9 @@ export function SessaoPainel({ mesaId, tiposDano, sessaoInicial, criaturas, pers
               textoBotao="Adicionar ao combate"
               processando={processando}
               personagemIdsNoCombate={combate.participantes.filter((p) => p.personagemId).map((p) => p.personagemId!)}
+              iniciativaNoCombate={Object.fromEntries(
+                combate.participantes.flatMap((p) => (p.personagemId ? [[p.personagemId, p.iniciativa]] : [])),
+              )}
             />
           )}
         </section>

@@ -34,6 +34,8 @@ export function FichaRealtime({
   temSubfichas?: boolean;
 }) {
   const refresh = useRefreshAgrupado();
+  // Tabelas da própria ficha: o eco de quem acabou de mexer aqui não refaz a página.
+  const refreshDaFicha = useRefreshAgrupado(300, true);
   useRefreshOnFocus();
 
   useEffect(() => {
@@ -58,7 +60,7 @@ export function FichaRealtime({
           table: "acoes",
           filter: `personagem_id=eq.${personagemId}`,
         },
-        refresh,
+        refreshDaFicha,
       )
       .on(
         "postgres_changes",
@@ -68,7 +70,7 @@ export function FichaRealtime({
           table: "itens",
           filter: `personagem_id=eq.${personagemId}`,
         },
-        refresh,
+        refreshDaFicha,
       )
       .on(
         "postgres_changes",
@@ -78,7 +80,7 @@ export function FichaRealtime({
           table: "recursos",
           filter: `personagem_id=eq.${personagemId}`,
         },
-        refresh,
+        refreshDaFicha,
       )
       .on(
         "postgres_changes",
@@ -88,7 +90,7 @@ export function FichaRealtime({
           table: "habilidades",
           filter: `personagem_id=eq.${personagemId}`,
         },
-        refresh,
+        refreshDaFicha,
       )
       // Habilidade de aliado ligada (ou desligada) neste personagem.
       .on(
@@ -120,7 +122,7 @@ export function FichaRealtime({
           table: "pericias_custom",
           filter: `personagem_id=eq.${personagemId}`,
         },
-        refresh,
+        refreshDaFicha,
       )
       // Só `arvores` é assinada: camadas e nós não têm personagem_id pra filtrar.
       .on(
@@ -131,7 +133,7 @@ export function FichaRealtime({
           table: "arvores",
           filter: `personagem_id=eq.${personagemId}`,
         },
-        refresh,
+        refreshDaFicha,
       )
       // Narrador também edita objetivos.
       .on(
@@ -192,7 +194,7 @@ export function FichaRealtime({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [personagemId, mesaId, temSubfichas, refresh]);
+  }, [personagemId, mesaId, temSubfichas, refresh, refreshDaFicha]);
 
   return null;
 }

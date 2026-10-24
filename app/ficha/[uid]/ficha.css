@@ -666,6 +666,8 @@
 }
 
 .recurso-card-nome {
+  flex: 1;
+  min-width: 0;
   font-size: 0.8rem;
   font-weight: 700;
   overflow: hidden;
@@ -673,7 +675,22 @@
   white-space: nowrap;
 }
 
+.recurso-volta {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  font-size: 0.62rem;
+  color: var(--sidebar-text-sec);
+}
+
 .recurso-card-acoes {
+  flex-shrink: 0;
   display: flex;
   gap: 4px;
 }
@@ -736,6 +753,531 @@
 .recurso-btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+
+.recurso-virar-ponto {
+  margin-right: auto;
+}
+
+/* ─── PONTOS (PA, PT: saldo derivado) ────────────────────── */
+.ponto-card {
+  --ponto-cor: var(--primary);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-main);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.ponto-card:hover {
+  border-color: var(--ponto-cor);
+}
+
+.ponto-icone {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ponto-cor);
+  background: color-mix(in srgb, var(--ponto-cor) 16%, transparent);
+  font-size: 0.95rem;
+}
+
+.ponto-icone.grande {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  font-size: 1.1rem;
+}
+
+.ponto-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ponto-nome {
+  font-size: 0.8rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ponto-sub {
+  font-size: 0.7rem;
+  color: var(--sidebar-text-sec);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ponto-livres {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1;
+}
+
+.ponto-livres strong {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: var(--ponto-cor);
+  font-variant-numeric: tabular-nums;
+}
+
+.ponto-livres small {
+  font-size: 0.65rem;
+  color: var(--sidebar-text-sec);
+  margin-top: 2px;
+}
+
+.ponto-card.acima .ponto-livres strong,
+.ponto-stat.livres.acima strong {
+  color: var(--warning);
+}
+
+.ponto-card.negativo .ponto-livres strong {
+  color: var(--danger);
+}
+
+.ponto-modal {
+  --ponto-cor: var(--primary);
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ponto-modal h2 {
+  margin: 0;
+}
+
+.ponto-detalhe-topo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ponto-detalhe-topo h2 {
+  flex: 1;
+  min-width: 0;
+  font-size: 1.15rem;
+}
+
+.ponto-sigla {
+  margin-left: 8px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-sec);
+  vertical-align: middle;
+}
+
+.ponto-topo-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-sec);
+  cursor: pointer;
+}
+
+.ponto-topo-btn:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.ponto-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ponto-stat {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+
+.ponto-stat span {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-sec);
+}
+
+.ponto-stat strong {
+  font-size: 1.6rem;
+  font-weight: 800;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.ponto-stat.livres {
+  border-color: var(--ponto-cor);
+  background: color-mix(in srgb, var(--ponto-cor) 12%, transparent);
+}
+
+.ponto-stat.livres span,
+.ponto-stat.livres strong {
+  color: var(--ponto-cor);
+}
+
+.ponto-teto {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.8rem;
+}
+
+.ponto-teto-rotulo {
+  color: var(--text-sec);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ponto-pips {
+  flex: 1;
+  display: flex;
+  gap: 4px;
+}
+
+.ponto-pips span {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+}
+
+.ponto-pips span.cheio {
+  background: var(--ponto-cor);
+  border-color: var(--ponto-cor);
+}
+
+.ponto-aviso {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--warning);
+}
+
+.ponto-secao {
+  margin: 4px 0 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-sec);
+}
+
+.ponto-niveis {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.ponto-nivel {
+  height: 42px;
+  box-sizing: border-box;
+  border-radius: 7px;
+  border: 1.5px solid var(--border);
+  background: var(--bg-surface);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+}
+
+.ponto-nivel span {
+  font-size: 0.62rem;
+  color: var(--text-sec);
+}
+
+.ponto-nivel strong {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--text-sec);
+}
+
+.ponto-nivel.ganhou {
+  border-color: color-mix(in srgb, var(--ponto-cor) 60%, var(--border));
+  background: color-mix(in srgb, var(--ponto-cor) 12%, transparent);
+}
+
+.ponto-nivel.ganhou strong,
+.ponto-nivel.ganhou input {
+  color: var(--text-main);
+}
+
+.ponto-nivel.atual {
+  border-color: var(--ponto-cor);
+}
+
+.ponto-niveis.editavel .ponto-nivel {
+  height: 46px;
+}
+
+.ponto-niveis.editavel input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: var(--text-sec);
+}
+
+.ponto-niveis.editavel input:focus {
+  outline: none;
+}
+
+.ponto-niveis.editavel .ponto-nivel:focus-within {
+  border-color: var(--primary);
+}
+
+.ponto-total {
+  font-weight: 500;
+  color: var(--text-sec);
+}
+
+.ponto-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ponto-linha {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--bg-surface);
+  border: 0;
+  color: var(--text-main);
+  font-family: inherit;
+  text-align: left;
+}
+
+.ponto-linha.clicavel {
+  cursor: pointer;
+}
+
+.ponto-linha.clicavel:hover {
+  outline: 1px solid var(--ponto-cor);
+}
+
+.ponto-linha-icone {
+  color: var(--ponto-cor);
+}
+
+.ponto-linha-texto {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ponto-linha-texto strong {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.ponto-linha-texto small {
+  font-size: 0.7rem;
+  color: var(--text-sec);
+}
+
+.ponto-valor {
+  font-size: 0.85rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.ponto-valor.mais {
+  color: var(--success);
+}
+
+.ponto-ajuste-form {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.ponto-ajuste-form input {
+  margin: 0;
+  min-height: 40px;
+  box-sizing: border-box;
+}
+
+.ponto-ajuste-form input:first-child {
+  width: 96px;
+  flex-shrink: 0;
+  text-align: center;
+}
+
+/* Mesmo botão do .modal-actions (fora dele o .modal-btn-save só tem a cor). */
+.ponto-ajuste-form .modal-btn-save {
+  flex-shrink: 0;
+  margin: 0;
+  min-height: 40px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 8px;
+  font-family: inherit;
+  font-weight: bold;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+
+.ponto-ajuste-form input:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+
+.ponto-modelos {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.ponto-modelo {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ponto-modelo i {
+  color: var(--text-sec);
+}
+
+.ponto-modelo strong {
+  font-size: 0.82rem;
+}
+
+.ponto-modelo small {
+  font-size: 0.7rem;
+  color: var(--text-sec);
+  line-height: 1.3;
+}
+
+.ponto-modelo.ativo {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+.ponto-form-linha {
+  display: flex;
+  gap: 10px;
+}
+
+.ponto-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ponto-chip {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-sec);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ponto-chip.ativo {
+  border-color: var(--ponto-cor);
+  background: color-mix(in srgb, var(--ponto-cor) 14%, transparent);
+  color: var(--text-main);
+}
+
+.ponto-apagar {
+  margin-right: auto;
+  color: var(--danger);
+}
+
+.nivel-ponto {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--ponto-cor) 50%, var(--border));
+  background: color-mix(in srgb, var(--ponto-cor) 7%, transparent);
+  margin-bottom: 6px;
+}
+
+.nivel-ponto-topo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nivel-ponto-ganho {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: var(--success);
+}
+
+.nivel-ponto-gastar {
+  justify-content: center;
+}
+
+@media (max-width: 480px) {
+  .ponto-niveis {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .ponto-modelos {
+    grid-template-columns: 1fr;
+  }
+
+  .ponto-form-linha {
+    flex-wrap: wrap;
+  }
 }
 
 /* ─── DERIVADOS (CR / Iniciativa / Percepção Passiva) ─────── */
@@ -1396,6 +1938,39 @@
 }
 
 .btn-edit-item:hover { color: var(--primary); }
+.btn-edit-item.ativo { color: var(--primary); }
+.btn-edit-item.perigo { color: var(--danger); }
+
+/* ─── Card do item ─── */
+.tab-topo > h1 { margin-right: auto; }
+.item-card-topo {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+.item-peso {
+  font-size: 0.8rem;
+  font-weight: bold;
+  color: var(--text-sec);
+  white-space: nowrap;
+}
+.item-equipado-marca { color: var(--primary); margin-left: 5px; }
+.item-stats { margin-top: 8px; }
+.item-stat-sigla { font-size: 0.75rem; }
+.item-armadura {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 0.85rem;
+  font-weight: bold;
+  color: var(--info);
+}
+.item-armadura-nota { font-size: 0.75rem; font-weight: normal; color: var(--text-sec); }
+.item-opcoes { margin-top: 10px; }
+.inv-vazio { padding: 20px 0; font-style: italic; color: var(--text-sec); }
 
 .placeholder-tab {
   text-align: center;
@@ -2290,8 +2865,26 @@
 .efeito-editor-corpo {
   padding: 10px 12px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0): conteúdo comprido não empurra a outra coluna pra fora. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
+}
+
+.efeito-editor-corpo > div {
+  min-width: 0;
+}
+
+/* "Faz" do Gatilho: a lista de efeitos dele, recuada. */
+.gatilho-faz {
+  margin-top: 5px;
+  padding-left: 10px;
+  border-left: 2px solid color-mix(in oklch, var(--primary) 35%, var(--border));
+}
+
+@media (max-width: 480px) {
+  .efeito-editor-corpo {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .efeito-editor-corpo > div:has(textarea) {
@@ -2728,6 +3321,113 @@
   display: block;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subficha-stat > div {
+  min-width: 0;
+}
+
+.subficha-card.na-vez {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+
+/* Como entra no combate e de onde vem a iniciativa. */
+.subficha-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.subficha-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-sec);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.subficha-chip.combate {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  color: var(--text-main);
+}
+
+.subficha-chip.combate i {
+  color: var(--danger);
+}
+
+.subficha-chip.vez {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 14%, var(--bg-surface));
+}
+
+/* Atalhos: abrem a ficha dela já na ação. */
+.subficha-atalhos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.subficha-atalho {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--atalho-cor, var(--primary)) 40%, var(--border));
+  background: color-mix(in srgb, var(--atalho-cor, var(--primary)) 10%, var(--bg-surface));
+  color: var(--text-main);
+  font-size: 0.8rem;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.subficha-atalho i {
+  color: var(--atalho-cor, var(--primary));
+}
+
+.subficha-atalho:hover,
+.subficha-atalho:focus-visible {
+  border-color: var(--atalho-cor, var(--primary));
+  background: color-mix(in srgb, var(--atalho-cor, var(--primary)) 20%, var(--bg-surface));
+}
+
+.subficha-atalho.mais {
+  color: var(--text-sec);
+}
+
+/* Ação aberta por um atalho: acende por um instante. */
+.action-card.acao-destaque {
+  animation: acao-destaque 1.2s ease-in-out 2;
+}
+
+@keyframes acao-destaque {
+  50% {
+    box-shadow: 0 0 0 3px var(--primary);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .action-card.acao-destaque {
+    animation: none;
+    box-shadow: 0 0 0 3px var(--primary);
+  }
 }
 
 /* Cópias de um molde, dentro do card dele. */
@@ -2882,8 +3582,38 @@
   color: var(--primary);
 }
 
-.opcao-card:active {
+.opcao-card:active:not(:disabled) {
   transform: scale(0.97);
+}
+
+.opcao-card:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.opcao-card:disabled:hover {
+  border-color: var(--border);
+}
+
+.opcao-card.comodo-varios.cheio {
+  opacity: 0.4;
+}
+
+/* Cômodo que repete: o contador ocupa a largura do card. */
+.opcao-card.comodo-varios .passo {
+  align-self: stretch;
+  margin-top: 4px;
+}
+
+.opcao-card.comodo-varios .passo button {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 22px;
+}
+
+.modal-box .opcao-card.comodo-varios .passo input {
+  width: 30px;
+  flex: 0 0 auto;
 }
 
 /* Sidebar da subficha: de quem ela é. */
@@ -5814,6 +6544,55 @@ a.char-dono:hover {
   color: var(--primary);
 }
 
+.acao-pendente {
+  flex-wrap: wrap;
+}
+
+/* Ação que um acerto seu oferece (gatilho de acerto). */
+.acao-oferta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in oklch, var(--warning) 50%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--warning) 12%, transparent);
+  font-size: 0.8rem;
+}
+
+.acao-oferta > i {
+  color: var(--warning);
+}
+
+.acao-oferta > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.acao-oferta-atalho {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in oklch, var(--warning) 50%, var(--border));
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-main);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.acao-oferta-atalho i {
+  color: var(--warning);
+}
+
+.acao-oferta-atalho:hover,
+.acao-oferta-atalho:focus-visible {
+  border-color: var(--warning);
+}
+
 /* Chip que o combate está esperando ser rolado. */
 .acao-rolar.esperando {
   border-color: var(--primary);
@@ -6788,12 +7567,30 @@ form > .turno-campo,
   opacity: 0.75;
 }
 
+.busca-botao-nome {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .busca-botao-grupo {
+  flex-shrink: 0;
   font-size: 0.66rem;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-sec);
+}
+
+/* Botão estreito: o nome fica, o grupo sai. */
+.busca-botao {
+  container-type: inline-size;
+}
+
+@container (max-width: 260px) {
+  .busca-botao-grupo {
+    display: none;
+  }
 }
 
 .busca-botao > i {
@@ -8757,6 +9554,22 @@ form > .turno-campo,
 .bloco-navio-selo.danificado {
   background: color-mix(in oklch, var(--warning) 16%, transparent);
   color: var(--warning);
+}
+
+.bloco-navio-pecas {
+  font-size: 0.75rem;
+  color: var(--text-sec);
+}
+
+.bloco-navio-atalhos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 6px;
+}
+
+.bloco-navio-atalhos .hab-usar {
+  margin-left: 0;
+  justify-content: center;
 }
 
 .bloco-navio-comandante > span {

@@ -10,6 +10,7 @@ import {
   atributosEfetivos,
   bonusTesteAmplo,
   chipsDoContexto,
+  contagemDaRolagem,
   efeitosDoContexto,
   exaustaoQueConta,
   lerProficiencias,
@@ -274,12 +275,13 @@ function calcularBonusTesteInterno(
   const dados: Dado[] = extras.flatMap((c) =>
     Array.from({ length: c.vezes }, () => c.dados ?? []).flat(),
   );
-  // Progressivos "por rolagem" da jogada: sobem um passo quando o jogador rolar.
-  const crescem = chips.flatMap((c) =>
-    c.progressivo?.cresce === "rolagem"
-      ? [{ fonte: c.progressivo.fonte, formula: c.progressivo.formula, em: c.progressivo.em }]
-      : [],
-  );
+  // Progressivos que mexem "na rolagem": sobem, perdem ou zeram quando o jogador rolar.
+  const crescem = chips.flatMap((c) => {
+    const conta = c.progressivo ? contagemDaRolagem({ ...c.progressivo, max: c.max ?? 0 }) : null;
+    return c.progressivo && conta
+      ? [{ fonte: c.progressivo.fonte, formula: c.progressivo.formula, em: c.progressivo.em, ...conta }]
+      : [];
+  });
 
   // Teste puro de atributo: troca de atributo e bônus de alvos largos, como na ficha.
   const puro = teste
@@ -557,8 +559,8 @@ export async function criarSolicitacaoTeste(
   const bonusDetalhesPorAlvo: Record<string, string> = {};
   // Dados a mais de cada alvo, rolados junto do d20.
   const dadosPorAlvo: Record<string, Dado[]> = {};
-  // Progressivos "por rolagem" de cada alvo.
-  const progressivosPorAlvo: Record<string, { fonte: string; formula: string; em: string }[]> = {};
+  // Progressivos que mexem "na rolagem", de cada alvo.
+  const progressivosPorAlvo: Record<string, ({ fonte: string; formula: string; em: string } & ({ soma: number } | { passos: number }))[]> = {};
   for (const item of bonusPorAlvoLista) {
     bonusPorAlvo[item.personagemId] = item.bonus;
     bonusDetalhesPorAlvo[item.personagemId] = item.detalhe;

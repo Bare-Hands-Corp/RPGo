@@ -9,6 +9,7 @@ import { EditFichaModal } from "./edit-ficha-modal";
 import { Tooltip } from "@/components/tooltip";
 import { AvatarUploadModal } from "./avatar-upload-modal";
 import { RecursosSidebar, type Recurso } from "./recursos-sidebar";
+import { pontosAoSubir, type ArvoreQuePaga } from "@/lib/pontos";
 import { FormulaContext } from "./campo-formula";
 import { CrEditavel } from "./cr-editavel";
 import { ExaustaoControle } from "./exaustao-controle";
@@ -142,6 +143,8 @@ type Personagem = {
   // Atributo da CD das técnicas (padrão das ações com salvaguarda).
   atributoCdTecnicas?: string | null;
   recursos: Recurso[];
+  // Pro saldo dos pontos (lib/pontos.ts).
+  arvores?: ArvoreQuePaga[];
   itens: Array<{
     id: string;
     nome: string;
@@ -1380,7 +1383,12 @@ export function PerfilSidebar({
       </div>
 
       <FormulaContext.Provider value={ctxTurno}>
-        <RecursosSidebar personagemId={p.id} recursos={p.recursos} />
+        <RecursosSidebar
+          personagemId={p.id}
+          recursos={p.recursos}
+          arvores={p.arvores ?? []}
+          nivel={p.nivel}
+        />
       </FormulaContext.Provider>
 
       <div className="derivados-grid">
@@ -1793,6 +1801,7 @@ export function PerfilSidebar({
           atributosBase={{ forca, destreza, constituicao, sabedoria, vontade, presenca }}
           bonusTetoAtributo={efeitosAgregados.bonusTetoAtributo}
           camadasQueAbrem={camadasQueAbrem}
+          pontos={pontosAoSubir(p.recursos, p.arvores ?? [], p.nivel)}
           onFechar={() => setModalNivel(false)}
         />
       )}

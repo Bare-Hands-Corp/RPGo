@@ -3,6 +3,9 @@
 
 export type TipoModelo = "habilidade" | "acao";
 
+// O que se copia entre fichas: o modelo das pastas e o item (que só viaja por código).
+export type TipoCopia = TipoModelo | "item";
+
 export type ModeloView = {
   id: string;
   pasta: string;
@@ -19,7 +22,7 @@ export const MAX_NOME_PASTA = 40;
 export const MAX_MODELOS = 300;
 
 // O que vai pra pasta: sem vínculo com item, arma ou habilidade da ficha de origem.
-const CAMPOS: Record<TipoModelo, readonly string[]> = {
+const CAMPOS: Record<TipoCopia, readonly string[]> = {
   habilidade: [
     "nome",
     "origem",
@@ -68,6 +71,29 @@ const CAMPOS: Record<TipoModelo, readonly string[]> = {
     "aliado",
     "alvo",
     "duracao",
+  ],
+  item: [
+    "nome",
+    "peso",
+    "tipo",
+    "quantidade",
+    "tags",
+    "tagsEstilo",
+    "descricao",
+    "dano",
+    "modificador",
+    "ca",
+    "penalidadeDes",
+    "categoria",
+    "alcance",
+    "alcanceMetros",
+    "propriedades",
+    "atributoAtaque",
+    "proficienteArma",
+    "danoBonus",
+    "danoSomaAtributo",
+    "danoSomaProficiencia",
+    "efeitos",
   ],
 };
 
@@ -118,7 +144,7 @@ function trocarRecursos(efeitos: unknown, trocar: (id: string) => string): unkno
 
 // Linha da ficha → dados do modelo.
 export function paraModelo(
-  tipo: TipoModelo,
+  tipo: TipoCopia,
   origem: Record<string, unknown>,
   recursos: RecursoRef[],
 ): Record<string, unknown> {
@@ -142,7 +168,7 @@ export function paraModelo(
 
 // Dados do modelo → input de criar na ficha de destino.
 export function doModelo(
-  tipo: TipoModelo,
+  tipo: TipoCopia,
   dados: Record<string, unknown>,
   recursos: RecursoRef[],
 ): Record<string, unknown> {
