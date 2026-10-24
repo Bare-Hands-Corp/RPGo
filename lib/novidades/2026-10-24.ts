@@ -53,7 +53,7 @@ export default {
     },
     {
       titulo: "Item gasta, ganha e mexe em Berries",
-      texto: "Sem o bastante na ficha, a ação ou habilidade não é usada.",
+      texto: "Sem o dinheiro na ficha, a ação ou habilidade não é usada.",
       tela: "ficha",
       zona: "conteudo",
       trilha: ["Ficha", "Combate", "Efeito Item"],
