@@ -24,9 +24,14 @@ import {
   type EmpilharRolagemDetail,
   type PublicarRolagemDetail,
 } from "@/lib/empilhar-rolagem";
+import { anunciarRolagemD20 } from "@/lib/rolagem-d20";
 import {
   EVENTO_PASSOS,
   chipsDoContexto,
+  casaContexto,
+  gatilhosDoEvento,
+  eventosDoD20,
+  passosNoEvento,
   type ChipContexto,
   type ContextoRolagem,
   type EfeitosContexto,
@@ -438,6 +443,19 @@ export function PainelRolador({
   function avisarConclusao(lances: Lance[]) {
     const avisar = aoConcluir.current;
     aoConcluir.current = null;
+    // Gatilhos da ficha (crítico, d20 até N…): só avisa quando algum bate.
+    const comD20 = lances.map((l) => ({ natural: l.natural, critico: l.critico === "sucesso" }));
+    const doContexto = efeitosRolagem ?? efeitosContexto;
+    const gatilhos = doContexto?.gatilhos ?? [];
+    // Bônus progressivo que sobe, perde ou zera com crítico ou 1 natural.
+    const escutam = doContexto?.eventosProgressivo ?? [];
+    if (
+      contexto &&
+      (gatilhosDoEvento(gatilhos, { tipo: "d20", contexto, lances: comD20 }).length > 0 ||
+        eventosDoD20(comD20).some((x) => escutam.includes(x.evento)))
+    ) {
+      anunciarRolagemD20({ contexto, lances: comD20 });
+    }
     avisar?.(
       lances.map((l) => ({
         total: l.total,
@@ -893,11 +911,11 @@ export function PainelRolador({
     if (vantManual && !ligado("vantagem")) notas.push("Vantagem");
     if (desvManual && !ligado("desvantagem")) notas.push("Desvantagem");
 
-    // Progressivo "por rolagem": esta rolagem vale a contagem atual e a próxima sobe um.
+    // Progressivo que mexe "na rolagem": esta vale a contagem atual e a próxima sobe, perde ou zera.
     for (const c of chips) {
-      if (c.progressivo?.cresce === "rolagem" && passosDe(c) < (c.max ?? 0)) {
-        anunciarPassos(c, passosDe(c) + 1);
-      }
+      if (!c.progressivo) continue;
+      const novo = passosNoEvento({ ...c.progressivo, max: c.max ?? 0 }, passosDe(c), "rolagem");
+      if (novo !== passosDe(c)) anunciarPassos(c, novo);
     }
 
     // Lote contextual: mais de uma vez roda N execuções contextuais e persiste
@@ -924,7 +942,14 @@ export function PainelRolador({
         poderoso: ligado("ataque_poderoso"),
       };
     }
-    const rerolls = valorChip("reroll") ?? 0;
+    const rerollsDoChip = valorChip("reroll") ?? 0;
+    // Rolar de novo sozinho quando o d20 sai baixo ("Hoje Não!"): sem chip e sem gastar uso.
+    const natural = r.natural;
+    const rerollBaixo =
+      !!contexto &&
+      natural != null &&
+      ((efeitosRolagem ?? efeitosContexto)?.rerollsAte ?? []).some((x) => casaContexto(x.alvo, contexto) && natural <= x.ate);
+    const rerolls = rerollsDoChip || (rerollBaixo ? 1 : 0);
 
     if (rerolls > 0) {
       gastarMunicao(1);
@@ -948,7 +973,7 @@ export function PainelRolador({
         ataque: contexto?.tipo === "ataque",
         gastos,
         valores: r.valores,
-        gastaReroll: ligados.find((c) => c.tipo === "reroll")?.gasta,
+        gastaReroll: rerollsDoChip ? ligados.find((c) => c.tipo === "reroll")?.gasta : undefined,
       });
     } else {
       const lances = comAtaquesExplosivos(r, explosoesAtaque, () => rolar(0));

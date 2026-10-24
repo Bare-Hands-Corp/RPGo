@@ -19,6 +19,7 @@ import {
   RECARGAS_HABILIDADE,
   TIPOS_HABILIDADE,
   alvoDaCura,
+  textoDaCura,
   alvosPericiaCustom,
   computarDeltasInstantaneos,
   curasComFormula,
@@ -57,6 +58,8 @@ import { Segmentos } from "./campos-modal";
 import {
   AlvosCustomContext,
   FormulaContext,
+  AcoesDaFichaContext,
+  ItensDaFichaContext,
   NomesRecursoContext,
   DatalistAlvos,
   EfeitosEditor,
@@ -127,7 +130,7 @@ type Habilidade = {
 };
 
 // Item que pode conceder habilidade.
-type ItemRef = { id: string; nome: string; equipado: boolean };
+type ItemRef = { id: string; nome: string; equipado: boolean; tipo?: string };
 
 type Props = {
   personagemId: string;
@@ -345,6 +348,12 @@ export function HabilidadesTab({
 
   // Formas alternativas ficam dentro do card da habilidade de origem.
   const { origemDe, grupoDe } = agruparFormas(otimistas);
+  // Forma sem usos próprios conta e gasta os da origem.
+  const fonteDeUsos = (h: Habilidade): Habilidade => {
+    if (!h.formaDe || h.usos != null || h.usosFormula) return h;
+    const origem = origemDe(h);
+    return origem && (origem.usos != null || origem.usosFormula) ? origem : h;
+  };
   const casam = new Set(filtradas.map((h) => h.id));
   // Um card por habilidade de origem; aparece se ela ou uma forma dela casar.
   const visiveis = otimistas.filter(
@@ -538,7 +547,7 @@ export function HabilidadesTab({
     for (const e of efeitos) {
       if (e.tipo !== "cura") continue;
       const extra = extraCura.texto && alvoDaCura(e) === "hp" ? ` + ${extraCura.texto}` : "";
-      faz.push(`Cura ${formulaResolvidaTexto(e.valor, atributos, nivel)}${extra}`);
+      faz.push(textoDaCura(e, `${formulaResolvidaTexto(e.valor, atributos, nivel)}${extra}`));
     }
     const exaustao = efeitos.reduce(
       (soma, e) => soma + (e.tipo === "recurso_delta" && e.recurso === "exaustao" ? e.valor : 0),
@@ -673,7 +682,7 @@ export function HabilidadesTab({
     }
 
     startTransition(async () => {
-      aplicar({ kind: "usar", id: h.id, vezes });
+      aplicar({ kind: "usar", id: fonteDeUsos(h).id, vezes });
       if (ligar) {
         aplicar({
           kind: "update",
@@ -791,6 +800,7 @@ export function HabilidadesTab({
       candidatas.find((f) => f.ligada && ehAlternavel(f)) ??
       candidatas[0] ??
       origem;
+    const dono = fonteDeUsos(h);
     return (
       <CardHabilidade
         key={chave}
@@ -799,7 +809,11 @@ export function HabilidadesTab({
         personagemId={personagemId}
         onPasta={(p, exclusiva) => guardarEmPasta(h, p, exclusiva)}
         onFiltrarPasta={setPastaFiltro}
-        habilidade={h}
+        habilidade={
+          dono === h
+            ? h
+            : { ...h, usos: dono.usos, usosFormula: dono.usosFormula, usosAtual: dono.usosAtual, recarga: dono.recarga }
+        }
         formas={formas.map((f) => ({
           id: f.id,
           nome: f.nome,
@@ -833,6 +847,8 @@ export function HabilidadesTab({
 
   return (
     <AlvosCustomContext.Provider value={alvosCustom}>
+      <AcoesDaFichaContext.Provider value={acoes.map((a) => ({ id: a.id, nome: a.nome, tipo: a.tipo }))}>
+      <ItensDaFichaContext.Provider value={itens.map((i) => ({ id: i.id, nome: i.nome, tipo: i.tipo ?? "comum" }))}>
       <NomesRecursoContext.Provider value={recursoNomePorId}>
       <FormulaContext.Provider value={ctxChips}>
         <div
@@ -962,6 +978,8 @@ export function HabilidadesTab({
         )}
       </FormulaContext.Provider>
       </NomesRecursoContext.Provider>
+      </ItensDaFichaContext.Provider>
+      </AcoesDaFichaContext.Provider>
     </AlvosCustomContext.Provider>
   );
 }

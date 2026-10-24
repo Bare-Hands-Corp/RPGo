@@ -40,12 +40,16 @@ import {
   cdTecnica,
   computarDeltasInstantaneos,
   alvoDaCura,
+  textoDaCura,
   curasComFormula,
   custoDaAcao,
   efeitoInstantaneo,
   efeitosComArma,
   efeitosDaTecnica,
   efeitosDoContexto,
+  gatilhosDosEfeitos,
+  ofereceAcao,
+  type GatilhoDaFicha,
   efeitosDuram,
   exaustaoQueConta,
   extrasDeCura,
@@ -96,6 +100,8 @@ import {
   EfeitosDuramContext,
   EfeitosEditor,
   FormulaContext,
+  AcoesDaFichaContext,
+  ItensDaFichaContext,
   NomesRecursoContext,
   PassosProgressivos,
   StatsPorTurno,
@@ -117,6 +123,7 @@ import {
   type CombateVisto,
   type DanoExtra,
   type GatilhoReacao,
+  type ResolucaoVista,
   type ResultadoAlvo,
 } from "@/lib/combate";
 import { travaDaCondicaoNaAcao } from "@/lib/condicoes-mecanica";
@@ -142,7 +149,7 @@ import { DuracaoCampo, comPorTurno, porTurnoDe } from "./duracao-campo";
 import { SecaoModal, Segmentos, Sugestoes, TipoDanoCampo, type OpcaoSegmento } from "./campos-modal";
 import { CustosCampo } from "./custos-campo";
 import { CampoFormula } from "./campo-formula";
-import { juntarTipos, mesmoTipo, tiposDoDano } from "@/lib/dano";
+import { juntarTipos, mesmoTipo, separarTipoDoDano, tiposDoDano } from "@/lib/dano";
 import { danoComMunicao, municaoDaArma, textoMunicao } from "@/lib/municao";
 import { useGastoMunicao } from "./use-municao";
 import {
@@ -245,10 +252,8 @@ const FILTROS_ORIGEM = [
 
 // Efeitos que cabem numa ação: rolagem dela ou na hora do uso.
 const PRESETS_ACAO = [
-  "pv_temp",
   "cura",
   "bonus",
-  "dado_em",
   "vantagem",
   "desvantagem",
   "sucesso_auto",
@@ -260,7 +265,6 @@ const PRESETS_ACAO = [
   "passo_dano",
   "dano_extra",
   "dados_extra",
-  "potencializacao",
   "progressivo",
   "multi_ataque",
   "explosao",
@@ -271,6 +275,7 @@ const PRESETS_ACAO = [
   "dano_min",
   "dano_melhor_de",
   "desconto_tecnica",
+  "pp_no_erro",
   "reroll",
   "floor_d20",
   "ignora",
@@ -335,12 +340,16 @@ type Resolve = {
   danar: (extras: Pick<EmpilharRolagemDetail, "aoConcluir" | "critico">) => void;
   // Tipo do dano principal.
   tipoDano: string;
+  // Danos de outro tipo, rolados à parte (os da ação e o bônus da arma).
+  extras: DanoExtra[];
   // Ataque a 1,5 m (condições do alvo: Caído, Paralisado).
   corpoACorpo: boolean;
 };
 
 type Props = {
   personagemId: string;
+  // Ficha de veículo: o turno do navio tem Ação de Combate e Ação de Manobra.
+  veiculo?: boolean;
   // O personagem no combate ativo da mesa; null = fora de combate.
   turno: CombateVisto["voce"];
   // Quem está no combate, pra escolher alvo.
@@ -383,6 +392,14 @@ const OPCOES_ATRIBUTO: OpcaoSegmento<string>[] = [
   { valor: "", rotulo: "—", titulo: "Nenhum" },
   ...ATRIBUTOS.map((a) => ({ valor: a.slug, rotulo: a.sigla, titulo: a.nome })),
 ];
+
+// Veículo: só Combate (padrão), Manobra (bônus) e Livre, com esses nomes.
+const NOMES_DO_VEICULO: Record<string, string> = { padrao: "Combate", bonus: "Manobra", livre: "Livre" };
+const TITULOS_DO_VEICULO: Record<string, string> = {
+  padrao: "Ações de Combate",
+  bonus: "Ações de Manobra",
+  livre: "Ações Livres",
+};
 
 const GRUPOS = [
   { tipo: "padrao", titulo: "Ações Padrão", icone: "fa-gavel", cor: "var(--color-padrao)" },
@@ -523,6 +540,39 @@ const ACAO_BASE: Omit<Acao, "id"> = {
 
 // Lê um Json de ids vindo do banco com defesa contra lixo/legado.
 // De onde a ação vem: item que a concede, habilidade de que deriva ou o próprio jogador.
+// Acerto seu esperando o dano em que um Gatilho (da ficha ou do próprio ataque)
+// oferece esta ação: de qual resolução, em quem e se é no lugar do dano.
+function ofertaDoAcerto(
+  resolucoes: ResolucaoVista[],
+  acaoId: string,
+  gatilhosDaFicha: GatilhoDaFicha[],
+  acaoDe: (id: string) => { nome: string; efeitos: unknown; tecnica: boolean } | undefined,
+) {
+  for (const r of resolucoes) {
+    if (r.acaoId === acaoId || r.modo !== "ataque" || r.etapa !== "dano") continue;
+    const ataque = r.acaoId ? acaoDe(r.acaoId) : undefined;
+    const gatilhos = [...gatilhosDaFicha, ...(ataque ? gatilhosDosEfeitos(ataque.efeitos, ataque.nome) : [])];
+    const contexto = {
+      tipo: "ataque" as const,
+      alcance: r.corpoACorpo ? ("corpo_a_corpo" as const) : ("distancia" as const),
+      tecnica: !!ataque?.tecnica,
+    };
+    const alvos = new Map<string, string>();
+    let trocaDano = false;
+    for (const a of r.alvos) {
+      if (a.danoAplicado || (a.resultado !== "acerto" && a.resultado !== "critico")) continue;
+      const oferta = ofereceAcao(gatilhos, a.resultado, contexto, acaoId);
+      if (!oferta) continue;
+      alvos.set(a.instanciaId, a.nome);
+      if (oferta.trocaDano) trocaDano = true;
+    }
+    if (alvos.size > 0) {
+      return { resolucaoId: r.id, de: r.nome, alvos: [...alvos.keys()], nomes: [...alvos.values()], trocaDano };
+    }
+  }
+  return null;
+}
+
 function origemDaAcao(a: Acao): "item" | "habilidade" | "propria" {
   if (a.itemId) return "item";
   return lerIds(a.habilidadeIds).length > 0 ? "habilidade" : "propria";
@@ -556,6 +606,7 @@ function textoDoEfeito(e: EfeitoHabilidade): string {
 
 export function AcoesTab({
   personagemId,
+  veiculo = false,
   acoes,
   nivel,
   exaustao: exaustaoServer,
@@ -609,8 +660,8 @@ export function AcoesTab({
 
   // Danos a mais da ação: cada um é rolado à parte (o crítico dobra os dados),
   // vai pro chat e volta com o próprio tipo.
-  function rolarDanosExtras(acao: Acao, critico: boolean): { valor: number; tipo: string }[] {
-    return lerDanosExtras(acao.danosExtras).map((e) => {
+  function rolarDanosExtras(acao: Acao, extras: DanoExtra[], critico: boolean): { valor: number; tipo: string }[] {
+    return extras.map((e) => {
       const f = resolverFormula(e.formula, atributos, nivel, { grau: acao.grau });
       const dados = critico ? [...f.dados, ...f.dados] : f.dados;
       if (dados.length === 0) return { valor: Math.max(0, f.modificador), tipo: e.tipo };
@@ -634,7 +685,7 @@ export function AcoesTab({
       aoConcluir: (lances) => {
         const lance = lances[0];
         if (!lance) return;
-        const partes = [{ valor: lance.total, tipo: resolve.tipoDano }, ...rolarDanosExtras(acao, critico)];
+        const partes = [{ valor: lance.total, tipo: resolve.tipoDano }, ...rolarDanosExtras(acao, resolve.extras, critico)];
         startTransition(async () => {
           try {
             exigir(await aplicarDanoEmCombate(personagemId, resolucaoId, partes));
@@ -792,6 +843,20 @@ export function AcoesTab({
   const [tipoFiltro, setTipoFiltro] = useState<string | null>(null);
   const [tecnicaFiltro, setTecnicaFiltro] = useState<string | null>(null);
   const [origemFiltro, setOrigemFiltro] = useState<string | null>(null);
+  // `?acao=` (atalho do card da subficha): rola até a ação e acende ela.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const id = url.searchParams.get("acao");
+    if (!id) return;
+    url.searchParams.delete("acao");
+    window.history.replaceState(window.history.state, "", url);
+    const card = document.querySelector<HTMLElement>(`[data-acao-id="${CSS.escape(id)}"]`);
+    if (!card) return;
+    card.scrollIntoView({ block: "center", behavior: "smooth" });
+    card.classList.add("acao-destaque");
+    const t = setTimeout(() => card.classList.remove("acao-destaque"), 2400);
+    return () => clearTimeout(t);
+  }, []);
   const uso = useConfirmarUso();
   const [form, setForm] = useState<FormState>(FORM_VAZIO);
   // Forma à mostra em cada card (id da ação de origem → id da forma).
@@ -830,6 +895,12 @@ export function AcoesTab({
 
   // Formas alternativas ficam dentro do card da ação de origem.
   const acoesPorId = new Map(acoesOtimistas.map((a) => [a.id, a]));
+  // Forma sem usos próprios conta e gasta os da origem.
+  const fonteDeUsos = (a: Acao): Acao => {
+    if (!a.formaDe || a.usos != null || a.usosFormula) return a;
+    const origem = acoesPorId.get(a.formaDe);
+    return origem && (origem.usos != null || origem.usosFormula) ? origem : a;
+  };
   const { origemDe, grupoDe } = agruparFormas(acoesOtimistas);
 
   // Reordenar arrastando (lib/use-reordenar.ts); arrastar pra outra categoria
@@ -1121,9 +1192,12 @@ export function AcoesTab({
     recurso: RecursoMinimo | undefined,
     // O que a ação tem pra resolver num alvo (em combate).
     resolve?: Resolve,
+    // Oferecida por um acerto seu: os alvos já vêm dele (e, no lugar do dano, a resolução).
+    oferta?: { alvos: string[]; trocaDano?: string },
   ) {
-    const usosMax = usosMaximos(acao, ctxFormula);
-    const usosAtual = acao.usosAtual ?? usosMax ?? 0;
+    const donoUsos = fonteDeUsos(acao);
+    const usosMax = usosMaximos(donoUsos, ctxFormula);
+    const usosAtual = donoUsos.usosAtual ?? usosMax ?? 0;
     if (usosMax != null && usosAtual <= 0) {
       mostrarErro(new Error("Sem usos restantes."));
       return;
@@ -1153,10 +1227,10 @@ export function AcoesTab({
       mostrarErro(new Error("Escolha a CD das suas técnicas na ficha lateral antes de usar esta ação."));
       return;
     }
-    let alvosCombate: string[] = [];
+    let alvosCombate: string[] = oferta?.alvos ?? [];
     // Vantagem ou desvantagem de cada ataque, decidida junto com o alvo.
     let modosAtaque: ModoRolagem[] = [];
-    if (escolheNoCombate && (resolve.ataque || resolve.salvaguarda || resolve.dano || resolve.condicao)) {
+    if (!oferta && escolheNoCombate && (resolve.ataque || resolve.salvaguarda || resolve.dano || resolve.condicao)) {
       if (resolve.ataque) {
         const ataques = await alvosDoCombate.escolherAtaques(`${acao.nome}: em quem?`, resolve.ataques, {
           daFicha: resolve.modosDaFicha,
@@ -1193,8 +1267,12 @@ export function AcoesTab({
     const curas = instantaneos.flatMap((e) =>
       e.tipo === "cura"
         ? [
-            formulaResolvidaTexto(e.valor, atributos, nivel, { grau: acao.grau }) +
-              (extraCura.texto && alvoDaCura(e) === "hp" ? ` + ${extraCura.texto}` : ""),
+            {
+              e,
+              valor:
+                formulaResolvidaTexto(e.valor, atributos, nivel, { grau: acao.grau }) +
+                (extraCura.texto && alvoDaCura(e) === "hp" ? ` + ${extraCura.texto}` : ""),
+            },
           ]
         : [],
     );
@@ -1205,7 +1283,9 @@ export function AcoesTab({
     const linhas = [
       sobrecarga ? `Sem PP: recebe <b>${acao.grau}</b> de exaustão.` : null,
       partes.length > 0 ? `Vai consumir: ${partes.join(", ")}.` : null,
-      curas.length > 0 ? `Cura: <b>${curas.join(" + ")}</b>.` : null,
+      curas.length > 0
+        ? `${curas.map(({ e, valor }) => textoDaCura(e, `<b>${valor}</b>`)).join(", ")}.`
+        : null,
       concentra ? "Passa a concentrar nela." : null,
       noInimigo && !turno ? "Fora do combate a desvantagem no inimigo não vai pra ninguém." : null,
       segue ? "Fica em curso até a duração acabar." : null,
@@ -1259,7 +1339,11 @@ export function AcoesTab({
         nome: acao.nome,
         icone: sobrecarga ? "fa-bolt" : "fa-play",
         botao: sobrecarga ? "Sobrecarga" : "Usar",
-        aviso: sobrecarga ? `Sem PP: recebe ${acao.grau} de exaustão.` : undefined,
+        aviso: sobrecarga
+          ? `Sem PP: recebe ${acao.grau} de exaustão.`
+          : oferta?.trocaDano
+            ? "O acerto não dá dano."
+            : undefined,
         itens: [
           {
             id: acao.id,
@@ -1273,7 +1357,7 @@ export function AcoesTab({
                 : []),
             ],
             faz: [
-              ...curas.map((c) => `Cura ${c}`),
+              ...curas.map(({ e, valor }) => textoDaCura(e, valor)),
               ...(concentra ? ["Concentração"] : []),
               ...(segue ? ["Fica em curso"] : []),
             ],
@@ -1324,7 +1408,7 @@ export function AcoesTab({
     }
     startTransition(async () => {
       if (usosMax != null) {
-        aplicarPatch({ kind: "update", id: acao.id, patch: { usosAtual: usosAtual - 1 } });
+        aplicarPatch({ kind: "update", id: donoUsos.id, patch: { usosAtual: usosAtual - 1 } });
       }
       if (turno) {
         setGastasLocal((g) =>
@@ -1341,6 +1425,7 @@ export function AcoesTab({
               modo: resolve?.ataque ? "ataque" : resolve?.salvaguarda ? "salvaguarda" : "direto",
               cd: resolve?.cd ?? null,
               corpoACorpo: resolve?.corpoACorpo === true,
+              ...(oferta?.trocaDano ? { trocaDano: oferta.trocaDano } : {}),
             },
           }),
         );
@@ -1350,6 +1435,15 @@ export function AcoesTab({
         if (resolucaoId && resolve) {
           if (resolve.ataque) pedirAtaque(resolucaoId, acao, resolve, modosAtaque);
           else if (resolve.dano) pedirDano(resolucaoId, acao, resolve, ["acerto"]);
+        } else if (!turno && resolve) {
+          // Fora do combate o uso também empilha o acerto; rolado ele, o dano vem em seguida.
+          if (resolve.ataque) {
+            resolve.atacar({
+              aoConcluir: resolve.dano ? (lances) => resolve.danar({ critico: lances.some((l) => l.critico) }) : undefined,
+            });
+          } else if (resolve.dano) {
+            resolve.danar({});
+          }
         }
       } catch (err) {
         // Recarrega a página pra desfazer o otimismo.
@@ -1471,15 +1565,19 @@ export function AcoesTab({
   // Ação comum com arma: o dano é o da arma; o campo vira adicional.
   const danoDaArma = formComArma && !form.tecnica;
   const formTemAcerto = formComArma || !!form.atributoAtaque;
+  const itensDaFicha = itens.map((i) => ({ id: i.id, nome: i.nome, tipo: i.tipo }));
+  const acoesDaFicha = acoesOtimistas.filter((a) => !a.formaDe).map((a) => ({ id: a.id, nome: a.nome, tipo: a.tipo }));
   const formTemDano = form.comDano || !!form.dano.trim() || form.danosExtras.length > 0;
 
   return (
+    <AcoesDaFichaContext.Provider value={acoesDaFicha}>
+    <ItensDaFichaContext.Provider value={itensDaFicha}>
     <NomesRecursoContext.Provider value={new Map(recursos.map((r) => [r.id, r.nome]))}>
     <FormulaContext.Provider value={ctxFormula}>
     <EfeitoDeAcaoContext.Provider value>
     <div>
       <div className="tab-topo">
-        <h1>Ações de Combate</h1>
+        <h1>{veiculo ? "Ações" : "Ações de Combate"}</h1>
         <div className="tab-topo-botoes">
           <BotaoPacotes />
           <BotaoPastas tipo="acao" personagemId={personagemId} onAdicionar={adicionarDasPastas} />
@@ -1520,7 +1618,14 @@ export function AcoesTab({
         pasta={pastaAtiva}
         onPasta={setPastaFiltro}
         grupos={[
-          { rotulo: "Tipo", opcoes: FILTROS_TIPO, valor: tipoFiltro, onValor: setTipoFiltro },
+          {
+            rotulo: "Tipo",
+            opcoes: veiculo
+              ? FILTROS_TIPO.filter(([t]) => t in NOMES_DO_VEICULO).map(([t]) => [t, NOMES_DO_VEICULO[t]] as const)
+              : FILTROS_TIPO,
+            valor: tipoFiltro,
+            onValor: setTipoFiltro,
+          },
           { rotulo: "Técnica", opcoes: FILTROS_TECNICA, valor: tecnicaFiltro, onValor: setTecnicaFiltro },
           { rotulo: "Origem", opcoes: FILTROS_ORIGEM, valor: origemFiltro, onValor: setOrigemFiltro },
         ]}
@@ -1529,13 +1634,15 @@ export function AcoesTab({
       {GRUPOS.map((grupo) => {
         const lista = naTela.filter((a) => tipoNaTela(a) === grupo.tipo);
         if (filtrando && lista.length === 0) return null;
+        // No veículo, tipo que ele não usa só aparece se já tiver ação nele.
+        if (veiculo && !(grupo.tipo in NOMES_DO_VEICULO) && lista.length === 0) return null;
         return (
           <SecaoRecolhivel
             key={grupo.tipo}
             chave={`acoes:${grupo.tipo}`}
             icone={grupo.icone}
             cor={grupo.cor}
-            titulo={grupo.titulo}
+            titulo={veiculo ? (TITULOS_DO_VEICULO[grupo.tipo] ?? grupo.titulo) : grupo.titulo}
             contagem={lista.length}
             forcarAberta={filtrando}
             zona={reordenar.zona(grupo.tipo)}
@@ -1654,15 +1761,29 @@ export function AcoesTab({
                     ? ataqueArma.fontes
                     : [...extraAtaqueSemArma.fontes, ...(adicionalAcerto ? ["adicional da ação"] : [])];
                   // Dano da técnica + dano bônus e proficiência da arma + bônus de habilidade.
+                  // Bônus da arma de outro tipo que o do dano: rola à parte, com o tipo dele.
+                  const bonusAParte = (arma: ItemArma | null): DanoExtra | null => {
+                    if (!arma) return null;
+                    const b = separarTipoDoDano(arma.danoBonus ?? "");
+                    const principal = juntarTipos(
+                      acao.tipoDano ? [acao.tipoDano] : [],
+                      tiposDoDano(acao.dano ?? ""),
+                      tiposDoDano(danoComMunicao(arma.dano, municaoDe(arma)) ?? ""),
+                    )[0];
+                    return b.formula && b.tipo && principal && !mesmoTipo(b.tipo, principal)
+                      ? { formula: b.formula, tipo: b.tipo }
+                      : null;
+                  };
                   const comporDano = (arma: ItemArma | null) => {
                     const agg = arma ? aggDaArma(arma) : aggAcao;
                     // Ação comum com arma: o dano da arma (dado, atributo,
                     // proficiência) e o da ação entra como adicional.
+                    const bonus = bonusAParte(arma);
                     if (arma && !acao.tecnica) {
                       const atq = golpes.find((g) => g.arma.id === arma.id)?.atq;
                       const d = resolverDanoArma({
                         danoBase: danoComMunicao(arma.dano, municaoDe(arma)),
-                        danoBonus: arma.danoBonus,
+                        danoBonus: bonus ? null : arma.danoBonus,
                         adicional: acao.dano,
                         passos: agg.passosDanoArma.valor + passosProprios,
                         somaAtributo: arma.danoSomaAtributo,
@@ -1678,14 +1799,14 @@ export function AcoesTab({
                         acao.tipoDano ? [acao.tipoDano] : [],
                         tiposDoDano(acao.dano ?? ""),
                         tiposDoDano(danoComMunicao(arma.dano, municaoDe(arma)) ?? ""),
-                        tiposDoDano(arma.danoBonus ?? ""),
+                        bonus ? [] : tiposDoDano(arma.danoBonus ?? ""),
                       );
-                      return { d, efeitos: efeitosDoContexto(agg), tiposDano };
+                      return { d, efeitos: efeitosDoContexto(agg), tiposDano, extras: bonus ? [bonus] : [] };
                     }
                     const d = acao.dano
                       ? resolverDanoArma({
                           danoBase: acao.dano,
-                          danoBonus: arma?.danoBonus ?? null,
+                          danoBonus: bonus ? null : (arma?.danoBonus ?? null),
                           // Passos de técnica da ficha só valem em técnica; os da ação, sempre.
                           passos:
                             (acao.tecnica
@@ -1709,9 +1830,9 @@ export function AcoesTab({
                       acao.tipoDano ? [acao.tipoDano] : [],
                       tiposDoDano(acao.dano ?? ""),
                       tiposDoDano((arma ? danoComMunicao(arma.dano, municaoDe(arma)) : null) ?? ""),
-                      tiposDoDano(arma?.danoBonus ?? ""),
+                      bonus ? [] : tiposDoDano(arma?.danoBonus ?? ""),
                     );
-                    return { d, efeitos: efeitosDoContexto(agg), tiposDano };
+                    return { d, efeitos: efeitosDoContexto(agg), tiposDano, extras: bonus && d ? [bonus] : [] };
                   };
                   // Um dano por arma equipada; sem arma, o dano da técnica.
                   const danos =
@@ -1769,15 +1890,16 @@ export function AcoesTab({
                   const recursoGasto =
                     recursoCusto && acao.custoRecursoValor > 0 ? recursoCusto : undefined;
                   const efeitosAcao = lerEfeitos(acao.efeitos);
-                  const usosMax = usosMaximos(acao, ctxFormula);
-                  const usosAtual = acao.usosAtual ?? usosMax ?? 0;
+                  const donoUsos = fonteDeUsos(acao);
+                  const usosMax = usosMaximos(donoUsos, ctxFormula);
+                  const usosAtual = donoUsos.usosAtual ?? usosMax ?? 0;
                   const travaTurno = travaDoTurno(acao.tipo);
                   const podeUsar =
                     (!!turno && ehAcaoDeCombate(acao.tipo)) ||
                     ppFinal > 0 ||
                     !!recursoGasto ||
                     usosMax != null ||
-                    efeitosAcao.some(efeitoInstantaneo) ||
+                    efeitosAcao.some((e) => efeitoInstantaneo(e) || e.tipo === "item") ||
                     pedeConcentracao(acao.duracao) ||
                     ficaEmCurso(acao);
                   // Em curso: usada e ainda valendo (a de concentração aparece na ficha lateral).
@@ -1794,9 +1916,20 @@ export function AcoesTab({
                       ? ` ${acao.tipoDano.toLowerCase()}`
                       : "";
                   const origens = [...habsDerivadas.map((h) => h.nome), ...(itemOrigem ? [itemOrigem.nome] : [])];
-                  const danosExtras = lerDanosExtras(acao.danosExtras);
+                  // Danos de outro tipo, rolados à parte: os da ação e o bônus da arma.
+                  const extrasDe = (i: number) => [...lerDanosExtras(acao.danosExtras), ...(danos[i]?.extras ?? [])];
+                  const danosExtras = extrasDe(Math.max(0, danos.findIndex((x) => x.d?.rolavel)));
                   // Uso desta ação em combate que ainda espera rolagem.
                   const pendente = turno?.resolucoes.find((r) => r.acaoId === acao.id) ?? null;
+                  // Um acerto seu agora em que um Gatilho oferece esta ação.
+                  const gatilhosDaFicha = efeitosAgregados.gatilhos ?? [];
+                  const acaoDe = (id: string) => acoesPorId.get(id);
+                  const oferta = turno ? ofertaDoAcerto(turno.resolucoes, origem.id, gatilhosDaFicha, acaoDe) : null;
+                  // As ações que este acerto oferece (atalho até o card delas).
+                  const oferecidas =
+                    pendente?.etapa === "dano"
+                      ? naTela.filter((x) => ofertaDoAcerto([pendente], x.id, gatilhosDaFicha, acaoDe) !== null)
+                      : [];
                   const esperaAcerto = pendente?.etapa === "ataque";
                   // Acertos que ainda esperam a rolagem de dano.
                   const acertosPendentes: ResultadoAlvo[] =
@@ -1824,6 +1957,7 @@ export function AcoesTab({
                           alcance: golpe.atq.alcance,
                           tecnica: acao.tecnica,
                           multiataque,
+                          acaoId: acao.id,
                           ...(golpe.municao.item
                             ? { municao: { id: golpe.municao.item.id, nome: golpe.municao.item.nome } }
                             : {}),
@@ -1835,7 +1969,7 @@ export function AcoesTab({
                       empilharD20(
                         bonusAtq - penD20,
                         `Atacar ${acao.nome}`,
-                        { tipo: "ataque", alcance: alcanceContexto, tecnica: acao.tecnica, multiataque },
+                        { tipo: "ataque", alcance: alcanceContexto, tecnica: acao.tecnica, multiataque, acaoId: acao.id },
                         efeitosDoContexto(aggAcao),
                         extras,
                       );
@@ -1883,11 +2017,13 @@ export function AcoesTab({
                     atacar: (extras) => empilharAcerto(golpePadrao, extras),
                     danar: (extras) => empilharDano(iDano, extras),
                     tipoDano: acao.tipoDano || danos[iDano]?.tiposDano[0] || "",
+                    extras: extrasDe(Math.max(0, iDano)),
                     corpoACorpo: (golpePadrao?.atq?.alcance ?? alcanceContexto) === "corpo_a_corpo",
                   };
                   return (
                     <div
                       key={origem.id}
+                      data-acao-id={origem.id}
                       className={`action-card card2 com-copia type-${reordenar.arrastando ? tipoNaTela(origem) : acao.tipo}${travada ? " hab-travada" : ""}${
                         ehTemporario(acao.id) ? " item-pendente" : ""
                       }${podeArrastar ? " com-alca" : ""}${reordenar.vaga(origem.id)}`}
@@ -1961,6 +2097,45 @@ export function AcoesTab({
                               <strong>{pendente.alvos.map((a) => a.nome).join(", ")}</strong>
                               {pendente.etapa === "ataque" ? " · role o acerto" : " · role o dano"}
                             </span>
+                            {oferecidas.map((x) => (
+                              <button
+                                key={x.id}
+                                type="button"
+                                className="acao-oferta-atalho"
+                                title={`Ir até ${x.nome}`}
+                                onClick={() => {
+                                  const card = document.querySelector<HTMLElement>(`[data-acao-id="${CSS.escape(x.id)}"]`);
+                                  if (!card) return;
+                                  card.scrollIntoView({ block: "center", behavior: "smooth" });
+                                  card.classList.add("acao-destaque");
+                                  setTimeout(() => card.classList.remove("acao-destaque"), 2400);
+                                }}
+                              >
+                                <i className="fas fa-bell" /> {x.nome}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {oferta && (
+                          <div className="acao-oferta">
+                            <i className="fas fa-bell" />
+                            <span>
+                              <strong>{oferta.de}</strong> acertou {oferta.nomes.join(", ")}
+                              {oferta.trocaDano ? ": no lugar do dano" : ""}
+                            </span>
+                            <button
+                              type="button"
+                              className="hab-usar"
+                              disabled={travada || !!travaTurno || (usosMax != null && usosAtual <= 0)}
+                              onClick={() =>
+                                usar(acao, ppFinal, recursoGasto, resolve, {
+                                  alvos: oferta.alvos,
+                                  ...(oferta.trocaDano ? { trocaDano: oferta.resolucaoId } : {}),
+                                })
+                              }
+                            >
+                              <i className="fas fa-play" /> Usar
+                            </button>
                           </div>
                         )}
                         <CardMeta
@@ -2041,18 +2216,21 @@ export function AcoesTab({
                               <Tooltip
                                 titulo="Usos"
                                 icone="fa-bolt-lightning"
-                                texto={acao.usosFormula ? `Máximo: ${acao.usosFormula}` : undefined}
+                                texto={[
+                                  donoUsos.usosFormula ? `Máximo: ${donoUsos.usosFormula}` : null,
+                                  donoUsos !== acao ? `Usos de ${donoUsos.nome}` : null,
+                                ]}
                               >
                                 <span className="acao-stat">
                                   <i className="fas fa-bolt-lightning" /> {usosAtual}/{usosMax}
                                 </span>
                               </Tooltip>
                             )}
-                            {usosMax != null && acao.recarga && (
+                            {usosMax != null && donoUsos.recarga && (
                               <span className="acao-stat">
                                 <i className="fas fa-rotate" />{" "}
-                                {RECARGAS_HABILIDADE.find((r) => r.slug === acao.recarga)?.nome ??
-                                  acao.recarga}
+                                {RECARGAS_HABILIDADE.find((r) => r.slug === donoUsos.recarga)?.nome ??
+                                  donoUsos.recarga}
                               </span>
                             )}
                           </div>
@@ -2152,7 +2330,7 @@ export function AcoesTab({
                                       pedirDano(
                                         pendente.id,
                                         acao,
-                                        { ...resolve, danar: (extras) => empilharDano(i, extras) },
+                                        { ...resolve, danar: (extras) => empilharDano(i, extras), extras: extrasDe(i) },
                                         acertosPendentes,
                                       );
                                     } else {
@@ -2160,7 +2338,7 @@ export function AcoesTab({
                                       empilharDano(
                                         i,
                                         danosExtras.length > 0
-                                          ? { aoConcluir: () => void rolarDanosExtras(acao, false) }
+                                          ? { aoConcluir: () => void rolarDanosExtras(acao, extrasDe(i), false) }
                                           : undefined,
                                       );
                                     }
@@ -2317,7 +2495,10 @@ export function AcoesTab({
                   ["react", "fa-shield-alt", "Reação", "var(--color-react)"],
                   ["livre", "fa-feather", "Livre", "var(--color-livre)"],
                 ] as const
-              ).map(([slug, icone, titulo, cor]) => (
+              )
+                .filter(([slug]) => !veiculo || slug in NOMES_DO_VEICULO)
+                .map(([slug, icone, titulo, cor]) => [slug, icone, veiculo ? NOMES_DO_VEICULO[slug] : titulo, cor] as const)
+                .map(([slug, icone, titulo, cor]) => (
                 <button
                   type="button"
                   key={slug}
@@ -2338,7 +2519,7 @@ export function AcoesTab({
                 type="text"
                 value={form.nome}
                 onChange={(e) => setF("nome", e.target.value)}
-                placeholder="Ex: Soco Meteoro"
+                placeholder={veiculo ? "Ex: Abalroar" : "Ex: Soco Meteoro"}
                 autoFocus
               />
 
@@ -2823,5 +3004,7 @@ export function AcoesTab({
     </EfeitoDeAcaoContext.Provider>
     </FormulaContext.Provider>
     </NomesRecursoContext.Provider>
+    </ItensDaFichaContext.Provider>
+    </AcoesDaFichaContext.Provider>
   );
 }

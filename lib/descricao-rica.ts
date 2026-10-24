@@ -76,7 +76,7 @@ const ATOMOS: { re: RegExp; fazer: (m: RegExpExecArray) => Inline }[] = [
   },
   { re: /\{\{cond:([^}\n]+)\}\}/uy, fazer: (m) => ({ t: "cond", nome: m[1].trim() }) },
   {
-    re: /\{\{efeito:([a-z_]+)(?:#(\d+))?(?:\|([^}\n]*))?\}\}/uy,
+    re: /\{\{efeito:([a-z][a-z0-9_]*)(?:#(\d+))?(?:\|([^}\n]*))?\}\}/uy,
     fazer: (m) => ({
       t: "efeito",
       slug: m[1],

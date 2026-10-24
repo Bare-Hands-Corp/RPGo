@@ -115,6 +115,9 @@ export function BotaoPastas({
 
 export type OrigemGuardar = { nome: string; pasta: string | null };
 
+// Item ainda não vai pras pastas guardadas: a pasta dele é só etiqueta da ficha.
+const semModelos: typeof listarPastas = async () => ({ ok: true, modelos: [] });
+
 // Botão do card: põe a habilidade ou ação numa pasta.
 export function BotaoGuardar({
   origem,
@@ -122,6 +125,8 @@ export function BotaoGuardar({
   pastasDaFicha,
   sugestoes,
   onGuardar,
+  soFicha = false,
+  classe = "btn-card-pasta",
 }: {
   origem: OrigemGuardar;
   personagemId: string;
@@ -130,13 +135,16 @@ export function BotaoGuardar({
   sugestoes: string[];
   // Põe na pasta (ou tira, com null); quem chama grava. `exclusiva`: pasta só desta ficha.
   onGuardar: (pasta: string | null, exclusiva?: boolean) => void;
+  // A pasta é só etiqueta da ficha (não guarda cópia).
+  soFicha?: boolean;
+  classe?: string;
 }) {
   const [aberto, setAberto] = useState(false);
   return (
     <>
       <button
         type="button"
-        className={`btn-card-pasta${origem.pasta ? " ativo" : ""}`}
+        className={`${classe}${origem.pasta ? " ativo" : ""}`}
         title={origem.pasta ? `Pasta: ${origem.pasta}` : "Guardar em pasta"}
         aria-label={`Guardar ${origem.nome} em pasta`}
         onClick={() => setAberto(true)}
@@ -151,6 +159,7 @@ export function BotaoGuardar({
           sugestoes={sugestoes}
           onGuardar={onGuardar}
           onFechar={() => setAberto(false)}
+          {...(soFicha ? { carregar: semModelos, soFicha } : {})}
         />
       )}
     </>
@@ -166,6 +175,7 @@ export function ModalGuardar({
   onGuardar,
   onFechar,
   carregar = listarPastas,
+  soFicha = false,
 }: {
   origem: OrigemGuardar;
   personagemId: string;
@@ -175,6 +185,7 @@ export function ModalGuardar({
   onFechar: () => void;
   // De onde vêm as pastas já guardadas.
   carregar?: typeof listarPastas;
+  soFicha?: boolean;
 }) {
   const [modelos] = useModelos(carregar, personagemId);
   const [texto, setTexto] = useState("");
@@ -271,7 +282,7 @@ export function ModalGuardar({
           />
         </div>
 
-        {(criar || (!texto && sugeridas.length > 0)) && (
+        {!soFicha && (criar || (!texto && sugeridas.length > 0)) && (
           <div className="guardar-dono">
             <span>Pasta nova</span>
             <Segmentos
@@ -312,7 +323,7 @@ export function ModalGuardar({
                 >
                   <i className={`fas ${atual ? "fa-folder-open" : "fa-folder"} guardar-opcao-icone`} />
                   <span className="guardar-opcao-nome">{p.nome}</span>
-                  {modelos !== null && p.exclusiva && <span className="pasta-so-aqui">{SO_AQUI}</span>}
+                  {!soFicha && modelos !== null && p.exclusiva && <span className="pasta-so-aqui">{SO_AQUI}</span>}
                   {p.total > 0 && <span className="guardar-opcao-total">{p.total}</span>}
                   {atual && <i className="fas fa-check" />}
                 </button>

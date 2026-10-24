@@ -112,6 +112,8 @@ model Personagem {
   navio   Json?
   // Ficha da mesa que só o narrador vê (navio inimigo).
   doNarrador Boolean @default(false) @map("do_narrador")
+  // Subficha no combate: se entra com o dono e de onde vem a iniciativa (lib/subficha.ts).
+  combate Json?
 
   nome          String
   fotoUrl       String? @map("foto_url")
@@ -274,6 +276,17 @@ model Recurso {
   // Quando o recurso recupera: "encontro" | "descansoCurto" | "descansoLongo" | "manual"
   resetEm    String  @default("manual") @map("reset_em")
 
+  // "recurso" (barra atual/máx) | "ponto" (saldo derivado, gasto em árvore; ver lib/pontos.ts).
+  tipo          String  @default("recurso")
+  sigla         String?
+  icone         String?
+  // Ponto: ganho em cada nível, [nível 1, …, nível 20].
+  ganhoPorNivel Json    @default("[]") @map("ganho_por_nivel")
+  // Ponto: lançamentos à mão [{ id, valor, motivo, em }].
+  ajustes       Json    @default("[]")
+  // Ponto: acima disso só avisa. null = sem teto.
+  tetoLivre     Int?    @map("teto_livre")
+
   @@index([personagemId, ordem])
   @@map("recursos")
 }
@@ -333,6 +346,9 @@ model Item {
   // Posição na lista da ficha (arrastar pra reordenar). 0 = nunca arrastado:
   // vai pro fim, em ordem alfabética.
   ordem Int @default(0)
+
+  // Pasta em que o item está (etiqueta de filtro; lib/pastas.ts).
+  pasta String?
 
   @@map("itens")
 }

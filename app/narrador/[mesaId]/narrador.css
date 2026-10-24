@@ -2414,9 +2414,19 @@ input.sessao-iniciativa-pv {
   cursor: pointer;
 }
 
-.sessao-preparo-iniciativa button:hover {
+.sessao-preparo-iniciativa button:hover:not(:disabled) {
   border-color: var(--primary);
   color: var(--primary);
+}
+
+/* Subficha com a iniciativa do dono: elo no lugar do dado. */
+.sessao-preparo-iniciativa button:disabled {
+  border-style: dashed;
+  cursor: default;
+}
+
+.sessao-preparo-iniciativa input[readonly] {
+  color: var(--text-sec);
 }
 
 .sessao-preparo-qtd {
@@ -2509,6 +2519,24 @@ input.sessao-iniciativa-pv {
 
   .sessao-builder-rodape .nv-btn {
     flex: 1;
+  }
+}
+
+/* Celular estreito: iniciativa mais compacta pra sobrar espaço pro nome. */
+@media (max-width: 480px) {
+  .sessao-preparo-linha {
+    grid-template-columns: 16px auto 30px minmax(0, 1fr) 30px;
+    gap: 6px;
+    padding: 8px 10px;
+  }
+
+  .sessao-preparo-iniciativa input[type="number"] {
+    width: 46px;
+  }
+
+  .sessao-preparo-iniciativa button {
+    width: 32px;
+    height: 32px;
   }
 }
 

@@ -6,7 +6,7 @@
 
 WITH tamanhos (slug, nome, dimensao, deques, comodos, tripulantes, canhoes, pv, desaceleracao) AS (
   VALUES
-    ('pequeno',  'Pequeno',  '6×15×18 m',   1,  3,  10,  4,  150,  -2),
+    ('pequeno',  'Pequeno',  '6×15×18 m',   1,  4,  20,  3,  150,  -2),
     ('medio',    'Médio',    '15×36×39 m',  2, 10,  50, 10,  300, -10),
     ('grande',   'Grande',   '24×51×54 m',  3, 26, 130, 15,  500, -20),
     ('enorme',   'Enorme',   '36×72×75 m',  4, 48, 240, 25,  750, -30),

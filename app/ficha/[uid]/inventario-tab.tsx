@@ -1,6 +1,6 @@
 "use client";
 
-import { useContext, useEffect, useEffectEvent, useMemo, useOptimistic, useState, useTransition } from "react";
+import { useContext, useEffect, useEffectEvent, useMemo, useOptimistic, useRef, useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { DescricaoCard } from "@/components/descricao-rica/descricao-card";
 import { EditorRico } from "@/components/descricao-rica/editor-rico";
@@ -12,7 +12,9 @@ import {
   atualizarItem,
   criarItem,
   deletarItem,
+  equiparItem,
   gastarMunicao,
+  passarItem,
   patchPersonagem,
   reordenarItens,
   usarItem,
@@ -25,6 +27,7 @@ import {
   PROPRIEDADES_ARMA,
   alvosPericiaCustom,
   alvoDaCura,
+  textoDaCura,
   bonusProficiencia,
   computarDeltasInstantaneos,
   curasComFormula,
@@ -52,11 +55,13 @@ import {
   type PropriedadeArma,
 } from "@/lib/op-rpg";
 import { empilharD20, empilharRolagem, rolarCuras } from "@/lib/empilhar-rolagem";
-import { juntarTipos, tiposDoDano } from "@/lib/dano";
+import { juntarTipoNoDano, juntarTipos, separarTipoDoDano, tiposDoDano } from "@/lib/dano";
 import {
   AlvosCustomContext,
   ChipEfeito,
   FormulaContext,
+  AcoesDaFichaContext,
+  ItensDaFichaContext,
   NomesRecursoContext,
   DatalistAlvos,
   EfeitosEditor,
@@ -68,7 +73,7 @@ import { ACadaTurnoCampo, comPorTurno, porTurnoDe } from "./duracao-campo";
 import { useExaustaoOtimista } from "./use-exaustao-otimista";
 import { useGastoMunicao } from "./use-municao";
 import { SeletorUnico } from "./seletor-multiplo";
-import { CampoPasso } from "./campos-modal";
+import { CampoPasso, SecaoModal, TipoDanoCampo } from "./campos-modal";
 import { CampoFormula } from "./campo-formula";
 import {
   EVENTO_GASTAR_MUNICAO,
@@ -81,6 +86,11 @@ import {
 import { useEscolherAlvo } from "./escolher-alvo";
 import type { Tripulante } from "./tripulacao-tab";
 import { MarcaExausto } from "./marca-exausto";
+import { BarraFiltros, casaBusca, pastasDe } from "./barra-filtros";
+import { SecaoRecolhivel } from "./secao-recolhivel";
+import { BotaoGuardar } from "./pastas";
+import { BotaoPacotes } from "./pacotes";
+import { useGravacaoAgrupada } from "./use-gravacao-agrupada";
 import { Tooltip } from "@/components/tooltip";
 import { TagChip, TagsEditor } from "./estilo-cor-picker";
 import {
@@ -118,6 +128,8 @@ type Item = {
   municaoId?: string | null;
   // Posição na lista (0 = nunca arrastado, vai pro fim).
   ordem?: number;
+  // Pasta em que o item está (etiqueta de filtro).
+  pasta?: string | null;
 };
 
 // Unidades do item; só a munição pode ficar em zero.
@@ -285,6 +297,31 @@ function categoriaDoItem(tipo: string): Categoria {
   return "mochila";
 }
 
+const SECOES: { categoria: Categoria; titulo: string; icone: string; cor: string }[] = [
+  { categoria: "arsenal", titulo: "Arsenal", icone: "fa-fist-raised", cor: "var(--danger)" },
+  { categoria: "armaria", titulo: "Armaria", icone: "fa-shield-alt", cor: "var(--info)" },
+  { categoria: "mochila", titulo: "Mochila", icone: "fa-shopping-bag", cor: "var(--warning)" },
+];
+
+type Filtro = "todos" | "equipados" | "favoritos" | "usaveis";
+
+const FILTROS: readonly (readonly [Filtro, string])[] = [
+  ["todos", "Todos"],
+  ["equipados", "Equipados"],
+  ["favoritos", "Favoritos"],
+  ["usaveis", "Usáveis"],
+];
+
+const FILTROS_TIPO = [
+  ["arma", "Arma"],
+  ["municao", "Munição"],
+  ["armadura", "Armadura"],
+  ["comum", "Comum"],
+] as const;
+
+// Tiros seguidos viram um gasto de munição só.
+const ESPERA_GASTO_MS = 800;
+
 type FormState = {
   id: string | null;
   nome: string;
@@ -293,7 +330,9 @@ type FormState = {
   tags: string;
   tagsEstilo: MapaEstilosTag;
   descricao: string;
+  // Fórmula e tipo à parte; no banco viram um texto só ("1d8 cortante").
   dano: string;
+  tipoDano: string;
   modificador: string;
   ca: string;
   penalidadeDes: string;
@@ -304,6 +343,7 @@ type FormState = {
   atributoAtaque: string; // "" = auto
   proficienteArma: boolean;
   danoBonus: string;
+  tipoBonus: string;
   danoSomaAtributo: boolean;
   danoSomaProficiencia: boolean;
   efeitos: EfeitoHabilidade[];
@@ -320,6 +360,7 @@ const FORM_VAZIO: FormState = {
   tagsEstilo: {},
   descricao: "",
   dano: "",
+  tipoDano: "",
   modificador: "",
   ca: "",
   penalidadeDes: "",
@@ -330,6 +371,7 @@ const FORM_VAZIO: FormState = {
   atributoAtaque: "",
   proficienteArma: true,
   danoBonus: "",
+  tipoBonus: "",
   danoSomaAtributo: false,
   danoSomaProficiencia: false,
   efeitos: [],
@@ -384,8 +426,10 @@ export function InventarioTab({
     destreza: atributos.destreza + 2 * penalidadeDesArmadura,
   };
   const desReduz = penalidadeDesArmadura < 0;
-  const [mostrarEquipados, setMostrarEquipados] = useState(false);
-  const [categoria, setCategoria] = useState<Categoria>("arsenal");
+  const [busca, setBusca] = useState("");
+  const [filtro, setFiltro] = useState<Filtro>("todos");
+  const [tipoFiltro, setTipoFiltro] = useState<string | null>(null);
+  const [pastaFiltro, setPastaFiltro] = useState<string | null>(null);
   const [modalAberto, setModalAberto] = useState(false);
   const [form, setForm] = useState<FormState>(FORM_VAZIO);
   const [, startTransition] = useTransition();
@@ -416,52 +460,89 @@ export function InventarioTab({
     return state.filter((i) => i.id !== p.id);
   });
 
-  // Munição gasta pelo Rolador: some na hora e grava no servidor.
+  // Munição gasta pelo Rolador: some na hora; os tiros seguidos vão juntos pro servidor.
   const gastoMunicao = useGastoMunicao(itens);
-  const gravarGastoMunicao = useEffectEvent((d: GastoMunicao) => {
+  const gastosNaFila = useRef(new Map<string, number>());
+  const timerGastos = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const enviarGastos = useEffectEvent(() => {
+    timerGastos.current = null;
+    const lista = [...gastosNaFila.current];
+    gastosNaFila.current.clear();
+    for (const [id, quantidade] of lista) {
+      startTransition(async () => {
+        try {
+          exigir(await gastarMunicao(personagemId, id, quantidade));
+        } catch (err) {
+          atualizar();
+          mostrarErro(err);
+        }
+      });
+    }
+  });
+  useEffect(() => {
+    const fila = gastosNaFila.current;
+    function ouvir(e: Event) {
+      const d = (e as CustomEvent<GastoMunicao>).detail;
+      if (!d?.id) return;
+      fila.set(d.id, (fila.get(d.id) ?? 0) + d.quantidade);
+      timerGastos.current ??= setTimeout(() => enviarGastos(), ESPERA_GASTO_MS);
+    }
+    window.addEventListener(EVENTO_GASTAR_MUNICAO, ouvir);
+    return () => {
+      window.removeEventListener(EVENTO_GASTAR_MUNICAO, ouvir);
+      if (timerGastos.current) {
+        clearTimeout(timerGastos.current);
+        enviarGastos();
+      }
+    };
+  }, []);
+
+  // −/+ da munição: a quantidade que fica (o gasto ainda na fila já sai dela).
+  const quantidades = useGravacaoAgrupada<number>((id, n) => {
     startTransition(async () => {
+      aplicarOtimista({ kind: "update", id, patch: { quantidade: n + gastoMunicao(id) } });
+      quantidades.soltar(id, n);
       try {
-        exigir(await gastarMunicao(personagemId, d.id, d.quantidade));
+        exigir(await atualizarItem(personagemId, id, { tipo: "municao", quantidade: n }));
       } catch (err) {
-        atualizar();
         mostrarErro(err);
       }
     });
   });
-  useEffect(() => {
-    function ouvir(e: Event) {
-      const d = (e as CustomEvent<GastoMunicao>).detail;
-      if (d?.id) gravarGastoMunicao(d);
-    }
-    window.addEventListener(EVENTO_GASTAR_MUNICAO, ouvir);
-    return () => window.removeEventListener(EVENTO_GASTAR_MUNICAO, ouvir);
-  }, []);
 
-  // −/+ no card da munição.
+  // Contador do bônus progressivo: muda na hora; os efeitos vão quando os cliques param.
+  const efeitosNaFila = useGravacaoAgrupada<EfeitoHabilidade[]>((id, efeitos) => {
+    startTransition(async () => {
+      aplicarOtimista({ kind: "update", id, patch: { efeitos } });
+      efeitosNaFila.soltar(id, efeitos);
+      try {
+        exigir(await atualizarItem(personagemId, id, { efeitos }));
+      } catch (err) {
+        mostrarErro(err);
+      }
+    });
+  });
+
+  // O que a tela mostra: servidor, otimista e os cliques ainda na fila.
+  const itensNaTela = itensOtimistas.map((i) => {
+    const n = quantidades.naTela[i.id];
+    const efeitos = efeitosNaFila.naTela[i.id];
+    if (n === undefined && efeitos === undefined) return i;
+    return {
+      ...i,
+      ...(n !== undefined ? { quantidade: n + gastoMunicao(i.id) } : {}),
+      ...(efeitos !== undefined ? { efeitos } : {}),
+    };
+  });
+
   function mudarQuantidade(item: Item, n: number) {
-    const gasto = gastoMunicao(item.id);
-    startTransition(async () => {
-      aplicarOtimista({ kind: "update", id: item.id, patch: { quantidade: n + gasto } });
-      try {
-        exigir(await atualizarItem(personagemId, item.id, { tipo: "municao", quantidade: n }));
-      } catch (err) {
-        mostrarErro(err);
-      }
-    });
+    quantidades.mudar(item.id, n);
   }
 
-  // Contador do bônus progressivo do item: muda na hora e grava os efeitos.
   function mudarEfeitos(item: Item, efeitos: EfeitoHabilidade[]) {
-    startTransition(async () => {
-      aplicarOtimista({ kind: "update", id: item.id, patch: { efeitos } });
-      try {
-        exigir(await atualizarItem(personagemId, item.id, { efeitos }));
-      } catch (err) {
-        mostrarErro(err);
-      }
-    });
+    efeitosNaFila.mudar(item.id, efeitos);
   }
-  useContagemDoRolador(itensOtimistas, mudarEfeitos);
+  useContagemDoRolador(itensNaTela, mudarEfeitos);
 
   function abrirNovo() {
     setForm(FORM_VAZIO);
@@ -469,6 +550,8 @@ export function InventarioTab({
   }
 
   function abrirEdit(item: Item) {
+    const dano = separarTipoDoDano(item.dano || "");
+    const bonus = separarTipoDoDano(item.danoBonus || "");
     setForm({
       id: item.id,
       nome: item.nome,
@@ -477,7 +560,8 @@ export function InventarioTab({
       tags: item.tags || "",
       tagsEstilo: lerEstilosTag(item.tagsEstilo),
       descricao: item.descricao || "",
-      dano: item.dano || "",
+      dano: dano.formula,
+      tipoDano: dano.tipo,
       modificador: String(item.modificador || ""),
       ca: String(item.ca || ""),
       penalidadeDes: String(item.penalidadeDes || ""),
@@ -491,7 +575,8 @@ export function InventarioTab({
       propriedades: lerPropriedades(item.propriedades),
       atributoAtaque: item.atributoAtaque || "",
       proficienteArma: item.proficienteArma,
-      danoBonus: item.danoBonus || "",
+      danoBonus: bonus.formula,
+      tipoBonus: bonus.tipo,
       danoSomaAtributo: item.danoSomaAtributo,
       danoSomaProficiencia: item.danoSomaProficiencia,
       efeitos: lerEfeitos(item.efeitos),
@@ -541,7 +626,7 @@ export function InventarioTab({
       tags: form.tags,
       tagsEstilo: podarEstilosTag(form.tagsEstilo, form.tags),
       descricao: form.descricao,
-      dano: ehArma || ehMunicao ? form.dano : "",
+      dano: ehArma || ehMunicao ? juntarTipoNoDano(form.dano, form.tipoDano) : "",
       modificador: ehArma ? Number(form.modificador) || 0 : 0,
       ca: form.tipo === "armadura" ? Number(form.ca) || 0 : 0,
       penalidadeDes: form.tipo === "armadura" ? Number(form.penalidadeDes) || 0 : 0,
@@ -551,7 +636,7 @@ export function InventarioTab({
       propriedades: ehArma ? form.propriedades : [],
       atributoAtaque: ehArma && form.atributoAtaque ? form.atributoAtaque : null,
       proficienteArma: ehArma ? form.proficienteArma : true,
-      danoBonus: ehArma ? form.danoBonus.trim() || null : null,
+      danoBonus: ehArma ? juntarTipoNoDano(form.danoBonus, form.tipoBonus) || null : null,
       danoSomaAtributo: ehArma ? form.danoSomaAtributo : false,
       danoSomaProficiencia: ehArma ? form.danoSomaProficiencia : false,
       // Efeitos valem pra qualquer tipo de item.
@@ -648,14 +733,7 @@ export function InventarioTab({
       }
       aplicarOtimista({ kind: "update", id: item.id, patch: { equipado: novo } });
       try {
-        if (outras.length > 0) {
-          await Promise.all(
-            outras.map(async (i) =>
-              exigir(await atualizarItem(personagemId, i.id, { equipado: false })),
-            ),
-          );
-        }
-        exigir(await atualizarItem(personagemId, item.id, { equipado: novo }));
+        exigir(await equiparItem(personagemId, item.id, novo));
       } catch (err) {
         mostrarErro(err);
       }
@@ -687,6 +765,62 @@ export function InventarioTab({
     });
   }
 
+  // Põe na pasta (etiqueta da ficha) ou tira.
+  function guardarEmPasta(item: Item, pasta: string | null) {
+    startTransition(async () => {
+      aplicarOtimista({ kind: "update", id: item.id, patch: { pasta } });
+      try {
+        exigir(await atualizarItem(personagemId, item.id, { pasta }));
+      } catch (err) {
+        mostrarErro(err);
+      }
+    });
+  }
+
+  // Passa unidades pra outra ficha do grupo (aliado, subficha ou o dono).
+  async function passar(item: Item) {
+    const total = quantidadeDe(item);
+    const tem = total - (item.tipo === "municao" ? gastoMunicao(item.id) : 0);
+    if (tem <= 0) return;
+    const concede = concedidosPorItem.get(item.id);
+    const destino = await alvo.escolher(`Passar ${item.nome} pra quem?`, {
+      detalhe:
+        concede && concede.acoes.length + concede.habilidades.length > 0
+          ? "As ações e habilidades que ele dá ficam nesta ficha."
+          : undefined,
+    });
+    if (!destino) return;
+    let n = 1;
+    if (tem > 1) {
+      const r = await Swal.fire({
+        title: "Quantas?",
+        input: "number",
+        inputValue: String(tem),
+        inputAttributes: { min: "1", max: String(tem), step: "1" },
+        showCancelButton: true,
+        confirmButtonText: "Passar",
+        cancelButtonText: "Cancelar",
+        background: "var(--bg-card)",
+        color: "var(--text-main)",
+      });
+      if (!r.isConfirmed) return;
+      n = Math.min(tem, Math.max(1, Math.trunc(Number(r.value) || 0)));
+    }
+    startTransition(async () => {
+      aplicarOtimista(
+        n >= total
+          ? { kind: "delete", id: item.id }
+          : { kind: "update", id: item.id, patch: { quantidade: total - n } },
+      );
+      try {
+        exigir(await passarItem(personagemId, item.id, destino, n));
+      } catch (err) {
+        atualizar();
+        mostrarErro(err);
+      }
+    });
+  }
+
   // Usa 1 unidade: os efeitos na hora vão pra quem usa ou pra um aliado da mesa.
   async function usar(item: Item) {
     const efeitos = lerEfeitos(item.efeitos).filter(efeitoInstantaneo);
@@ -696,9 +830,12 @@ export function InventarioTab({
       efeitos
         .map((e) =>
           e.tipo === "cura"
-            ? `Cura ${formulaResolvidaTexto(e.valor, atributos, nivel)}${
-                extraCura.texto && alvoDaCura(e) === "hp" ? ` + ${extraCura.texto}` : ""
-              }`
+            ? textoDaCura(
+                e,
+                `${formulaResolvidaTexto(e.valor, atributos, nivel)}${
+                  extraCura.texto && alvoDaCura(e) === "hp" ? ` + ${extraCura.texto}` : ""
+                }`,
+              )
             : resumoEfeito(e, (id) => nomesRecurso.get(id), { nivel, atributos }),
         )
         .join(", ") + ".",
@@ -771,7 +908,7 @@ export function InventarioTab({
   // Acerto e dano da arma (o dano usa o atributo do acerto).
   function calcArma(item: Item): ArmaResolvida {
     if (item.tipo !== "arma") return null;
-    const municao = municaoDaArma(item, itensOtimistas, gastoMunicao);
+    const municao = municaoDaArma(item, itensNaTela, gastoMunicao);
     // Ficha + efeitos de rolagem da arma.
     const agg = efeitosComArma(efeitosAgregados, item);
     const r = resolverAtaqueArma({
@@ -827,7 +964,7 @@ export function InventarioTab({
   }
 
   // Carga conta cada unidade da pilha.
-  const pesoTotal = itensOtimistas.reduce(
+  const pesoTotal = itensNaTela.reduce(
     (acc, i) => acc + (Number(i.peso) || 0) * (quantidadeDe(i) - gastoMunicao(i.id)),
     0,
   );
@@ -856,7 +993,7 @@ export function InventarioTab({
   }
 
   // Na ordem arrastada; quem nunca foi arrastado (ordem 0) vai pro fim, em ordem alfabética.
-  const porOrdem = [...itensOtimistas].sort(
+  const porOrdem = [...itensNaTela].sort(
     (a, b) =>
       (a.ordem || Number.MAX_SAFE_INTEGER) - (b.ordem || Number.MAX_SAFE_INTEGER) || a.nome.localeCompare(b.nome),
   );
@@ -879,33 +1016,77 @@ export function InventarioTab({
     },
   });
   const ordenados = reordenar.ordenar(porOrdem);
-  const visiveis = mostrarEquipados ? ordenados.filter((i) => i.equipado) : ordenados;
 
-  const favoritos = !mostrarEquipados ? visiveis.filter((i) => i.favorito) : [];
-  const naoFavoritos = mostrarEquipados ? visiveis : visiveis.filter((i) => !i.favorito);
-  const arsenal = naoFavoritos.filter((i) => categoriaDoItem(i.tipo) === "arsenal");
-  const armaria = naoFavoritos.filter((i) => categoriaDoItem(i.tipo) === "armaria");
-  const mochila = naoFavoritos.filter((i) => categoriaDoItem(i.tipo) === "mochila");
+  // Pastas da ficha, filtros e busca.
+  const pastas = pastasDe(itensNaTela);
+  const nomesDasPastas = pastas.map((p) => p.nome);
+  const pastaAtiva = pastas.some((p) => p.nome === pastaFiltro) ? pastaFiltro : null;
+  const casaFiltro = (i: Item) =>
+    filtro === "equipados"
+      ? i.equipado
+      : filtro === "favoritos"
+        ? i.favorito
+        : filtro === "usaveis"
+          ? lerEfeitos(i.efeitos).some(efeitoInstantaneo)
+          : true;
+  const visiveis = ordenados.filter(
+    (i) =>
+      casaFiltro(i) &&
+      (!tipoFiltro || i.tipo === tipoFiltro) &&
+      (!pastaAtiva || i.pasta === pastaAtiva) &&
+      casaBusca(busca, [i.nome, i.tags, i.descricao, i.dano, i.pasta]),
+  );
+  const filtrando = filtro !== "todos" || !!tipoFiltro || !!pastaAtiva || busca.trim() !== "";
+  // Destaques ficam fora das seções; filtrando, cada item aparece no lugar dele.
+  const favoritos = filtrando ? [] : visiveis.filter((i) => i.favorito);
+  const nasSecoes = filtrando ? visiveis : visiveis.filter((i) => !i.favorito);
+
+  // Filtrando, a lista está incompleta: não arrasta.
+  const card = (item: Item, arrasta: boolean) => (
+    <CardItem
+      key={item.id}
+      item={item}
+      reordenar={
+        arrasta && !filtrando && !ehTemporario(item.id)
+          ? { item: reordenar.item(item.id), alca: reordenar.alca(item.id), vaga: reordenar.vaga(item.id) }
+          : undefined
+      }
+      arma={calcArma(item)}
+      concedidos={concedidosPorItem.get(item.id)}
+      personagemId={personagemId}
+      pastasDaFicha={nomesDasPastas}
+      podePassar={alvo.temAliados}
+      onToggleFavorito={() => toggleFavorito(item)}
+      onToggleEquipar={() => toggleEquipar(item)}
+      onUsar={() => usar(item)}
+      onEdit={() => abrirEdit(item)}
+      onDelete={() => apagar(item.id)}
+      onQuantidade={(n) => mudarQuantidade(item, n)}
+      onEfeitos={(efeitos) => mudarEfeitos(item, efeitos)}
+      onPasta={(pasta) => guardarEmPasta(item, pasta)}
+      onFiltrarPasta={setPastaFiltro}
+      onPassar={() => passar(item)}
+      gasto={gastoMunicao(item.id)}
+    />
+  );
 
   return (
     <ContextoDescricaoCtx.Provider value={contextoBaseRico}>
     <AlvosCustomContext.Provider value={alvosPericiaCustom(periciasCustom)}>
+    <AcoesDaFichaContext.Provider value={acoesFicha.map((a) => ({ id: a.id, nome: a.nome, tipo: a.tipo }))}>
+    <ItensDaFichaContext.Provider value={itensNaTela.map((i) => ({ id: i.id, nome: i.nome, tipo: i.tipo }))}>
     <NomesRecursoContext.Provider value={new Map(recursos.map((r) => [r.id, r.nome]))}>
     <FormulaContext.Provider value={ctxFormula}>
       <div>
       <div className="tab-topo">
-        <h1 style={{ marginRight: "auto" }}>Inventário</h1>
+        <h1>Inventário</h1>
         <BerriesControle personagemId={personagemId} berries={berries} />
-        <button
-          type="button"
-          className={`btn-rect outline ${mostrarEquipados ? "active" : ""}`}
-          onClick={() => setMostrarEquipados((v) => !v)}
-        >
-          <i className="fas fa-tshirt" /> {mostrarEquipados ? "Ver Todos" : "Ver Equipados"}
-        </button>
-        <button type="button" className="btn-rect primary" onClick={abrirNovo}>
-          + Novo Item
-        </button>
+        <div className="tab-topo-botoes">
+          <BotaoPacotes />
+          <button type="button" className="btn-rect primary" onClick={abrirNovo}>
+            + Novo Item
+          </button>
+        </div>
       </div>
 
       <div className="bar-group peso-bar">
@@ -949,94 +1130,56 @@ export function InventarioTab({
         )}
       </div>
 
-      {/* Favoritos (só quando "Ver Todos") */}
-      {!mostrarEquipados && favoritos.length > 0 && (
-        <section style={{ marginBottom: 30 }}>
-          <h3 style={{ color: "var(--highlight)", marginBottom: 20 }}>
-            <i className="fas fa-star" /> DESTAQUES
-          </h3>
-          <div className="action-grid">
-            {favoritos.map((item) => (
-              <CardItem
-                key={item.id}
-                item={item}
-                arma={calcArma(item)}
-                concedidos={concedidosPorItem.get(item.id)}
-                onToggleFavorito={() => toggleFavorito(item)}
-                onToggleEquipar={() => toggleEquipar(item)}
-                onUsar={() => usar(item)}
-                onEdit={() => abrirEdit(item)}
-                onDelete={() => apagar(item.id)}
-                onQuantidade={(n) => mudarQuantidade(item, n)}
-                onEfeitos={(efeitos) => mudarEfeitos(item, efeitos)}
-                gasto={gastoMunicao(item.id)}
-              />
-            ))}
-          </div>
-        </section>
+      <BarraFiltros
+        busca={busca}
+        onBusca={setBusca}
+        rotulo="item"
+        filtros={FILTROS}
+        filtro={filtro}
+        onFiltro={setFiltro}
+        pastas={pastas}
+        pasta={pastaAtiva}
+        onPasta={setPastaFiltro}
+        grupos={[{ rotulo: "Tipo", opcoes: FILTROS_TIPO, valor: tipoFiltro, onValor: setTipoFiltro }]}
+      />
+
+      {favoritos.length > 0 && (
+        <SecaoRecolhivel
+          chave="itens:destaques"
+          icone="fa-star"
+          cor="var(--highlight)"
+          titulo="Destaques"
+          contagem={favoritos.length}
+        >
+          <div className="action-grid">{favoritos.map((item) => card(item, false))}</div>
+        </SecaoRecolhivel>
       )}
 
-      {/* Tabs de categoria (só em "Ver Todos") */}
-      {!mostrarEquipados && (
-        <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
-          {(
-            [
-              ["arsenal", "fa-fist-raised", "Arsenal"],
-              ["armaria", "fa-shield-alt", "Armaria"],
-              ["mochila", "fa-shopping-bag", "Mochila"],
-            ] as const
-          ).map(([key, icone, titulo]) => (
-            <button
-              key={key}
-              type="button"
-              className={`btn-rect outline ${categoria === key ? "active" : ""}`}
-              onClick={() => setCategoria(key)}
+      {SECOES.map((secao) => {
+        const lista = nasSecoes.filter((i) => categoriaDoItem(i.tipo) === secao.categoria);
+        if (lista.length === 0) return null;
+        return (
+          <SecaoRecolhivel
+            key={secao.categoria}
+            chave={`itens:${secao.categoria}`}
+            icone={secao.icone}
+            cor={secao.cor}
+            titulo={secao.titulo}
+            contagem={lista.length}
+            forcarAberta={filtrando}
+          >
+            <div
+              className={`action-grid reordenar-zona${reordenar.recebendo(secao.categoria)}`}
+              {...reordenar.zona(secao.categoria)}
             >
-              <i className={`fas ${icone}`} /> {titulo}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Listas — modo "Ver Equipados" mostra tudo, modo "Ver Todos" mostra só a categoria escolhida */}
-      <SecaoItens
-        titulo="Arsenal"
-        icone="fa-fist-raised"
-        itens={arsenal}
-        grupo="arsenal"
-        reordenar={reordenar}
-        visivel={mostrarEquipados || categoria === "arsenal"}
-        callbacks={{ toggleFavorito, toggleEquipar, usar, abrirEdit, apagar, mudarQuantidade, mudarEfeitos, gastoMunicao }}
-        calcArma={calcArma}
-        concedidosPorItem={concedidosPorItem}
-      />
-      <SecaoItens
-        titulo="Armaria"
-        icone="fa-shield-alt"
-        itens={armaria}
-        grupo="armaria"
-        reordenar={reordenar}
-        visivel={mostrarEquipados || categoria === "armaria"}
-        callbacks={{ toggleFavorito, toggleEquipar, usar, abrirEdit, apagar, mudarQuantidade, mudarEfeitos, gastoMunicao }}
-        calcArma={calcArma}
-        concedidosPorItem={concedidosPorItem}
-      />
-      <SecaoItens
-        titulo="Mochila"
-        icone="fa-shopping-bag"
-        itens={mochila}
-        grupo="mochila"
-        reordenar={reordenar}
-        visivel={mostrarEquipados || categoria === "mochila"}
-        callbacks={{ toggleFavorito, toggleEquipar, usar, abrirEdit, apagar, mudarQuantidade, mudarEfeitos, gastoMunicao }}
-        calcArma={calcArma}
-        concedidosPorItem={concedidosPorItem}
-      />
+              {lista.map((item) => card(item, true))}
+            </div>
+          </SecaoRecolhivel>
+        );
+      })}
 
       {visiveis.length === 0 && (
-        <p style={{ color: "var(--text-sec)", fontStyle: "italic", padding: "20px 0" }}>
-          {mostrarEquipados ? "Nenhum item equipado." : "Inventário vazio..."}
-        </p>
+        <p className="inv-vazio">{filtrando ? "Nada encontrado." : "Inventário vazio."}</p>
       )}
 
       {alvo.modal}
@@ -1086,21 +1229,16 @@ export function InventarioTab({
                     : form.tipo === "municao"
                       ? "Ex: Flecha"
                       : form.tipo === "armadura"
-                      ? "Ex: Cota de Malha"
-                      : "Ex: Poção de Cura"
+                        ? "Ex: Cota de Malha"
+                        : "Ex: Poção de Cura"
                 }
                 autoFocus
               />
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
+              <div className="campo-duo">
                 <div>
                   <label>Peso por unidade (PC)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={form.peso}
-                    onChange={(e) => set("peso", e.target.value)}
-                  />
+                  <input type="number" step="0.1" value={form.peso} onChange={(e) => set("peso", e.target.value)} />
                 </div>
                 <div>
                   <label>Quantidade</label>
@@ -1114,217 +1252,258 @@ export function InventarioTab({
                 </div>
               </div>
 
+              <SecaoModal titulo="Descrição" icone="fa-align-left" aberta resumo={form.tags || undefined}>
+                <EditorRico
+                  valor={form.descricao}
+                  onChange={(t) => set("descricao", t)}
+                  refs={[
+                    ...acoesFicha.map((x) => ({ tipo: "acao" as const, id: x.id, nome: x.nome })),
+                    ...habilidades.map((h) => ({ tipo: "hab" as const, id: h.id, nome: h.nome })),
+                    ...itens.filter((i) => i.id !== form.id).map((i) => ({ tipo: "item" as const, id: i.id, nome: i.nome })),
+                  ]}
+                  condicoes={condicoesCatalogoNomes(contextoBaseRico)}
+                  contexto={{ ...contextoBaseRico, nomeRolagem: form.nome }}
+                  placeholder="Descrição do item… (@ insere, / blocos)"
+                />
+                <label>Tags</label>
+                <TagsEditor
+                  tags={form.tags}
+                  estilos={form.tagsEstilo}
+                  onTags={(v) => set("tags", v)}
+                  onEstilos={(v) => set("tagsEstilo", v)}
+                  placeholder="Ex: Cortante, Duas Mãos, Raro"
+                  classePadraoChip="tag-damage"
+                />
+              </SecaoModal>
+
               {form.tipo === "municao" && (
-                <>
-                  <div style={{ marginTop: 10 }}>
-                    <CampoFormula
-                      label="Dano da munição"
-                      valor={form.dano}
-                      onChange={(v) => set("dano", v)}
-                      placeholder="1d6 perfurante"
-                      dados
-                    />
-                  </div>
-                </>
+                <SecaoModal
+                  titulo="Dano"
+                  icone="fa-burst"
+                  aberta
+                  resumo={juntarTipoNoDano(form.dano, form.tipoDano) || undefined}
+                >
+                  <CampoFormula
+                    label="Dano da munição"
+                    valor={form.dano}
+                    onChange={(v) => set("dano", v)}
+                    placeholder="1d6"
+                    dados
+                  />
+                  {form.dano.trim() && (
+                    <TipoDanoCampo valor={form.tipoDano} onChange={(t) => set("tipoDano", t)} />
+                  )}
+                </SecaoModal>
               )}
 
               {form.tipo === "arma" && (
                 <>
-                  <h3 className="modal-secao"><i className="fas fa-khanda" /> Combate</h3>
-                  <label>Categoria</label>
-                  <div className="categoria-pills">
-                    {CATEGORIAS_ARMA.map((c) => (
-                      <button
-                        type="button"
-                        key={c.slug}
-                        className={`categoria-pill ${form.categoria === c.slug ? "ativo" : ""}`}
-                        onClick={() =>
-                          setForm((f) => ({ ...f, categoria: c.slug }))
-                        }
-                      >
-                        <i className={`fas ${c.icone}`} />
-                        <span>{c.nome}</span>
-                      </button>
-                    ))}
-                  </div>
-
-                  <label style={{ marginTop: 10 }}>Alcance</label>
-                  <div className="categoria-pills">
-                    {ALCANCES_ARMA.map((a) => (
-                      <button
-                        type="button"
-                        key={a.slug}
-                        className={`categoria-pill ${form.alcance === a.slug ? "ativo" : ""}`}
-                        onClick={() =>
-                          setForm((f) => ({ ...f, alcance: a.slug }))
-                        }
-                      >
-                        <i className={`fas ${a.icone}`} />
-                        <span>{a.nome}</span>
-                      </button>
-                    ))}
-                  </div>
-
-                  <label style={{ marginTop: 10 }}>Alcance em metros</label>
-                  <input
-                    type="text"
-                    value={form.alcanceMetros}
-                    onChange={(e) => set("alcanceMetros", e.target.value)}
-                    placeholder={
-                      form.alcance === "distancia" ? "Ex: 9/15 m" : "Ex: 1,5 m"
-                    }
-                  />
-
-                  <div className="campo-duo" style={{ marginTop: 12 }}>
-                    <div>
-                      <label>Atributo de Ataque</label>
-                      <select
-                        value={form.atributoAtaque}
-                        onChange={(e) => set("atributoAtaque", e.target.value)}
-                      >
-                        <option value="">Automático</option>
-                        {ATRIBUTOS.map((a) => (
-                          <option key={a.slug} value={a.slug}>
-                            {a.sigla} — {a.nome}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label>Bônus de acerto</label>
-                      <input
-                        type="number"
-                        value={form.modificador}
-                        onChange={(e) => set("modificador", e.target.value)}
-                        placeholder="0"
-                      />
-                    </div>
-                  </div>
-
-                  <label
-                    className="checkbox-linha"
-                    style={{ marginTop: 12, padding: "8px 10px", background: "var(--bg-surface)", borderRadius: 6 }}
+                  <SecaoModal
+                    titulo="Ataque"
+                    icone="fa-crosshairs"
+                    aberta
+                    resumo={[CATEGORIAS_ARMA.find((c) => c.slug === form.categoria)?.nome, form.alcanceMetros]
+                      .filter(Boolean)
+                      .join(" · ")}
                   >
-                    <input
-                      type="checkbox"
-                      checked={form.proficienteArma}
-                      onChange={(e) =>
-                        setForm((f) => ({ ...f, proficienteArma: e.target.checked }))
-                      }
-                    />
-                    <span>
-                      <strong>Proficiente</strong> nesta arma
-                    </span>
-                  </label>
+                    <label>Categoria</label>
+                    <div className="categoria-pills">
+                      {CATEGORIAS_ARMA.map((c) => (
+                        <button
+                          type="button"
+                          key={c.slug}
+                          className={`categoria-pill ${form.categoria === c.slug ? "ativo" : ""}`}
+                          aria-pressed={form.categoria === c.slug}
+                          onClick={() => set("categoria", c.slug)}
+                        >
+                          <i className={`fas ${c.icone}`} />
+                          <span>{c.nome}</span>
+                        </button>
+                      ))}
+                    </div>
 
-                  <div className="campo-duo" style={{ marginTop: 12 }}>
+                    <label>Alcance</label>
+                    <div className="categoria-pills">
+                      {ALCANCES_ARMA.map((a) => (
+                        <button
+                          type="button"
+                          key={a.slug}
+                          className={`categoria-pill ${form.alcance === a.slug ? "ativo" : ""}`}
+                          aria-pressed={form.alcance === a.slug}
+                          onClick={() => set("alcance", a.slug)}
+                        >
+                          <i className={`fas ${a.icone}`} />
+                          <span>{a.nome}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    <label>Alcance em metros</label>
+                    <input
+                      type="text"
+                      value={form.alcanceMetros}
+                      onChange={(e) => set("alcanceMetros", e.target.value)}
+                      placeholder={form.alcance === "distancia" ? "Ex: 9/15 m" : "Ex: 1,5 m"}
+                    />
+
+                    <div className="campo-duo">
+                      <div>
+                        <label>Atributo de Ataque</label>
+                        <select value={form.atributoAtaque} onChange={(e) => set("atributoAtaque", e.target.value)}>
+                          <option value="">Automático</option>
+                          {ATRIBUTOS.map((a) => (
+                            <option key={a.slug} value={a.slug}>
+                              {a.sigla} — {a.nome}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label>Bônus de acerto</label>
+                        <input
+                          type="number"
+                          value={form.modificador}
+                          onChange={(e) => set("modificador", e.target.value)}
+                          placeholder="0"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="sugestoes item-opcoes">
+                      <button
+                        type="button"
+                        className={`sugestao chip-opcao ${form.proficienteArma ? "ativo" : ""}`}
+                        aria-pressed={form.proficienteArma}
+                        onClick={() => set("proficienteArma", !form.proficienteArma)}
+                      >
+                        <i className="fas fa-graduation-cap" /> Proficiente
+                      </button>
+                    </div>
+                  </SecaoModal>
+
+                  <SecaoModal
+                    titulo="Dano"
+                    icone="fa-burst"
+                    aberta
+                    resumo={
+                      [juntarTipoNoDano(form.dano, form.tipoDano), juntarTipoNoDano(form.danoBonus, form.tipoBonus)]
+                        .filter(Boolean)
+                        .join(" + ") || undefined
+                    }
+                  >
                     <CampoFormula
-                      label="Dado de Dano"
+                      label="Dado de dano"
                       valor={form.dano}
                       onChange={(v) => set("dano", v)}
                       placeholder={form.propriedades.includes("municao") ? "Da munição" : "1d8"}
                       dados
                     />
+                    {form.dano.trim() && (
+                      <TipoDanoCampo valor={form.tipoDano} onChange={(t) => set("tipoDano", t)} />
+                    )}
                     <CampoFormula
                       label="Dano bônus"
                       valor={form.danoBonus}
                       onChange={(v) => set("danoBonus", v)}
-                      placeholder="Ex: 1d6 fogo"
+                      placeholder="Ex: 1d6"
                       dados
                     />
-                  </div>
-
-                  <label
-                    className="checkbox-linha"
-                    style={{ marginTop: 12, padding: "8px 10px", background: "var(--bg-surface)", borderRadius: 6 }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={form.danoSomaAtributo}
-                      onChange={(e) =>
-                        setForm((f) => ({ ...f, danoSomaAtributo: e.target.checked }))
-                      }
-                    />
-                    <span>
-                      Somar o <strong>modificador do atributo</strong> no dano
-                    </span>
-                  </label>
-
-                  <label
-                    className="checkbox-linha"
-                    style={{ marginTop: 12, padding: "8px 10px", background: "var(--bg-surface)", borderRadius: 6 }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={form.danoSomaProficiencia}
-                      onChange={(e) =>
-                        setForm((f) => ({ ...f, danoSomaProficiencia: e.target.checked }))
-                      }
-                    />
-                    <span>
-                      Somar a <strong>proficiência</strong> no dano
-                    </span>
-                  </label>
-
-                  <h3 className="modal-secao"><i className="fas fa-tags" /> Propriedades</h3>
-                  <div className="propriedades-pills">
-                    {PROPRIEDADES_ARMA.map((p) => {
-                      const ativo = form.propriedades.includes(p.slug);
-                      return (
-                        <button
-                          type="button"
-                          key={p.slug}
-                          className={`propriedade-pill ${ativo ? "ativo" : ""}`}
-                          onClick={() =>
-                            setForm((f) => ({
-                              ...f,
-                              propriedades: ativo
-                                ? f.propriedades.filter((s) => s !== p.slug)
-                                : [...f.propriedades, p.slug],
-                            }))
-                          }
-                        >
-                          <i className={`fas ${p.icone}`} />
-                          <span>{p.nome}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {form.propriedades.includes("municao") && (
-                    <>
-                      <label style={{ marginTop: 12 }}>Munição</label>
-                      <SeletorUnico
-                        rotulo="munição"
-                        vazio="Nenhuma munição no inventário."
-                        marcado={form.municaoId}
-                        onChange={(id) => set("municaoId", id)}
-                        opcoes={itensOtimistas
-                          .filter((i) => i.tipo === "municao")
-                          .map((i) => ({
-                            id: i.id,
-                            nome: i.nome,
-                            icone: "fa-circle-dot",
-                            detalhe: [i.dano, `×${quantidadeDe(i)}`].filter(Boolean).join(" · "),
-                            inativo: quantidadeDe(i) <= 0,
-                          }))}
+                    {form.danoBonus.trim() && (
+                      <TipoDanoCampo
+                        valor={form.tipoBonus}
+                        onChange={(t) => set("tipoBonus", t)}
+                        rotulo="Tipo do dano bônus"
                       />
-                    </>
-                  )}
+                    )}
+                    <div className="sugestoes item-opcoes">
+                      <button
+                        type="button"
+                        className={`sugestao chip-opcao ${form.danoSomaAtributo ? "ativo" : ""}`}
+                        aria-pressed={form.danoSomaAtributo}
+                        onClick={() => set("danoSomaAtributo", !form.danoSomaAtributo)}
+                      >
+                        <i className="fas fa-dumbbell" /> Soma o atributo
+                      </button>
+                      <button
+                        type="button"
+                        className={`sugestao chip-opcao ${form.danoSomaProficiencia ? "ativo" : ""}`}
+                        aria-pressed={form.danoSomaProficiencia}
+                        onClick={() => set("danoSomaProficiencia", !form.danoSomaProficiencia)}
+                      >
+                        <i className="fas fa-graduation-cap" /> Soma a proficiência
+                      </button>
+                    </div>
+                  </SecaoModal>
+
+                  <SecaoModal
+                    titulo="Propriedades"
+                    icone="fa-tags"
+                    aberta={form.propriedades.length > 0}
+                    resumo={
+                      form.propriedades
+                        .map((slug) => PROPRIEDADES_ARMA.find((x) => x.slug === slug)?.nome)
+                        .filter(Boolean)
+                        .join(", ") || undefined
+                    }
+                  >
+                    <div className="propriedades-pills">
+                      {PROPRIEDADES_ARMA.map((prop) => {
+                        const ativo = form.propriedades.includes(prop.slug);
+                        return (
+                          <button
+                            type="button"
+                            key={prop.slug}
+                            className={`propriedade-pill ${ativo ? "ativo" : ""}`}
+                            aria-pressed={ativo}
+                            onClick={() =>
+                              set(
+                                "propriedades",
+                                ativo ? form.propriedades.filter((x) => x !== prop.slug) : [...form.propriedades, prop.slug],
+                              )
+                            }
+                          >
+                            <i className={`fas ${prop.icone}`} />
+                            <span>{prop.nome}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {form.propriedades.includes("municao") && (
+                      <>
+                        <label>Munição</label>
+                        <SeletorUnico
+                          rotulo="munição"
+                          vazio="Nenhuma munição no inventário."
+                          marcado={form.municaoId}
+                          onChange={(id) => set("municaoId", id)}
+                          opcoes={itensOtimistas
+                            .filter((i) => i.tipo === "municao")
+                            .map((i) => ({
+                              id: i.id,
+                              nome: i.nome,
+                              icone: "fa-circle-dot",
+                              detalhe: [i.dano, `×${quantidadeDe(i)}`].filter(Boolean).join(" · "),
+                              inativo: quantidadeDe(i) <= 0,
+                            }))}
+                        />
+                      </>
+                    )}
+                  </SecaoModal>
                 </>
               )}
 
               {form.tipo === "armadura" && (
-                <>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
+                <SecaoModal
+                  titulo="Defesa"
+                  icone="fa-shield-alt"
+                  aberta
+                  resumo={Number(form.ca) ? `+${Number(form.ca)} CA` : undefined}
+                >
+                  <div className="campo-duo">
                     <div>
                       <label>Bônus de CA</label>
-                      <input
-                        type="number"
-                        value={form.ca}
-                        onChange={(e) => set("ca", e.target.value)}
-                        placeholder="2"
-                      />
+                      <input type="number" value={form.ca} onChange={(e) => set("ca", e.target.value)} placeholder="2" />
                     </div>
                     <div>
                       <label>Penalidade DES</label>
@@ -1336,59 +1515,29 @@ export function InventarioTab({
                       />
                     </div>
                   </div>
-                </>
+                </SecaoModal>
               )}
 
-              <details className="modal-secao-detalhe" open={form.efeitos.length > 0}>
-                <summary>
-                  <i className="fas fa-list-check" /> Efeitos (
-                  {form.efeitos.filter((e) => e.tipo !== "por_turno").length})
-                </summary>
-                <div className="modal-secao-corpo">
-                  <EfeitosEditor
-                    efeitos={form.efeitos}
-                    onChange={(v) => set("efeitos", v)}
-                    recursos={recursos}
-                    pergunta="O que esse item faz?"
-                  />
-                  <ACadaTurnoCampo
-                    lista={porTurnoDe(form.efeitos)}
-                    onChange={(lista) => set("efeitos", comPorTurno(form.efeitos, lista))}
-                    recursos={recursos}
-                  />
-                </div>
-              </details>
-
-              <label style={{ marginTop: 14 }}>Tags (separadas por vírgula)</label>
-              <TagsEditor
-                tags={form.tags}
-                estilos={form.tagsEstilo}
-                onTags={(v) => set("tags", v)}
-                onEstilos={(v) => set("tagsEstilo", v)}
-                placeholder="Ex: Cortante, Duas Mãos, Raro"
-                classePadraoChip="tag-damage"
-              />
-
-              <label>Descrição / Efeitos</label>
-              <EditorRico
-                valor={form.descricao}
-                onChange={(t) => set("descricao", t)}
-                refs={[
-                  ...acoesFicha.map((x) => ({ tipo: "acao" as const, id: x.id, nome: x.nome })),
-                  ...habilidades.map((h) => ({ tipo: "hab" as const, id: h.id, nome: h.nome })),
-                  ...itens.filter((i) => i.id !== form.id).map((i) => ({ tipo: "item" as const, id: i.id, nome: i.nome })),
-                ]}
-                condicoes={condicoesCatalogoNomes(contextoBaseRico)}
-                contexto={{ ...contextoBaseRico, nomeRolagem: form.nome }}
-                placeholder="Descrição do item… (@ insere, / blocos)"
-              />
+              <SecaoModal
+                titulo={`Efeitos (${form.efeitos.filter((e) => e.tipo !== "por_turno").length})`}
+                icone="fa-list-check"
+                aberta={form.efeitos.length > 0}
+              >
+                <EfeitosEditor
+                  efeitos={form.efeitos}
+                  onChange={(v) => set("efeitos", v)}
+                  recursos={recursos}
+                  pergunta="O que esse item faz?"
+                />
+                <ACadaTurnoCampo
+                  lista={porTurnoDe(form.efeitos)}
+                  onChange={(lista) => set("efeitos", comPorTurno(form.efeitos, lista))}
+                  recursos={recursos}
+                />
+              </SecaoModal>
 
               <div className="modal-actions">
-                <button
-                  type="button"
-                  className="modal-btn-cancel"
-                  onClick={fechar}
-                >
+                <button type="button" className="modal-btn-cancel" onClick={fechar}>
                   Cancelar
                 </button>
                 <button type="submit" className="modal-btn-save">
@@ -1403,23 +1552,14 @@ export function InventarioTab({
       </div>
     </FormulaContext.Provider>
     </NomesRecursoContext.Provider>
+    </ItensDaFichaContext.Provider>
+    </AcoesDaFichaContext.Provider>
     </AlvosCustomContext.Provider>
     </ContextoDescricaoCtx.Provider>
   );
 }
 
 // ─── Sub-componentes ────────────────────────────────────────
-
-type CardCallbacks = {
-  toggleFavorito: (i: Item) => void;
-  toggleEquipar: (i: Item) => void;
-  usar: (i: Item) => void;
-  abrirEdit: (i: Item) => void;
-  apagar: (id: string) => void;
-  mudarQuantidade: (i: Item, n: number) => void;
-  mudarEfeitos: (i: Item, efeitos: EfeitoHabilidade[]) => void;
-  gastoMunicao: (id: string) => number;
-};
 
 type Ataque = {
   atributo: Atributo;
@@ -1462,64 +1602,13 @@ function tracosDaArma(item: Item): Traco[] {
   return tracos;
 }
 
-function SecaoItens({
-  titulo,
-  icone,
-  itens,
-  grupo,
-  reordenar,
-  visivel,
-  callbacks,
-  calcArma,
-  concedidosPorItem,
-}: {
-  titulo: string;
-  icone: string;
-  itens: Item[];
-  grupo: Categoria;
-  reordenar: ReturnType<typeof useReordenar>;
-  visivel: boolean;
-  callbacks: CardCallbacks;
-  calcArma: (item: Item) => ArmaResolvida;
-  concedidosPorItem: Map<string, Concedidos>;
-}) {
-  if (!visivel || itens.length === 0) return null;
-  return (
-    <section>
-      <h3 style={{ marginTop: 30, marginBottom: 20, color: "var(--text-main)" }}>
-        <i className={`fas ${icone}`} /> {titulo}
-      </h3>
-      <div className={`action-grid reordenar-zona${reordenar.recebendo(grupo)}`} {...reordenar.zona(grupo)}>
-        {itens.map((item) => (
-          <CardItem
-            key={item.id}
-            item={item}
-            reordenar={
-              ehTemporario(item.id)
-                ? undefined
-                : { item: reordenar.item(item.id), alca: reordenar.alca(item.id), vaga: reordenar.vaga(item.id) }
-            }
-            arma={calcArma(item)}
-            concedidos={concedidosPorItem.get(item.id)}
-            onToggleFavorito={() => callbacks.toggleFavorito(item)}
-            onToggleEquipar={() => callbacks.toggleEquipar(item)}
-            onUsar={() => callbacks.usar(item)}
-            onEdit={() => callbacks.abrirEdit(item)}
-            onDelete={() => callbacks.apagar(item.id)}
-            onQuantidade={(n) => callbacks.mudarQuantidade(item, n)}
-            onEfeitos={(efeitos) => callbacks.mudarEfeitos(item, efeitos)}
-            gasto={callbacks.gastoMunicao(item.id)}
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function CardItem({
   item,
   arma,
   concedidos,
+  personagemId,
+  pastasDaFicha,
+  podePassar,
   onToggleFavorito,
   onToggleEquipar,
   onUsar,
@@ -1527,10 +1616,21 @@ function CardItem({
   onDelete,
   onQuantidade,
   onEfeitos,
+  onPasta,
+  onFiltrarPasta,
+  onPassar,
   gasto,
   reordenar,
 }: {
   item: Item;
+  personagemId: string;
+  // Pastas que já existem na ficha.
+  pastasDaFicha: string[];
+  // Tem pra quem passar (aliado, subficha ou o dono).
+  podePassar: boolean;
+  onPasta: (pasta: string | null) => void;
+  onFiltrarPasta: (pasta: string) => void;
+  onPassar: () => void;
   // Arrastar pra reordenar: props do item, da alça e a classe da vaga.
   reordenar?: { item: object; alca: object; vaga: string };
   arma: ArmaResolvida;
@@ -1588,7 +1688,7 @@ function CardItem({
           <i className="fas fa-grip-vertical" />
         </button>
       )}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
+      <div className="item-card-topo">
         <div className="card-title">
           <button
             type="button"
@@ -1600,17 +1700,15 @@ function CardItem({
           </button>
           {item.nome}{" "}
           {qtd > 1 && !ehMunicao && <span className="item-qtd">×{qtd}</span>}{" "}
-          {item.equipado && (
-            <i className="fas fa-check-circle" style={{ color: "var(--primary)", marginLeft: 5 }} />
-          )}
+          {item.equipado && <i className="fas fa-check-circle item-equipado-marca" />}
         </div>
-        <div style={{ fontSize: "0.8rem", color: "var(--text-sec)", fontWeight: "bold", whiteSpace: "nowrap" }}>
+        <div className="item-peso">
           {qtd === 1 ? item.peso : Number((item.peso * qtd).toFixed(1))} PC
         </div>
       </div>
 
       {item.tipo === "arma" && (ataque || dano) && (
-        <div className="acao-stats" style={{ marginTop: 8 }}>
+        <div className="acao-stats item-stats">
           {ataque && (
             <button
               type="button"
@@ -1642,7 +1740,7 @@ function CardItem({
             >
               <i className="fas fa-crosshairs" /> Acerto{" "}
               <strong>{formatarMod(ataque.bonus)}</strong>{" "}
-              <span style={{ fontSize: "0.75rem" }}>({SIGLA_ATRIBUTO[ataque.atributo]})</span>
+              <span className="item-stat-sigla">({SIGLA_ATRIBUTO[ataque.atributo]})</span>
               {ataque.fontesHab?.length ? <i className="fas fa-link prof-fonte" /> : null}
               {ataque.exausto && <MarcaExausto titulo="Reduzido por exaustão" />}
             </button>
@@ -1696,7 +1794,7 @@ function CardItem({
         </div>
       )}
       {ehMunicao && (
-        <div className="acao-stats municao-stats" style={{ marginTop: 8 }}>
+        <div className="acao-stats item-stats municao-stats">
           {item.dano && (
             <span className="acao-stat">
               <i className="fas fa-burst" /> {item.dano}
@@ -1723,20 +1821,16 @@ function CardItem({
         </div>
       )}
       {item.tipo === "armadura" && (item.ca > 0 || item.penalidadeDes !== 0) && (
-        <div style={{ fontSize: "0.85rem", color: "var(--info)", fontWeight: "bold", marginTop: 8 }}>
+        <div className="item-armadura">
           {item.ca > 0 && (
-            <span><i className="fas fa-shield-alt" /> +{item.ca} CA</span>
+            <span>
+              <i className="fas fa-shield-alt" /> +{item.ca} CA
+            </span>
           )}
           {item.penalidadeDes !== 0 && (
-            <span style={{ marginLeft: 8 }}>
-              {item.penalidadeDes > 0 ? `+${item.penalidadeDes}` : item.penalidadeDes} DES
-            </span>
+            <span>{item.penalidadeDes > 0 ? `+${item.penalidadeDes}` : item.penalidadeDes} DES</span>
           )}
-          {item.equipado && (
-            <span style={{ marginLeft: 8, fontSize: "0.75rem", color: "var(--text-sec)", fontWeight: "normal" }}>
-              · ativa na CR
-            </span>
-          )}
+          {item.equipado && <span className="item-armadura-nota">· ativa na CR</span>}
         </div>
       )}
 
@@ -1776,9 +1870,9 @@ function CardItem({
         <DescricaoCard texto={item.descricao} contexto={contextoDoItem} />
       )}
 
-      {item.tags && (
+      {(item.tags || item.pasta) && (
         <div className="card-tags">
-          {separarTags(item.tags).map((t, i) => (
+          {separarTags(item.tags ?? "").map((t, i) => (
             <TagChip
               key={i}
               nome={t}
@@ -1786,6 +1880,16 @@ function CardItem({
               classePadrao="tag tag-damage"
             />
           ))}
+          {item.pasta && (
+            <button
+              type="button"
+              className="tag tag-pasta"
+              title="Filtrar por esta pasta"
+              onClick={() => onFiltrarPasta(item.pasta!)}
+            >
+              <i className="fas fa-folder" /> {item.pasta}
+            </button>
+          )}
         </div>
       )}
 
@@ -1798,22 +1902,41 @@ function CardItem({
         {equipavel && (
           <button
             type="button"
-            className={`btn-rect outline ${item.equipado ? "active" : ""}`}
-            style={{ fontSize: "0.8rem", padding: "5px 10px" }}
+            className={`btn-rect outline sm ${item.equipado ? "active" : ""}`}
             onClick={onToggleEquipar}
           >
             {item.equipado ? "Desequipar" : "Equipar"}
           </button>
         )}
-        <button type="button" className="btn-edit-item" onClick={onEdit} title="Editar">
+        {podePassar && (
+          <button
+            type="button"
+            className="btn-edit-item"
+            onClick={onPassar}
+            title="Passar pra outra ficha"
+            aria-label={`Passar ${item.nome}`}
+          >
+            <i className="fas fa-hand-holding-hand" />
+          </button>
+        )}
+        <BotaoGuardar
+          origem={{ nome: item.nome, pasta: item.pasta ?? null }}
+          personagemId={personagemId}
+          pastasDaFicha={pastasDaFicha}
+          sugestoes={separarTags(item.tags ?? "")}
+          onGuardar={onPasta}
+          soFicha
+          classe="btn-edit-item"
+        />
+        <button type="button" className="btn-edit-item" onClick={onEdit} title="Editar" aria-label={`Editar ${item.nome}`}>
           <i className="fas fa-edit" />
         </button>
         <button
           type="button"
-          className="btn-edit-item"
+          className="btn-edit-item perigo"
           onClick={onDelete}
           title="Apagar"
-          style={{ color: "var(--danger)" }}
+          aria-label={`Apagar ${item.nome}`}
         >
           <i className="fas fa-trash" />
         </button>

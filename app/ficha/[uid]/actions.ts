@@ -18,6 +18,8 @@ import {
   curasComFormula,
   custoDaAcao,
   efeitoInstantaneo,
+  gatilhosDosEfeitos,
+  ofereceAcao,
   extrasDeCura,
   efeitosDaTecnica,
   agregarEfeitos,
@@ -39,6 +41,7 @@ import {
   resolverFormula,
   slugPericiaCustom,
   usosMaximos,
+  lerContextoRolagem,
   type Atributo,
   type DeltasInstantaneos,
   type EfeitoHabilidade,
@@ -49,6 +52,9 @@ import {
 } from "@/lib/op-rpg";
 import { faixaDaRolagem } from "@/lib/dice";
 import { SELECT_ACAO_QUE_DURA, acabaComOPvTemp, carregarAgregado } from "@/lib/efeitos-servidor";
+import { aplicarGatilhos, gatilhosDaVez } from "@/lib/gatilhos-servidor";
+import { aplicarEfeitosDeItem, conferirEfeitosDeItem } from "@/lib/itens-servidor";
+import { moverProgressivosNoEvento } from "@/lib/progressivo-servidor";
 import { aplicarColaterais, colateraisDaConcentracao, colateraisDoFim } from "@/lib/colaterais-servidor";
 import {
   bloqueioDe,
@@ -117,6 +123,7 @@ import {
 import {
   BOLAS_POR_CANHAO,
   BOLA_DE_CHUMBO,
+  CANHOES_NAVIO,
   acaoDosCanhoes,
   armaDosCanhoes,
   DANO_ANCORA,
@@ -143,6 +150,7 @@ import {
   PERFIS_DE_SUBFICHA,
   ehSubficha,
   lerAbas,
+  lerCombateSubficha,
   nomesDasCopias,
   perfilDe,
 } from "@/lib/subficha";
@@ -187,6 +195,7 @@ import {
   type NoArvore,
   type RequisitoNo,
 } from "@/lib/arvore";
+import { comAjuste, ehPonto, lerAjustes, lerGanhoPorNivel, saldoDoPonto, type AjustePonto } from "@/lib/pontos";
 import { nosDoMolde } from "@/lib/moldes-arvore";
 import {
   ACAO_COMBATE,
@@ -825,8 +834,9 @@ export async function usarAcao(
     // Aliado de cada efeito que vai pra aliado, pelo índice na lista de efeitos.
     aliados?: Record<number, string>;
     // Em combate: alvos (InstanciaCombate.id), como a ficha vai resolver a
-    // ação neles e a CD que ela calculou.
-    combate?: { alvos?: string[]; modo?: string; cd?: number | null; corpoACorpo?: boolean };
+    // ação neles e a CD que ela calculou. `trocaDano`: a resolução cujo acerto
+    // nesses alvos deixa de dar dano (gatilho "no lugar do dano").
+    combate?: { alvos?: string[]; modo?: string; cd?: number | null; corpoACorpo?: boolean; trocaDano?: string };
   },
 ) {
   return executar("ficha", async () => {
@@ -859,9 +869,21 @@ export async function usarAcao(
     if (acao.itemId && !itens.some((i) => i.id === acao.itemId && i.equipado)) {
       throw new ErroDeUso("Equipe o item pra usar esta ação.");
     }
-    const usosMax = usosMaximos(acao, agg.ctxFormula);
-    const usosAtual = acao.usosAtual ?? usosMax;
+    // Forma sem usos próprios conta e gasta os da origem.
+    const origemUsos =
+      acao.formaDe && acao.usos == null && !acao.usosFormula
+        ? await prisma.acao.findFirst({
+            where: { id: acao.formaDe, personagemId },
+            select: { id: true, usos: true, usosFormula: true, usosAtual: true },
+          })
+        : null;
+    const donoUsos = origemUsos && (origemUsos.usos != null || origemUsos.usosFormula) ? origemUsos : acao;
+    const usosMax = usosMaximos(donoUsos, agg.ctxFormula);
+    const usosAtual = donoUsos.usosAtual ?? usosMax;
     if (usosMax != null && (usosAtual ?? 0) <= 0) throw new ErroDeUso("Sem usos restantes.");
+    // Itens e Berries que o uso gasta.
+    const faltaItem = await conferirEfeitosDeItem(personagemId, lerEfeitos(bruta.efeitos), personagem.berries);
+    if (faltaItem) throw new ErroDeUso(faltaItem);
     // Com alvo: confere como a ação resolve neles antes de gastar qualquer coisa.
     // Vale pra qualquer tipo de ação, inclusive a Livre (que não gasta ação do turno).
     const pedidos = combate ? opcoes?.combate?.alvos : null;
@@ -938,6 +960,7 @@ export async function usarAcao(
     const proprio = pedaco(null);
     const ops = await opsDoUso({
       personagemId,
+      fonte: acao.nome,
       personagem,
       agg,
       efeitos: proprio.efeitos,
@@ -956,7 +979,7 @@ export async function usarAcao(
     if (usosMax != null) {
       ops.push(
         prisma.acao.update({
-          where: { id: acao.id, personagemId },
+          where: { id: donoUsos.id, personagemId },
           data: { usosAtual: Math.max(0, (usosAtual ?? usosMax) - 1) },
         }),
       );
@@ -1054,6 +1077,42 @@ export async function usarAcao(
     if (!pedeConcentracao(acao.duracao) && !ficaEmCurso(acao, !!instanciaDoAliado)) {
       await aplicarColaterais(personagemId, acao, "fim");
     }
+    // No lugar do dano (um Gatilho de acerto ofereceu esta ação assim): o acerto
+    // nesses alvos não dá mais dano.
+    const trocaDe = opcoes?.combate?.trocaDano;
+    if (combate && typeof trocaDe === "string" && alvos.length > 0) {
+      const lista = lerResolucoes(
+        (await prisma.combate.findUnique({ where: { id: combate.combateId }, select: { resolucoes: true } }))?.resolucoes,
+      );
+      const r = lista.find((x) => x.id === trocaDe && x.atacanteId === combate.instanciaId);
+      const doAtaque = r?.acaoId
+        ? await prisma.acao.findFirst({ where: { id: r.acaoId, personagemId }, select: { nome: true, efeitos: true, tecnica: true } })
+        : null;
+      const gatilhos = [...(agg.gatilhos ?? []), ...(doAtaque ? gatilhosDosEfeitos(doAtaque.efeitos, doAtaque.nome) : [])];
+      const contexto = {
+        tipo: "ataque" as const,
+        alcance: r?.corpoACorpo ? ("corpo_a_corpo" as const) : ("distancia" as const),
+        tecnica: !!doAtaque?.tecnica,
+      };
+      const troca = (resultado: string | null) =>
+        (resultado === "acerto" || resultado === "critico") &&
+        !!ofereceAcao(gatilhos, resultado, contexto, bruta.formaDe ?? bruta.id)?.trocaDano;
+      if (r && r.alvos.some((a) => alvos.includes(a.instanciaId) && troca(a.resultado))) {
+        await mudarResolucoes(combate.combateId, (atual) => {
+          const res = atual.find((x) => x.id === trocaDe);
+          if (!res) return;
+          for (const a of res.alvos) {
+            if (alvos.includes(a.instanciaId) && !a.danoAplicado && troca(a.resultado)) a.danoAplicado = true;
+          }
+          if (res.modo === "ataque" && res.etapa === "dano" && acertosSemDano(res).length === 0) res.etapa = "feito";
+        });
+      }
+    }
+    // Efeito Item: equipa, desequipa ou usa um item da ficha.
+    await aplicarEfeitosDeItem(personagemId, lerEfeitos(bruta.efeitos));
+    // Efeito Gatilho do uso.
+    if (acao.tipo === "react") await aplicarGatilhos(personagemId, { tipo: "usou_reacao" }, { acaoId: acao.id });
+    if (acao.tecnica) await aplicarGatilhos(personagemId, { tipo: "usou_tecnica" }, { acaoId: acao.id });
     revalidatePath(`/ficha/${personagemId}`);
     for (const id of aliados.keys()) revalidatePath(`/ficha/${id}`);
     if (combate && (tipoAcao || resolucaoId)) revalidatePath(`/narrador/${combate.mesaId}`);
@@ -1116,8 +1175,9 @@ export async function finalizarTurno(personagemId: string) {
     if (!combate) throw new ErroDeUso("O personagem não está em combate.");
     if (!combate.naVez) throw new ErroDeUso("Não é a sua vez.");
 
-    const { periodicos } = await avancarTurnoDoCombate(combate.combateId);
+    const { periodicos, vez } = await avancarTurnoDoCombate(combate.combateId);
     await descontarPeriodicos(combate.mesaId, periodicos);
+    await gatilhosDaVez(vez);
     revalidatePath(`/ficha/${personagemId}`);
     revalidatePath(`/narrador/${combate.mesaId}`);
   });
@@ -1248,6 +1308,7 @@ const ALLOWED_ITEM = [
   "efeitos",
   "quantidade",
   "municaoId",
+  "pasta",
 ] as const;
 
 type ItemInput = Partial<Record<(typeof ALLOWED_ITEM)[number], unknown>>;
@@ -1346,17 +1407,13 @@ function normalizarItemInput(input: ItemInput) {
     const v = typeof input.municaoId === "string" ? input.municaoId.trim().slice(0, 64) : "";
     data.municaoId = v || null;
   }
+  if (input.pasta !== undefined) data.pasta = nomeDePasta(input.pasta) || null;
   return data;
 }
 
-export async function criarItem(personagemId: string, input: ItemInput) {
-  return executar("ficha", async () => {
-    await autorizar(personagemId);
-    const data = normalizarItemInput(input);
-    if (data.nome === undefined) throw new ErroDeUso("Nome é obrigatório.");
-
-    await prisma.item.create({
-      data: {
+// Input normalizado → linha nova do item.
+function dadosDoItem(personagemId: string, data: Record<string, unknown>) {
+  return {
         personagemId,
         nome: data.nome as string,
         peso: (data.peso as number) ?? 0,
@@ -1383,8 +1440,17 @@ export async function criarItem(personagemId: string, input: ItemInput) {
         efeitos: (data.efeitos as EfeitoHabilidade[]) ?? [],
         quantidade: (data.quantidade as number) ?? 1,
         municaoId: (data.municaoId as string | null) ?? null,
-      },
-    });
+        ...(data.pasta ? { pasta: data.pasta as string } : {}),
+  };
+}
+
+export async function criarItem(personagemId: string, input: ItemInput) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const data = normalizarItemInput(input);
+    if (data.nome === undefined) throw new ErroDeUso("Nome é obrigatório.");
+
+    await prisma.item.create({ data: dadosDoItem(personagemId, data) });
     revalidatePath(`/ficha/${personagemId}`);
   });
 }
@@ -1403,6 +1469,103 @@ export async function atualizarItem(
       data,
     });
     revalidatePath(`/ficha/${personagemId}`);
+  });
+}
+
+// Equipa ou desequipa; armadura nova tira a que estava vestida.
+export async function equiparItem(personagemId: string, itemId: string, equipado: boolean) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const item = await prisma.item.findFirst({ where: { id: itemId, personagemId }, select: { tipo: true } });
+    if (!item) throw new ErroDeUso("Item não encontrado.");
+    const liga = Boolean(equipado);
+    await prisma.$transaction([
+      ...(liga && item.tipo === "armadura"
+        ? [
+            prisma.item.updateMany({
+              where: { personagemId, tipo: "armadura", equipado: true, id: { not: itemId } },
+              data: { equipado: false },
+            }),
+          ]
+        : []),
+      prisma.item.update({ where: { id: itemId, personagemId }, data: { equipado: liga } }),
+    ]);
+    revalidatePath(`/ficha/${personagemId}`);
+  });
+}
+
+// Passa unidades de um item pra outra ficha do grupo (aliado, subficha ou o dono).
+// Munição e item comum de mesmo nome entram na pilha que o destino já tem.
+export async function passarItem(personagemId: string, itemId: string, destinoId: string, quantidade: number) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const id = typeof destinoId === "string" ? destinoId : "";
+    if (!id || id === personagemId) throw new ErroDeUso("Escolha pra quem passar.");
+    const [item, destino] = await Promise.all([
+      prisma.item.findFirst({ where: { id: itemId, personagemId } }),
+      prisma.personagem.findFirst({
+        where: { id, molde: false, ...mesmoGrupo(personagemId) },
+        select: { id: true },
+      }),
+    ]);
+    if (!item) throw new ErroDeUso("Item não encontrado.");
+    if (!destino) throw new ErroDeUso("Essa ficha não joga com você.");
+    if (item.quantidade <= 0) throw new ErroDeUso("Não tem o que passar.");
+    const n = Math.min(item.quantidade, Math.max(1, Math.trunc(Number(quantidade) || 1)));
+    const pilha =
+      item.tipo === "municao" || item.tipo === "comum"
+        ? await prisma.item.findFirst({
+            where: { personagemId: destino.id, nome: item.nome, tipo: item.tipo },
+            select: { id: true },
+          })
+        : null;
+    const tudo = n === item.quantidade;
+    const { id: origemId, personagemId: deQuem, ...copia } = item;
+    const ops: Prisma.PrismaPromise<unknown>[] = [];
+    if (pilha) {
+      ops.push(prisma.item.update({ where: { id: pilha.id }, data: { quantidade: { increment: n } } }));
+    } else if (!tudo) {
+      ops.push(
+        prisma.item.create({
+          data: {
+            ...copia,
+            tagsEstilo: copia.tagsEstilo ?? Prisma.DbNull,
+            propriedades: copia.propriedades ?? [],
+            efeitos: copia.efeitos ?? [],
+            personagemId: destino.id,
+            quantidade: n,
+            equipado: false,
+            favorito: false,
+            ordem: 0,
+            municaoId: null,
+            ...(copia.pasta ? { pasta: null } : {}),
+          },
+        }),
+      );
+    }
+    if (tudo && !pilha) {
+      // A linha muda de dono; o que era arrumação desta ficha fica pra trás.
+      ops.push(
+        prisma.item.update({
+          where: { id: origemId, personagemId: deQuem },
+          data: {
+            personagemId: destino.id,
+            equipado: false,
+            favorito: false,
+            ordem: 0,
+            municaoId: null,
+            ...(copia.pasta ? { pasta: null } : {}),
+          },
+        }),
+      );
+    } else if (tudo) {
+      ops.push(prisma.item.delete({ where: { id: origemId, personagemId: deQuem } }));
+    } else {
+      ops.push(prisma.item.update({ where: { id: origemId, personagemId: deQuem }, data: { quantidade: { decrement: n } } }));
+    }
+    await prisma.$transaction(ops);
+    revalidatePath(`/ficha/${personagemId}`);
+    revalidatePath(`/ficha/${destino.id}`);
   });
 }
 
@@ -1703,10 +1866,15 @@ const ALLOWED_RECURSO = [
   "cor2",
   "efeito",
   "resetEm",
+  "sigla",
+  "icone",
+  "ganhoPorNivel",
+  "tetoLivre",
 ] as const;
 type RecursoInput = Partial<Record<(typeof ALLOWED_RECURSO)[number], unknown>>;
 
 const RESET_VALIDOS = new Set(["manual", "encontro", "descansoCurto", "descansoLongo"]);
+const ICONE_RE = /^fa-[a-z0-9-]{1,40}$/;
 
 function normalizarRecurso(input: RecursoInput, parcial: boolean) {
   const data: Record<string, unknown> = {};
@@ -1730,12 +1898,160 @@ function normalizarRecurso(input: RecursoInput, parcial: boolean) {
       data.cor2 = corValida(input.cor2);
     } else if (key === "efeito") {
       data.efeito = normalizarEfeitoCor(input.efeito);
+    } else if (key === "sigla") {
+      data.sigla = String(input.sigla ?? "").trim().toUpperCase().slice(0, 4) || null;
+    } else if (key === "icone") {
+      const v = String(input.icone ?? "");
+      data.icone = ICONE_RE.test(v) ? v : null;
+    } else if (key === "ganhoPorNivel") {
+      data.ganhoPorNivel = lerGanhoPorNivel(input.ganhoPorNivel);
+    } else if (key === "tetoLivre") {
+      const v = input.tetoLivre;
+      const n = Math.trunc(Number(v));
+      data.tetoLivre = v === null || v === "" || !Number.isFinite(n) || n < 0 ? null : n;
     }
   }
   if (!parcial && data.nome === undefined) {
     throw new ErroDeUso("Nome do recurso é obrigatório.");
   }
   return data;
+}
+
+/** Árvores do personagem com os nós, pro saldo dos pontos. */
+function arvoresQuePagam(personagemId: string, recursoId?: string) {
+  return prisma.arvore.findMany({
+    where: { personagemId, ...(recursoId ? { recursoCustoId: recursoId } : {}) },
+    select: {
+      id: true,
+      nome: true,
+      icone: true,
+      recursoCustoId: true,
+      nos: { select: { custo: true, rankAtual: true } },
+    },
+  });
+}
+
+/**
+ * Cria ou edita um ponto e liga as árvores que gastam com ele. Recurso que vira ponto
+ * ganha o ajuste "Saldo anterior", pros livres baterem com o valor que tinha.
+ */
+export async function salvarPonto(
+  personagemId: string,
+  pontoId: string | null,
+  input: RecursoInput & { arvoreIds?: unknown },
+) {
+  return executar("ficha", async () => {
+    const [{ personagem }, arvores] = await Promise.all([
+      autorizar(personagemId),
+      arvoresQuePagam(personagemId),
+    ]);
+    const data = normalizarRecurso(input, !!pontoId);
+    const ids = Array.isArray(input.arvoreIds)
+      ? input.arvoreIds.filter((x): x is string => typeof x === "string")
+      : null;
+    const ligadas = ids ? arvores.filter((a) => ids.includes(a.id)).map((a) => a.id) : null;
+
+    const anterior = pontoId
+      ? await prisma.recurso.findFirst({ where: { id: pontoId, personagemId } })
+      : null;
+    if (pontoId && !anterior) throw new ErroDeUso("Ponto não encontrado.");
+
+    let ajustes: AjustePonto[] | undefined;
+    if (anterior && !ehPonto(anterior)) {
+      const depois = arvores.map((a) => ({
+        ...a,
+        recursoCustoId: ligadas
+          ? ligadas.includes(a.id) ? anterior.id : a.recursoCustoId === anterior.id ? null : a.recursoCustoId
+          : a.recursoCustoId,
+      }));
+      const saldo = saldoDoPonto(
+        { ...anterior, tipo: "ponto", ganhoPorNivel: data.ganhoPorNivel ?? anterior.ganhoPorNivel },
+        depois,
+        personagem.nivel,
+      );
+      const diferenca = anterior.valorAtual - saldo.livres;
+      ajustes = [
+        ...saldo.ajustes,
+        ...(diferenca
+          ? [{ id: randomUUID(), valor: diferenca, motivo: "Saldo anterior", em: new Date().toISOString() }]
+          : []),
+      ];
+    }
+
+    const campos = {
+      ...data,
+      tipo: "ponto",
+      resetEm: "manual",
+      ...(ajustes ? { ajustes } : {}),
+    } as Prisma.RecursoUncheckedUpdateInput;
+
+    const id =
+      anterior?.id ??
+      (
+        await prisma.recurso.create({
+          data: {
+            ...(campos as Prisma.RecursoUncheckedCreateInput),
+            personagemId,
+            nome: data.nome as string,
+          },
+          select: { id: true },
+        })
+      ).id;
+
+    const ops: Prisma.PrismaPromise<unknown>[] = [];
+    if (anterior) ops.push(prisma.recurso.update({ where: { id, personagemId }, data: campos }));
+    if (ligadas) {
+      ops.push(
+        prisma.arvore.updateMany({
+          where: { personagemId, recursoCustoId: id, id: { notIn: ligadas } },
+          data: { recursoCustoId: null },
+        }),
+        prisma.arvore.updateMany({
+          where: { personagemId, id: { in: ligadas } },
+          data: { recursoCustoId: id },
+        }),
+      );
+    }
+    if (ops.length) await prisma.$transaction(ops);
+    revalidatePath(`/ficha/${personagemId}`);
+    return { id };
+  });
+}
+
+/** Ganho ou gasto à mão no ponto (recompensa do narrador, gasto avulso). */
+export async function lancarAjustePonto(
+  personagemId: string,
+  pontoId: string,
+  entrada: { valor: unknown; motivo: unknown },
+) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const valor = Math.trunc(Number(entrada.valor));
+    if (!Number.isFinite(valor) || valor === 0) throw new ErroDeUso("Informe um valor diferente de zero.");
+    const motivo = String(entrada.motivo ?? "").trim().slice(0, 80);
+    const ponto = await prisma.recurso.findFirst({ where: { id: pontoId, personagemId } });
+    if (!ponto || !ehPonto(ponto)) throw new ErroDeUso("Ponto não encontrado.");
+    const ajuste: AjustePonto = { id: randomUUID(), valor, motivo, em: new Date().toISOString() };
+    await prisma.recurso.update({
+      where: { id: pontoId, personagemId },
+      data: { ajustes: [...lerAjustes(ponto.ajustes), ajuste] },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
+    return ajuste;
+  });
+}
+
+export async function apagarAjustePonto(personagemId: string, pontoId: string, ajusteId: string) {
+  return executar("ficha", async () => {
+    await autorizar(personagemId);
+    const ponto = await prisma.recurso.findFirst({ where: { id: pontoId, personagemId } });
+    if (!ponto || !ehPonto(ponto)) throw new ErroDeUso("Ponto não encontrado.");
+    await prisma.recurso.update({
+      where: { id: pontoId, personagemId },
+      data: { ajustes: lerAjustes(ponto.ajustes).filter((a) => a.id !== ajusteId) },
+    });
+    revalidatePath(`/ficha/${personagemId}`);
+  });
 }
 
 export async function criarRecurso(personagemId: string, input: RecursoInput) {
@@ -2112,6 +2428,8 @@ function patchDePools(
 // Sobrecarga e recursos ficam com quem usa.
 async function opsDoUso(opts: {
   personagemId: string;
+  // Nome de quem usa (habilidade, ação, item): motivo do ajuste no ponto.
+  fonte: string;
   personagem: PersonagemDoUso;
   agg: EfeitosAgregados;
   efeitos: EfeitoHabilidade[];
@@ -2188,6 +2506,16 @@ async function opsDoUso(opts: {
   for (const r of recursosEfeito) {
     const delta = deltas.recursos[r.id] ?? 0;
     if (!delta) continue;
+    // Ponto não guarda saldo: o efeito vira ajuste com o nome da fonte.
+    if (ehPonto(r)) {
+      ops.push(
+        prisma.recurso.update({
+          where: { id: r.id, personagemId },
+          data: { ajustes: comAjuste(r.ajustes, delta, opts.fonte) },
+        }),
+      );
+      continue;
+    }
     // Custo do recurso já foi debitado acima — não deduzir de novo.
     const base = recurso?.id === r.id ? r.valorAtual - custoRecurso : r.valorAtual;
     const novo = clamp(base + delta, 0, maximoDoRecurso(r, agg.ctxFormula));
@@ -2266,16 +2594,28 @@ async function aplicarUsoHabilidade(
   if (custoPp > 0 && personagem.ppAtual < custoPp) {
     throw new ErroDeUso("PP insuficiente.");
   }
-  const usosMax = usosMaximos(hab, agg.ctxFormula);
-  const usosAtual = hab.usosAtual ?? usosMax;
+  // Forma sem usos próprios conta e gasta os da origem.
+  const origemUsos =
+    hab.formaDe && hab.usos == null && !hab.usosFormula
+      ? await prisma.habilidade.findFirst({
+          where: { id: hab.formaDe, personagemId },
+          select: { id: true, usos: true, usosFormula: true, usosAtual: true },
+        })
+      : null;
+  const donoUsos = origemUsos && (origemUsos.usos != null || origemUsos.usosFormula) ? origemUsos : null;
+  const usosMax = usosMaximos(donoUsos ?? hab, agg.ctxFormula);
+  const usosAtual = (donoUsos ?? hab).usosAtual ?? usosMax;
   if (usosMax != null && (usosAtual ?? 0) < vezes) {
     throw new ErroDeUso(vezes > 1 ? "Usos insuficientes." : "Sem usos restantes.");
   }
+  const faltaItem = await conferirEfeitosDeItem(personagemId, lerEfeitos(hab.efeitos), personagem.berries);
+  if (faltaItem) throw new ErroDeUso(faltaItem);
   const recurso = await recursoDeCusto(personagemId, hab.custoRecursoId, custoRecurso);
   const aliado = hab.aliado ? await aliadoDoUso(personagem, alvoId) : null;
 
   const ops = await opsDoUso({
     personagemId,
+    fonte: hab.nome,
     personagem,
     agg,
     efeitos: lerEfeitos(hab.efeitos),
@@ -2287,7 +2627,16 @@ async function aplicarUsoHabilidade(
     aliado,
   });
   const habData: Record<string, unknown> = { ...extraHabData };
-  if (usosMax != null) habData.usosAtual = Math.max(0, (usosAtual ?? usosMax) - vezes);
+  if (usosMax != null && donoUsos) {
+    ops.push(
+      prisma.habilidade.update({
+        where: { id: donoUsos.id, personagemId },
+        data: { usosAtual: Math.max(0, (usosAtual ?? usosMax) - vezes) },
+      }),
+    );
+  } else if (usosMax != null) {
+    habData.usosAtual = Math.max(0, (usosAtual ?? usosMax) - vezes);
+  }
   if (ligando) habData.turnosRestantes = turnosDaDuracao(lerDuracao(hab.duracao));
   // Ligada num aliado: os efeitos que ficam valendo passam a contar nele.
   if (ligando && aliado) habData.alvoPersonagemId = aliado.personagem.id;
@@ -2306,6 +2655,7 @@ async function aplicarUsoHabilidade(
 
   if (ops.length > 0) await prisma.$transaction(ops);
   await removerCondicoesPorEfeito(aliado?.personagem.id ?? personagemId, lerEfeitos(hab.efeitos), hab.nome);
+  await aplicarEfeitosDeItem(personagemId, lerEfeitos(hab.efeitos));
   await estatisticasDoUso({
     personagemId,
     nome: hab.nome,
@@ -2354,6 +2704,31 @@ export async function usarHabilidade(
 ) {
   return executar("ficha", async () => {
     await aplicarUsoHabilidade(personagemId, habilidadeId, {}, { rolagens, alvoId, vezes });
+  });
+}
+
+// O Rolador avisou um d20 (contexto e lances): os efeitos Gatilho da ficha que
+// batem mudam o recurso deles. O servidor refaz a conta com o agregado dele.
+export async function dispararGatilhosDeRolagem(
+  personagemId: string,
+  rolagem: { contexto: unknown; lances: unknown },
+) {
+  return executar("ficha", async () => {
+    const ctx = lerContextoRolagem(rolagem?.contexto);
+    const lances = (Array.isArray(rolagem?.lances) ? rolagem.lances : [])
+      .slice(0, 20)
+      .map((l) => {
+        const o = (l ?? {}) as Record<string, unknown>;
+        const natural = Math.trunc(Number(o.natural));
+        return { natural: natural >= 1 && natural <= 20 ? natural : null, critico: o.critico === true };
+      });
+    if (!ctx || lances.length === 0) return { disparados: [], deltas: null };
+    await autorizar(personagemId);
+    return aplicarGatilhos(
+      personagemId,
+      { tipo: "d20", contexto: ctx, lances },
+      { chat: false, acaoId: ctx.tipo === "ataque" ? ctx.acaoId : null },
+    );
   });
 }
 
@@ -2455,6 +2830,7 @@ export async function usarItem(
 
     const ops = await opsDoUso({
       personagemId,
+      fonte: item.nome,
       personagem,
       agg,
       efeitos,
@@ -2515,6 +2891,8 @@ type SubfichaInput = {
   daMesa?: unknown;
   // Navio do livro como ficha de partida (lib/navio.ts, MontagemNavio).
   navio?: unknown;
+  // Entrada e iniciativa no combate (lib/subficha.ts).
+  combate?: unknown;
 };
 
 function nomeDeSubficha(raw: unknown): string {
@@ -2607,6 +2985,7 @@ async function novaSubficha(
         hpMax,
         hpAtual: hpMax,
         ...(navio ? { navio: { montagem: navio, comandanteId: null } } : {}),
+        ...(lerCombateSubficha(input.combate) ? { combate: lerCombateSubficha(input.combate)! } : {}),
         // Veículo não tem atributo: 10 deixa todo modificador em zero.
         ...(perfil === "veiculo"
           ? {
@@ -2697,7 +3076,8 @@ export async function definirComandante(navioId: string, comandanteId: string | 
     const { personagem } = await autorizar(navioId);
     const navio = lerNavio(personagem.navio);
     if (!navio) throw new ErroDeUso("Esta ficha não é de navio.");
-    if (comandanteId) {
+    // Navio de personagem fora de mesa: o dono comanda.
+    if (comandanteId && comandanteId !== personagem.donoPersonagemId) {
       const ok = await prisma.personagem.findFirst({
         where: { id: comandanteId, mesaId: personagem.mesaId ?? "-", ...SO_PRINCIPAIS },
         select: { id: true },
@@ -2712,6 +3092,143 @@ export async function definirComandante(navioId: string, comandanteId: string | 
   });
 }
 
+// Reforma: troca as peças do navio e refaz o que vem delas (PV máximo, a
+// velocidade, as habilidades de tamanho, casco, fortificação e cômodos, os
+// canhões e a ação de disparar). O dano sofrido continua.
+export async function reformarNavio(navioId: string, montagemRaw: unknown) {
+  return executar("ficha", async () => {
+    const { personagem } = await autorizar(navioId);
+    const dados = lerNavio(personagem.navio);
+    if (!dados) throw new ErroDeUso("Esta ficha não é de navio.");
+    const m = lerMontagem(montagemRaw);
+    if (!m) throw new ErroDeUso("Navio inválido.");
+    const preset = presetDeNavio(m);
+    const [habs, itens, acoes] = await Promise.all([
+      prisma.habilidade.findMany({ where: { personagemId: navioId } }),
+      prisma.item.findMany({ where: { personagemId: navioId } }),
+      prisma.acao.findMany({ where: { personagemId: navioId } }),
+    ]);
+    const ops: Prisma.PrismaPromise<unknown>[] = [];
+    const dano = Math.max(0, personagem.hpMax - personagem.hpAtual);
+    ops.push(
+      prisma.personagem.update({
+        where: { id: navioId },
+        data: {
+          navio: { ...dados, montagem: m },
+          hpMax: preset.hpMax,
+          hpAtual: Math.max(0, preset.hpMax - dano),
+          deslocamento: preset.deslocamento,
+        },
+      }),
+    );
+
+    // Habilidades que a montagem gera: casa pela tag (Tripulação e Cômodo, pelo nome).
+    const GERADAS = new Set(["Tamanho", "Madeira", "Fortificação", "Cômodo", "Tripulação"]);
+    const porNome = (tags: string) => tags === "Tripulação" || tags === "Cômodo";
+    const usadas = new Set<string>();
+    for (const [ordem, h] of preset.habilidades.entries()) {
+      const base = (n: string) => n.replace(/ ×\d+$/, "");
+      const atual = habs.find(
+        (x) => !usadas.has(x.id) && x.tags === h.tags && (!porNome(h.tags) || base(x.nome) === base(h.nome)),
+      );
+      const data = { nome: h.nome, descricao: h.descricao, efeitos: h.efeitos as Prisma.InputJsonValue, ordem };
+      if (atual) {
+        usadas.add(atual.id);
+        ops.push(prisma.habilidade.update({ where: { id: atual.id, personagemId: navioId }, data }));
+      } else {
+        ops.push(prisma.habilidade.create({ data: { personagemId: navioId, tipo: "passiva", tags: h.tags, ...data } }));
+      }
+    }
+    const sobram = habs.filter((x) => GERADAS.has(x.tags ?? "") && !usadas.has(x.id) && x.tags !== "Tripulação");
+    if (sobram.length > 0) {
+      ops.push(prisma.habilidade.deleteMany({ where: { personagemId: navioId, id: { in: sobram.map((x) => x.id) } } }));
+    }
+
+    // Canhões: a ação de disparar aponta pra arma; sem ação, a arma pelo nome.
+    const disparar = acoes.find((a) => a.nome === acaoDosCanhoes(m).nome);
+    const armasDaAcao = Array.isArray(disparar?.armaIds) ? (disparar.armaIds as string[]) : [];
+    const canhao =
+      itens.find((i) => armasDaAcao.includes(i.id)) ??
+      itens.find((i) => i.tipo === "arma" && CANHOES_NAVIO.some((c) => c.nome === i.nome));
+    if (m.canhoes > 0 && canhao) {
+      const arma = armaDosCanhoes(m);
+      ops.push(
+        prisma.item.update({
+          where: { id: canhao.id, personagemId: navioId },
+          data: {
+            nome: arma.nome,
+            descricao: arma.descricao,
+            quantidade: m.canhoes,
+            modificador: arma.modificador,
+            alcanceMetros: arma.alcanceMetros,
+            efeitos: arma.efeitos as Prisma.InputJsonValue,
+          },
+        }),
+      );
+      const a = acaoDosCanhoes(m);
+      if (disparar) {
+        ops.push(
+          prisma.acao.update({
+            where: { id: disparar.id, personagemId: navioId },
+            data: {
+              alcance: a.alcance,
+              alvo: a.alvo,
+              descricao: a.descricao,
+              efeitos: a.efeitos as Prisma.InputJsonValue,
+              armaIds: [canhao.id],
+            },
+          }),
+        );
+      } else {
+        ops.push(
+          prisma.acao.create({
+            data: { personagemId: navioId, ...a, armaIds: [canhao.id], tipoDano: BOLA_DE_CHUMBO.tipo, armaDeFogo: true },
+          }),
+        );
+      }
+    } else if (m.canhoes > 0) {
+      ops.push(...opsDosCanhoes(navioId, m));
+    } else {
+      if (disparar) ops.push(prisma.acao.delete({ where: { id: disparar.id, personagemId: navioId } }));
+      if (canhao) ops.push(prisma.item.delete({ where: { id: canhao.id, personagemId: navioId } }));
+    }
+
+    await prisma.$transaction(ops);
+    revalidarFicha(personagem);
+  });
+}
+
+// Conserto completo: o navio volta aos PV máximos.
+export async function consertarNavio(navioId: string) {
+  return executar("ficha", async () => {
+    const { personagem } = await autorizar(navioId);
+    if (!lerNavio(personagem.navio)) throw new ErroDeUso("Esta ficha não é de navio.");
+    await prisma.personagem.update({ where: { id: navioId }, data: { hpAtual: personagem.hpMax } });
+    revalidarFicha(personagem);
+  });
+}
+
+// Repõe a munição dos canhões: 10 balas por canhão.
+export async function reporMunicaoDoNavio(navioId: string) {
+  return executar("ficha", async () => {
+    const { personagem } = await autorizar(navioId);
+    const dados = lerNavio(personagem.navio);
+    if (!dados) throw new ErroDeUso("Esta ficha não é de navio.");
+    const canhoes = await prisma.item.findMany({
+      where: { personagemId: navioId, tipo: "arma", municaoId: { not: null } },
+      select: { municaoId: true, quantidade: true },
+    });
+    const municoes = [...new Set(canhoes.map((c) => c.municaoId!))];
+    if (municoes.length === 0) throw new ErroDeUso("O navio não tem canhão com munição.");
+    const quantos = Math.max(1, dados.montagem.canhoes) * BOLAS_POR_CANHAO;
+    await prisma.item.updateMany({
+      where: { personagemId: navioId, id: { in: municoes }, quantidade: { lt: quantos } },
+      data: { quantidade: quantos },
+    });
+    revalidarFicha(personagem);
+  });
+}
+
 // Subficha autorizada; `autorizar` já cobre dono, narrador e membro da mesa.
 async function autorizarSubficha(subfichaId: string) {
   const acesso = await autorizar(subfichaId);
@@ -2721,7 +3238,7 @@ async function autorizarSubficha(subfichaId: string) {
 
 export async function atualizarSubficha(
   subfichaId: string,
-  patch: { nome?: unknown; perfil?: unknown; molde?: unknown; abas?: unknown },
+  patch: { nome?: unknown; perfil?: unknown; molde?: unknown; abas?: unknown; combate?: unknown },
 ) {
   return executar("ficha", async () => {
     const { personagem } = await autorizarSubficha(subfichaId);
@@ -2742,6 +3259,10 @@ export async function atualizarSubficha(
       // Iguais às do perfil, não guarda nada.
       const iguais = !!abas && abas.length === padrao.length && abas.every((a) => padrao.includes(a));
       data.abas = !abas || iguais ? Prisma.DbNull : abas;
+    }
+    if (patch.combate !== undefined) {
+      const combate = lerCombateSubficha(patch.combate);
+      data.combate = combate ?? Prisma.DbNull;
     }
     if (Object.keys(data).length === 0) return;
 
@@ -3247,19 +3768,31 @@ async function contextoDaArvore(
   personagemId: string,
   arvore: { criterio: string; recursoCustoId: string | null; nos: NoArvore[] },
   nivelPersonagem: number,
-): Promise<ContextoArvore> {
+): Promise<ContextoArvore & { pagaComPonto: boolean }> {
   let saldoRecurso: number | null = null;
+  let pagaComPonto = false;
   if (arvore.recursoCustoId) {
-    const recurso = await prisma.recurso.findFirst({
-      where: { id: arvore.recursoCustoId, personagemId },
-    });
-    saldoRecurso = recurso ? recurso.valorAtual : null;
+    const [recurso, arvores] = await Promise.all([
+      prisma.recurso.findFirst({ where: { id: arvore.recursoCustoId, personagemId } }),
+      arvoresQuePagam(personagemId, arvore.recursoCustoId),
+    ]);
+    pagaComPonto = !!recurso && ehPonto(recurso);
+    // Ponto soma o que os efeitos dão.
+    const deEfeitos = pagaComPonto
+      ? ((await carregarAgregado(personagemId)).agg.ganhoPonto?.[arvore.recursoCustoId] ?? [])
+      : [];
+    saldoRecurso = !recurso
+      ? null
+      : pagaComPonto
+        ? saldoDoPonto({ ...recurso, deEfeitos }, arvores, nivelPersonagem).livres
+        : recurso.valorAtual;
   }
   return {
     criterio: normalizarCriterio(arvore.criterio),
     nivelPersonagem,
     nos: arvore.nos,
     saldoRecurso,
+    pagaComPonto,
   };
 }
 
@@ -3290,7 +3823,13 @@ export async function comprarNo(
         data: { rankAtual: { increment: 1 } },
       }),
     ];
-    if (arvore.recursoCustoId && ctx.saldoRecurso !== null && estado.custoProximo > 0) {
+    // Ponto não é debitado: o saldo sai dos ranks comprados.
+    if (
+      arvore.recursoCustoId &&
+      !ctx.pagaComPonto &&
+      ctx.saldoRecurso !== null &&
+      estado.custoProximo > 0
+    ) {
       ops.push(
         prisma.recurso.update({
           where: { id: arvore.recursoCustoId, personagemId },
@@ -3332,7 +3871,7 @@ export async function devolverNo(
         data: { rankAtual: rankAlvo },
       }),
     ];
-    if (arvore.recursoCustoId && no.custo > 0) {
+    if (arvore.recursoCustoId && !ctx.pagaComPonto && no.custo > 0) {
       // Reembolso clampado no valorMax, fora da transação.
       const recurso = await prisma.recurso.findFirst({
         where: { id: arvore.recursoCustoId, personagemId },
@@ -3727,6 +4266,8 @@ async function danoNoPersonagem(entrada: {
   await colateraisDoFim(personagemId, acoesAcabaram.map((a) => a.id));
   revalidatePath(`/ficha/${personagemId}`);
   await registrarDanoEmPersonagem(personagemId, r, entrada.fonte);
+  if (r.final > 0) await aplicarGatilhos(personagemId, { tipo: "recebeu_dano" });
+  if (r.caiu) await aplicarGatilhos(personagemId, { tipo: "caiu" });
   return {
     resultado: r,
     mensagem: serializarMensagem(criada as Awaited<typeof mensagem>),
@@ -4050,7 +4591,7 @@ export async function descansar(personagemId: string, tipo: TipoDescanso) {
     const extra = agg.descansoExtra[tipo];
 
     for (const r of recursos) {
-      if (!recuperaNoDescanso(r.resetEm, tipo)) continue;
+      if (ehPonto(r) || !recuperaNoDescanso(r.resetEm, tipo)) continue;
       const max = maximoDoRecurso(r, agg.ctxFormula);
       if (r.valorAtual >= max) continue;
       ops.push(
@@ -4154,6 +4695,12 @@ export async function descansar(personagemId: string, tipo: TipoDescanso) {
       ops.push(prisma.personagem.update({ where: { id: personagemId }, data: { bloqueios: [] } }));
     }
     if (ops.length > 0) await prisma.$transaction(ops);
+    // Bônus progressivo que zera (ou enche de novo) no descanso; o longo vale como curto também.
+    await moverProgressivosNoEvento(
+      personagemId,
+      tipo === "longo" ? [{ evento: "descanso_curto" }, { evento: "descanso_longo" }] : [{ evento: "descanso_curto" }],
+      { todas: true },
+    );
     revalidatePath(`/ficha/${personagemId}`);
     return resumo;
   });
@@ -4611,16 +5158,17 @@ export async function listarPacotes() {
 // Gera um código com as habilidades, ações e árvores escolhidas da ficha.
 export async function exportarPacote(
   personagemId: string,
-  entrada: { nome?: unknown; habilidadeIds?: unknown; acaoIds?: unknown; arvoreIds?: unknown },
+  entrada: { nome?: unknown; habilidadeIds?: unknown; acaoIds?: unknown; arvoreIds?: unknown; itemIds?: unknown },
 ) {
   return executar("pacotes", async () => {
     const habilidadeIds = idsUnicos(entrada?.habilidadeIds, MAX_ITENS_PACOTE);
     const acaoIds = idsUnicos(entrada?.acaoIds, MAX_ITENS_PACOTE);
     const arvoreIds = idsUnicos(entrada?.arvoreIds, MAX_ARVORES_PACOTE);
-    if (habilidadeIds.length + acaoIds.length + arvoreIds.length === 0) {
+    const itemIds = idsUnicos(entrada?.itemIds, MAX_ITENS_PACOTE);
+    if (habilidadeIds.length + acaoIds.length + arvoreIds.length + itemIds.length === 0) {
       throw new ErroDeUso("Escolha o que exportar.");
     }
-    const [{ user, personagem }, habilidades, acoes, arvores, recursos] = await Promise.all([
+    const [{ user, personagem }, habilidades, acoes, arvores, itens, recursos] = await Promise.all([
       autorizar(personagemId),
       // A forma alternativa vai junto da origem.
       prisma.habilidade.findMany({
@@ -4639,9 +5187,13 @@ export async function exportarPacote(
         orderBy: [{ ordem: "asc" }, { nome: "asc" }],
         include: { camadas: true, ramos: true, nos: true },
       }),
+      prisma.item.findMany({
+        where: { id: { in: itemIds }, personagemId },
+        orderBy: [{ ordem: "asc" }, { nome: "asc" }],
+      }),
       prisma.recurso.findMany({ where: { personagemId } }),
     ]);
-    if (habilidades.length + acoes.length + arvores.length === 0) {
+    if (habilidades.length + acoes.length + arvores.length + itens.length === 0) {
       throw new ErroDeUso("Não encontrado. Pode ter sido apagado.");
     }
     const total = await prisma.pacote.count({ where: { userId: user.id } });
@@ -4656,7 +5208,7 @@ export async function exportarPacote(
       throw new ErroDeUso(`Um código leva árvores de até ${MAX_NOS_ARVORE} talentos.`);
     }
 
-    const dados = montarPacote({ de: personagem.nome, habilidades, acoes, arvores, recursos });
+    const dados = montarPacote({ de: personagem.nome, habilidades, acoes, arvores, itens, recursos });
     const nome =
       nomeDoPacote(entrada?.nome) || `Pacote de ${personagem.nome}`.slice(0, MAX_NOME_PACOTE);
     // Código repetido: sorteia outro.
@@ -4712,11 +5264,12 @@ export async function importarPacote(personagemId: string, codigo: unknown, esco
         habilidades: idsUnicos(quer.habilidades, MAX_ITENS_PACOTE),
         acoes: idsUnicos(quer.acoes, MAX_ITENS_PACOTE),
         arvores: idsUnicos(quer.arvores, MAX_ARVORES_PACOTE),
+        itens: idsUnicos(quer.itens, MAX_ITENS_PACOTE),
       },
       { recursos, habilidades },
       randomUUID,
     );
-    if (plano.habilidades.length + plano.acoes.length + plano.arvores.length === 0) {
+    if (plano.habilidades.length + plano.acoes.length + plano.arvores.length + plano.itens.length === 0) {
       throw new ErroDeUso("Escolha o que importar.");
     }
 
@@ -4734,6 +5287,9 @@ export async function importarPacote(personagemId: string, codigo: unknown, esco
                 cor2: r.cor2,
                 efeito: r.efeito,
                 resetEm: r.resetEm,
+                ...(r.tipo === "ponto"
+                  ? { sigla: r.sigla, icone: r.icone, ganhoPorNivel: r.ganhoPorNivel, tetoLivre: r.tetoLivre }
+                  : {}),
               },
               false,
             );
@@ -4748,7 +5304,16 @@ export async function importarPacote(personagemId: string, codigo: unknown, esco
               cor: (data.cor as string | null) ?? null,
               cor2: (data.cor2 as string | null) ?? null,
               efeito: (data.efeito as string) ?? "solido",
-              resetEm: (data.resetEm as string) ?? "manual",
+              resetEm: r.tipo === "ponto" ? "manual" : ((data.resetEm as string) ?? "manual"),
+              ...(r.tipo === "ponto"
+                ? {
+                    tipo: "ponto",
+                    sigla: (data.sigla as string | null) ?? null,
+                    icone: (data.icone as string | null) ?? null,
+                    ganhoPorNivel: (data.ganhoPorNivel as number[]) ?? [],
+                    tetoLivre: (data.tetoLivre as number | null) ?? null,
+                  }
+                : {}),
             };
           }),
         }),
@@ -4774,6 +5339,11 @@ export async function importarPacote(personagemId: string, codigo: unknown, esco
         }),
       );
     }
+    const itensValidos = plano.itens.flatMap((i) => {
+      const data = normalizarItemInput(i.input as ItemInput);
+      return data.nome ? [{ ...dadosDoItem(personagemId, data), id: i.id }] : [];
+    });
+    if (itensValidos.length > 0) ops.push(prisma.item.createMany({ data: itensValidos }));
     plano.arvores.forEach((a, i) => {
       const data = normalizarArvore(a);
       ops.push(
@@ -4840,6 +5410,7 @@ export async function importarPacote(personagemId: string, codigo: unknown, esco
       habilidades: plano.habilidades.length,
       acoes: plano.acoes.length,
       arvores: plano.arvores.map((a) => a.id),
+      itens: itensValidos.length,
     };
   });
 }
@@ -5042,7 +5613,8 @@ async function abrirResolucao(entrada: {
   const condicoes: CondicaoAplicada[] = lerEfeitos(acao.efeitos).flatMap((e) => {
     // As "em você" vão em quem usou (condicoesEmQuemUsou).
     if (e.tipo !== "condicao_aplicar" || e.emVoce) return [];
-    const cd = entrada.cd > 0 ? entrada.cd : (e.cd ?? 0);
+    // A CD fixa do efeito vale primeiro (como na criatura); sem ela, a da ficha.
+    const cd = e.cd ?? (entrada.cd > 0 ? entrada.cd : 0);
     // Salvaguarda que evita a condição, contra a CD das técnicas. Se é a mesma
     // da ação, vale o resultado dela (não rola duas vezes).
     const evita = e.evita && !(entrada.modo === "salvaguarda" && acao.atributoSalv === e.evita) ? e.evita : null;
@@ -5055,7 +5627,10 @@ async function abrirResolucao(entrada: {
         rodadas: lerRodadas(e.rodadas),
         // Sem duração própria, valem os padrões da condição na Biblioteca.
         ...(e.rodadas ? {} : { usaPadroes: true }),
-        salvaguarda: e.repete && (evita ?? acao.atributoSalv) && cd > 0 ? { atributo: (evita ?? acao.atributoSalv)!, cd } : null,
+        salvaguarda:
+          e.repete && (evita ?? e.sai ?? acao.atributoSalv) && cd > 0
+            ? { atributo: (evita ?? e.sai ?? acao.atributoSalv)!, cd }
+            : null,
         ...(evita ? { evita: { atributo: evita, cd } } : {}),
         ...(cd > 0 ? { cdDaFonte: cd } : {}),
         // Criada no efeito: a mecânica vem com ela.
@@ -5185,6 +5760,7 @@ async function descontarDano(mesaId: string, combateId: string, resolucao: Resol
     const { teste } = await danoNaInstancia({ mesaId, combateId }, alvo, partes, {
       de: resolucao.atacanteId,
       acao: resolucao.nome,
+      critico: alvo.resultado === "critico",
     });
     if (teste) {
       // O jogador recebe o pedido na faixa da iniciativa e rola quando puder.
@@ -5205,7 +5781,7 @@ async function danoNaInstancia(
   lado: { mesaId: string; combateId: string },
   alvo: { instanciaId: string; nome: string; personagemId: string | null },
   partes: ParteDano[],
-  fonte: { de: string | null; acao: string },
+  fonte: { de: string | null; acao: string; critico?: boolean },
 ): Promise<{ teste: { nome: string; cd: number } | null }> {
   if (alvo.personagemId) {
     const [personagem, { agg }] = await Promise.all([
@@ -5213,7 +5789,9 @@ async function danoNaInstancia(
       carregarAgregado(alvo.personagemId),
     ]);
     if (!personagem) return { teste: null };
-    const { teste } = await danoNoPersonagem({ personagem, agg, uid: UID_COMBATE, partes, fonte });
+    const { teste, resultado } = await danoNoPersonagem({ personagem, agg, uid: UID_COMBATE, partes, fonte });
+    if (fonte.critico && resultado.final > 0) await aplicarGatilhos(alvo.personagemId, { tipo: "recebeu_critico" });
+    if (resultado.caiu) await gatilhoDeQuemDerrubou(fonte.de);
     return { teste };
   }
 
@@ -5254,7 +5832,15 @@ async function danoNaInstancia(
     alvo.nome,
     `recebeu ${r.final} de dano` + (r.absorvido > 0 ? ` (${r.absorvido} no PV temporário).` : "."),
   );
+  if (r.hpAtual.antes > 0 && r.hpAtual.depois <= 0) await gatilhoDeQuemDerrubou(fonte.de);
   return { teste: null };
+}
+
+// Efeito Gatilho "derrubou alguém": o jogador cuja ação levou o alvo a 0 PV.
+async function gatilhoDeQuemDerrubou(instanciaId: string | null) {
+  if (!instanciaId) return;
+  const quem = await prisma.instanciaCombate.findUnique({ where: { id: instanciaId }, select: { personagemId: true } });
+  if (quem?.personagemId) await aplicarGatilhos(quem.personagemId, { tipo: "derrubou" });
 }
 
 // Multiplicador no dano de quem atacou: o jogador pela ficha (que já soma as
@@ -5357,15 +5943,16 @@ async function reacoesCabiveis(
   });
 }
 
-// Reações dos aliados do alvo (outros jogadores no combate, fora da ação) pro
-// gatilho "aliado alvo de ataque", com quem reage em `de`.
+// Reações dos aliados do alvo (outros jogadores no combate, fora da ação) pros
+// gatilhos de aliado ("um ataque vai acertar um aliado", "você ou um aliado vai
+// receber dano"), com quem reage em `de`.
 async function reacoesDeAliados(
   combateId: string,
   alvo: { instanciaId: string; personagemId: string | null },
   resolucao: { atacanteId: string; alvos: { instanciaId: string }[] },
   acao: { modo: Resolucao["modo"]; temDano: boolean },
 ): Promise<OpcaoReacao[]> {
-  if (!alvo.personagemId || acao.modo !== "ataque") return [];
+  if (!alvo.personagemId) return [];
   const aliados = await prisma.instanciaCombate.findMany({
     where: {
       combateId,
@@ -5537,6 +6124,27 @@ async function resolverAtaque(lado: Lado, resolucaoId: string, lances: LanceDeAt
       alvos.map((a, i) => `${a.nome} · ${TEXTO_RESULTADO[resultados[i]]}`).join("; ") +
       (resultados.includes("critico") ? "!" : "."),
   );
+  // Efeito Gatilho de quem atacou: os acertos e os erros, no contexto do ataque.
+  const atacante = await prisma.instanciaCombate.findUnique({
+    where: { id: lado.instanciaId },
+    select: { personagemId: true },
+  });
+  if (atacante?.personagemId) {
+    const tecnica = aberta.acaoId
+      ? !!(await prisma.acao.findUnique({ where: { id: aberta.acaoId }, select: { tecnica: true } }))?.tecnica
+      : false;
+    const contexto = {
+      tipo: "ataque" as const,
+      alcance: aberta.corpoACorpo ? ("corpo_a_corpo" as const) : ("distancia" as const),
+      tecnica,
+    };
+    const acertos = resultados.filter((r) => r !== "erro").length;
+    const daAcao = { acaoId: aberta.acaoId };
+    if (acertos > 0) await aplicarGatilhos(atacante.personagemId, { tipo: "acertou", contexto, vezes: acertos }, daAcao);
+    if (acertos < resultados.length) {
+      await aplicarGatilhos(atacante.personagemId, { tipo: "errou", contexto, vezes: resultados.length - acertos }, daAcao);
+    }
+  }
   // Técnica que errou todos com quem está Empoderado: o PP volta.
   if (aberta.ppGasto && resultados.every((r) => r === "erro")) await devolverPpDoErro(lado, aberta);
   // Dano de condição no 1º ataque do turno (Queimado).
@@ -5553,13 +6161,40 @@ async function devolverPpDoErro(lado: Lado, resolucao: Resolucao) {
     where: { id: lado.instanciaId },
     select: { personagemId: true, nomeExibicao: true, condicoesAtivas: true },
   });
-  const quem = instancia ? travasDasCondicoes(lerCondicoesAtivas(instancia.condicoesAtivas)).ppDeErroVolta : null;
-  if (!instancia?.personagemId || !quem || !resolucao.ppGasto) return;
+  if (!instancia?.personagemId || !resolucao.ppGasto) return;
+  const pelaCondicao = travasDasCondicoes(lerCondicoesAtivas(instancia.condicoesAtivas)).ppDeErroVolta;
+  let volta = pelaCondicao ? resolucao.ppGasto : 0;
+  let fonte = pelaCondicao ?? "";
+  if (!pelaCondicao) {
+    // Efeito "PP de Volta no Erro" da ficha ou da própria técnica: vale o que
+    // devolve mais; entre iguais, o que não gasta uso.
+    const [{ agg }, acao] = await Promise.all([
+      carregarAgregado(instancia.personagemId),
+      resolucao.acaoId ? prisma.acao.findUnique({ where: { id: resolucao.acaoId }, select: { efeitos: true } }) : null,
+    ]);
+    const daAcao = lerEfeitos(acao?.efeitos).flatMap((e) =>
+      e.tipo === "pp_no_erro" ? [{ modo: e.modo, fonte: resolucao.nome } as (typeof agg.ppNoErro)[number]] : [],
+    );
+    const escolhida = [...daAcao, ...(agg.ppNoErro ?? [])].sort(
+      (a, b) => Number(a.modo === "metade") - Number(b.modo === "metade") || Number(!!a.gasta) - Number(!!b.gasta),
+    )[0];
+    if (!escolhida) return;
+    volta = escolhida.modo === "metade" ? Math.floor(resolucao.ppGasto / 2) : resolucao.ppGasto;
+    fonte = escolhida.fonte;
+    if (escolhida.gasta && escolhida.usos) {
+      const atual = Math.trunc(Number(escolhida.usos.split("/")[0]) || 0);
+      await prisma.habilidade.update({
+        where: { id: escolhida.gasta, personagemId: instancia.personagemId },
+        data: { usosAtual: Math.max(0, atual - 1) },
+      });
+    }
+  }
+  if (volta <= 0) return;
   await prisma.personagem.update({
     where: { id: instancia.personagemId },
-    data: { ppAtual: { increment: resolucao.ppGasto } },
+    data: { ppAtual: { increment: volta } },
   });
-  await avisarCombate(lado.mesaId, instancia.nomeExibicao, `recuperou ${resolucao.ppGasto} PP (${quem}).`);
+  await avisarCombate(lado.mesaId, instancia.nomeExibicao, `recuperou ${volta} PP (${fonte}).`);
 }
 
 // Dano de condição com gatilho (1º ataque do turno, ao se mover): uma vez por
@@ -6466,7 +7101,7 @@ export async function usarAcaoDeCriatura(
         const cd = e.cd ?? salv?.cd ?? criatura?.classeDificuldade ?? 0;
         // Mesma salvaguarda da ação: já valeu o resultado dela.
         const evita = e.evita && !(salv && !ataque && salv.atributo === e.evita) ? e.evita : null;
-        const repete = e.repete ? (evita ?? salv?.atributo ?? null) : null;
+        const repete = e.repete ? (evita ?? e.sai ?? salv?.atributo ?? null) : null;
         condicoes.push({
           nome: e.condicao,
           rodadas: lerRodadas(e.rodadas),
