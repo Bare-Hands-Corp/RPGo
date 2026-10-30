@@ -1302,6 +1302,7 @@ const ALLOWED_ITEM = [
   "propriedades",
   "atributoAtaque",
   "proficienteArma",
+  "armaFavorita",
   "danoBonus",
   "danoSomaAtributo",
   "danoSomaProficiencia",
@@ -1386,6 +1387,9 @@ function normalizarItemInput(input: ItemInput) {
   if (input.proficienteArma !== undefined) {
     data.proficienteArma = Boolean(input.proficienteArma);
   }
+  if (input.armaFavorita !== undefined) {
+    data.armaFavorita = Boolean(input.armaFavorita);
+  }
   if (input.danoBonus !== undefined) {
     const v = input.danoBonus ? String(input.danoBonus).trim().slice(0, 60) : "";
     data.danoBonus = v || null;
@@ -1434,6 +1438,7 @@ function dadosDoItem(personagemId: string, data: Record<string, unknown>) {
         atributoAtaque: (data.atributoAtaque as string | null) ?? null,
         proficienteArma:
           data.proficienteArma === undefined ? true : (data.proficienteArma as boolean),
+        ...(data.armaFavorita ? { armaFavorita: true } : {}),
         danoBonus: (data.danoBonus as string | null) ?? null,
         danoSomaAtributo: (data.danoSomaAtributo as boolean) ?? false,
         danoSomaProficiencia: (data.danoSomaProficiencia as boolean) ?? false,

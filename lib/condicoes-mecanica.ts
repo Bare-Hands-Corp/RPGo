@@ -7,6 +7,7 @@
 import {
   agregarEfeitos,
   ATRIBUTOS,
+  bonusNoContexto,
   lerEfeitos,
   nomeDoEfeito,
   PERICIAS,
@@ -411,9 +412,20 @@ export function bonusDasCondicoesNaCriatura(
   const agg = agregarEfeitos(fontes);
   const partes =
     onde.tipo === "ataque"
-      ? [agg.bonusAtaque, onde.corpoACorpo ? agg.bonusAtaqueCC : agg.bonusAtaqueDistancia, agg.bonusAtaqueComum, agg.bonusQualquer]
+      ? [
+          agg.bonusAtaque,
+          onde.corpoACorpo ? agg.bonusAtaqueCC : agg.bonusAtaqueDistancia,
+          agg.bonusAtaqueComum,
+          agg.bonusQualquer,
+          bonusNoContexto(agg, { tipo: "ataque", alcance: onde.corpoACorpo ? "corpo_a_corpo" : "distancia" }),
+        ]
       : onde.tipo === "salvaguarda"
-        ? [agg.bonusSalvaguarda[onde.atributo as Atributo], agg.bonusSalvaguardaTodas, agg.bonusQualquer]
+        ? [
+            agg.bonusSalvaguarda[onde.atributo as Atributo],
+            agg.bonusSalvaguardaTodas,
+            agg.bonusQualquer,
+            bonusNoContexto(agg, { tipo: "salvaguarda", atributo: onde.atributo as Atributo }),
+          ]
         : [agg.bonusCR];
   let valor = 0;
   const nomes: string[] = [];

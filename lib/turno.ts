@@ -178,7 +178,7 @@ function comoPorTurno(e: EfeitoHabilidade): Pick<PorTurno, "o" | "valor" | "recu
     return {
       o: "recurso",
       recurso: e.recurso,
-      valor: String(Math.abs(e.valor)),
+      valor: e.formulas?.valor ?? String(Math.abs(e.valor)),
       ...(e.valor < 0 ? { gasta: true } : {}),
     };
   }

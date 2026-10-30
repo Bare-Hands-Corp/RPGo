@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { patchPersonagem } from "./actions";
 import { exigir } from "@/lib/acoes";
+import { CampoNumero } from "@/components/campo-numero";
 import { tetoAtributo, type Atributo, type EfeitosAgregados } from "@/lib/op-rpg";
 import { perfilDe, type PerfilFicha } from "@/lib/subficha";
 
@@ -51,12 +52,8 @@ export function EditFichaModal({
     setAberto(true);
   }
 
-  function set<K extends keyof Atributos>(key: K, raw: string) {
-    if (key === "tipoDadoVida" || key === "nome") {
-      setValores((v) => ({ ...v, [key]: raw as Atributos[K] }));
-      return;
-    }
-    setValores((v) => ({ ...v, [key]: (Number(raw) || 0) as Atributos[K] }));
+  function set<K extends keyof Atributos>(key: K, valor: Atributos[K]) {
+    setValores((v) => ({ ...v, [key]: valor }));
   }
 
   function salvar(e: React.FormEvent) {
@@ -113,20 +110,12 @@ export function EditFichaModal({
               <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
                 <div style={{ flex: 1 }}>
                   <label>Vida Máxima</label>
-                  <input
-                    type="number"
-                    value={valores.hpMax}
-                    onChange={(e) => set("hpMax", e.target.value)}
-                  />
+                  <CampoNumero valor={valores.hpMax} onChange={(n) => set("hpMax", n)} />
                 </div>
                 {mostra("pp") && (
                 <div style={{ flex: 1 }}>
                   <label>PP Máximo</label>
-                  <input
-                    type="number"
-                    value={valores.ppMax}
-                    onChange={(e) => set("ppMax", e.target.value)}
-                  />
+                  <CampoNumero valor={valores.ppMax} onChange={(n) => set("ppMax", n)} />
                 </div>
                 )}
                 {mostra("descanso") && (
@@ -149,22 +138,12 @@ export function EditFichaModal({
                       ? `${perfil.deslocamento.rotulo} (${perfil.deslocamento.unidade})`
                       : "Desloc. (m)"}
                   </label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={valores.deslocamento}
-                    onChange={(e) => set("deslocamento", e.target.value)}
-                  />
+                  <CampoNumero step="0.5" valor={valores.deslocamento} onChange={(n) => set("deslocamento", n)} />
                 </div>
                 {perfilSlug !== "veiculo" && (
                 <div style={{ flex: 1 }}>
                   <label>Nado (m)</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={valores.nado}
-                    onChange={(e) => set("nado", e.target.value)}
-                  />
+                  <CampoNumero step="0.5" valor={valores.nado} onChange={(n) => set("nado", n)} />
                 </div>
                 )}
               </div>
@@ -201,11 +180,10 @@ export function EditFichaModal({
                         {label}{" "}
                         <span className="attr-teto-nota">máx {teto.valor}</span>
                       </label>
-                      <input
-                        type="number"
+                      <CampoNumero
                         className={acima ? "input-acima-teto" : undefined}
-                        value={valores[key]}
-                        onChange={(e) => set(key, e.target.value)}
+                        valor={valores[key]}
+                        onChange={(n) => set(key, n)}
                       />
                       {acima && (
                         <div className="attr-teto-aviso">

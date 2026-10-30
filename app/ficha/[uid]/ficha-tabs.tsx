@@ -11,14 +11,16 @@ import { HabilidadesTab } from "./habilidades-tab";
 import { InventarioTab } from "./inventario-tab";
 import { ObjetivosTab, type Objetivo } from "./objetivos-tab";
 import { PacotesContext } from "./pacotes";
-import { PontosDaFichaContext } from "./efeitos-editor";
+import { TagsDaFichaContext } from "./estilo-cor-picker";
+import { tagsDaFicha } from "@/lib/estilos-cor";
+import { AlvosCustomContext, PontosDaFichaContext } from "./efeitos-editor";
 import { PericiasTab } from "./pericias-tab";
 import { SubfichasTab } from "./subfichas-tab";
 import { TripulacaoTab, type Tripulante } from "./tripulacao-tab";
 import { CalendarioView } from "@/app/calendario/[mesaId]/calendario-view";
 import { CalendarioRealtime } from "@/app/calendario/[mesaId]/realtime-refresher";
 import type { CalendarioCarregado } from "@/lib/calendario/carregar";
-import type { Atributo, EfeitosAgregados } from "@/lib/op-rpg";
+import { alvosPericiaCustom, type Atributo, type EfeitosAgregados } from "@/lib/op-rpg";
 import type { SubfichaCard } from "@/lib/resumo-personagem";
 import { ABAS, type AbaFicha } from "@/lib/subficha";
 
@@ -154,6 +156,8 @@ export function FichaTabs({
     () => recursos.filter((r) => r.tipo === "ponto").map((r) => ({ id: r.id, nome: r.nome })),
     [recursos],
   );
+  const alvosCustom = useMemo(() => alvosPericiaCustom(periciasCustom), [periciasCustom]);
+  const tagsFicha = useMemo(() => tagsDaFicha([...itens, ...habilidades]), [itens, habilidades]);
 
   // Graus das técnicas, pra resolver GRAU nos chips fora da técnica.
   const grausTecnicas = useMemo(
@@ -204,7 +208,9 @@ export function FichaTabs({
 
   return (
     <PacotesContext.Provider value={fichaDoPacote}>
+    <TagsDaFichaContext.Provider value={tagsFicha}>
     <PontosDaFichaContext.Provider value={pontosDaFicha}>
+    <AlvosCustomContext.Provider value={alvosCustom}>
     <main className="ficha-main">
       {/* Realtime do calendário fica sempre ativo enquanto a ficha está aberta,
           pra que mudanças cheguem mesmo quando outra aba estiver visível. */}
@@ -272,7 +278,6 @@ export function FichaTabs({
           recursos={recursosDeAcao}
           atributos={atributos}
           nivel={nivel}
-          periciasCustom={periciasCustom}
           travadas={habilidadesTravadas}
           itens={itens}
           tripulantes={alvos}
@@ -352,7 +357,6 @@ export function FichaTabs({
           atributos={atributos}
           efeitosAgregados={efeitosAgregados}
           recursos={recursosDeAcao}
-          periciasCustom={periciasCustom}
           acoes={acoes}
           habilidades={habilidades}
           tripulantes={alvos}
@@ -413,7 +417,9 @@ export function FichaTabs({
         </div>
       )}
     </main>
+    </AlvosCustomContext.Provider>
     </PontosDaFichaContext.Provider>
+    </TagsDaFichaContext.Provider>
     </PacotesContext.Provider>
   );
 }
