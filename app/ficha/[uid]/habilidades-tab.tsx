@@ -20,7 +20,6 @@ import {
   TIPOS_HABILIDADE,
   alvoDaCura,
   textoDaCura,
-  alvosPericiaCustom,
   computarDeltasInstantaneos,
   curasComFormula,
   extrasDeCura,
@@ -37,6 +36,7 @@ import {
   type EfeitosAgregados,
   type OrigemHabilidade,
   type TipoHabilidade,
+  gruposDosEfeitos,
 } from "@/lib/op-rpg";
 import { DescricaoCard } from "@/components/descricao-rica/descricao-card";
 import type { ContextoRico } from "@/components/descricao-rica/atomos";
@@ -56,10 +56,10 @@ import { BarraFiltros, casaBusca, pastasDe } from "./barra-filtros";
 import { useConfirmarUso, type ItemDeUso } from "./usar-modal";
 import { Segmentos } from "./campos-modal";
 import {
-  AlvosCustomContext,
   FormulaContext,
   AcoesDaFichaContext,
   ItensDaFichaContext,
+  GruposEfeitoContext,
   NomesRecursoContext,
   DatalistAlvos,
   EfeitosEditor,
@@ -91,6 +91,7 @@ import {
   lerEstilosTag,
   podarEstilosTag,
   separarTags,
+  tagsDaFicha,
   type MapaEstilosTag,
 } from "@/lib/estilos-cor";
 
@@ -138,7 +139,6 @@ type Props = {
   recursos: RecursoMinimo[];
   atributos: Record<Atributo, number>;
   nivel: number;
-  periciasCustom: { slug: string; nome: string }[];
   /** IDs de habilidade presas a um nó de árvore ainda não liberado. */
   travadas?: string[];
   /** Itens do personagem. */
@@ -250,7 +250,6 @@ export function HabilidadesTab({
   recursos,
   atributos,
   nivel,
-  periciasCustom,
   travadas = [],
   itens,
   tripulantes,
@@ -275,7 +274,6 @@ export function HabilidadesTab({
   const [otimistas, aplicar] = useOptimistic(habilidades, aplicarPatch);
   const [, startTransition] = useTransition();
   const atualizar = useRefreshAgrupado(0);
-  const alvosCustom = useMemo(() => alvosPericiaCustom(periciasCustom), [periciasCustom]);
   const [modalAberto, setModalAberto] = useState(false);
   const [edit, setEdit] = useState<Habilidade | null>(null);
   // Habilidade que a nova copia.
@@ -287,6 +285,7 @@ export function HabilidadesTab({
   const [pastaFiltro, setPastaFiltro] = useState<string | null>(null);
   const [tipoFiltro, setTipoFiltro] = useState<string | null>(null);
   const [origemFiltro, setOrigemFiltro] = useState<string | null>(null);
+  const [tagFiltro, setTagFiltro] = useState<string | null>(null);
   const uso = useConfirmarUso();
 
   // Itens por id.
@@ -331,11 +330,14 @@ export function HabilidadesTab({
   const pastas = useMemo(() => pastasDe(otimistas), [otimistas]);
   const nomesDasPastas = useMemo(() => pastas.map((p) => p.nome), [pastas]);
   const pastaAtiva = pastas.some((p) => p.nome === pastaFiltro) ? pastaFiltro : null;
+  const opcoesTag = useMemo(() => tagsDaFicha(otimistas).map((t) => [t.nome, t.nome] as const), [otimistas]);
+  const tagAtiva = opcoesTag.some(([t]) => t === tagFiltro) ? tagFiltro : null;
   const filtradas = porFiltro.filter(
     (h) =>
       (!pastaAtiva || h.pasta === pastaAtiva) &&
       (!tipoFiltro || h.tipo === tipoFiltro) &&
       (!origemFiltro || h.origem === origemFiltro) &&
+      (!tagAtiva || separarTags(h.tags).includes(tagAtiva)) &&
       casaBusca(busca, [
         h.nome,
         textoPuroRico(h.descricao),
@@ -344,7 +346,7 @@ export function HabilidadesTab({
         ORIGENS_HABILIDADE.find((o) => o.slug === h.origem)?.nome,
       ]),
   );
-  const filtrando = filtro !== "todas" || !!pastaAtiva || !!tipoFiltro || !!origemFiltro || busca.trim() !== "";
+  const filtrando = filtro !== "todas" || !!pastaAtiva || !!tipoFiltro || !!origemFiltro || !!tagAtiva || busca.trim() !== "";
 
   // Formas alternativas ficam dentro do card da habilidade de origem.
   const { origemDe, grupoDe } = agruparFormas(otimistas);
@@ -846,8 +848,8 @@ export function HabilidadesTab({
   }
 
   return (
-    <AlvosCustomContext.Provider value={alvosCustom}>
       <AcoesDaFichaContext.Provider value={acoes.map((a) => ({ id: a.id, nome: a.nome, tipo: a.tipo }))}>
+      <GruposEfeitoContext.Provider value={gruposDosEfeitos(otimistas)}>
       <ItensDaFichaContext.Provider value={itens.map((i) => ({ id: i.id, nome: i.nome, tipo: i.tipo ?? "comum" }))}>
       <NomesRecursoContext.Provider value={recursoNomePorId}>
       <FormulaContext.Provider value={ctxChips}>
@@ -891,6 +893,9 @@ export function HabilidadesTab({
           grupos={[
             { rotulo: "Tipo", opcoes: FILTROS_TIPO, valor: tipoFiltro, onValor: setTipoFiltro },
             { rotulo: "Origem", opcoes: FILTROS_ORIGEM, valor: origemFiltro, onValor: setOrigemFiltro },
+            ...(opcoesTag.length > 0
+              ? [{ rotulo: "Tag", opcoes: opcoesTag, valor: tagAtiva, onValor: setTagFiltro }]
+              : []),
           ]}
         >
           {pastaAtiva && otimistas.some((h) => h.pasta === pastaAtiva && h.tipo !== "passiva") && (
@@ -979,8 +984,8 @@ export function HabilidadesTab({
       </FormulaContext.Provider>
       </NomesRecursoContext.Provider>
       </ItensDaFichaContext.Provider>
+      </GruposEfeitoContext.Provider>
       </AcoesDaFichaContext.Provider>
-    </AlvosCustomContext.Provider>
   );
 }
 

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { Sugestoes } from "./campos-modal";
+import { SeletorBusca } from "./seletor-busca";
 
 // Topo de uma aba: campo de busca, filtros fixos e as pastas da ficha.
 
@@ -148,20 +150,7 @@ export function BarraFiltros<F extends string>({
         ))}
       </div>
       {grupos?.map((g) => (
-        <div key={g.rotulo} className="hab-filtros filtros-grupo" role="group" aria-label={g.rotulo}>
-          <span className="filtros-grupo-rotulo">{g.rotulo}</span>
-          {g.opcoes.map(([slug, nome]) => (
-            <button
-              key={slug}
-              type="button"
-              className={`hab-filtro ${g.valor === slug ? "ativo" : ""}`}
-              aria-pressed={g.valor === slug}
-              onClick={() => g.onValor(g.valor === slug ? null : slug)}
-            >
-              {nome}
-            </button>
-          ))}
-        </div>
+        <GrupoDeFiltro key={g.rotulo} g={g} />
       ))}
       {ativos > 0 && (
         <button type="button" className="filtros-limpar-tudo" onClick={limparFiltros}>
@@ -178,6 +167,51 @@ export function BarraFiltros<F extends string>({
           {children}
         </div>
       )}
+    </div>
+  );
+}
+
+// Grupo longo: o resto fica atrás de "ver mais" e a lupa abre a busca.
+const LIMITE_GRUPO = 8;
+
+function GrupoDeFiltro({ g }: { g: GrupoFiltro }) {
+  const [aberto, setAberto] = useState(false);
+  const longo = g.opcoes.length > LIMITE_GRUPO;
+  // O filtro ativo não fica escondido.
+  const ativoEscondido = longo && g.opcoes.findIndex(([slug]) => slug === g.valor) >= LIMITE_GRUPO;
+  return (
+    <div className="hab-filtros filtros-grupo" role="group" aria-label={g.rotulo}>
+      <div className="filtros-grupo-cab">
+        <span className="filtros-grupo-rotulo">{g.rotulo}</span>
+        {longo && (
+          <SeletorBusca
+            valor={g.valor ?? ""}
+            opcoes={g.opcoes.map(([slug, nome]) => ({ slug, nome }))}
+            onChange={(slug) => slug && g.onValor(slug)}
+            titulo={g.rotulo}
+            gatilho={<i className="fas fa-magnifying-glass" aria-label={`Buscar ${g.rotulo}`} />}
+          />
+        )}
+      </div>
+      <Sugestoes
+        className="filtros-grupo-lista"
+        classeMais="hab-filtro"
+        limite={LIMITE_GRUPO}
+        aberto={aberto || ativoEscondido}
+        onAberto={setAberto}
+      >
+        {g.opcoes.map(([slug, nome]) => (
+          <button
+            key={slug}
+            type="button"
+            className={`hab-filtro ${g.valor === slug ? "ativo" : ""}`}
+            aria-pressed={g.valor === slug}
+            onClick={() => g.onValor(g.valor === slug ? null : slug)}
+          >
+            {nome}
+          </button>
+        ))}
+      </Sugestoes>
     </div>
   );
 }

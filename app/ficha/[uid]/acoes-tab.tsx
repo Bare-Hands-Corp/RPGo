@@ -85,6 +85,7 @@ import {
   type Atributo,
   type EfeitoHabilidade,
   type EfeitosAgregados,
+  gruposDosEfeitos,
 } from "@/lib/op-rpg";
 import {
   empilharD20,
@@ -102,6 +103,7 @@ import {
   FormulaContext,
   AcoesDaFichaContext,
   ItensDaFichaContext,
+  GruposEfeitoContext,
   NomesRecursoContext,
   PassosProgressivos,
   StatsPorTurno,
@@ -322,6 +324,7 @@ type ItemArma = {
   efeitos: unknown;
   quantidade: number;
   municaoId?: string | null;
+  armaFavorita?: boolean;
 };
 
 // O que a ação resolve num alvo do combate e como empilhar as rolagens dela.
@@ -599,9 +602,9 @@ function mostrarErro(err: unknown) {
 }
 
 // "Vantagem (Qualquer d20 · próxima rolagem)": o efeito que vai pra outro, no "em quem?".
-function textoDoEfeito(e: EfeitoHabilidade): string {
+function textoDoEfeito(e: EfeitoHabilidade, nomeAlvo: (slug: string) => string | undefined): string {
   const vale = e.vale === "proxima" ? "próxima rolagem" : e.vale === "turno" ? "próximo turno dele" : "";
-  return `${nomeDoEfeito(e)} (${[resumoEfeito(e), vale].filter(Boolean).join(" · ")})`;
+  return `${nomeDoEfeito(e)} (${[resumoEfeito(e, undefined, undefined, nomeAlvo), vale].filter(Boolean).join(" · ")})`;
 }
 
 export function AcoesTab({
@@ -1245,7 +1248,7 @@ export function AcoesTab({
         const escolhidos = await alvosDoCombate.escolher(
           `${acao.nome}: ${soDesvantagem ? "em qual inimigo?" : "em quem?"}`,
           noInimigo
-            ? { detalhe: `No alvo: ${efeitosNoInimigo(acao).map(textoDoEfeito).join(", ")}.` }
+            ? { detalhe: `No alvo: ${efeitosNoInimigo(acao).map((e) => textoDoEfeito(e, fichaRica.nomeAlvo)).join(", ")}.` }
             : undefined,
         );
         if (escolhidos === null) return;
@@ -1303,7 +1306,7 @@ export function AcoesTab({
       }
       const ficam = efeitosQueFicamNoAliado(acao).length > 0;
       const detalhe = [
-        `No aliado: ${[...new Set(paraAliado.map(({ e }) => textoDoEfeito(e)))].join(", ")}.`,
+        `No aliado: ${[...new Set(paraAliado.map(({ e }) => textoDoEfeito(e, fichaRica.nomeAlvo)))].join(", ")}.`,
         ...linhas.map((l) => l.replace(/<\/?b>/g, "")),
         ficam
           ? turno
@@ -1571,6 +1574,7 @@ export function AcoesTab({
 
   return (
     <AcoesDaFichaContext.Provider value={acoesDaFicha}>
+    <GruposEfeitoContext.Provider value={gruposDosEfeitos([...acoesOtimistas, ...itens])}>
     <ItensDaFichaContext.Provider value={itensDaFicha}>
     <NomesRecursoContext.Provider value={new Map(recursos.map((r) => [r.id, r.nome]))}>
     <FormulaContext.Provider value={ctxFormula}>
@@ -1703,6 +1707,7 @@ export function AcoesTab({
                       nivel,
                       efeitosAgregados: aggDaArma(arma),
                       tecnica: acao.tecnica,
+                      favorita: !!arma.armaFavorita,
                     });
                     const atq = doAtaque && comAdicional(doAtaque);
                     const municao = municaoDe(arma);
@@ -1794,6 +1799,7 @@ export function AcoesTab({
                         alcance: atq?.alcance ?? alcanceContexto,
                         efeitosAgregados: agg,
                         dadoFixo: agg.dadoArmaFixo?.formula,
+                        favorita: !!arma.armaFavorita,
                       });
                       const tiposDano = juntarTipos(
                         acao.tipoDano ? [acao.tipoDano] : [],
@@ -1801,7 +1807,7 @@ export function AcoesTab({
                         tiposDoDano(danoComMunicao(arma.dano, municaoDe(arma)) ?? ""),
                         bonus ? [] : tiposDoDano(arma.danoBonus ?? ""),
                       );
-                      return { d, efeitos: efeitosDoContexto(agg), tiposDano, extras: bonus ? [bonus] : [] };
+                      return { d, efeitos: efeitosDoContexto(agg), tiposDano, extras: bonus ? [bonus] : [], favorita: !!arma.armaFavorita };
                     }
                     const d = acao.dano
                       ? resolverDanoArma({
@@ -1823,6 +1829,7 @@ export function AcoesTab({
                           alcance: alcanceContexto,
                           efeitosAgregados: agg,
                           tecnica: acao.tecnica,
+                          favorita: !!arma?.armaFavorita,
                         })
                       : null;
                     // Tipos escritos no dano da técnica e na arma, pros efeitos só de um tipo.
@@ -1832,7 +1839,13 @@ export function AcoesTab({
                       tiposDoDano((arma ? danoComMunicao(arma.dano, municaoDe(arma)) : null) ?? ""),
                       bonus ? [] : tiposDoDano(arma?.danoBonus ?? ""),
                     );
-                    return { d, efeitos: efeitosDoContexto(agg), tiposDano, extras: bonus && d ? [bonus] : [] };
+                    return {
+                      d,
+                      efeitos: efeitosDoContexto(agg),
+                      tiposDano,
+                      extras: bonus && d ? [bonus] : [],
+                      favorita: !!arma?.armaFavorita,
+                    };
                   };
                   // Um dano por arma equipada; sem arma, o dano da técnica.
                   const danos =
@@ -1958,6 +1971,7 @@ export function AcoesTab({
                           tecnica: acao.tecnica,
                           multiataque,
                           acaoId: acao.id,
+                          favorita: !!golpe.arma.armaFavorita,
                           ...(golpe.municao.item
                             ? { municao: { id: golpe.municao.item.id, nome: golpe.municao.item.nome } }
                             : {}),
@@ -1989,6 +2003,7 @@ export function AcoesTab({
                         tecnica: acao.tecnica,
                         grau: acao.grau,
                         tiposDano: x.tiposDano,
+                        favorita: x.favorita,
                       },
                       efeitos: x.efeitos,
                       ...extras,
@@ -2001,6 +2016,7 @@ export function AcoesTab({
                     alcance: golpePadrao?.atq?.alcance ?? alcanceContexto,
                     tecnica: acao.tecnica,
                     multiataque,
+                    favorita: !!golpePadrao?.arma.armaFavorita,
                   });
                   const resolve: Resolve = {
                     ataque: !!golpePadrao || bonusAtq != null,
@@ -3005,6 +3021,7 @@ export function AcoesTab({
     </FormulaContext.Provider>
     </NomesRecursoContext.Provider>
     </ItensDaFichaContext.Provider>
+    </GruposEfeitoContext.Provider>
     </AcoesDaFichaContext.Provider>
   );
 }

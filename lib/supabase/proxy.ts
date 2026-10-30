@@ -5,7 +5,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { carregarJwks } from "./jwks";
 
 // Rotas acessíveis sem login. Tudo mais exige sessão válida.
-const ROTAS_PUBLICAS = ["/login", "/auth/callback"];
+const ROTAS_PUBLICAS = ["/login", "/auth/callback", "/recuperar-senha"];
+// Única rota liberada pra conta logada que ainda não confirmou o e-mail.
+const ROTA_VERIFICAR = "/verificar-codigo";
 
 function isRotaPublica(pathname: string): boolean {
   return ROTAS_PUBLICAS.some((rota) => pathname.startsWith(rota));
@@ -38,6 +40,8 @@ export async function updateSession(request: NextRequest) {
 
   const { data } = await supabase.auth.getClaims(undefined, jwks ? { jwks } : undefined);
   const user = data?.claims?.sub ?? null;
+  // Conta criada pelo cadastro nasce com email_pendente; o código tira (app_metadata só a service role escreve).
+  const pendente = data?.claims?.app_metadata?.email_pendente === true;
 
   const { pathname } = request.nextUrl;
 
@@ -50,12 +54,25 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Logado tentando acessar /login → manda pro dashboard.
+  // Redirect de quem está logado leva junto os cookies renovados nesta request.
+  function redirecionarLogado(destino: string, next?: string) {
+    const url = request.nextUrl.clone();
+    url.pathname = destino;
+    url.search = "";
+    if (next) url.searchParams.set("next", next);
+    const resposta = NextResponse.redirect(url);
+    supabaseResponse.cookies.getAll().forEach((c) => resposta.cookies.set(c));
+    return resposta;
+  }
+
+  // Logado tentando acessar /login → manda pro dashboard (ou pro código, se falta confirmar).
   if (user && pathname === "/login") {
-    const dashboardUrl = request.nextUrl.clone();
-    dashboardUrl.pathname = "/dashboard";
-    dashboardUrl.search = "";
-    return NextResponse.redirect(dashboardUrl);
+    return redirecionarLogado(pendente ? ROTA_VERIFICAR : "/dashboard");
+  }
+
+  // Logado sem e-mail confirmado → tela do código, guardando o destino.
+  if (user && pendente && !isRotaPublica(pathname) && !pathname.startsWith(ROTA_VERIFICAR)) {
+    return redirecionarLogado(ROTA_VERIFICAR, pathname !== "/" ? pathname : undefined);
   }
 
   return supabaseResponse;

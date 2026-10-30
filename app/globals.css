@@ -136,7 +136,9 @@ a {
   color: var(--text-main);
   font-family: inherit;
   font-size: 1rem;
-  transition: all 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .form-input:focus {
@@ -189,6 +191,144 @@ a {
   opacity: 0.8;
 }
 
+.btn-text:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-text.sec {
+  color: var(--text-sec);
+}
+
+/* Cabeçalho, ações e rodapé dos cartões de conta (login, código, senha). */
+.auth-cabecalho {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.auth-cabecalho h1 {
+  color: var(--primary);
+  font-size: clamp(1.5rem, 6vw, 2rem);
+  margin-bottom: 5px;
+}
+
+.auth-cabecalho p {
+  color: var(--text-sec);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.auth-cabecalho strong {
+  color: var(--text-main);
+}
+
+.auth-icone {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 1.5rem;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+.auth-icone.sucesso {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+}
+
+.auth-acoes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 25px;
+}
+
+.auth-rodape {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.auth-esqueci {
+  display: block;
+  width: fit-content;
+  margin: 8px 0 0 auto;
+  font-size: 0.85rem;
+}
+
+/* Código de 6 dígitos: input real transparente por cima das casas. */
+.campo-codigo {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 10px 0 0;
+}
+
+.campo-codigo input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  border: none;
+  font-size: 16px;
+  cursor: text;
+}
+
+.campo-codigo.desativado {
+  opacity: 0.6;
+}
+
+.campo-codigo-casa {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 48px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-main);
+  font-size: 1.5rem;
+  font-weight: 700;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.campo-codigo-casa.ativa {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent);
+}
+
+.campo-codigo-casa.ativa:empty::after {
+  content: "";
+  width: 2px;
+  height: 1.5rem;
+  background: var(--primary);
+  animation: piscarCursor 1s step-end infinite;
+}
+
+.campo-codigo-traco {
+  align-self: center;
+  color: var(--text-sec);
+  font-size: 1.25rem;
+}
+
+@keyframes piscarCursor {
+  50% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .campo-codigo-casa.ativa:empty::after {
+    animation: none;
+  }
+}
+
 /* ─── TOAST DE FEEDBACK ──────────────────────────────────── */
 .auth-toast {
   position: fixed;
@@ -213,6 +353,10 @@ a {
 .auth-toast.show {
   display: flex;
   animation: slideDownToast 0.3s ease-out forwards;
+}
+
+.auth-toast.sucesso {
+  border-left-color: var(--success);
 }
 
 .auth-toast .close-toast {
@@ -646,7 +790,13 @@ a {
   font-weight: bold;
   cursor: pointer;
   font-size: 0.9rem;
-  transition: all 0.2s;
+  transition:
+    background 0.2s,
+    color 0.2s,
+    border-color 0.2s,
+    opacity 0.2s,
+    transform 0.2s,
+    filter 0.2s;
   border: none;
   display: inline-flex;
   align-items: center;
@@ -1003,7 +1153,7 @@ input[type="checkbox"]:disabled {
 /* ─── Dica (tooltip) — components/tooltip.tsx ─────────────── */
 .dica {
   position: fixed;
-  z-index: 1000;
+  z-index: 10050;
   width: max-content;
   max-width: min(340px, calc(100vw - 16px));
   transform: translateX(-50%);

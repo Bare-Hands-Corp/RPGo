@@ -1,4 +1,4 @@
-import { createContext, useMemo } from "react";
+import { createContext, useContext, useMemo } from "react";
 import { useCatalogoTiposCompleto } from "@/components/tipos-dano/tipos-dano";
 import { useCatalogoCondicoesCompleto } from "@/components/tipos-dano/condicoes";
 import type { ContextoRico } from "@/components/descricao-rica/atomos";
@@ -6,6 +6,7 @@ import type { CondicaoCatalogo } from "@/lib/condicoes";
 import type { Duracao } from "@/lib/duracao";
 import { cdTecnica, resolverFormula, resumoEfeito, type Atributo, type EfeitoHabilidade } from "@/lib/op-rpg";
 import type { TipoDanoCatalogo } from "@/lib/tipos-dano";
+import { AlvosCustomContext, nomeDoAlvoCustom } from "./efeitos-editor";
 
 const SELO_TIPO: Record<string, string> = { padrao: "Padrão", bonus: "Bônus", power: "Poderosa", react: "Reação", livre: "Livre" };
 
@@ -18,6 +19,7 @@ type FichaParaContexto = {
   habilidades: { id: string; nome: string }[];
   itens: { id: string; nome: string }[];
   nomeRecurso: (id: string) => string | undefined;
+  nomeAlvo: (slug: string) => string | undefined;
   tiposDano: TipoDanoCatalogo[];
   catalogoCondicoes: CondicaoCatalogo[];
 };
@@ -44,7 +46,7 @@ export function contextoBaseDaFicha(f: FichaParaContexto): ContextoRico {
 // `{{duracao}}` apontam pra ela, e as siglas das rolagens resolvem com o grau dela.
 export function contextoDaAcao(
   base: ContextoRico,
-  f: Pick<FichaParaContexto, "nivel" | "atributos" | "acoes" | "nomeRecurso">,
+  f: Pick<FichaParaContexto, "nivel" | "atributos" | "acoes" | "nomeRecurso" | "nomeAlvo">,
   a: { nome: string; tecnica: boolean; grau: number },
   efeitos: EfeitoHabilidade[],
   duracao: Duracao | null,
@@ -58,7 +60,12 @@ export function contextoDaAcao(
     duracao,
     // O mesmo resumo do chip de efeito do card de antes, com a ficha real.
     resumoEfeito: (e, resolvido) =>
-      resumoEfeito(e, f.nomeRecurso, resolvido ? { nivel: f.nivel, atributos: f.atributos, grau, graus } : undefined),
+      resumoEfeito(
+        e,
+        f.nomeRecurso,
+        resolvido ? { nivel: f.nivel, atributos: f.atributos, grau, graus } : undefined,
+        f.nomeAlvo,
+      ),
     resolverFormula: (formula) => resolverFormula(formula, f.atributos, f.nivel, { grau }),
   };
 }
@@ -76,6 +83,7 @@ export function useContextoRico(e: {
 }) {
   const tiposDano = useCatalogoTiposCompleto();
   const catalogoCondicoes = useCatalogoCondicoesCompleto();
+  const alvosCustom = useContext(AlvosCustomContext);
   const { nivel, atributos, atributoCd, acoes, habilidades, itens, recursos } = e;
   const ficha = useMemo<FichaParaContexto>(
     () => ({
@@ -86,10 +94,11 @@ export function useContextoRico(e: {
       habilidades: habilidades.map((h) => ({ id: h.id, nome: h.nome })),
       itens: itens.map((i) => ({ id: i.id, nome: i.nome })),
       nomeRecurso: (id) => recursos.find((r) => r.id === id)?.nome,
+      nomeAlvo: nomeDoAlvoCustom(alvosCustom),
       tiposDano,
       catalogoCondicoes,
     }),
-    [nivel, atributos, atributoCd, acoes, habilidades, itens, recursos, tiposDano, catalogoCondicoes],
+    [nivel, atributos, atributoCd, acoes, habilidades, itens, recursos, alvosCustom, tiposDano, catalogoCondicoes],
   );
   const base = useMemo(() => contextoBaseDaFicha(ficha), [ficha]);
   return { ficha, base };

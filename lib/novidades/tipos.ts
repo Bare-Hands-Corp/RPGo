@@ -1,10 +1,12 @@
 /** Tela onde a mudança aparece: dá a cor da miniatura. */
-export type TelaNovidade = "ficha" | "subficha" | "navio" | "narrador" | "dashboard";
+export type TelaNovidade = "ficha" | "subficha" | "navio" | "narrador" | "dashboard" | "conta";
 
 /** Parte da tela que o mini-mapa acende. */
 export type ZonaNovidade = "lateral" | "topo" | "conteudo" | "bandeja";
 
 export interface Mudanca {
+  /** Assunto que agrupa a lista; mudanças do mesmo tópico ficam juntas. */
+  topico: string;
   titulo: string;
   /** Uma ou duas frases. */
   texto?: string;
