@@ -296,7 +296,7 @@ function calcularBonusTesteInterno(
   const mod = teste?.mod ?? modificador(atributos[atributoUsado]);
   const profValor = teste?.prof ?? 0;
   const outros =
-    (teste?.outros ?? bonusTesteAmplo(agg, selecao.atributo).valor) +
+    (teste?.outros ?? bonusTesteAmplo(agg, selecao.atributo, { tipo: "teste-atributo", atributo: selecao.atributo }).valor) +
     extras.reduce((soma, c) => soma + (c.valor ?? 0) * c.vezes, 0);
   const exaustao = penalidadeD20Exaustao(exaustaoQueConta(personagem.exaustao, agg));
   const bonus = mod + profValor + outros - exaustao;

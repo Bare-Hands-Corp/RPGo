@@ -10,6 +10,7 @@ import {
 } from "./actions";
 import type { MensagemSerializada } from "@/lib/mensagens";
 import { ATRIBUTOS, type Atributo, type PericiaSlug } from "@/lib/op-rpg";
+import { CampoNumero } from "@/components/campo-numero";
 
 type AbaTeste = "pericias" | "salvaguardas";
 type ModoTeste = "normal" | "vantagem" | "desvantagem";
@@ -320,7 +321,7 @@ export function ModalSolicitarTeste({ mesaId, aberto, onFechar, onCriada, person
 
         <label>
           CD
-          <input type="number" value={cd} onChange={(e) => setCd(Number(e.target.value) || 0)} min={0} />
+          <CampoNumero valor={cd} onChange={setCd} min={0} />
         </label>
 
         <div>

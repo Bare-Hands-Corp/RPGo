@@ -161,27 +161,31 @@ function ModalNovidades({ vista, onFechar }: { vista: string; onFechar: () => vo
         <div className="novidades-corpo">
           <div className="novidades-lista">
             {novidade.mudancas.map((m, i) => (
-              <button
-                key={`${novidade.data}-${i}`}
-                type="button"
-                className={`novidades-item${m === mudanca ? " ativo" : ""}`}
-                data-tela={m.tela}
-                title={m.titulo}
-                onClick={() => escolher(i)}
-              >
-                <span className="novidades-miniatura">
-                  {m.midias[0] ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={urlDaMidia(novidade.data, m.midias[0])} alt="" loading="lazy" />
-                  ) : (
-                    <i className="fas fa-wand-magic-sparkles" />
-                  )}
-                </span>
-                <span className="novidades-item-texto">
-                  <strong>{m.titulo}</strong>
-                  <small>{m.trilha.join(" › ")}</small>
-                </span>
-              </button>
+              <Fragment key={`${novidade.data}-${i}`}>
+                {m.topico !== novidade.mudancas[i - 1]?.topico && (
+                  <span className="novidades-topico">{m.topico}</span>
+                )}
+                <button
+                  type="button"
+                  className={`novidades-item${m === mudanca ? " ativo" : ""}`}
+                  data-tela={m.tela}
+                  title={m.titulo}
+                  onClick={() => escolher(i)}
+                >
+                  <span className="novidades-miniatura">
+                    {m.midias[0] ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={urlDaMidia(novidade.data, m.midias[0])} alt="" loading="lazy" />
+                    ) : (
+                      <i className="fas fa-wand-magic-sparkles" />
+                    )}
+                  </span>
+                  <span className="novidades-item-texto">
+                    <strong>{m.titulo}</strong>
+                    <small>{m.trilha.join(" › ")}</small>
+                  </span>
+                </button>
+              </Fragment>
             ))}
           </div>
 

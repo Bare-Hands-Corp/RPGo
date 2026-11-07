@@ -6,6 +6,7 @@ import { carregarCalendario } from "@/lib/calendario/carregar";
 import {
   agregarEfeitos,
   atributosEfetivos,
+  estadoDaFicha,
   comCustosResolvidos,
   contextoDasFormulas,
   efeitosDoContexto,
@@ -172,6 +173,7 @@ export default async function FichaPage({ params, searchParams }: Params) {
           valorMax: r.valorMax,
         })),
         ppAtual: personagem.ppAtual,
+        estado: estadoDaFicha(personagem, condicoes, personagem.itens),
       },
     ),
     acoesEmCurso(personagem.acoes, personagem.concentracao),

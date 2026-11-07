@@ -327,6 +327,8 @@ model Item {
   // Quando null, é derivado da categoria + propriedades.
   atributoAtaque   String? @map("atributo_ataque")
   proficienteArma  Boolean @default(true) @map("proficiente_arma")
+  // A arma favorita do personagem (efeitos "com a arma favorita").
+  armaFavorita     Boolean @default(false) @map("arma_favorita")
   // Dano extra da arma, somado ao dano base ("1d6 fogo", "+2").
   danoBonus        String? @map("dano_bonus")
   // Soma o modificador de atributo no dano (opt-in).
@@ -1101,4 +1103,17 @@ model LogCombate {
 
   @@index([sessaoId])
   @@map("logs_combate")
+}
+
+// Código de 6 dígitos mandado por e-mail (verificar a conta, trocar a senha). Um por usuário.
+// Fora do Realtime e com RLS ligado sem policy: só o servidor lê.
+model CodigoEmail {
+  userId     String   @id @map("user_id")
+  finalidade String // "verificacao" | "senha"
+  hash       String
+  tentativas Int      @default(0)
+  expiraEm   DateTime @map("expira_em")
+  criadoEm   DateTime @default(now()) @map("criado_em")
+
+  @@map("codigos_email")
 }

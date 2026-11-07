@@ -25,7 +25,6 @@ import {
   ATRIBUTOS,
   CATEGORIAS_ARMA,
   PROPRIEDADES_ARMA,
-  alvosPericiaCustom,
   alvoDaCura,
   textoDaCura,
   bonusProficiencia,
@@ -53,15 +52,16 @@ import {
   type EfeitosAgregados,
   type EfeitosContexto,
   type PropriedadeArma,
+  gruposDosEfeitos,
 } from "@/lib/op-rpg";
 import { empilharD20, empilharRolagem, rolarCuras } from "@/lib/empilhar-rolagem";
 import { juntarTipoNoDano, juntarTipos, separarTipoDoDano, tiposDoDano } from "@/lib/dano";
 import {
-  AlvosCustomContext,
   ChipEfeito,
   FormulaContext,
   AcoesDaFichaContext,
   ItensDaFichaContext,
+  GruposEfeitoContext,
   NomesRecursoContext,
   DatalistAlvos,
   EfeitosEditor,
@@ -97,6 +97,7 @@ import {
   lerEstilosTag,
   podarEstilosTag,
   separarTags,
+  tagsDaFicha,
   type MapaEstilosTag,
 } from "@/lib/estilos-cor";
 
@@ -120,6 +121,7 @@ type Item = {
   propriedades: unknown;
   atributoAtaque: string | null;
   proficienteArma: boolean;
+  armaFavorita: boolean;
   danoBonus: string | null;
   danoSomaAtributo: boolean;
   danoSomaProficiencia: boolean;
@@ -154,7 +156,6 @@ type Props = {
   atributos: Record<Atributo, number>;
   efeitosAgregados: EfeitosAgregados;
   recursos: RecursoMinimo[];
-  periciasCustom: { slug: string; nome: string }[];
   /** Ações concedidas por itens — pro card listar o que o item libera. */
   acoes: Concedido[];
   /** Habilidades concedidas por itens. */
@@ -342,6 +343,7 @@ type FormState = {
   propriedades: PropriedadeArma[];
   atributoAtaque: string; // "" = auto
   proficienteArma: boolean;
+  armaFavorita: boolean;
   danoBonus: string;
   tipoBonus: string;
   danoSomaAtributo: boolean;
@@ -370,6 +372,7 @@ const FORM_VAZIO: FormState = {
   propriedades: [],
   atributoAtaque: "",
   proficienteArma: true,
+  armaFavorita: false,
   danoBonus: "",
   tipoBonus: "",
   danoSomaAtributo: false,
@@ -390,7 +393,6 @@ export function InventarioTab({
   atributos,
   efeitosAgregados,
   recursos,
-  periciasCustom,
   acoes,
   habilidades,
   tripulantes,
@@ -429,6 +431,7 @@ export function InventarioTab({
   const [busca, setBusca] = useState("");
   const [filtro, setFiltro] = useState<Filtro>("todos");
   const [tipoFiltro, setTipoFiltro] = useState<string | null>(null);
+  const [tagFiltro, setTagFiltro] = useState<string | null>(null);
   const [pastaFiltro, setPastaFiltro] = useState<string | null>(null);
   const [modalAberto, setModalAberto] = useState(false);
   const [form, setForm] = useState<FormState>(FORM_VAZIO);
@@ -575,6 +578,7 @@ export function InventarioTab({
       propriedades: lerPropriedades(item.propriedades),
       atributoAtaque: item.atributoAtaque || "",
       proficienteArma: item.proficienteArma,
+      armaFavorita: item.armaFavorita,
       danoBonus: bonus.formula,
       tipoBonus: bonus.tipo,
       danoSomaAtributo: item.danoSomaAtributo,
@@ -636,6 +640,7 @@ export function InventarioTab({
       propriedades: ehArma ? form.propriedades : [],
       atributoAtaque: ehArma && form.atributoAtaque ? form.atributoAtaque : null,
       proficienteArma: ehArma ? form.proficienteArma : true,
+      armaFavorita: ehArma ? form.armaFavorita : false,
       danoBonus: ehArma ? juntarTipoNoDano(form.danoBonus, form.tipoBonus) || null : null,
       danoSomaAtributo: ehArma ? form.danoSomaAtributo : false,
       danoSomaProficiencia: ehArma ? form.danoSomaProficiencia : false,
@@ -679,6 +684,7 @@ export function InventarioTab({
           propriedades: payload.propriedades,
           atributoAtaque: payload.atributoAtaque,
           proficienteArma: payload.proficienteArma,
+          armaFavorita: payload.armaFavorita,
           danoBonus: payload.danoBonus,
           danoSomaAtributo: payload.danoSomaAtributo,
           danoSomaProficiencia: payload.danoSomaProficiencia,
@@ -920,6 +926,7 @@ export function InventarioTab({
       atributos: atributosParaTeste,
       nivel,
       efeitosAgregados: agg,
+      favorita: item.armaFavorita,
     });
     if (!r) return null;
     const dano = resolverDanoArma({
@@ -934,6 +941,7 @@ export function InventarioTab({
       alcance: r.alcance,
       efeitosAgregados: agg,
       dadoFixo: agg.dadoArmaFixo?.formula,
+      favorita: item.armaFavorita,
     });
     return {
       ataque: {
@@ -1021,6 +1029,8 @@ export function InventarioTab({
   const pastas = pastasDe(itensNaTela);
   const nomesDasPastas = pastas.map((p) => p.nome);
   const pastaAtiva = pastas.some((p) => p.nome === pastaFiltro) ? pastaFiltro : null;
+  const opcoesTag = tagsDaFicha(itens).map((t) => [t.nome, t.nome] as const);
+  const tagAtiva = opcoesTag.some(([t]) => t === tagFiltro) ? tagFiltro : null;
   const casaFiltro = (i: Item) =>
     filtro === "equipados"
       ? i.equipado
@@ -1033,10 +1043,11 @@ export function InventarioTab({
     (i) =>
       casaFiltro(i) &&
       (!tipoFiltro || i.tipo === tipoFiltro) &&
+      (!tagAtiva || separarTags(i.tags).includes(tagAtiva)) &&
       (!pastaAtiva || i.pasta === pastaAtiva) &&
       casaBusca(busca, [i.nome, i.tags, i.descricao, i.dano, i.pasta]),
   );
-  const filtrando = filtro !== "todos" || !!tipoFiltro || !!pastaAtiva || busca.trim() !== "";
+  const filtrando = filtro !== "todos" || !!tipoFiltro || !!tagAtiva || !!pastaAtiva || busca.trim() !== "";
   // Destaques ficam fora das seções; filtrando, cada item aparece no lugar dele.
   const favoritos = filtrando ? [] : visiveis.filter((i) => i.favorito);
   const nasSecoes = filtrando ? visiveis : visiveis.filter((i) => !i.favorito);
@@ -1072,8 +1083,8 @@ export function InventarioTab({
 
   return (
     <ContextoDescricaoCtx.Provider value={contextoBaseRico}>
-    <AlvosCustomContext.Provider value={alvosPericiaCustom(periciasCustom)}>
     <AcoesDaFichaContext.Provider value={acoesFicha.map((a) => ({ id: a.id, nome: a.nome, tipo: a.tipo }))}>
+    <GruposEfeitoContext.Provider value={gruposDosEfeitos(itensNaTela)}>
     <ItensDaFichaContext.Provider value={itensNaTela.map((i) => ({ id: i.id, nome: i.nome, tipo: i.tipo }))}>
     <NomesRecursoContext.Provider value={new Map(recursos.map((r) => [r.id, r.nome]))}>
     <FormulaContext.Provider value={ctxFormula}>
@@ -1140,7 +1151,12 @@ export function InventarioTab({
         pastas={pastas}
         pasta={pastaAtiva}
         onPasta={setPastaFiltro}
-        grupos={[{ rotulo: "Tipo", opcoes: FILTROS_TIPO, valor: tipoFiltro, onValor: setTipoFiltro }]}
+        grupos={[
+          { rotulo: "Tipo", opcoes: FILTROS_TIPO, valor: tipoFiltro, onValor: setTipoFiltro },
+          ...(opcoesTag.length > 0
+            ? [{ rotulo: "Tag", opcoes: opcoesTag, valor: tagAtiva, onValor: setTagFiltro }]
+            : []),
+        ]}
       />
 
       {favoritos.length > 0 && (
@@ -1378,6 +1394,14 @@ export function InventarioTab({
                       >
                         <i className="fas fa-graduation-cap" /> Proficiente
                       </button>
+                      <button
+                        type="button"
+                        className={`sugestao chip-opcao ${form.armaFavorita ? "ativo" : ""}`}
+                        aria-pressed={form.armaFavorita}
+                        onClick={() => set("armaFavorita", !form.armaFavorita)}
+                      >
+                        <i className="fas fa-heart" /> Arma favorita
+                      </button>
                     </div>
                   </SecaoModal>
 
@@ -1553,8 +1577,8 @@ export function InventarioTab({
     </FormulaContext.Provider>
     </NomesRecursoContext.Provider>
     </ItensDaFichaContext.Provider>
+    </GruposEfeitoContext.Provider>
     </AcoesDaFichaContext.Provider>
-    </AlvosCustomContext.Provider>
     </ContextoDescricaoCtx.Provider>
   );
 }
@@ -1732,6 +1756,7 @@ function CardItem({
                     alcance: arma?.alcance ?? "corpo_a_corpo",
                     // Atacar direto com a arma: o Multiataque vale.
                     multiataque: true,
+                    favorita: item.armaFavorita,
                     ...(municao?.item ? { municao: { id: municao.item.id, nome: municao.item.nome } } : {}),
                   },
                   arma?.efeitos,
@@ -1761,6 +1786,7 @@ function CardItem({
                     contexto: {
                       tipo: "dano",
                       alcance: arma?.alcance ?? "corpo_a_corpo",
+                      favorita: item.armaFavorita,
                       tiposDano: juntarTipos(
                         tiposDoDano((municao ? danoComMunicao(item.dano, municao) : item.dano) ?? ""),
                         tiposDoDano(item.danoBonus ?? ""),
@@ -1870,8 +1896,13 @@ function CardItem({
         <DescricaoCard texto={item.descricao} contexto={contextoDoItem} />
       )}
 
-      {(item.tags || item.pasta) && (
+      {(item.tags || item.pasta || item.armaFavorita) && (
         <div className="card-tags">
+          {item.armaFavorita && (
+            <span className="tag tag-custo" title="Arma favorita">
+              <i className="fas fa-heart" /> Arma favorita
+            </span>
+          )}
           {separarTags(item.tags ?? "").map((t, i) => (
             <TagChip
               key={i}

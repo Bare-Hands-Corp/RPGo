@@ -7,6 +7,7 @@ import { habilidadesTravadas } from "@/lib/arvore";
 import {
   agregarEfeitos,
   efeitosQueFicamNoAliado,
+  estadoDaFicha,
   fonteDeAliado,
   fontesDeEfeitoDeItens,
   type Atributo,
@@ -30,10 +31,12 @@ type ItemFonte = {
   tipo: string;
   equipado: boolean;
   efeitos: unknown;
+  tags?: string | null;
 };
 
 // Nível e atributos base do personagem, pras fórmulas dos efeitos.
-export type BaseFormula = { nivel: number } & Record<Atributo, number>;
+// PV atual e máximo, quando vêm, servem ao "Só se" dos efeitos.
+export type BaseFormula = { nivel: number; hpAtual?: number; hpMax?: number } & Record<Atributo, number>;
 
 // Tira as habilidades travadas por árvore ou por item desequipado.
 export function agregadoDaFicha(dados: {
@@ -54,8 +57,9 @@ export function agregadoDaFicha(dados: {
   const ativas = dados.habilidades.filter(
     (h) => !travadas.has(h.id) && (!h.itemId || equipados.has(h.itemId)),
   );
-  const { nivel, ...atributos } = dados.base;
+  const { nivel, hpAtual, hpMax, ...atributos } = dados.base;
   const slugs = new Set(dados.slugsPericiaCustom);
+  const estado = estadoDaFicha({ hpAtual: hpAtual ?? 0, hpMax: hpMax ?? 0, nivel }, dados.condicoes ?? [], dados.itens);
   return comAcoesEmCurso(
     agregarEfeitos(
       [
@@ -66,7 +70,7 @@ export function agregadoDaFicha(dados: {
       ],
       slugs,
       undefined,
-      { nivel, atributos: atributosDe(atributos) },
+      { nivel, atributos: atributosDe(atributos), estado },
     ),
     dados.emCurso ?? [],
     slugs,
@@ -106,10 +110,13 @@ export const SELECT_ITEM_FONTE = {
   equipado: true,
   efeitos: true,
   penalidadeDes: true,
+  tags: true,
 } as const;
 
 const SELECT_BASE_FORMULA = {
   nivel: true,
+  hpAtual: true,
+  hpMax: true,
   forca: true,
   destreza: true,
   constituicao: true,

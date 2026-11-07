@@ -76,7 +76,9 @@ import {
   atributoDeCalculo,
   atributosEfetivos as somarBonusDeAtributo,
   bonusProficiencia,
+  bonusNoContexto,
   bonusTesteAmplo,
+  estadoDaFicha,
   ATRIBUTOS,
   cdTecnica,
   comValoresIguais,
@@ -589,12 +591,18 @@ export function PerfilSidebar({
         ],
         slugs,
         undefined,
-        { nivel, atributos: { forca, destreza, constituicao, sabedoria, vontade, presenca } },
+        {
+          nivel,
+          atributos: { forca, destreza, constituicao, sabedoria, vontade, presenca },
+          estado: estadoDaFicha({ hpAtual: p.hpAtual, hpMax: p.hpMax, nivel }, condicoes, itensComOverlay),
+        },
       ),
       emCurso,
       slugs,
     );
   }, [
+    p.hpAtual,
+    p.hpMax,
     condicoes,
     emCurso,
     habilidades,
@@ -726,8 +734,12 @@ export function PerfilSidebar({
       outros: profManual.outrosSalvaguardas.constituicao ?? 0,
       agg: efeitosAgregados,
     });
+    // Bônus de alvo em lista que pega a concentração e não a salvaguarda de CON.
+    const soConcentracao =
+      bonusNoContexto(efeitosAgregados, { tipo: "salvaguarda", atributo: "constituicao", concentracao: true }).valor -
+      bonusNoContexto(efeitosAgregados, { tipo: "salvaguarda", atributo: "constituicao" }).valor;
     empilharD20(
-      t.bonus + efeitosAgregados.bonusConcentracao.valor - penD20,
+      t.bonus + efeitosAgregados.bonusConcentracao.valor + soConcentracao - penD20,
       `Concentração (CD ${cd})`,
       { tipo: "salvaguarda", atributo: "constituicao", concentracao: true },
       undefined,
@@ -1423,7 +1435,7 @@ export function PerfilSidebar({
         {mostra("testes") && (() => {
           const iniAtrib = atributoDeCalculo("iniciativa", "destreza", subs, atributosParaTeste);
           const iniDesReduz = iniAtrib.atributo === "destreza" && desReduz;
-          const iniAmplo = bonusTesteAmplo(efeitosAgregados, "destreza");
+          const iniAmplo = bonusTesteAmplo(efeitosAgregados, "destreza", { tipo: "iniciativa" });
           const iniBruta =
             iniciativa(atributosParaTeste[iniAtrib.atributo]) +
             efeitosAgregados.bonusIniciativa.valor +
@@ -1723,7 +1735,7 @@ export function PerfilSidebar({
             iguais.length > 0 && valor > Math.max(p[slug] + (bonus?.valor ?? 0), fixo?.valor ?? 0);
           // Teste puro: atributo trocado por "Testes de X" e bônus de alvos largos.
           const subTeste = atributoDeCalculo(`teste-${slug}`, slug, subs, atributosParaTeste);
-          const amplo = bonusTesteAmplo(efeitosAgregados, slug);
+          const amplo = bonusTesteAmplo(efeitosAgregados, slug, { tipo: "teste-atributo", atributo: slug });
           // DES com armadura: o teste perde a penalidade dela.
           const armaduraReduz = subTeste.atributo === "destreza" && desReduz;
           const modEf = modificador(atributosParaTeste[subTeste.atributo]) + amplo.valor - penD20;

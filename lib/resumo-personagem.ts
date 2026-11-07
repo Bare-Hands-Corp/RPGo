@@ -133,7 +133,7 @@ export function resumirPersonagem(
   const ini =
     iniciativa(paraTeste[iniAtrib]) +
     ef.bonusIniciativa.valor +
-    bonusTesteAmplo(ef, "destreza").valor -
+    bonusTesteAmplo(ef, "destreza", { tipo: "iniciativa" }).valor -
     penalidadeD20Exaustao(exaustao);
 
   // Percepção Passiva: 10 + bônus da perícia (sem exaustão), ±5 com vantagem/desvantagem.

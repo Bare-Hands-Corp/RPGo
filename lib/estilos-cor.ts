@@ -110,6 +110,24 @@ export function separarTags(raw: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
+export type TagDaFicha = { nome: string; estilo: EstiloCor | null };
+
+/** Tags usadas nas fontes, sem repetir, em ordem alfabética; leva o primeiro estilo achado. */
+export function tagsDaFicha(
+  fontes: readonly { tags?: string | null; tagsEstilo?: unknown }[],
+): TagDaFicha[] {
+  const mapa = new Map<string, EstiloCor | null>();
+  for (const f of fontes) {
+    const estilos = lerEstilosTag(f.tagsEstilo);
+    for (const nome of separarTags(f.tags)) {
+      if (!mapa.get(nome)) mapa.set(nome, estilos[nome] ?? null);
+    }
+  }
+  return [...mapa]
+    .map(([nome, estilo]) => ({ nome, estilo }))
+    .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+}
+
 // ─── Derivação de tons ─────────────────────────────────────
 
 type Hsl = { h: number; s: number; l: number };

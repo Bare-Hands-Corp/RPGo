@@ -90,6 +90,7 @@ const CAMPOS: Record<TipoCopia, readonly string[]> = {
     "propriedades",
     "atributoAtaque",
     "proficienteArma",
+    "armaFavorita",
     "danoBonus",
     "danoSomaAtributo",
     "danoSomaProficiencia",

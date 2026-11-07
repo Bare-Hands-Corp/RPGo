@@ -4,6 +4,7 @@ import { Children, useState, type ReactNode } from "react";
 import { lerCobertura, mesmoTipo, tiposDaCobertura } from "@/lib/dano";
 import { useCatalogoTipos, useEstiloTipoDano } from "@/components/tipos-dano/tipos-dano";
 import { useCatalogoCondicoes, useEstiloCondicao } from "@/components/tipos-dano/condicoes";
+import { CampoNumero } from "@/components/campo-numero";
 
 export type OpcaoSegmento<T extends string | number> = {
   valor: T;
@@ -85,7 +86,7 @@ export function Segmentos<T extends string | number>({
   );
 }
 
-// Número com − e +; o rascunho deixa apagar e redigitar.
+// Número com − e +.
 export function CampoPasso({
   valor,
   onChange,
@@ -101,7 +102,6 @@ export function CampoPasso({
   max?: number;
   disabled?: boolean;
 }) {
-  const [rascunho, setRascunho] = useState<string | null>(null);
   const limitar = (n: number) => Math.min(max, Math.max(min, Math.trunc(n) || 0));
   return (
     <div className={`passo${disabled ? " desligado" : ""}`}>
@@ -113,20 +113,15 @@ export function CampoPasso({
       >
         <i className="fas fa-minus" />
       </button>
-      <input
-        type="number"
+      <CampoNumero
         inputMode="numeric"
         min={min}
         max={max}
-        value={rascunho ?? String(valor)}
+        valor={valor}
         disabled={disabled}
         aria-label={rotulo}
         onFocus={(e) => e.target.select()}
-        onChange={(e) => {
-          setRascunho(e.target.value);
-          if (e.target.value.trim() !== "") onChange(limitar(Number(e.target.value)));
-        }}
-        onBlur={() => setRascunho(null)}
+        onChange={(n) => onChange(limitar(n))}
       />
       <button
         type="button"
@@ -147,6 +142,7 @@ export function Sugestoes({
   aberto,
   onAberto,
   className,
+  classeMais = "sugestao",
 }: {
   children: React.ReactNode;
   limite?: number;
@@ -154,6 +150,8 @@ export function Sugestoes({
   aberto?: boolean;
   onAberto?: (aberto: boolean) => void;
   className?: string;
+  // Aparência do botão "ver mais".
+  classeMais?: string;
 }) {
   const [local, setLocal] = useState(false);
   const expandido = aberto ?? local;
@@ -166,7 +164,7 @@ export function Sugestoes({
       {corta && (
         <button
           type="button"
-          className="sugestao sugestao-mais"
+          className={`${classeMais} sugestao-mais`}
           aria-expanded={expandido}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => (onAberto ? onAberto(!expandido) : setLocal(!expandido))}

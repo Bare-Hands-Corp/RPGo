@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { criarPersonagem } from "./actions";
+import { CampoNumero } from "@/components/campo-numero";
 
 const ATRIBUTOS = [
   { id: "forca", label: "FOR" },
@@ -101,13 +102,12 @@ export function FormCriacao() {
           </div>
           <div className="form-group">
             <label>Carga Máxima</label>
-            <input
-              type="number"
+            <CampoNumero
               className="form-input"
               min={0}
               step={0.1}
-              value={cargaMaxima}
-              onChange={(e) => setCargaMaxima(Number(e.target.value) || 0)}
+              valor={cargaMaxima}
+              onChange={setCargaMaxima}
             />
           </div>
         </div>

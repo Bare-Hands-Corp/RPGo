@@ -55,6 +55,7 @@ import { DanoCriaturaModal } from "./dano-criatura-modal";
 import { CondicaoModal } from "./condicao-modal";
 import { ChipCondicao } from "@/components/tipos-dano/condicoes";
 import { useReordenar } from "@/lib/use-reordenar";
+import { CampoNumero } from "@/components/campo-numero";
 import {
   ACAO_COMBATE,
 
@@ -561,13 +562,12 @@ function ParticipanteBuilder({
             >
               <Alca nome={linha.nome} {...reordenar.alca(linha.id)} />
               <span className="sessao-preparo-iniciativa">
-                <input
-                  type="number"
-                  value={linha.iniciativa}
+                <CampoNumero
+                  valor={linha.iniciativa}
                   readOnly={!!dono}
                   aria-label={`Iniciativa de ${linha.nome}`}
                   title={dono ? `A de ${dono.nome}` : `d20 ${comSinal(linha.bonus)}`}
-                  onChange={(e) => mudar(linha.id, { iniciativa: Number(e.target.value) || 0 })}
+                  onChange={(n) => mudar(linha.id, { iniciativa: n })}
                   // Vai pro lugar novo só ao sair do campo, pra linha não pular enquanto digita.
                   onBlur={() =>
                     setLinhas((atual) => seguirDonos(encaixar(atual, atual.find((l) => l.id === linha.id) ?? linha)))

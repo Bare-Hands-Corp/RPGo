@@ -32,7 +32,19 @@ import {
   MOVIMENTOS,
   PRESETS_EFEITO,
   FAMILIAS_EFEITO,
+  alvoComposto,
   alvoDeRolagem,
+  cobreAlvo,
+  cruzaAlvo,
+  juntarAlvo,
+  limparAlvo,
+  partesDoAlvo,
+  type PartesAlvo,
+  SO_SE,
+  aceitaSoSe,
+  aceitaGrupo,
+  type CondicaoSoSe,
+  type SeSoSe,
   comoDura,
   escolheVale,
   podeIrProAliado,
@@ -52,6 +64,7 @@ import {
   resolverFormula,
   resumoEfeito,
   rotuloAlvo,
+  valorDaFormula,
   type Atributo,
   type DuraEfeito,
   type EfeitoHabilidade,
@@ -69,6 +82,7 @@ import {
   TiposDanoCampo,
 } from "./campos-modal";
 import { Tooltip } from "@/components/tooltip";
+import { CampoNumero } from "@/components/campo-numero";
 import { casaBusca, normalizarBusca } from "./barra-filtros";
 import { CampoFormula, FormulaContext } from "./campo-formula";
 import { DURACOES_CONDICAO } from "@/lib/condicoes";
@@ -87,6 +101,9 @@ export type AlvoEntry = { slug: string; nome: string; grupo: string };
 // Perícias customizadas como alvo de efeito.
 export const AlvosCustomContext = createContext<AlvoEntry[]>([]);
 
+// Nome da perícia custom pelo slug, pro resumo do efeito.
+export const nomeDoAlvoCustom = (custom: AlvoEntry[]) => (slug: string) => custom.find((a) => a.slug === slug)?.nome;
+
 // Nome dos recursos custom por id (chips).
 export const NomesRecursoContext = createContext<Map<string, string>>(new Map());
 
@@ -101,6 +118,9 @@ export const ItensDaFichaContext = createContext<ItemDaFicha[]>([]);
 // Ações da ficha (sem as formas), pro "Oferece ação" do Gatilho.
 export type AcaoDaFicha = { id: string; nome: string; tipo: string };
 export const AcoesDaFichaContext = createContext<AcaoDaFicha[]>([]);
+
+// Grupos de "Não acumula com" já usados na ficha.
+export const GruposEfeitoContext = createContext<string[]>([]);
 
 // Efeito de uma ação: vale só nas rolagens dela.
 export const EfeitoDeAcaoContext = createContext(false);
@@ -266,8 +286,9 @@ export function ChipEfeito({
   const formula = useContext(FormulaContext);
   const naAcao = useContext(EfeitoDeAcaoContext) ? resumoNaAcao(efeito) : null;
   const nome = (id: string) => nomesRecurso.get(id);
-  const resumo = naAcao ?? resumoEfeito(efeito, nome, formula ? { ...formula, grau } : undefined);
-  const cru = naAcao ?? resumoEfeito(efeito, nome);
+  const nomeAlvo = nomeDoAlvoCustom(periciasCustom);
+  const resumo = naAcao ?? resumoEfeito(efeito, nome, formula ? { ...formula, grau } : undefined, nomeAlvo);
+  const cru = naAcao ?? resumoEfeito(efeito, nome, undefined, nomeAlvo);
   return (
     <Tooltip
       titulo={nomeDoEfeito(efeito)}
@@ -522,7 +543,8 @@ const ALVOS_PROFICIENCIA = ALVOS_AGREGAVEIS.filter(
   (a) => a.grupo === "Perícia" || a.grupo === "Salvaguarda",
 );
 
-// Alvo do efeito: paleta com busca; o texto digitado também vale.
+// Alvo do efeito: paleta com busca; o texto digitado também vale. Embaixo, mais
+// alvos e exceções ("Testes (todos) exceto Furtividade"), salvos como "teste|!furtividade".
 function SelectAlvo({
   valor,
   onChange,
@@ -541,7 +563,98 @@ function SelectAlvo({
     periciasCustom.length > 0 && alvos.some((a) => a.grupo === "Perícia")
       ? [...alvos, ...periciasCustom]
       : alvos;
-  return <SeletorBusca valor={valor} opcoes={alvosFinais} onChange={onChange} titulo={titulo} livre />;
+  const custom = new Set(periciasCustom.map((a) => a.slug));
+  const partes = partesDoAlvo(valor);
+  const principal = alvoComposto(valor) ? (partes.inclui[0] ?? "") : valor;
+  const outros = partes.inclui.slice(1);
+  const mudar = (p: PartesAlvo) => onChange(juntarAlvo(limparAlvo(p, custom)));
+  const nome = (slug: string) => alvosFinais.find((a) => a.slug === slug)?.nome ?? slug;
+  const opcoesMais = alvosFinais.filter((o) => !partes.inclui.some((a) => cobreAlvo(a, o.slug, custom)));
+  const opcoesExceto = alvosFinais.filter(
+    (o) =>
+      !partes.exceto.includes(o.slug) &&
+      partes.inclui.some((a) => cruzaAlvo(a, o.slug, custom)) &&
+      !partes.inclui.some((a) => cobreAlvo(o.slug, a, custom)),
+  );
+  const chip = (slug: string, fora: boolean) => (
+    <span key={`${fora ? "!" : ""}${slug}`} className={`vinculo-chip${fora ? " onde-fora" : ""}`}>
+      {fora ? `exceto ${nome(slug)}` : nome(slug)}
+      <button
+        type="button"
+        className="vinculo-chip-x"
+        aria-label={`Tirar ${nome(slug)}`}
+        onClick={() =>
+          mudar(
+            fora
+              ? { ...partes, exceto: partes.exceto.filter((x) => x !== slug) }
+              : { ...partes, inclui: partes.inclui.filter((x) => x !== slug) },
+          )
+        }
+      >
+        <i className="fas fa-xmark" />
+      </button>
+    </span>
+  );
+  return (
+    <>
+      <SeletorBusca
+        valor={principal}
+        opcoes={alvosFinais}
+        onChange={(v) => (outros.length || partes.exceto.length ? mudar({ ...partes, inclui: [v, ...outros] }) : onChange(v))}
+        titulo={titulo}
+        livre
+      />
+      {principal && (opcoesMais.length > 0 || opcoesExceto.length > 0 || outros.length > 0 || partes.exceto.length > 0) && (
+        <div className="onde-lista">
+          {outros.map((s) => chip(s, false))}
+          {partes.exceto.map((s) => chip(s, true))}
+          {opcoesMais.length > 0 && (
+            <SeletorBusca
+              valor=""
+              opcoes={opcoesMais}
+              onChange={(v) => v && mudar({ ...partes, inclui: [...(partes.inclui.length ? partes.inclui : [principal]), v] })}
+              titulo="Também em"
+              gatilho={
+                <>
+                  <i className="fas fa-plus" /> Outro
+                </>
+              }
+            />
+          )}
+          {opcoesExceto.length > 0 && (
+            <SeletorBusca
+              valor=""
+              opcoes={opcoesExceto}
+              onChange={(v) =>
+                v && mudar({ inclui: partes.inclui.length ? partes.inclui : [principal], exceto: [...partes.exceto, v] })
+              }
+              titulo="Exceto"
+              gatilho={
+                <>
+                  <i className="fas fa-minus" /> Exceto
+                </>
+              }
+            />
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+// Em qual dano o efeito vale; "Todo dano" fica sem `em`.
+function OndeDano({ em, onPatch }: { em?: string; onPatch: (p: Partial<EfeitoHabilidade>) => void }) {
+  return (
+    <div>
+      <label>Onde</label>
+      <SelectAlvo
+        titulo="Onde"
+        valor={em ?? "dano"}
+        alvos={ALVOS_DANO}
+        onChange={(v) => onPatch({ em: v === "dano" ? undefined : v } as Partial<EfeitoHabilidade>)}
+      />
+    </div>
+  );
 }
 
 // ─── Editor de efeito (campos por tipo) ────────────────────────────────
@@ -594,7 +707,7 @@ function EditorEfeito({
   const completo = lerEfeitos([efeito]).length > 0;
   const resumo = completo
     ? ((daAcao ? resumoNaAcao(efeito) : null) ??
-        resumoEfeito(efeito, (id) => nomesRecurso.get(id), formula ?? undefined)) +
+        resumoEfeito(efeito, (id) => nomesRecurso.get(id), formula ?? undefined, nomeDoAlvoCustom(periciasCustom))) +
       (dura ? ` · ${TEXTO_DURA[dura]}` : "") +
       (efeito.quem ? ` · ${TEXTO_QUEM[efeito.quem]}` : "") +
       (efeito.quem && efeito.vale ? ` · ${TEXTO_VALE[efeito.vale]}` : "")
@@ -659,8 +772,144 @@ function EditorEfeito({
               />
             </div>
           )}
+          {!doGatilho && (aceitaSoSe(efeito) || !!efeito.soSe?.length || !!efeito.grupo) && (
+            <div className="efeito-extras">
+              {(aceitaSoSe(efeito) || !!efeito.soSe?.length) && (
+                <CampoSoSe valor={efeito.soSe ?? []} onChange={(soSe) => onPatch({ soSe: soSe.length ? soSe : undefined })} />
+              )}
+              {(aceitaGrupo(efeito) || !!efeito.grupo) && (
+                <CampoGrupo valor={efeito.grupo} onChange={(grupo) => onPatch({ grupo })} />
+              )}
+            </div>
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Grupo em que só o maior vale; sugere os grupos já usados na ficha.
+function CampoGrupo({ valor, onChange }: { valor?: string; onChange: (v: string | undefined) => void }) {
+  const grupos = useContext(GruposEfeitoContext);
+  const opcoes = [...new Set([...grupos, ...(valor ? [valor] : [])])].map((g) => ({ slug: g, nome: g }));
+  const escolher = (g: string) => onChange(g.trim() || undefined);
+  if (!valor) {
+    return (
+      <SeletorBusca
+        valor=""
+        opcoes={opcoes}
+        titulo="Não acumula com"
+        livre
+        onChange={escolher}
+        gatilho={
+          <>
+            <i className="fas fa-plus" /> Não acumula com
+          </>
+        }
+      />
+    );
+  }
+  return (
+    <span className="grupo-efeito">
+      <SeletorBusca
+        valor={valor}
+        opcoes={opcoes}
+        titulo="Não acumula com"
+        livre
+        onChange={escolher}
+        gatilho={
+          <>
+            <i className="fas fa-layer-group" /> Não acumula com <b>{valor}</b>
+          </>
+        }
+      />
+      <button type="button" className="vinculo-chip-x" aria-label="Acumular" onClick={() => onChange(undefined)}>
+        <i className="fas fa-xmark" />
+      </button>
+    </span>
+  );
+}
+
+// Condições com que o efeito vale (todas juntas): PV, condição, item equipado e nível.
+function CampoSoSe({ valor, onChange }: { valor: CondicaoSoSe[]; onChange: (v: CondicaoSoSe[]) => void }) {
+  const [escolhendo, setEscolhendo] = useState(false);
+  const itens = useContext(ItensDaFichaContext);
+  const trocar = (i: number, c: CondicaoSoSe) => onChange(valor.map((x, j) => (j === i ? c : x)));
+  const novo = (se: SeSoSe): CondicaoSoSe =>
+    se === "pv" ? { se, ate: 50 } : se === "nivel" ? { se, min: 5 } : se === "condicao" ? { se, condicao: "" } : { se };
+  const opcoesItem = itens.map((i) => ({ slug: i.id, nome: i.nome, grupo: i.tipo }));
+  return (
+    <div className="so-se">
+      {valor.length > 0 && <label>Só se</label>}
+      {valor.map((c, i) => {
+        const meta = SO_SE.find((s) => s.se === c.se)!;
+        return (
+          <div className="so-se-linha" key={i}>
+            <Segmentos
+              rotulo={meta.nome}
+              valor={c.nao ? "nao" : "sim"}
+              opcoes={[
+                { valor: "sim", rotulo: meta.nome },
+                { valor: "nao", rotulo: meta.nao },
+              ]}
+              onChange={(v) => trocar(i, { ...c, nao: v === "nao" || undefined })}
+            />
+            <div className="so-se-valor">
+              {c.se === "pv" && (
+                <CampoPasso valor={c.ate} rotulo="Porcentagem do PV" min={1} max={100} onChange={(v) => trocar(i, { ...c, ate: v })} />
+              )}
+              {c.se === "nivel" && (
+                <CampoPasso valor={c.min} rotulo="Nível" min={1} max={20} onChange={(v) => trocar(i, { ...c, min: v })} />
+              )}
+              {c.se === "condicao" && (
+                <CondicaoCampo valor={c.condicao} onChange={(v) => trocar(i, { ...c, condicao: v })} />
+              )}
+              {c.se === "equipado" && (
+                <SeletorBusca
+                  valor={c.itemId ?? c.tag ?? ""}
+                  opcoes={opcoesItem}
+                  titulo="Item ou tag"
+                  placeholder="Item ou tag"
+                  livre
+                  onChange={(v) => {
+                    const item = itens.find((x) => x.id === v);
+                    trocar(i, item ? { se: "equipado", itemId: item.id, nome: item.nome, nao: c.nao } : { se: "equipado", ...(v ? { tag: v } : {}), nao: c.nao });
+                  }}
+                />
+              )}
+            </div>
+            <button
+              type="button"
+              className="vinculo-chip-x"
+              aria-label={`Tirar ${meta.nome}`}
+              onClick={() => onChange(valor.filter((_, j) => j !== i))}
+            >
+              <i className="fas fa-xmark" />
+            </button>
+          </div>
+        );
+      })}
+      <div className="onde-lista">
+        {escolhendo || valor.length > 0 ? (
+          SO_SE.map((s) => (
+            <button
+              type="button"
+              key={s.se}
+              className="busca-gatilho"
+              onClick={() => {
+                onChange([...valor, novo(s.se)]);
+                setEscolhendo(false);
+              }}
+            >
+              <i className="fas fa-plus" /> {s.nome}
+            </button>
+          ))
+        ) : (
+          <button type="button" className="busca-gatilho" onClick={() => setEscolhendo(true)}>
+            <i className="fas fa-plus" /> Só se
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -1115,6 +1364,8 @@ function renderCorpo(
             label="Quanto"
             valor={Math.abs(e.valor)}
             onChange={(v) => onPatch({ valor: e.valor < 0 ? -v : v } as Partial<EfeitoHabilidade>)}
+            formula={e.formulas?.valor}
+            onFormula={(f) => fx(e, "valor", onPatch).onFormula(f, e.valor)}
           />
         </>
       );
@@ -1421,6 +1672,7 @@ function renderCorpo(
             valor={e.fator}
             onChange={(v) => onPatch({ fator: v } as Partial<EfeitoHabilidade>)}
             step={0.1}
+            {...fx(e, "fator", onPatch)}
           />
           {e.alvo.startsWith("dano") && (
             <div style={{ gridColumn: "1 / -1" }}>
@@ -1545,6 +1797,7 @@ function renderCorpo(
               label={situacao.slug === "natural_ate" ? "Até" : "A partir de"}
               valor={e.n ?? 8}
               onChange={(v) => onPatch({ n: Math.min(20, Math.max(1, v)) } as Partial<EfeitoHabilidade>)}
+              {...fx(e, "n", onPatch)}
             />
           )}
           {situacao ? (
@@ -1639,6 +1892,7 @@ function renderCorpo(
               label="Até"
               valor={e.ate}
               onChange={(v) => onPatch({ ate: Math.min(19, Math.max(1, v)) } as Partial<EfeitoHabilidade>)}
+              {...fx(e, "ate", onPatch)}
             />
           )}
         </>
@@ -1713,6 +1967,7 @@ function renderCorpo(
             label="Alcance (m)"
             valor={e.alcance}
             onChange={(v) => onPatch({ alcance: Math.max(0, v) } as Partial<EfeitoHabilidade>)}
+            {...fx(e, "alcance", onPatch)}
           />
         </>
       );
@@ -1734,6 +1989,7 @@ function renderCorpo(
             onChange={(v) =>
               onPatch({ quantidade: Math.max(1, v) } as Partial<EfeitoHabilidade>)
             }
+            {...fx(e, "quantidade", onPatch)}
           />
           <Detalhes aberto={!!e.gatilho}>
             <Campo
@@ -1772,12 +2028,7 @@ function renderCorpo(
           <div style={{ gridColumn: "1 / -1", fontSize: "0.8rem", color: "var(--text-sec)" }}>
             Metade do dano máximo, arredondado pra cima.
           </div>
-          <SelectLista
-            label="Onde"
-            valor={e.em ?? "dano"}
-            opcoes={ALVOS_DANO}
-            onChange={(v) => onPatch({ em: v === "dano" ? undefined : v } as Partial<EfeitoHabilidade>)}
-          />
+          <OndeDano em={e.em} onPatch={onPatch} />
           <FiltroDanoCampos graus={e.graus} tipos={e.tipos} onPatch={onPatch} aberto={!!e.quando}>
             <Campo
               label="Quando"
@@ -1836,6 +2087,7 @@ function renderCorpo(
               valor={e.valor}
               min={-99}
               onChange={(v) => onPatch({ valor: v } as Partial<EfeitoHabilidade>)}
+              {...fx(e, "valor", onPatch)}
             />
           )}
           <SelectLista
@@ -1897,6 +2149,7 @@ function renderCorpo(
             onChange={(v) =>
               onPatch({ valor: Math.min(18, Math.max(1, v)) } as Partial<EfeitoHabilidade>)
             }
+            {...fx(e, "valor", onPatch)}
           />
         </div>
       );
@@ -1922,6 +2175,7 @@ function renderCorpo(
             onChange={(v) =>
               onPatch({ passos: Math.min(6, Math.max(1, v)) } as Partial<EfeitoHabilidade>)
             }
+            {...fx(e, "passos", onPatch)}
           />
         </>
       );
@@ -2001,6 +2255,7 @@ function renderCorpo(
             onChange={(v) =>
               onPatch({ vezes: Math.min(5, Math.max(2, v)) } as Partial<EfeitoHabilidade>)
             }
+            {...fx(e, "vezes", onPatch)}
           />
           <Detalhes aberto={!!e.quando}>
             <Campo
@@ -2025,21 +2280,21 @@ function renderCorpo(
             dados
             comGrau={extraNoDano(e.em)}
           />
-          <SelectLista
-            label="Onde"
-            valor={e.em ?? "dano"}
-            opcoes={[
-              ...ALVOS_DADO_EXTRA,
-              ...periciasCustom.map((a) => ({ ...a, grupo: "Perícia" })),
-            ]}
-            onChange={(v) =>
-              onPatch({
-                em: v === "dano" ? undefined : v,
-                // Na cura não tem Rolador: soma sempre.
-                ...(v === "cura" ? { sempre: true } : {}),
-              } as Partial<EfeitoHabilidade>)
-            }
-          />
+          <div>
+            <label>Onde</label>
+            <SelectAlvo
+              titulo="Onde"
+              valor={e.em ?? "dano"}
+              alvos={ALVOS_DADO_EXTRA}
+              onChange={(v) =>
+                onPatch({
+                  em: v === "dano" ? undefined : v,
+                  // Na cura não tem Rolador: soma sempre.
+                  ...(v === "cura" ? { sempre: true } : {}),
+                } as Partial<EfeitoHabilidade>)
+              }
+            />
+          </div>
           {e.em !== "cura" && !gastaUso && <CheckSempre sempre={!!e.sempre} onPatch={onPatch} />}
           {extraNoDano(e.em) && (
             <FiltroDanoCampos graus={e.graus} tipos={e.tipos} onPatch={onPatch} />
@@ -2056,12 +2311,7 @@ function renderCorpo(
             placeholder="1, 2, GRAU…"
             comGrau
           />
-          <SelectLista
-            label="Onde"
-            valor={e.em ?? "dano"}
-            opcoes={ALVOS_DANO}
-            onChange={(v) => onPatch({ em: v === "dano" ? undefined : v } as Partial<EfeitoHabilidade>)}
-          />
+          <OndeDano em={e.em} onPatch={onPatch} />
           {!gastaUso && <CheckSempre sempre={!!e.sempre} onPatch={onPatch} />}
           <FiltroDanoCampos graus={e.graus} tipos={e.tipos} onPatch={onPatch} />
         </>
@@ -2107,12 +2357,7 @@ function renderCorpo(
     case "dano_maximo":
       return (
         <>
-          <SelectLista
-            label="Onde"
-            valor={e.em ?? "dano"}
-            opcoes={ALVOS_DANO}
-            onChange={(v) => onPatch({ em: v === "dano" ? undefined : v } as Partial<EfeitoHabilidade>)}
-          />
+          <OndeDano em={e.em} onPatch={onPatch} />
           <SelectLista
             label="Liga sozinho com d20"
             valor={String(e.apartir ?? 0)}
@@ -2149,12 +2394,7 @@ function renderCorpo(
             ]}
             onChange={(v) => onPatch({ vira: Number(v) || 0 } as Partial<EfeitoHabilidade>)}
           />
-          <SelectLista
-            label="Onde"
-            valor={e.em ?? "dano"}
-            opcoes={ALVOS_DANO}
-            onChange={(v) => onPatch({ em: v === "dano" ? undefined : v } as Partial<EfeitoHabilidade>)}
-          />
+          <OndeDano em={e.em} onPatch={onPatch} />
           <FiltroDanoCampos graus={e.graus} tipos={e.tipos} onPatch={onPatch} />
         </>
       );
@@ -2175,13 +2415,9 @@ function renderCorpo(
             label="Dados a mais"
             valor={e.dados}
             onChange={(v) => onPatch({ dados: Math.min(10, Math.max(0, v)) } as Partial<EfeitoHabilidade>)}
+            {...fx(e, "dados", onPatch)}
           />
-          <SelectLista
-            label="Onde"
-            valor={e.em ?? "dano"}
-            opcoes={ALVOS_DANO}
-            onChange={(v) => onPatch({ em: v === "dano" ? undefined : v } as Partial<EfeitoHabilidade>)}
-          />
+          <OndeDano em={e.em} onPatch={onPatch} />
         </>
       );
     case "ataque_poderoso":
@@ -2193,11 +2429,13 @@ function renderCorpo(
             onChange={(v) =>
               onPatch({ penalidade: Math.min(20, Math.max(0, v)) } as Partial<EfeitoHabilidade>)
             }
+            {...fx(e, "penalidade", onPatch)}
           />
           <CampoNum
             label="Mais no dano"
             valor={e.bonus}
             onChange={(v) => onPatch({ bonus: Math.min(50, Math.max(0, v)) } as Partial<EfeitoHabilidade>)}
+            {...fx(e, "bonus", onPatch)}
           />
           <SelectLista
             label="Onde"
@@ -2238,6 +2476,7 @@ function renderCorpo(
             onChange={(v) =>
               onPatch({ exaustao: Math.min(6, Math.max(0, v)) } as Partial<EfeitoHabilidade>)
             }
+            {...fx(e, "exaustao", onPatch)}
           />
           <CampoFormula
             label="PP a mais"
@@ -2249,6 +2488,7 @@ function renderCorpo(
             label="Dados de Vida a mais"
             valor={e.dv}
             onChange={(v) => onPatch({ dv: Math.min(20, Math.max(0, v)) } as Partial<EfeitoHabilidade>)}
+            {...fx(e, "dv", onPatch)}
           />
         </>
       );
@@ -2277,6 +2517,7 @@ function renderCorpo(
             min={e.soma ? 1 : 2}
             max={20}
             onChange={(v) => onPatch({ vezes: v } as Partial<EfeitoHabilidade>)}
+            {...fx(e, "vezes", onPatch)}
           />
           <SelectLista
             label="Onde"
@@ -2339,6 +2580,7 @@ function renderCorpo(
               min={2}
               max={noAtaque ? 20 : 999}
               onChange={(v) => onPatch({ valor: v } as Partial<EfeitoHabilidade>)}
+              {...fx(e, "valor", onPatch)}
             />
           )}
           <CampoNum
@@ -2347,6 +2589,7 @@ function renderCorpo(
             min={1}
             max={10}
             onChange={(v) => onPatch({ limite: v } as Partial<EfeitoHabilidade>)}
+            {...fx(e, "limite", onPatch)}
           />
         </>
       );
@@ -2879,7 +3122,20 @@ function CheckSempre({
   );
 }
 
-// Número inteiro com − e +; com `step` (fração), campo comum.
+// Liga o ƒx de um CampoNum ao campo do efeito (a fórmula fica em `formulas`).
+function fx(e: EfeitoHabilidade, campo: string, onPatch: (p: Partial<EfeitoHabilidade>) => void) {
+  return {
+    formula: e.formulas?.[campo],
+    onFormula: (f: string | undefined, atual: number) => {
+      const formulas = { ...e.formulas };
+      if (f == null) delete formulas[campo];
+      else formulas[campo] = f;
+      onPatch({ [campo]: atual, formulas: Object.keys(formulas).length ? formulas : undefined } as Partial<EfeitoHabilidade>);
+    },
+  };
+}
+
+// Número inteiro com − e +; com `step` (fração), campo comum. Com `onFormula`, troca por fórmula.
 function CampoNum({
   label,
   valor,
@@ -2887,6 +3143,8 @@ function CampoNum({
   step,
   min = 0,
   max = 9999,
+  formula,
+  onFormula,
 }: {
   label: string;
   valor: number;
@@ -2894,17 +3152,47 @@ function CampoNum({
   step?: number;
   min?: number;
   max?: number;
+  formula?: string;
+  onFormula?: (f: string | undefined, atual: number) => void;
 }) {
+  const ctxFormula = useContext(FormulaContext);
+  const comFormula = formula != null;
+  // Ao voltar pro número, fica o resultado da fórmula nesta ficha.
+  const resultado = () => {
+    const n = formula && ctxFormula ? valorDaFormula(formula, ctxFormula.atributos, ctxFormula.nivel) : valor;
+    return Number.isFinite(n) ? Math.min(max, Math.max(min, step ? n : Math.round(n))) : valor;
+  };
+  const botaoFx = onFormula && (
+    <button
+      type="button"
+      className={`campo-fx${comFormula ? " ativo" : ""}`}
+      aria-pressed={comFormula}
+      aria-label={`${label}: fórmula`}
+      title="Fórmula"
+      onClick={() => (comFormula ? onFormula(undefined, resultado()) : onFormula(String(valor), valor))}
+    >
+      ƒx
+    </button>
+  );
+  if (comFormula && onFormula) {
+    return (
+      <div className="campo-num com-formula">
+        <div className="campo-num-topo">
+          <span aria-hidden>{label}</span>
+          {botaoFx}
+        </div>
+        <CampoFormula label={label} valor={formula} onChange={(f) => onFormula(f, valor)} placeholder="NIVEL/2, PROF…" />
+      </div>
+    );
+  }
   return (
-    <div>
-      <label>{label}</label>
+    <div className="campo-num">
+      <div className="campo-num-topo">
+        <label>{label}</label>
+        {botaoFx}
+      </div>
       {step ? (
-        <input
-          type="number"
-          step={step}
-          value={Number.isFinite(valor) ? valor : 0}
-          onChange={(e) => onChange(Number(e.target.value) || 0)}
-        />
+        <CampoNumero step={step} valor={valor} onChange={onChange} />
       ) : (
         <CampoPasso
           valor={Number.isFinite(valor) ? valor : 0}

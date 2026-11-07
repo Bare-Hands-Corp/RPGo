@@ -2,7 +2,7 @@
 
 // Escolha única numa lista longa: botão que abre uma paleta com busca.
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 export type OpcaoBusca = { slug: string; nome: string; grupo?: string };
@@ -52,6 +52,7 @@ export function SeletorBusca({
   titulo,
   placeholder = "Escolher",
   livre = false,
+  gatilho,
 }: {
   valor: string;
   opcoes: OpcaoBusca[];
@@ -61,6 +62,8 @@ export function SeletorBusca({
   placeholder?: string;
   // Aceita o texto digitado como valor.
   livre?: boolean;
+  // Botão pequeno no lugar do campo (abre a mesma paleta).
+  gatilho?: ReactNode;
 }) {
   const [aberto, setAberto] = useState(false);
   const botaoRef = useRef<HTMLButtonElement>(null);
@@ -73,22 +76,35 @@ export function SeletorBusca({
 
   return (
     <>
-      <button
-        type="button"
-        ref={botaoRef}
-        className={`busca-botao${valor ? "" : " vazio"}`}
-        aria-haspopup="dialog"
-        aria-expanded={aberto}
-        onClick={() => setAberto(true)}
-      >
-        <span className="busca-botao-texto">
-          <span className="busca-botao-nome">{atual ? atual.nome : valor || placeholder}</span>
-          {(atual?.grupo || (valor && !atual)) && (
-            <span className="busca-botao-grupo">{atual?.grupo ?? "texto livre"}</span>
-          )}
-        </span>
-        <i className="fas fa-magnifying-glass" />
-      </button>
+      {gatilho ? (
+        <button
+          type="button"
+          ref={botaoRef}
+          className="busca-gatilho"
+          aria-haspopup="dialog"
+          aria-expanded={aberto}
+          onClick={() => setAberto(true)}
+        >
+          {gatilho}
+        </button>
+      ) : (
+        <button
+          type="button"
+          ref={botaoRef}
+          className={`busca-botao${valor ? "" : " vazio"}`}
+          aria-haspopup="dialog"
+          aria-expanded={aberto}
+          onClick={() => setAberto(true)}
+        >
+          <span className="busca-botao-texto">
+            <span className="busca-botao-nome">{atual ? atual.nome : valor || placeholder}</span>
+            {(atual?.grupo || (valor && !atual)) && (
+              <span className="busca-botao-grupo">{atual?.grupo ?? "texto livre"}</span>
+            )}
+          </span>
+          <i className="fas fa-magnifying-glass" />
+        </button>
+      )}
       {aberto && (
         <Paleta
           valor={valor}
