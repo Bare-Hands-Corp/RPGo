@@ -132,6 +132,17 @@ import { condicoesCatalogoNomes, contextoDaAcao, useContextoRico } from "./conte
 import { EditorRico } from "@/components/descricao-rica/editor-rico";
 import { entradaDaAcao, gerarDaEntrada } from "./descricao-da-acao";
 import { SecaoRecolhivel } from "./secao-recolhivel";
+import { useCatalogoTiposCompleto } from "@/components/tipos-dano/tipos-dano";
+import { cartaDeAcao, type AcaoCarta, type ContextoCartas } from "@/components/carta/conversores";
+import {
+  AlternarVisao,
+  CartaNaGrade,
+  ModalCartaFicha,
+  NomeQueAbreCarta,
+  useModoCartas,
+  useVisao,
+  type CartaAberta,
+} from "@/components/carta/na-ficha";
 import { rascunho } from "./rascunho";
 import { Tooltip } from "@/components/tooltip";
 import { MarcaExausto } from "./marca-exausto";
@@ -863,6 +874,25 @@ export function AcoesTab({
     () => acoes.map((x) => ({ id: x.id, nome: x.nome, tipo: x.tipo, tecnica: x.tecnica, grau: x.grau })),
     [acoes],
   );
+  // Protótipo das cartas (?cartas=a|b, só em desenvolvimento; components/carta/na-ficha.tsx).
+  const modoCartas = useModoCartas();
+  const [visao, setVisao] = useVisao("acoes", modoCartas);
+  const [cartaAberta, setCartaAberta] = useState<CartaAberta | null>(null);
+  const catalogoTiposCartas = useCatalogoTiposCompleto();
+  const ctxCartas = useMemo<ContextoCartas>(
+    () => ({
+      personagem: "",
+      recursos: Object.fromEntries(recursos.map((r) => [r.id, r.nome])),
+      tiposDano: catalogoTiposCartas,
+      habilidades: Object.fromEntries(
+        habilidades.map((h) => [h.id, { nome: h.nome, origem: (h as { origem?: string }).origem ?? "livre" }]),
+      ),
+      itens: Object.fromEntries(
+        itens.map((i) => [i.id, { nome: i.nome, tipo: i.tipo, categoria: (i as { categoria?: string }).categoria ?? "" }]),
+      ),
+    }),
+    [recursos, habilidades, itens, catalogoTiposCartas],
+  );
   const { ficha: fichaRica, base: contextoBaseRico } = useContextoRico({
     nivel,
     atributos,
@@ -1513,6 +1543,7 @@ export function AcoesTab({
         busca={busca}
         onBusca={setBusca}
         rotulo="ação"
+        aoLado={modoCartas === "b" && <AlternarVisao visao={visao} onVisao={setVisao} />}
         filtros={FILTROS}
         filtro={filtro}
         onFiltro={setFiltro}
@@ -1543,7 +1574,7 @@ export function AcoesTab({
           >
             <div className="reordenar-zona" {...reordenar.zona(grupo.tipo)}>
             {lista.length > 0 ? (
-              <div className="action-grid">
+              <div className={visao === "cartas" ? "ficha-cartas-grade" : "action-grid"}>
                 {lista.map((origem) => {
                   const formas = grupoDe(origem);
                   // A forma escolhida; filtrando, a primeira que casa.
@@ -1885,6 +1916,62 @@ export function AcoesTab({
                     tipoDano: acao.tipoDano || danos[iDano]?.tiposDano[0] || "",
                     corpoACorpo: (golpePadrao?.atq?.alcance ?? alcanceContexto) === "corpo_a_corpo",
                   };
+                  // Carta com os valores já resolvidos pela ficha (PP final, usos).
+                  const usarDaCarta = podeUsar
+                    ? {
+                        onUsar: () => usar(acao, ppFinal, recursoGasto, resolve),
+                        desabilitado: travada || !!travaTurno || (usosMax != null && usosAtual <= 0),
+                        titulo: usosMax != null && usosAtual <= 0 ? "Sem usos" : (travaTurno ?? undefined),
+                      }
+                    : undefined;
+                  const cartaDaAcao = () =>
+                    cartaDeAcao(
+                      {
+                        ...acao,
+                        custoPp: ppFinal,
+                        custoPpFormula: null,
+                        usos: usosMax ?? null,
+                        usosAtual: usosMax != null ? usosAtual : null,
+                      } as AcaoCarta,
+                      ctxCartas,
+                      contextoDaAcao(contextoBaseRico, fichaRica, acao, efeitosAcao, lerDuracao(acao.duracao)),
+                    );
+                  const abrirCarta = () =>
+                    setCartaAberta({ carta: cartaDaAcao(), usar: usarDaCarta, onEditar: () => abrirEdit(acao) });
+                  if (visao === "cartas") {
+                    return (
+                      <CartaNaGrade
+                        key={origem.id}
+                        carta={cartaDaAcao()}
+                        travada={travada}
+                        onAbrir={abrirCarta}
+                        rodape={
+                          <>
+                            {usarDaCarta && (
+                              <button
+                                type="button"
+                                className="hab-usar"
+                                disabled={usarDaCarta.desabilitado}
+                                title={usarDaCarta.titulo}
+                                onClick={usarDaCarta.onUsar}
+                              >
+                                <i className="fas fa-play" /> Usar
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="ficha-carta-icone"
+                              title="Editar"
+                              aria-label={`Editar ${acao.nome}`}
+                              onClick={() => abrirEdit(acao)}
+                            >
+                              <i className="fas fa-edit" />
+                            </button>
+                          </>
+                        }
+                      />
+                    );
+                  }
                   return (
                     <div
                       key={origem.id}
@@ -1938,7 +2025,9 @@ export function AcoesTab({
                         <i className="fas fa-trash" />
                       </button>
                       <div>
-                        <div className="card-title">{acao.nome}</div>
+                        <NomeQueAbreCarta modo={modoCartas} className="card-title" onAbrir={abrirCarta}>
+                          {acao.nome}
+                        </NomeQueAbreCarta>
                         {formas.length > 1 && (
                           <div className="acao-formas" role="group" aria-label="Formas">
                             {formas.map((f) => (
@@ -2299,6 +2388,7 @@ export function AcoesTab({
       {alvo.modal}
       {alvosDoCombate.modal}
       {uso.modal}
+      <ModalCartaFicha aberta={cartaAberta} onFechar={() => setCartaAberta(null)} />
 
       {modalAberto && (
         <div className="modal-overlay" onClick={fecharModal}>

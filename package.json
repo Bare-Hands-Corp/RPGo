@@ -17,6 +17,7 @@
     "@prisma/client": "^7.8.0",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.106.1",
+    "html-to-image": "^1.11.13",
     "jose": "^6.2.3",
     "next": "16.2.6",
     "pg": "^8.21.0",

@@ -1,0 +1,544 @@
+/* Carta 5:7. Tudo em `em`: muda o tamanho com --escala (1 = 320px de largura). */
+.carta-cena {
+  --rx: 0deg;
+  --ry: 0deg;
+  --mx: 50%;
+  --my: 50%;
+  --brilho: 0;
+  --cor-carta: #2e7d32;
+  /* Cores da carta. Padrão: "papel" claro, igual em qualquer tema da ficha. */
+  --carta-fundo: #fdfbf7;
+  --carta-texto: #1f1d1a;
+  --carta-texto-sec: #6b655c;
+  --carta-texto-fraco: #8a837a;
+  --carta-arte: #ffffff;
+  --carta-icone-neutro: #bdbdbd;
+  --carta-linha: #00000022;
+  --carta-ouro: #e2b93b;
+  --carta-ouro-claro: #f7e08a;
+  /* Verso nas cores da marca Handrolls (public/marca/icone.svg). */
+  --carta-verso: #004d4c;
+  --carta-verso-2: #00635b;
+  --carta-verso-linha: #fef4f4;
+  font-size: calc(16px * var(--escala, 1));
+  width: 20em;
+  height: 28em;
+  perspective: 1200px;
+  flex-shrink: 0;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.carta-3d {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  transform: rotateX(var(--rx)) rotateY(calc(var(--ry) + var(--virar, 0deg)));
+  transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.carta-interativa .carta-3d {
+  transition: transform 0.12s ease-out;
+}
+.carta-3d.carta-virada {
+  --virar: 180deg;
+  transition: transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.carta-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 0.9em;
+  overflow: hidden;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  /* Cada face é um bloco fechado e plano. Nada dentro dela usa z-index: com
+     z-index, o Chrome com GPU desenhava banner/faixa/custo num plano próprio,
+     que escapava do backface-visibility e aparecia espelhado no verso. A ordem
+     no HTML já põe esses elementos por cima da arte. */
+  isolation: isolate;
+  transform-style: flat;
+  box-shadow:
+    0 0.1em 0.2em rgba(0, 0, 0, 0.2),
+    0 1em 2em -0.6em rgba(0, 0, 0, 0.45);
+}
+
+/* ── FRENTE ─────────────────────────────────────────── */
+.carta-frente {
+  transform: rotateY(0deg);
+  background: var(--carta-fundo);
+  color: var(--carta-texto);
+  display: flex;
+  flex-direction: column;
+}
+
+.carta-arte {
+  position: relative;
+  height: 46%;
+  flex-shrink: 0;
+  background: var(--carta-arte);
+}
+.carta-compacta .carta-arte {
+  height: 27%;
+}
+.carta-compacta .carta-arte-icone {
+  width: 4.5em;
+  height: 4.5em;
+}
+.carta-arte img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.carta-arte-padrao {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 50% 55%, color-mix(in srgb, var(--cor-icone) 14%, var(--carta-arte)) 0%, var(--carta-arte) 70%);
+}
+.carta-arte-icone {
+  width: 7.5em;
+  height: 7.5em;
+  display: grid;
+  place-items: center;
+  font-size: 1em;
+  color: color-mix(in srgb, var(--cor-icone) 55%, var(--carta-icone-neutro));
+  opacity: 0.8;
+}
+.carta-arte-icone i {
+  font-size: 6em;
+}
+.carta-compacta .carta-arte-icone i {
+  font-size: 3.6em;
+}
+.carta-banner-icone {
+  display: grid;
+  place-items: center;
+}
+.carta-banner-icone i {
+  font-size: 1.3em;
+}
+.carta-arte-icone svg,
+.carta-banner-icone svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Banner vertical com nível e símbolo (canto superior esquerdo). */
+.carta-banner {
+  position: absolute;
+  top: 0;
+  left: 1.1em;
+  width: 3.6em;
+  padding: 0.5em 0 1.4em;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25em;
+  color: #fff;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--cor-carta) 85%, #000), var(--cor-carta));
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 86%, 0 100%);
+  box-shadow: inset 0 0 0 0.18em rgba(255, 255, 255, 0.35);
+}
+.carta-banner::before {
+  content: "";
+  position: absolute;
+  inset: 0 0.22em;
+  border-left: 0.08em solid rgba(255, 255, 255, 0.55);
+  border-right: 0.08em solid rgba(255, 255, 255, 0.55);
+  pointer-events: none;
+}
+.carta-banner-nivel {
+  font-size: 2em;
+  font-weight: 800;
+  line-height: 1;
+  text-shadow: 0 0.05em 0.1em rgba(0, 0, 0, 0.35);
+}
+.carta-banner-icone {
+  width: 1.6em;
+  height: 1.6em;
+}
+
+/* Custo (canto superior direito). */
+.carta-custo {
+  position: absolute;
+  top: 0.9em;
+  right: 0.9em;
+  width: 2.6em;
+  height: 2.6em;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.05em;
+  background: #1f1d1a;
+  color: #fff;
+  font-weight: 800;
+  font-size: 1em;
+  box-shadow:
+    0 0 0 0.18em var(--carta-fundo),
+    0 0 0 0.32em var(--carta-ouro),
+    0 0.2em 0.5em rgba(0, 0, 0, 0.4);
+}
+.carta-custo small {
+  font-size: 0.75em;
+  color: #f5d76e;
+}
+
+/* Faixa central com o tipo. */
+.carta-faixa {
+  position: relative;
+  height: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.carta-faixa::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -0.22em;
+  height: 0.44em;
+  background: linear-gradient(90deg, transparent, var(--carta-ouro) 12%, var(--carta-ouro-claro) 50%, var(--carta-ouro) 88%, transparent);
+  box-shadow: 0 0.1em 0.3em rgba(0, 0, 0, 0.15);
+}
+.carta-faixa span {
+  position: relative;
+  transform: translateY(-50%);
+  padding: 0.3em 1.6em;
+  background: var(--cor-carta);
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.82em;
+  letter-spacing: 0.12em;
+  clip-path: polygon(0.8em 0, calc(100% - 0.8em) 0, 100% 50%, calc(100% - 0.8em) 100%, 0.8em 100%, 0 50%);
+  box-shadow: inset 0 0 0 0.15em rgba(255, 255, 255, 0.4);
+  white-space: nowrap;
+}
+
+.carta-conteudo {
+  flex: 1;
+  min-height: 0;
+  padding: 1.3em 1.1em 0.4em;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.carta-titulo {
+  margin: 0;
+  text-align: center;
+  font-size: 1.3em;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  line-height: 1.1;
+}
+.carta-subtitulo {
+  margin: 0.15em 0 0;
+  text-align: center;
+  font-style: italic;
+  font-size: 0.8em;
+  color: var(--carta-texto-sec);
+}
+.carta-info {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.2em 0.9em;
+  margin-top: 0.45em;
+  font-size: 0.72em;
+  letter-spacing: 0.04em;
+}
+.carta-info b {
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.carta-corpo {
+  margin-top: 0.55em;
+  font-size: calc(0.78em * var(--corpo-escala, 1));
+  line-height: 1.38;
+}
+.carta-transborda {
+  mask-image: linear-gradient(to bottom, #000 82%, transparent);
+}
+/* Descrição rica dentro da carta: sem margens e cores da ficha. */
+.carta-corpo .desc-l {
+  margin: 0 0 0.4em;
+}
+.carta-corpo .desc-l:has(> br:only-child) {
+  display: none;
+}
+.carta-corpo hr {
+  border: 0;
+  border-top: 1px solid var(--carta-linha);
+  margin: 0.4em 0;
+}
+.carta-vazia {
+  color: var(--carta-texto-fraco);
+  font-style: italic;
+}
+.carta-corpo p {
+  margin: 0 0 0.45em;
+}
+.carta-corpo ul {
+  margin: 0;
+  padding-left: 1.1em;
+}
+.carta-corpo li {
+  margin-bottom: 0.25em;
+}
+.carta-corpo em {
+  font-weight: 700;
+}
+.carta-rodape {
+  padding: 0.35em 1.1em 0.6em;
+  font-size: 0.6em;
+  color: var(--carta-texto-fraco);
+  font-style: italic;
+  text-align: right;
+}
+
+/* ── RARIDADE ───────────────────────────────────────── */
+.carta-raro {
+  box-shadow:
+    inset 0 0 0 0.35em #c7ccd3,
+    inset 0 0 0 0.45em var(--carta-fundo),
+    0 1em 2em -0.6em rgba(0, 0, 0, 0.45);
+}
+.carta-lendario {
+  box-shadow:
+    inset 0 0 0 0.35em var(--carta-ouro),
+    inset 0 0 0 0.45em color-mix(in srgb, var(--carta-ouro) 18%, var(--carta-fundo)),
+    0 0 1.4em -0.2em rgba(226, 185, 59, 0.6),
+    0 1em 2em -0.6em rgba(0, 0, 0, 0.45);
+}
+
+/* Brilho holográfico: só aparece em raro/lendário, segue o ponteiro. */
+.carta-foil {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  mix-blend-mode: color-dodge;
+  transition: opacity 0.3s;
+}
+.carta-raro .carta-foil {
+  opacity: calc(var(--brilho) * 0.35);
+  background:
+    repeating-linear-gradient(115deg, #fff0 0%, #ffffff55 4%, #fff0 8%),
+    linear-gradient(115deg, #9be7ff, #d4c4ff, #ffd6f0, #c4fff0);
+  background-size: 300% 300%;
+  background-position: var(--mx) var(--my);
+}
+.carta-lendario .carta-foil {
+  opacity: calc(var(--brilho) * 0.55);
+  background:
+    repeating-linear-gradient(115deg, #fff0 0%, #ffffff66 3%, #fff0 6%),
+    linear-gradient(115deg, #ff9a9e, #fad0c4, #fbc2eb, #a1c4fd, #c2ffd8, #fdeb71, #ff9a9e);
+  background-size: 400% 400%;
+  background-position: var(--mx) var(--my);
+}
+.carta-reflexo {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: calc(var(--brilho) * 0.4);
+  background: radial-gradient(circle at var(--mx) var(--my), #fff 0%, #fff0 45%);
+  mix-blend-mode: soft-light;
+  transition: opacity 0.3s;
+}
+
+/* ── GASTA ──────────────────────────────────────────── */
+.carta-gasta > .carta-arte,
+.carta-gasta > .carta-conteudo,
+.carta-gasta > .carta-banner,
+.carta-gasta > .carta-faixa,
+.carta-gasta > .carta-custo {
+  filter: grayscale(1) opacity(0.55);
+}
+.carta-selo-gasta {
+  position: absolute;
+  top: 38%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-14deg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.3em 1em 0.4em;
+  border: 0.18em solid #b0302a;
+  border-radius: 0.4em;
+  color: #b0302a;
+  background: color-mix(in srgb, var(--carta-fundo) 85%, transparent);
+}
+.carta-selo-gasta strong {
+  font-size: 1.5em;
+  letter-spacing: 0.2em;
+}
+.carta-selo-gasta span {
+  font-size: 0.65em;
+  font-weight: 600;
+}
+
+/* ── VERSO ──────────────────────────────────────────── */
+.carta-verso {
+  transform: rotateY(180deg);
+  padding: 0.7em;
+  background:
+    /* grãos de arroz espalhados, bem sutis */
+    radial-gradient(ellipse 0.28em 0.12em at 30% 40%, color-mix(in srgb, var(--carta-verso-linha) 10%, transparent) 98%, transparent)
+      0 0 / 2.2em 2.2em,
+    radial-gradient(ellipse 0.12em 0.28em at 75% 80%, color-mix(in srgb, var(--carta-verso-linha) 8%, transparent) 98%, transparent)
+      0 0 / 2.2em 2.2em,
+    radial-gradient(circle at 50% 42%, var(--carta-verso-2) 0%, var(--carta-verso) 62%, color-mix(in srgb, var(--carta-verso) 70%, #000) 100%);
+}
+.carta-verso-moldura {
+  position: relative;
+  height: 100%;
+  border: 0.12em solid color-mix(in srgb, var(--carta-verso-linha) 55%, transparent);
+  border-radius: 0.55em;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.4em;
+  color: var(--carta-verso-linha);
+  box-shadow: inset 0 0 0 0.4em color-mix(in srgb, var(--carta-verso-linha) 12%, transparent);
+}
+.carta-verso-selo {
+  width: 11em;
+  height: 11em;
+  border-radius: 50%;
+  /* Contorno claro: o anel do ícone é da mesma cor do fundo do verso. */
+  box-shadow:
+    0 0 0 0.22em color-mix(in srgb, var(--carta-verso-linha) 30%, transparent),
+    0 0.5em 1.2em rgba(0, 0, 0, 0.4);
+}
+.carta-verso-selo img {
+  width: 100%;
+  height: 100%;
+}
+.carta-verso-nome {
+  color: var(--carta-verso-linha);
+}
+.carta-verso-canto {
+  position: absolute;
+  opacity: 0.45;
+}
+.carta-verso-se {
+  top: 0.8em;
+  left: 0.8em;
+}
+.carta-verso-sd {
+  top: 0.8em;
+  right: 0.8em;
+}
+.carta-verso-ie {
+  bottom: 0.8em;
+  left: 0.8em;
+}
+.carta-verso-id {
+  bottom: 0.8em;
+  right: 0.8em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .carta-3d,
+  .carta-interativa .carta-3d {
+    transition: none;
+  }
+}
+
+/* ── DESCRIÇÃO RICA NA CARTA ────────────────────────── */
+/* Papel (padrão): os chips não herdam o tema escuro da ficha. */
+body:not([data-cartas-tema="ficha"]) .carta-frente {
+  --text-main: #1f1d1a;
+  --text-sec: #6b655c;
+  --bg-card: #fdfbf7;
+  --bg-surface: #f4efe6;
+  --border: #0000001f;
+  --primary: #5a3a22;
+}
+.carta-corpo .desc-l {
+  --desc-lh: 1.5;
+}
+.carta-corpo .desc-l[data-b="lista"] {
+  padding-left: 1.3em;
+}
+
+/* Estilo carta: o chip vira palavra-chave impressa (negrito na cor do chip, ícone
+   pequeno), sem cápsula. A rolagem ganha sublinhado pontilhado (é clicável). */
+.carta-chips-carta .carta-corpo .desc-chip {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font-size: 1em;
+  font-weight: 700;
+  line-height: inherit;
+  white-space: normal;
+  color: color-mix(in srgb, var(--chip-cor) 60%, var(--carta-texto));
+}
+.carta-chips-carta .carta-corpo .desc-chip:hover,
+.carta-chips-carta .carta-corpo .desc-chip:focus-visible {
+  background: color-mix(in srgb, var(--chip-cor) 12%, transparent);
+}
+.carta-chips-carta .carta-corpo .desc-chip.fx-chip {
+  background: none;
+  color: color-mix(in srgb, var(--fx-cor) 60%, var(--carta-texto));
+}
+.carta-chips-carta .carta-corpo .desc-chip.fx-chip i,
+.carta-chips-carta .carta-corpo .desc-chip.fx-chip .fx-texto {
+  color: inherit;
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  animation: none;
+}
+.carta-chips-carta .carta-corpo .desc-chip > i {
+  font-size: 0.78em;
+  margin-right: 0.2em;
+}
+.carta-chips-carta .carta-corpo .desc-chip-detalhe {
+  border: 0;
+  padding: 0;
+  margin-left: 0.3em;
+  font-weight: 600;
+}
+.carta-chips-carta .carta-corpo .desc-chip--cond,
+.carta-chips-carta .carta-corpo .desc-chip--salv {
+  font-variant: small-caps;
+  letter-spacing: 0.02em;
+}
+.carta-chips-carta .carta-corpo .desc-chip--duracao {
+  font-style: italic;
+}
+.carta-chips-carta .carta-corpo .desc-chip--rolagem {
+  text-decoration: underline dotted;
+  text-underline-offset: 0.2em;
+}
+.carta-chips-carta .carta-corpo .desc-marcador {
+  color: color-mix(in srgb, var(--cor-carta) 70%, var(--carta-texto));
+}
+
+/* ── TEMA DA FICHA ──────────────────────────────────── */
+/* Com body[data-cartas-tema="ficha"], a carta usa as cores do tema escolhido:
+   fundo e texto dos cards, a cor principal no verso e o destaque no lugar do ouro.
+   Banner e faixa continuam com a cor do tipo da ação. */
+body[data-cartas-tema="ficha"] .carta-cena {
+  --carta-fundo: var(--bg-card);
+  --carta-texto: var(--text-main);
+  --carta-texto-sec: var(--text-sec);
+  --carta-texto-fraco: var(--text-sec);
+  --carta-arte: var(--bg-surface, var(--bg-card));
+  --carta-icone-neutro: var(--text-sec);
+  --carta-linha: var(--border);
+  --carta-ouro: var(--accent, #e2b93b);
+  --carta-ouro-claro: color-mix(in srgb, var(--accent, #e2b93b) 45%, #fff);
+  --carta-verso: color-mix(in srgb, var(--primary) 80%, #000);
+  --carta-verso-2: var(--primary);
+  --carta-verso-linha: var(--on-primary, #fff);
+}

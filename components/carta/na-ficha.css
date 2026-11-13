@@ -1,0 +1,104 @@
+/* Protótipo das cartas na ficha (components/carta/na-ficha.tsx). */
+
+.visao-alternar {
+  display: inline-flex;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-card);
+}
+.visao-alternar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--text-sec);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.visao-alternar button[aria-pressed="true"] {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+.visao-barra {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 0 12px;
+}
+
+/* A: o nome vira botão discreto. */
+button.nome-abre-carta {
+  all: unset;
+  cursor: pointer;
+  display: inline;
+}
+button.nome-abre-carta:hover,
+button.nome-abre-carta:focus-visible {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 3px;
+}
+.nome-abre-carta-icone {
+  font-size: 0.7em;
+  opacity: 0;
+  margin-left: 4px;
+  vertical-align: middle;
+  transition: opacity 0.15s;
+}
+button.nome-abre-carta:hover .nome-abre-carta-icone,
+button.nome-abre-carta:focus-visible .nome-abre-carta-icone {
+  opacity: 0.6;
+}
+
+/* B: grade de cartas. */
+.ficha-cartas-grade {
+  display: grid;
+  /* Coluna do tamanho da carta (320px × 0,68): sobra vai pro fim da linha. */
+  grid-template-columns: repeat(auto-fill, 218px);
+  justify-content: start;
+  gap: 20px 14px;
+  padding: 4px 0 8px;
+}
+.ficha-carta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.ficha-carta-clique {
+  cursor: pointer;
+  border-radius: 12px;
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.ficha-carta-clique:hover {
+  transform: translateY(-4px);
+}
+.ficha-carta-clique:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 4px;
+}
+.ficha-carta-travada .ficha-carta-clique {
+  filter: grayscale(0.8) opacity(0.6);
+}
+.ficha-carta-rodape {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.ficha-carta-rodape .ficha-carta-icone {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-sec);
+  cursor: pointer;
+}
+.ficha-carta-rodape .ficha-carta-icone:hover {
+  color: var(--text-main);
+}

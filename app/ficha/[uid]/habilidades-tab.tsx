@@ -42,6 +42,18 @@ import type { ContextoRico } from "@/components/descricao-rica/atomos";
 import { textoPuroRico } from "@/lib/descricao-rica";
 import { CardMeta } from "@/components/card-meta";
 import { condicoesCatalogoNomes, contextoDaAcao, useContextoRico } from "./contexto-rico";
+import { useCatalogoTiposCompleto } from "@/components/tipos-dano/tipos-dano";
+import { cartaDeHabilidade, type ContextoCartas, type HabilidadeCarta } from "@/components/carta/conversores";
+import {
+  AlternarVisao,
+  CartaNaGrade,
+  ModalCartaFicha,
+  NomeQueAbreCarta,
+  useModoCartas,
+  useVisao,
+  type CartaAberta,
+  type ModoCartas,
+} from "@/components/carta/na-ficha";
 import { EditorRico } from "@/components/descricao-rica/editor-rico";
 import { gerarDaEntrada } from "./descricao-da-acao";
 import { SecaoRecolhivel } from "./secao-recolhivel";
@@ -258,6 +270,26 @@ export function HabilidadesTab({
 }: Props) {
   const travadasSet = useMemo(() => new Set(travadas), [travadas]);
   // Contexto dos chips da descrição: o que vale pra ficha inteira, montado uma vez.
+  // Protótipo das cartas (?cartas=a|b, só em desenvolvimento; components/carta/na-ficha.tsx).
+  const modoCartas = useModoCartas();
+  const [visao, setVisao] = useVisao("habilidades", modoCartas);
+  const [cartaAberta, setCartaAberta] = useState<CartaAberta | null>(null);
+  const catalogoTiposCartas = useCatalogoTiposCompleto();
+  const ctxCartas = useMemo<ContextoCartas>(
+    () => ({
+      personagem: "",
+      recursos: Object.fromEntries(recursos.map((r) => [r.id, r.nome])),
+      tiposDano: catalogoTiposCartas,
+      habilidades: {},
+      itens: Object.fromEntries(
+        itens.map((i) => [
+          i.id,
+          { nome: i.nome, tipo: (i as { tipo?: string }).tipo ?? "comum", categoria: (i as { categoria?: string }).categoria ?? "" },
+        ]),
+      ),
+    }),
+    [recursos, itens, catalogoTiposCartas],
+  );
   const { ficha: fichaRica, base: contextoBaseRico } = useContextoRico({
     nivel,
     atributos,
@@ -791,9 +823,67 @@ export function HabilidadesTab({
       candidatas.find((f) => f.ligada && ehAlternavel(f)) ??
       candidatas[0] ??
       origem;
+    const hComUsos = h;
+    // Carta (protótipo): os mesmos usos e o mesmo Usar/Ligar do card.
+    const efeitosH = lerEfeitos(h.efeitos);
+    const alternavelH = h.tipo !== "passiva" && (h.alternavel || temEfeitoSustentado(efeitosH));
+    const usosMaxH = usosMaximos(hComUsos, { nivel, atributos });
+    const cartaDaHab = () =>
+      cartaDeHabilidade(
+        {
+          ...hComUsos,
+          usos: usosMaxH ?? null,
+          usosAtual: usosMaxH != null ? (hComUsos.usosAtual ?? usosMaxH) : null,
+        } as HabilidadeCarta,
+        ctxCartas,
+        contextoDaAcao(contextoBaseRico, fichaRica, { nome: h.nome, tecnica: false, grau: 0 }, efeitosH, lerDuracao(h.duracao)),
+      );
+    const travadaH = travadasSet.has(h.id) || (!!h.itemId && !itemPorId.get(h.itemId)?.equipado);
+    const usarH: CartaAberta["usar"] =
+      h.tipo === "passiva"
+        ? undefined
+        : alternavelH
+          ? {
+              onUsar: () => acionar(h, !h.ligada),
+              rotulo: h.ligada ? "Desligar" : "Ligar",
+              icone: "fa-power-off",
+              desabilitado: travadaH,
+            }
+          : { onUsar: () => acionar(h, null), desabilitado: travadaH };
+    const abrirCarta = () => setCartaAberta({ carta: cartaDaHab(), usar: usarH, onEditar: () => abrirEdit(h) });
+    if (visao === "cartas") {
+      return (
+        <CartaNaGrade
+          key={chave}
+          carta={cartaDaHab()}
+          travada={travadaH}
+          onAbrir={abrirCarta}
+          rodape={
+            <>
+              {usarH && (
+                <button type="button" className="hab-usar" disabled={usarH.desabilitado} onClick={usarH.onUsar}>
+                  <i className={`fas ${usarH.icone ?? "fa-play"}`} /> {usarH.rotulo ?? "Usar"}
+                </button>
+              )}
+              <button
+                type="button"
+                className="ficha-carta-icone"
+                title="Editar"
+                aria-label={`Editar ${h.nome}`}
+                onClick={() => abrirEdit(h)}
+              >
+                <i className="fas fa-edit" />
+              </button>
+            </>
+          }
+        />
+      );
+    }
     return (
       <CardHabilidade
         key={chave}
+        modoCartas={modoCartas}
+        onAbrirCarta={abrirCarta}
         pastasDaFicha={nomesDasPastas}
         onEfeitos={(efeitos) => mudarEfeitos(h, efeitos)}
         personagemId={personagemId}
@@ -866,6 +956,7 @@ export function HabilidadesTab({
           busca={busca}
           onBusca={setBusca}
           rotulo="habilidade"
+          aoLado={modoCartas === "b" && <AlternarVisao visao={visao} onVisao={setVisao} />}
           filtros={FILTROS}
           filtro={filtro}
           onFiltro={setFiltro}
@@ -899,7 +990,7 @@ export function HabilidadesTab({
             titulo="Destaques"
             forcarAberta={filtrando}
           >
-            <div className="action-grid">{favoritas.map((h) => card(h, `fav-${h.id}`))}</div>
+            <div className={visao === "cartas" ? "ficha-cartas-grade" : "action-grid"}>{favoritas.map((h) => card(h, `fav-${h.id}`))}</div>
           </SecaoRecolhivel>
         )}
 
@@ -920,7 +1011,7 @@ export function HabilidadesTab({
               recebendo={!!reordenar.recebendo(origem.slug)}
             >
               <div className="reordenar-zona" {...reordenar.zona(origem.slug)}>
-                <div className="action-grid">{lista.map((h) => card(h, h.id, true))}</div>
+                <div className={visao === "cartas" ? "ficha-cartas-grade" : "action-grid"}>{lista.map((h) => card(h, h.id, true))}</div>
               </div>
             </SecaoRecolhivel>
           );
@@ -942,6 +1033,7 @@ export function HabilidadesTab({
 
         {alvo.modal}
         {uso.modal}
+        <ModalCartaFicha aberta={cartaAberta} onFechar={() => setCartaAberta(null)} />
 
         {modalAberto && (
           <HabilidadeModal
@@ -968,6 +1060,8 @@ export function HabilidadesTab({
 
 // ─── Card de habilidade ────────────────────────────────────────────────
 function CardHabilidade({
+  modoCartas,
+  onAbrirCarta,
   personagemId,
   pastasDaFicha,
   onEfeitos,
@@ -1028,6 +1122,9 @@ function CardHabilidade({
   onFavorita: () => void;
   // Arrastar pra reordenar: props do item, da alça e a classe da vaga.
   reordenar?: { item: object; alca: object; vaga: string };
+  // Protótipo das cartas: o nome abre a carta.
+  modoCartas?: ModoCartas;
+  onAbrirCarta?: () => void;
 }) {
   const efeitos = lerEfeitos(habilidade.efeitos);
   // Concedida por item: só vale com ele equipado.
@@ -1158,9 +1255,14 @@ function CardHabilidade({
       </button>
 
       <div>
-        <div className="card-title" style={{ paddingLeft: reordenar ? 46 : 26 }}>
+        <NomeQueAbreCarta
+          modo={modoCartas ?? null}
+          onAbrir={onAbrirCarta}
+          className="card-title"
+          style={{ paddingLeft: reordenar ? 46 : 26 }}
+        >
           {habilidade.nome}
-        </div>
+        </NomeQueAbreCarta>
         {formas.length > 1 && (
           <div className="acao-formas" role="group" aria-label="Formas">
             {formas.map((f) => (

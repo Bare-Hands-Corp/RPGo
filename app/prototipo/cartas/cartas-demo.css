@@ -1,0 +1,142 @@
+.cartas-demo {
+  min-height: 100vh;
+  padding: 24px 16px 80px;
+  background: var(--bg-page);
+  color: var(--text-main);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.cartas-demo-topo h1 {
+  margin: 0 0 4px;
+}
+.cartas-demo-topo p {
+  margin: 0 0 24px;
+  color: var(--text-sec);
+}
+.cartas-demo h2 {
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-sec);
+  margin: 32px 0 12px;
+}
+.cartas-demo button {
+  font: inherit;
+}
+
+/* Mão em leque */
+.cartas-mao {
+  display: flex;
+  justify-content: center;
+  padding: 48px 0 56px;
+}
+@media (max-width: 900px) {
+  .cartas-mao {
+    zoom: 0.6;
+  }
+}
+.cartas-mao-item {
+  all: unset;
+  cursor: pointer;
+  margin: 0 -28px;
+  transform-origin: 50% 120%;
+  transform: translateY(var(--desce)) rotate(var(--ang));
+  transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.cartas-mao-item:hover,
+.cartas-mao-item:focus-visible {
+  transform: translateY(-36px) rotate(0deg) scale(1.12);
+  z-index: 50 !important;
+}
+
+/* Galeria */
+.cartas-grade {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  justify-content: center;
+}
+.cartas-grade-item {
+  all: unset;
+  cursor: pointer;
+}
+
+/* Abas da ficha */
+.cartas-abas {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0 24px;
+}
+.cartas-abas button {
+  cursor: pointer;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+}
+.cartas-abas button.ativa,
+.cartas-abas button[aria-pressed="true"] {
+  background: var(--primary);
+  color: var(--on-primary);
+  border-color: var(--primary);
+}
+.cartas-abas small {
+  opacity: 0.7;
+  margin-left: 4px;
+}
+
+/* Lista de fichas pra clonar */
+.cartas-lista-fichas {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  max-width: 640px;
+}
+.cartas-lista-fichas li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+}
+.cartas-lista-fichas li > span {
+  display: flex;
+  flex-direction: column;
+}
+.cartas-lista-fichas small {
+  color: var(--text-sec);
+}
+.cartas-lista-fichas button,
+.cartas-lista-fichas a {
+  cursor: pointer;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 0;
+  background: var(--primary);
+  color: var(--on-primary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.cartas-barra {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: 8px 0 24px;
+}
+.cartas-barra .cartas-abas {
+  margin: 0;
+  align-items: center;
+}
+.cartas-rotulo {
+  color: var(--text-sec);
+  font-size: 0.9em;
+}
