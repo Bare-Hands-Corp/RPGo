@@ -8,7 +8,7 @@ import {
   type MensagemSerializada,
 } from "@/lib/mensagens";
 import type { DadoRolado, ModoRolagem } from "@/lib/dice";
-import { acessoASessao } from "@/lib/acesso-sessao";
+import { acessoASessao, sessaoPrivadaDe } from "@/lib/acesso-sessao";
 import { sanitizarHtmlRolagem } from "@/lib/sanitizar-rolagem";
 import type { Prisma } from "@prisma/client";
 
@@ -88,8 +88,9 @@ const CONTEXTOS = new Set([
 ]);
 
 export async function listarMensagens(sessionId: string): Promise<MensagemSerializada[]> {
-  await requireSessao(sessionId);
-  return listarMensagensSessao(sessionId);
+  const { acesso } = await requireSessao(sessionId);
+  // O narrador recebe junto as próprias rolagens privadas.
+  return listarMensagensSessao(sessionId, { comPrivadas: acesso.narrador });
 }
 
 // Retorna a mensagem criada pra que o cliente faça append local imediato e
@@ -141,8 +142,8 @@ type BaseRolagemPayload = {
   privacidadeResultado?: boolean | null;
   ocultarRolagem?: boolean | null;
   ocultarResultado?: boolean | null;
-  // Rolagem privada do narrador: nem os dados nem o total são gravados, então
-  // não chegam ao navegador de ninguém. O chat só mostra que ela aconteceu.
+  // Rolagem privada do narrador: grava na sessão `<mesa>:narrador`, que só o
+  // narrador lê. Os jogadores não recebem a rolagem nem sabem que ela existiu.
   somenteNarrador?: boolean | null;
   bonusDetalhe?: string | null;
   bonusTotal?: number | null;
@@ -201,7 +202,7 @@ export async function registrarRolagem(
   nome: string,
   rolagem: RolagemPayload,
 ): Promise<MensagemSerializada> {
-  const { user } = await requireSessao(sessionId);
+  const { user, acesso } = await requireSessao(sessionId);
   // Nada do payload é confiável: o HTML passa pela lista do que o Rolador usa,
   // e os números e rótulos são normalizados antes de gravar.
   rolagem = {
@@ -235,30 +236,19 @@ export async function registrarRolagem(
       : { detalhes: dadosLimpos(rolagem.detalhes) }),
   } as RolagemPayload;
   const privada = rolagem.somenteNarrador === true;
-  if (privada) {
-    // Tira os números antes de montar a mensagem.
-    rolagem = {
-      ...rolagem,
-      total: rolagem.tipo === "lote" ? null : 0,
-      modificador: 0,
-      texto: null,
-      bonusDetalhe: null,
-      bonusTotal: null,
-      ocultarRolagem: true,
-      ocultarResultado: true,
-      ...(rolagem.tipo === "lote"
-        ? { execucoes: rolagem.execucoes.map((e) => ({ ...e, total: 0, modificador: 0, detalhes: [], texto: null })) }
-        : { detalhes: [] }),
-    } as RolagemPayload;
+  if (privada && !acesso.narrador) {
+    throw new Error("Só o narrador da mesa pode fazer rolagens privadas.");
   }
+  // Rolagem privada vai pra sessão à parte: o chat dos jogadores não a lista nem a assina.
+  const sessaoDaMensagem = privada ? sessaoPrivadaDe(sessionId) : sessionId;
 
   const nova = await prisma.mensagem.create({
     data: {
-      sessionId,
+      sessionId: sessaoDaMensagem,
       uid: user.id,
       nome: nomeLimpo(nome),
       tipo: "rolagem",
-      total: privada ? null : rolagem.total,
+      total: rolagem.total,
       modificador: rolagem.modificador,
       detalhes: (
         rolagem.tipo === "lote"
@@ -312,7 +302,7 @@ export async function registrarRolagem(
     },
   });
 
-  if (rolagem.solicitacaoTesteId && rolagem.alvoNome) {
+  if (!privada && rolagem.solicitacaoTesteId && rolagem.alvoNome) {
     const solicitacao = await prisma.mensagem.findUnique({
       where: { id: rolagem.solicitacaoTesteId },
       select: { detalhes: true, sessionId: true, tipo: true },
@@ -354,5 +344,8 @@ export async function registrarRolagem(
 export async function limparMensagens(sessionId: string): Promise<void> {
   const { acesso } = await requireSessao(sessionId);
   if (!acesso.administra) throw new Error("Só o narrador pode apagar as mensagens da mesa.");
-  await prisma.mensagem.deleteMany({ where: { sessionId } });
+  // Narrador da mesa apaga também as rolagens privadas dele.
+  await prisma.mensagem.deleteMany({
+    where: { sessionId: acesso.narrador ? { in: [sessionId, sessaoPrivadaDe(sessionId)] } : sessionId },
+  });
 }

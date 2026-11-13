@@ -1,6 +1,18 @@
 "use client";
 
-import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import {
+  assinarRolagemPrivada,
+  gravarRolagemPrivada,
+  lerRolagemPrivada,
+} from "@/lib/rolagem-privada";
 import { PainelRolador } from "./painel-rolador";
 import { PainelChat, type NaoLidas, type PainelChatHandle } from "./painel-chat";
 import type { MensagemSerializada } from "@/lib/mensagens";
@@ -64,9 +76,27 @@ export function Bandeja({
   const [dock, setDock] = useState<Dock>("bottom");
   // x relevante quando dock === "float" ou "bottom"; y quando "float" ou "side-*".
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  // Só o narrador (Bandeja sem personagem) escolhe rolar em privado; no servidor
+  // a tela é a mesma, então a escolha fica guardada por mesa.
+  const ehNarrador = !personagemId;
+  const privadoManual = useSyncExternalStore(
+    assinarRolagemPrivada,
+    () => ehNarrador && lerRolagemPrivada(sessionId),
+    () => false,
+  );
+  const alternarPrivado = useCallback(
+    () => gravarRolagemPrivada(sessionId, !privadoManual),
+    [sessionId, privadoManual],
+  );
   const [naoLidas, setNaoLidas] = useState<NaoLidas>({ chat: 0, rolagens: 0 });
   const aoContarNaoLidas = useCallback((n: NaoLidas) => {
     setNaoLidas((atual) => (atual.chat === n.chat && atual.rolagens === n.rolagens ? atual : n));
+  }, []);
+
+  const [testesPendentes, setTestesPendentes] = useState(0);
+  const abrirChat = useCallback(() => {
+    setAba("chat");
+    setCollapsed(false);
   }, []);
 
   // Estado de arrasto fica num ref — mousemove não re-renderiza.
@@ -276,7 +306,16 @@ export function Bandeja({
             <>
               <i className={`fas ${abaAtual.icone}`} />
               <span className="bandeja-titulo">{abaAtual.nome}</span>
-              {totalNaoLidas > 0 && (
+              {testesPendentes > 0 && (
+                <span
+                  className="aba-badge teste-pendente"
+                  aria-label={`${testesPendentes} ${testesPendentes === 1 ? "teste pendente" : "testes pendentes"}`}
+                  title="Teste pedido pelo narrador"
+                >
+                  <i className="fas fa-dice-d20" /> {testesPendentes}
+                </span>
+              )}
+              {totalNaoLidas > 0 && testesPendentes === 0 && (
                 <span className="aba-badge" aria-label={`${totalNaoLidas} novas`}>
                   {totalNaoLidas > 99 ? "99+" : totalNaoLidas}
                 </span>
@@ -300,7 +339,12 @@ export function Bandeja({
                   >
                     <i className={`fas ${a.icone}`} />
                     <span>{a.nome}</span>
-                    {novas > 0 && aba !== a.id && (
+                    {a.id === "chat" && testesPendentes > 0 && (
+                      <span className="aba-badge teste-pendente" aria-label={`${testesPendentes} testes pendentes`}>
+                        <i className="fas fa-dice-d20" /> {testesPendentes}
+                      </span>
+                    )}
+                    {novas > 0 && aba !== a.id && !(a.id === "chat" && testesPendentes > 0) && (
                       <span className="aba-badge" aria-label={`${novas} novas`}>
                         {novas > 99 ? "99+" : novas}
                       </span>
@@ -326,7 +370,9 @@ export function Bandeja({
             sessionId={sessionId}
             onMensagemCriada={onMensagemCriadaLocal}
             efeitosContexto={efeitosContexto}
-            privado={rolagensPrivadas}
+            privado={rolagensPrivadas || privadoManual}
+            privadoPeloCombate={rolagensPrivadas}
+            onAlternarPrivado={ehNarrador ? alternarPrivado : undefined}
           />
         </div>
 
@@ -343,7 +389,10 @@ export function Bandeja({
             mensagensIniciais={mensagensIniciais}
             aba={conversa ?? "chat"}
             visivel={!collapsed && conversa !== null}
+            veRolagensPrivadas={ehNarrador}
             onNaoLidas={aoContarNaoLidas}
+            onTestesPendentes={setTestesPendentes}
+            onAbrirChat={abrirChat}
           />
         </div>
       </div>

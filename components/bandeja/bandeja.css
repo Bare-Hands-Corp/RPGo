@@ -1965,3 +1965,173 @@
 .rc-bloco-dano .rc-total {
   color: color-mix(in srgb, var(--color-power) 70%, var(--text-main));
 }
+
+/* Botão do narrador: rolar com ou sem números no chat. */
+.rolador-privado {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  color: var(--text-sec);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.rolador-privado:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+.rolador-privado > span:not(.rolador-privado-chave) {
+  flex: 1;
+  min-width: 0;
+}
+.rolador-privado.ligado {
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+  background: color-mix(in srgb, var(--primary) 10%, var(--bg-card));
+}
+.rolador-privado:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+.rolador-privado:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+/* Chave liga/desliga à direita. */
+.rolador-privado-chave {
+  position: relative;
+  flex-shrink: 0;
+  width: 30px;
+  height: 17px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-sec) 35%, var(--bg-card));
+  transition: background 0.15s;
+}
+.rolador-privado-chave::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+.rolador-privado.ligado .rolador-privado-chave {
+  background: var(--primary);
+}
+.rolador-privado.ligado .rolador-privado-chave::after {
+  transform: translateX(13px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .rolador-privado,
+  .rolador-privado-chave,
+  .rolador-privado-chave::after {
+    transition: none;
+  }
+}
+
+/* Rolagem feita por você: fundo e borda no tom do tema, pra achar as suas no registro. */
+.rc.rc-propria {
+  background: color-mix(in srgb, var(--primary) 7%, var(--bg-card));
+  border-color: color-mix(in srgb, var(--primary) 32%, var(--border));
+  border-left-color: var(--rc-cor);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 12%, transparent);
+}
+.rc.rc-propria .rc-sub {
+  color: color-mix(in srgb, var(--primary) 75%, var(--text-sec));
+  font-weight: 600;
+}
+.rc.rc-propria .rc-lote-linha {
+  background: color-mix(in srgb, var(--primary) 7%, var(--bg-surface));
+}
+/* Rolagem privada: só o narrador vê. */
+.rc-chip.privada {
+  color: var(--text-main);
+  border-style: dashed;
+  background: var(--bg-card);
+}
+
+/* ─── Aviso de teste pedido (jogador) ──────────────────────────────── */
+.aba-badge.teste-pendente {
+  gap: 3px;
+  background: var(--info);
+  animation: teste-pulso 1.6s ease-in-out infinite;
+}
+.aba-badge.teste-pendente i {
+  font-size: 0.6rem;
+}
+.teste-toasts {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 1400;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(340px, calc(100vw - 28px));
+  pointer-events: none;
+}
+.teste-toast {
+  position: relative;
+  pointer-events: auto;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  animation: teste-toast-entra 0.22s ease-out;
+}
+.teste-toast .rc {
+  padding-right: 54px;
+}
+.teste-toast .teste-btn {
+  padding: 11px 10px;
+  font-size: 0.95rem;
+}
+.teste-toast-acoes {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  display: flex;
+  gap: 2px;
+}
+.teste-toast-acoes button {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-sec);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.teste-toast-acoes button:hover {
+  background: var(--bg-surface);
+  color: var(--text-main);
+}
+@keyframes teste-toast-entra {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.97);
+  }
+}
+@keyframes teste-pulso {
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--info) 30%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .teste-toast,
+  .aba-badge.teste-pendente {
+    animation: none;
+  }
+}

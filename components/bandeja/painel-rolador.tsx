@@ -48,6 +48,10 @@ type Props = {
   efeitosContexto?: EfeitosContexto;
   // Rolagens saem sem os números no chat.
   privado?: boolean;
+  // A rolagem é privada porque o combate está assim (o narrador não desliga aqui).
+  privadoPeloCombate?: boolean;
+  // Só o narrador recebe: mostra o botão de rolar em privado.
+  onAlternarPrivado?: () => void;
 };
 
 // Escapa partes dinâmicas (nomes de habilidade) antes de entrar na string HTML
@@ -390,6 +394,8 @@ export function PainelRolador({
   onMensagemCriada,
   efeitosContexto,
   privado = false,
+  privadoPeloCombate = false,
+  onAlternarPrivado,
 }: Props) {
   // Rolagem privada (narrador, com o combate marcado assim): vai pro chat sem números.
   // De onde veio a rolagem em curso (ataque, dano, perícia, preset…): vai junto
@@ -401,7 +407,7 @@ export function PainelRolador({
     return registrarRolagem(
       sessao,
       nome,
-      privado ? { ...rolagem, ocultarRolagem: true, ocultarResultado: true, somenteNarrador: true } : rolagem,
+      privado ? { ...rolagem, somenteNarrador: true } : rolagem,
     );
   };
   const [dados, setDados] = useState<Dado[]>([]);
@@ -1533,6 +1539,33 @@ export function PainelRolador({
           <i className="fas fa-trash" />
         </button>
       </div>
+
+      {onAlternarPrivado && (
+        <button
+          type="button"
+          className={"rolador-privado" + (privado ? " ligado" : "")}
+          aria-pressed={privado}
+          disabled={privadoPeloCombate}
+          onClick={onAlternarPrivado}
+          title={
+            privadoPeloCombate
+              ? "O combate está com as rolagens privadas (mude na aba Sessão)"
+              : privado
+                ? "Só você vê estas rolagens; os jogadores nem sabem que rolou"
+                : "Rolar só para você, sem aparecer no chat dos jogadores"
+          }
+        >
+          <i className={`fas ${privado ? "fa-eye-slash" : "fa-eye"}`} />
+          <span>
+            {privadoPeloCombate
+              ? "Rolagem privada (combate)"
+              : privado
+                ? "Rolagem privada"
+                : "Rolagem aberta"}
+          </span>
+          <span className="rolador-privado-chave" aria-hidden="true" />
+        </button>
+      )}
 
       <button
         type="button"

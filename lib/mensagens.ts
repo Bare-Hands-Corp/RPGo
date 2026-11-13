@@ -47,9 +47,14 @@ export function serializarMensagem(m: MensagemBruta): MensagemSerializada {
   };
 }
 
-export async function listarMensagensSessao(sessionId: string): Promise<MensagemSerializada[]> {
+// `comPrivadas`: junta as rolagens privadas do narrador (`<mesa>:narrador`). Só o
+// narrador da mesa pode pedir; a action confere antes de chamar.
+export async function listarMensagensSessao(
+  sessionId: string,
+  opcoes: { comPrivadas?: boolean } = {},
+): Promise<MensagemSerializada[]> {
   const lista = await prisma.mensagem.findMany({
-    where: { sessionId },
+    where: { sessionId: opcoes.comPrivadas ? { in: [sessionId, `${sessionId}:narrador`] } : sessionId },
     orderBy: { timestamp: "desc" },
     take: 200,
   });

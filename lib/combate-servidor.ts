@@ -432,10 +432,11 @@ export async function avancarTurnoDoCombate(
   // Criatura que recebe a vez: cada ação esgotada com recarga por dado rola o
   // d6 dela. Com as rolagens do narrador privadas, o chat não fica sabendo.
   const recarga = proximo?.criaturaId ? await rolarRecargas(proximo.criaturaId, proximo.estadoRecargas) : null;
-  if (recarga && recarga.linhas.length > 0 && !combate.rolagensPrivadas) {
+  if (recarga && recarga.linhas.length > 0) {
     await prisma.mensagem.create({
       data: {
-        sessionId: combate.sessao.mesaId,
+        // Com as rolagens privadas, a recarga vai só pro narrador (sessão `<mesa>:narrador`).
+        sessionId: combate.rolagensPrivadas ? `${combate.sessao.mesaId}:narrador` : combate.sessao.mesaId,
         uid: "combate",
         nome: proximo!.nomeExibicao,
         mensagem: `recarga: ${recarga.linhas.join("; ")}.`,

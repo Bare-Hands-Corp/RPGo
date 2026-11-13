@@ -10,8 +10,10 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import Swal from "sweetalert2";
 import { formatarResultadoRolagemHtml, rolarDados, type DadoRolado } from "@/lib/dice";
 import { EVENTO_PASSOS, type PassosDoRolador } from "@/lib/op-rpg";
@@ -78,8 +80,48 @@ type Props = {
   aba: AbaConversa;
   // A lista está de fato visível (bandeja aberta numa das duas abas).
   visivel: boolean;
+  // Narrador: também recebe, em tempo real, as próprias rolagens privadas.
+  veRolagensPrivadas?: boolean;
   onNaoLidas?: (n: NaoLidas) => void;
+  // Quantos pedidos de teste esperam resposta deste jogador.
+  onTestesPendentes?: (n: number) => void;
+  // Toast do teste: leva o jogador ao chat.
+  onAbrirChat?: () => void;
 };
+
+// Pedido de teste que o jogador não respondeu continua valendo por este tempo.
+const VALIDADE_TESTE_MS = 6 * 60 * 60 * 1000;
+
+// Aviso sonoro curto (dois toques) para o pedido que chega com a aba em segundo plano.
+function tocarAviso() {
+  try {
+    const Ctx =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    [0, 0.16].forEach((atraso, i) => {
+      const osc = ctx.createOscillator();
+      const ganho = ctx.createGain();
+      osc.frequency.value = i === 0 ? 660 : 880;
+      ganho.gain.setValueAtTime(0.0001, ctx.currentTime + atraso);
+      ganho.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + atraso + 0.02);
+      ganho.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + atraso + 0.14);
+      osc.connect(ganho).connect(ctx.destination);
+      osc.start(ctx.currentTime + atraso);
+      osc.stop(ctx.currentTime + atraso + 0.16);
+    });
+    setTimeout(() => void ctx.close(), 600);
+  } catch {
+    /* sem áudio: o resto do aviso continua */
+  }
+}
+
+// Sessão das rolagens privadas do narrador (mesma regra de lib/acesso-sessao.ts,
+// que é só de servidor).
+const SUFIXO_PRIVADA = ":narrador";
+const sessaoPrivada = (mesaId: string) => `${mesaId}${SUFIXO_PRIVADA}`;
+const ehPrivada = (m: MensagemSerializada) => m.sessionId.endsWith(SUFIXO_PRIVADA);
 
 // uid de gente é um UUID; o que o sistema grava (combate, colaterais) não é.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-/i;
@@ -154,7 +196,7 @@ function avisarErro(e: unknown, padrao: string) {
 }
 
 export const PainelChat = forwardRef<PainelChatHandle, Props>(function PainelChat(
-  { userId, userName, sessionId, personagemId, mensagensIniciais, aba, visivel, onNaoLidas },
+  { userId, userName, sessionId, personagemId, mensagensIniciais, aba, visivel, veRolagensPrivadas = false, onNaoLidas, onTestesPendentes, onAbrirChat },
   ref,
 ) {
   const [mensagens, setMensagens] = useState<MensagemSerializada[]>(mensagensIniciais);
@@ -204,32 +246,36 @@ export const PainelChat = forwardRef<PainelChatHandle, Props>(function PainelCha
   // sincronizado mesmo quando o rolador está em foco.
   useEffect(() => {
     const supabase = createClient();
-    const channel = supabase
-      .channel(canal(`chat-${sessionId}`))
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "mensagens",
-          filter: `session_id=eq.${sessionId}`,
-        },
-        (payload) => {
-          if (payload.eventType === "DELETE") {
-            agendarRecarga();
-            return;
-          }
-          // A linha nova entra direto na lista; sem ela inteira, recarrega.
-          const nova = mensagemDaLinha(payload.new);
-          if (nova && nova.sessionId === sessionId) appendLocal(nova);
-          else agendarRecarga();
-        },
-      )
-      .subscribe();
+    // A sessão das rolagens privadas só o narrador assina (e só ele a lê no servidor).
+    const sessoes = veRolagensPrivadas ? [sessionId, sessaoPrivada(sessionId)] : [sessionId];
+    const canais = sessoes.map((sessao) =>
+      supabase
+        .channel(canal(`chat-${sessao}`))
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "mensagens",
+            filter: `session_id=eq.${sessao}`,
+          },
+          (payload) => {
+            if (payload.eventType === "DELETE") {
+              agendarRecarga();
+              return;
+            }
+            // A linha nova entra direto na lista; sem ela inteira, recarrega.
+            const nova = mensagemDaLinha(payload.new);
+            if (nova && nova.sessionId === sessao) appendLocal(nova);
+            else agendarRecarga();
+          },
+        )
+        .subscribe(),
+    );
     return () => {
-      supabase.removeChannel(channel);
+      canais.forEach((c) => supabase.removeChannel(c));
     };
-  }, [sessionId, appendLocal, agendarRecarga]);
+  }, [sessionId, veRolagensPrivadas, appendLocal, agendarRecarga]);
 
   useImperativeHandle(ref, () => ({ appendLocal }), [appendLocal]);
 
@@ -299,6 +345,89 @@ export const PainelChat = forwardRef<PainelChatHandle, Props>(function PainelCha
     };
     onNaoLidas?.({ chat: contar("chat"), rolagens: contar("rolagens") });
   }, [listas, aba, visivel, userId, onNaoLidas]);
+
+  // ── Testes pedidos ao jogador ──
+  // O portal só existe no navegador (no servidor não há document).
+  const montado = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
+  const [dispensados, setDispensados] = useState<Set<string>>(() => new Set());
+  const [abertoEm] = useState(() => Date.now());
+  const pendentes = useMemo(() => {
+    if (!personagemId) return [];
+    const limite = abertoEm - VALIDADE_TESTE_MS;
+    return mensagens.filter(
+      (m) =>
+        m.tipo === "teste" &&
+        !!m.detalhes &&
+        testeVisivel(m, personagemId) &&
+        new Date(m.timestamp).getTime() > limite &&
+        !respondeuAoTeste(mensagens, m.id, userId),
+    );
+  }, [mensagens, personagemId, userId, abertoEm]);
+  const idsPendentes = pendentes.map((m) => m.id).join(",");
+
+  useEffect(() => {
+    onTestesPendentes?.(pendentes.length);
+  },[pendentes.length, onTestesPendentes]);
+
+  // Pedido que chegou depois do carregamento: som, vibração, título e notificação.
+  const conhecidos = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const ids = idsPendentes ? idsPendentes.split(",") : [];
+    if (conhecidos.current === null) {
+      conhecidos.current = new Set(ids);
+      return;
+    }
+    const novos = pendentes.filter((m) => !conhecidos.current!.has(m.id));
+    ids.forEach((id) => conhecidos.current!.add(id));
+    if (novos.length === 0) return;
+    const nomes = novos.map((m) => (m.detalhes as { pericia?: string | null }).pericia || "Teste");
+    const texto = nomes.length === 1 ? `Teste de ${nomes[0]}` : `${nomes.length} testes pedidos`;
+    tocarAviso();
+    try {
+      navigator.vibrate?.([120, 60, 120]);
+    } catch {
+      /* sem vibração */
+    }
+    if (document.hidden) {
+      const tituloOriginal = document.title;
+      document.title = `🎲 ${texto}`;
+      const restaurar = () => {
+        if (document.hidden) return;
+        document.title = tituloOriginal;
+        document.removeEventListener("visibilitychange", restaurar);
+      };
+      document.addEventListener("visibilitychange", restaurar);
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        try {
+          new Notification("O narrador pediu um teste", { body: texto, tag: "teste-pedido" });
+        } catch {
+          /* navegador sem Notification no construtor */
+        }
+      }
+    }
+  }, [idsPendentes, pendentes]);
+
+  // Permissão de notificação pedida no primeiro toque do jogador (exige um gesto).
+  useEffect(() => {
+    if (!personagemId || typeof Notification === "undefined" || Notification.permission !== "default") return;
+    const pedir = () => {
+      void Notification.requestPermission().catch(() => {});
+    };
+    window.addEventListener("pointerdown", pedir, { once: true });
+    return () => window.removeEventListener("pointerdown", pedir);
+  }, [personagemId]);
+
+  const chatAberto = visivel && aba === "chat";
+  // Teste automático rola sozinho: não precisa de toast para clicar.
+  const toasts = chatAberto
+    ? []
+    : pendentes
+        .filter((m) => !dispensados.has(m.id) && (m.detalhes as { rolagemAutomatica?: boolean }).rolagemAutomatica !== true)
+        .slice(-3);
 
   const enviar = useCallback(
     async (texto: string): Promise<boolean> => {
@@ -385,6 +514,39 @@ export const PainelChat = forwardRef<PainelChatHandle, Props>(function PainelCha
 
   return (
     <>
+      {montado &&
+        toasts.length > 0 &&
+        createPortal(
+          <div className="teste-toasts" role="region" aria-label="Testes pedidos pelo narrador">
+            {toasts.map((m) => (
+              <div key={m.id} className="teste-toast">
+                <div className="teste-toast-acoes">
+                  <button type="button" onClick={onAbrirChat} title="Abrir no chat" aria-label="Abrir no chat">
+                    <i className="fas fa-up-right-from-square" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDispensados((s) => new Set(s).add(m.id))}
+                    title="Dispensar"
+                    aria-label="Dispensar"
+                  >
+                    <i className="fas fa-xmark" />
+                  </button>
+                </div>
+                <TesteMensagemView
+                  msg={m}
+                  hora={formatoHora.format(new Date(m.timestamp))}
+                  jaRolou={false}
+                  userName={userName}
+                  sessionId={sessionId}
+                  personagemId={personagemId}
+                  onMensagemAtualizada={appendLocal}
+                />
+              </div>
+            ))}
+          </div>,
+          document.body,
+        )}
       <div className="chat-lista">
         <div
           className="chat-messages"
@@ -481,9 +643,12 @@ function Cartao({
   sub,
   hora,
   chips,
+  propria,
   children,
 }: {
   tom: Tom;
+  // Rolagem feita por quem está lendo: ganha destaque no registro.
+  propria?: boolean;
   estado?: "sucesso" | "falha" | null;
   icone: string;
   titulo: string;
@@ -493,7 +658,7 @@ function Cartao({
   children?: ReactNode;
 }) {
   return (
-    <div className={`chat-message rc rc-${tom}${estado ? ` ${estado}` : ""}`}>
+    <div className={`chat-message rc rc-${tom}${estado ? ` ${estado}` : ""}${propria ? " rc-propria" : ""}`}>
       <div className="rc-topo">
         <span className="rc-icone" aria-hidden="true">
           <i className={`fas ${icone}`} />
@@ -593,7 +758,7 @@ const MensagemView = memo(function MensagemView({
   const nome = minha ? "Você" : msg.nome;
 
   if (msg.tipo === "rolagem" && msg.detalhes) {
-    return <RolagemView msg={msg} hora={hora} nome={nome} dano={dano} />;
+    return <RolagemView msg={msg} hora={hora} nome={nome} dano={dano} propria={minha} />;
   }
 
   if (msg.tipo === "teste" && msg.detalhes) {
@@ -725,11 +890,13 @@ function RolagemView({
   hora,
   nome,
   dano,
+  propria,
 }: {
   msg: MensagemSerializada;
   hora: string;
   nome: string;
   dano?: MensagemSerializada | null;
+  propria: boolean;
 }) {
   const d = detalhesDaRolagem(msg);
   const ehLote = d.kind === "lote" && Array.isArray(d.execucoes);
@@ -745,8 +912,16 @@ function RolagemView({
   );
   const sub = [nome, rotulo.sub].filter(Boolean).join(" · ");
 
+  // Só o narrador chega a ter mensagem dessa sessão: lembra que os jogadores não a veem.
+  const privada = ehPrivada(msg);
   const chips = (
     <>
+      {privada && (
+        <span className="rc-chip privada" title="Só você vê esta rolagem">
+          <i className="fas fa-eye-slash" />
+          Privada
+        </span>
+      )}
       {modo !== "normal" && (
         <span className={"rc-chip " + (modo === "vantagem" ? "bom" : "ruim")}>
           <i className={`fas ${modo === "vantagem" ? "fa-arrow-up" : "fa-arrow-down"}`} />
@@ -774,7 +949,7 @@ function RolagemView({
       )}
     </>
   );
-  const temChips = modo !== "normal" || ehLote || typeof d.cd === "number" || sucesso !== null;
+  const temChips = privada || modo !== "normal" || ehLote || typeof d.cd === "number" || sucesso !== null;
   const rotuloDano = dano ? rotuloDaRolagem(dano) : null;
 
   return (
@@ -785,6 +960,7 @@ function RolagemView({
       titulo={rotulo.titulo}
       sub={sub}
       hora={hora}
+      propria={propria}
       chips={temChips ? chips : null}
     >
       <CorpoRolagem msg={msg} />
@@ -1046,6 +1222,20 @@ function tomDoStatus(status: string): string {
   return "";
 }
 
+// Pedidos já disparados em rolagem automática (o cartão pode aparecer em mais de um lugar).
+const testesAutoDisparados = new Set<string>();
+
+function AutoRolar({ ativo, id, onRolar }: { ativo: boolean; id: string; onRolar: () => void }) {
+  useEffect(() => {
+    if (!ativo || testesAutoDisparados.has(id)) return;
+    testesAutoDisparados.add(id);
+    onRolar();
+    // Dispara uma vez por pedido, com o estado do momento em que ele chegou.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ativo, id]);
+  return null;
+}
+
 function TesteMensagemView({
   msg,
   hora,
@@ -1080,6 +1270,7 @@ function TesteMensagemView({
     bonusDetalhesPorAlvo?: Record<string, string>;
     dadosPorAlvo?: Record<string, Array<{ faces: number; sinal: 1 | -1 }>>;
     progressivosPorAlvo?: Record<string, Array<{ fonte: string; formula: string; em: string; soma?: number; passos?: number }>>;
+    rolagemAutomatica?: boolean;
   };
   const [rolando, setRolando] = useState(false);
 
@@ -1214,6 +1405,7 @@ function TesteMensagemView({
         </>
       }
     >
+      <AutoRolar ativo={detalhes.rolagemAutomatica === true && !jaRolou} id={msg.id} onRolar={resolverTeste} />
       {bonusDetalhado && !jaRolou && <div className="teste-bonus">{bonusDetalhado}</div>}
       {jaRolou ? (
         <div className="teste-feito">

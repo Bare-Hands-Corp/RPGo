@@ -523,6 +523,8 @@ export async function criarSolicitacaoTeste(
     alvos?: string[] | "TODOS";
     alvosNomes?: string[];
     modosPorAlvo?: Record<string, ModoTeste>;
+    // O jogador rola sozinho ao receber, sem clicar.
+    rolagemAutomatica?: boolean;
   },
 ) {
   const { userId } = await requireNarradorMesa(mesaId);
@@ -612,6 +614,7 @@ export async function criarSolicitacaoTeste(
         alvos: payload.alvos ?? "TODOS",
         alvosNomes,
         statusPorNome: {},
+        rolagemAutomatica: payload.rolagemAutomatica === true,
         modosPorAlvo,
         bonusPorAlvo,
         bonusDetalhesPorAlvo,
