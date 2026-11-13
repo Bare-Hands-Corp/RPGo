@@ -1,5 +1,7 @@
 // Lógica de rolagem de dados — pura, sem DOM.
 
+import { agruparConsecutivos, dadosRoladosHtml } from "./dados-html";
+
 export type Dado = { faces: number; sinal: 1 | -1 };
 export type ModoRolagem = "normal" | "vantagem" | "desvantagem";
 
@@ -131,18 +133,15 @@ export function formatarResultadoRolagemHtml(resultado: {
   detalhes: DadoRolado[];
   modificador: number;
 }): string {
-  let stringFinal = "";
-  resultado.detalhes.forEach((d, i) => {
-    const op =
-      i === 0 ? (d.sinal === -1 ? "- " : "") : d.sinal === 1 ? " + " : " - ";
-    stringFinal += `${op}${formatarDadoRoladoHtml(d, false)}`;
-  });
-
-  if (resultado.modificador !== 0) {
-    stringFinal += ` ${resultado.modificador >= 0 ? "+" : "-"} ${Math.abs(resultado.modificador)}`;
-  }
-
-  return stringFinal;
+  return dadosRoladosHtml(
+    resultado.detalhes.map((d) => ({
+      faces: d.faces,
+      sinal: d.sinal,
+      valor: d.resultado,
+      riscados: d.vantagem ? [{ valor: d.vantagem.descartado, titulo: "descartado" }] : undefined,
+    })),
+    resultado.modificador,
+  );
 }
 
 // Tira os trechos entre parênteses: são anotação ("10d12 (14d12 com X)").
@@ -249,16 +248,17 @@ export function resolverD20(rolados: number[], opcoes: OpcoesD20 = {}): D20Resul
 
 export function formulaTexto(dados: Dado[], modificador: number): string {
   let f = "";
-  dados.forEach((d, i) => {
+  // Dados iguais vizinhos juntos: "6d6 + 2d8", não "1d6 + 1d6 + …".
+  agruparConsecutivos(dados).forEach((g, i) => {
     const op =
       i === 0
-        ? d.sinal === -1
+        ? g.sinal === -1
           ? "- "
           : ""
-        : d.sinal === 1
+        : g.sinal === 1
           ? " + "
           : " - ";
-    f += `${op}1d${d.faces}`;
+    f += `${op}${g.itens.length}d${g.faces}`;
   });
   if (modificador && modificador !== 0) {
     f += dados.length > 0

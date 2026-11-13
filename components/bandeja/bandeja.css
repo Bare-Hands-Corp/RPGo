@@ -169,21 +169,21 @@
   transform: translateY(-2px);
 }
 .dice-grid-buttons.negative-mode .dice-btn[data-faces],
-.dice-grid-buttons.negative-mode .dice-btn:not(.sign-btn) {
+.dice-grid-buttons.negative-mode .dice-btn:not(.sign-btn):not(.dado-forma) {
   border-color: color-mix(in oklch, var(--danger) 45%, var(--bg-card));
   background-color: color-mix(in oklch, var(--danger) 10%, var(--bg-card));
   color: var(--danger);
 }
-.dice-grid-buttons.negative-mode .dice-btn:not(.sign-btn):hover {
+.dice-grid-buttons.negative-mode .dice-btn:not(.sign-btn):not(.dado-forma):hover {
   background-color: var(--danger);
   color: white;
 }
-.dark-mode .dice-grid-buttons.negative-mode .dice-btn:not(.sign-btn) {
+.dark-mode .dice-grid-buttons.negative-mode .dice-btn:not(.sign-btn):not(.dado-forma) {
   border-color: color-mix(in oklch, var(--danger) 45%, var(--bg-card));
   background-color: color-mix(in oklch, var(--danger) 18%, var(--bg-card));
   color: color-mix(in oklch, var(--danger) 60%, #fff);
 }
-.dark-mode .dice-grid-buttons.negative-mode .dice-btn:not(.sign-btn):hover {
+.dark-mode .dice-grid-buttons.negative-mode .dice-btn:not(.sign-btn):not(.dado-forma):hover {
   background-color: var(--danger);
   color: white;
 }
@@ -474,12 +474,9 @@
   align-items: center;
 }
 .roll-mode-switch {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: flex;
   gap: 6px;
-  width: 100%;
-  max-width: 360px;
-  justify-items: stretch;
+  flex-shrink: 0;
 }
 .roll-mode-btn {
   border: 1px solid var(--border);
@@ -670,22 +667,6 @@
 }
 
 @media (max-width: 640px) {
-  .roll-mode-switch {
-    grid-template-columns: 1fr;
-  }
-
-  .roll-footer-row {
-    flex-wrap: wrap;
-  }
-
-  .roll-footer-mod {
-    max-width: none;
-    flex-basis: 100%;
-  }
-
-  .roll-footer-separator {
-    display: none;
-  }
 
   .roll-batch-row {
     grid-template-columns: auto 1fr;
@@ -1256,4 +1237,391 @@
 .rolador-chip-passos button:disabled {
   opacity: 0.35;
   cursor: default;
+}
+
+/* ─── Dados desenhados do resultado (lib/dados-html.ts) ─────────────
+   Tudo sai das variáveis do tema (--primary, --bg-card, --text-*,
+   --success, --danger), então segue o tema claro/escuro/customizado. */
+.rd-res {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  word-break: normal;
+}
+.rd-det {
+  display: block;
+  word-break: normal;
+}
+.rd-det > summary {
+  list-style: none;
+  cursor: pointer;
+  border-radius: 10px;
+  padding: 2px 4px;
+}
+.rd-det > summary::-webkit-details-marker {
+  display: none;
+}
+.rd-det > summary:hover {
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+.rd-det > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.rd-det:not([open]) > summary .rd-aberto,
+.rd-det[open] > summary .rd-fechado {
+  display: none;
+}
+.rd-aberto,
+.rd-mais {
+  font-size: 0.72rem;
+  color: var(--text-sec);
+}
+.rd-mais {
+  display: block;
+  margin-top: 2px;
+}
+.rd-todos {
+  width: 100%;
+}
+.rd-todos > .rd-res {
+  margin-top: 6px;
+}
+.rd-grupo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 2px 8px;
+  max-width: 100%;
+}
+.rd-grupo.rd-det {
+  display: block;
+  text-align: center;
+}
+.rd-grupo.rd-det .rd-dados {
+  margin-top: 4px;
+}
+.rd-grupo.rd-det .rd-rot {
+  display: block;
+}
+.rd-dados {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  justify-content: center;
+}
+.rd-d {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.rd-linha {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  align-items: flex-start;
+}
+.rd-tile {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+}
+.rd-rot {
+  font-size: 0.72rem;
+  color: var(--text-sec);
+  line-height: 1.2;
+}
+.rd-rot b {
+  font-weight: 700;
+  color: var(--text-main);
+}
+.rd-mod {
+  align-self: auto;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--text-sec);
+}
+.rd-dado {
+  --rd-fundo: color-mix(in srgb, var(--primary) 7%, var(--bg-card));
+  --rd-borda: color-mix(in srgb, var(--text-sec) 55%, var(--bg-card));
+  --rd-texto: var(--text-main);
+  display: block;
+  flex-shrink: 0;
+}
+.rd-dado.rd-sucesso {
+  --rd-fundo: color-mix(in srgb, var(--success) 18%, var(--bg-card));
+  --rd-borda: var(--success);
+  --rd-texto: var(--success);
+}
+.rd-dado.rd-falha {
+  --rd-fundo: color-mix(in srgb, var(--danger) 16%, var(--bg-card));
+  --rd-borda: var(--danger);
+  --rd-texto: var(--danger);
+}
+.rd-borda {
+  fill: var(--rd-borda);
+  stroke: var(--rd-borda);
+}
+.rd-miolo {
+  fill: var(--rd-fundo);
+  stroke: var(--rd-fundo);
+}
+.rd-num {
+  fill: var(--rd-texto);
+  font-weight: 700;
+  font-family: inherit;
+}
+
+/* Campo da fórmula, acima do botão de rolar: parece um campo de texto, e
+   clicar nele abre a edição ("10d12 + 4"). */
+.formula-campo {
+  margin: 0 0 10px;
+}
+.formula-campo-rotulo {
+  margin: 0 0 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-sec);
+}
+.formula-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1.5px solid color-mix(in srgb, var(--primary) 55%, var(--border));
+  border-radius: 8px;
+  color: var(--text-main);
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  text-align: left;
+  cursor: text;
+}
+.formula-preview:hover,
+.formula-preview:focus-visible {
+  border-color: var(--primary);
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+}
+.formula-preview.vazia {
+  font-weight: 400;
+  color: var(--text-sec);
+}
+.formula-preview i {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  color: var(--primary);
+}
+.formula-edicao input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1.5px solid var(--primary);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+  outline: none;
+}
+.formula-edicao input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+.formula-erro {
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--danger);
+}
+
+/* Resultado: total à esquerda, dados ao lado. */
+.tray-result-box {
+  min-height: 0;
+}
+.tray-result-label {
+  margin-bottom: 6px;
+  font-size: 0.8rem;
+  color: var(--text-sec);
+}
+.tray-result-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+.tray-result-total {
+  flex-shrink: 0;
+  min-width: 2.2ch;
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--primary);
+}
+.tray-result-row:not(.empilhado) .tray-result-total + .tray-result-dice {
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+}
+.tray-result-dice {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.85rem;
+  color: var(--text-sec);
+  text-align: left;
+}
+.tray-result-dice .rd-res {
+  align-items: flex-start;
+}
+.tray-result-dice .rd-grupo,
+.tray-result-dice .rd-linha {
+  justify-content: flex-start;
+}
+.tray-result-row.empilhado {
+  flex-direction: column;
+}
+.tray-result-row.empilhado .tray-result-dice {
+  width: 100%;
+  text-align: center;
+}
+/* Mensagem de rolagem no chat: o mesmo arranjo. */
+.roll-box:has(> .roll-details .rd-res) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: left;
+}
+.roll-box:has(> .roll-details .rd-res) .roll-total {
+  flex-shrink: 0;
+  padding-right: 12px;
+  border-right: 1px solid var(--border);
+}
+.roll-box:has(> .roll-details .rd-res) .roll-details {
+  flex: 1;
+  min-width: 0;
+  margin-top: 0;
+}
+.roll-box:has(> .roll-details .rd-res) .rd-res {
+  align-items: flex-start;
+}
+.roll-box:has(> .roll-details .rd-res) .rd-grupo,
+.roll-box:has(> .roll-details .rd-res) .rd-linha {
+  justify-content: flex-start;
+}
+
+/* Botões de dado no formato do dado (SVG com as cores do tema). */
+.dice-btn.dado-forma {
+  --rd-fundo: var(--bg-card);
+  --rd-borda: color-mix(in srgb, var(--text-sec) 40%, var(--bg-card));
+  --rd-texto: var(--text-sec);
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: 12px;
+}
+.dice-btn.dado-forma svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.dice-btn.dado-forma:hover,
+.dice-btn.dado-forma:focus-visible {
+  --rd-borda: var(--primary);
+  --rd-texto: var(--primary);
+  --rd-fundo: color-mix(in srgb, var(--primary) 8%, var(--bg-card));
+  outline: none;
+}
+.dice-grid-buttons.negative-mode .dice-btn.dado-forma {
+  --rd-fundo: color-mix(in srgb, var(--danger) 10%, var(--bg-card));
+  --rd-borda: color-mix(in srgb, var(--danger) 55%, var(--bg-card));
+  --rd-texto: var(--danger);
+}
+.dice-grid-buttons.negative-mode .dice-btn.dado-forma:hover,
+.dice-grid-buttons.negative-mode .dice-btn.dado-forma:focus-visible {
+  --rd-fundo: var(--danger);
+  --rd-borda: var(--danger);
+  --rd-texto: #fff;
+}
+.dice-btn.sign-btn {
+  border-radius: 50%;
+}
+
+.dice-grid-buttons {
+  justify-items: center;
+}
+.dice-grid-buttons .dice-btn {
+  width: 100%;
+  max-width: 56px;
+}
+
+/* Vantagem e desvantagem: botões compactos (só o ícone) na linha dos campos. */
+.roll-mode-switch .roll-toggle-btn {
+  flex: none;
+  width: 38px;
+  min-height: 36px;
+  height: 36px;
+  padding: 0;
+  box-shadow: 0 3px 0 var(--sombra-modo);
+}
+.roll-mode-switch .roll-toggle-btn.vantagem {
+  --sombra-modo: color-mix(in oklch, var(--success) 75%, #000);
+}
+.roll-mode-switch .roll-toggle-btn.desvantagem {
+  --sombra-modo: color-mix(in oklch, var(--danger) 75%, #000);
+}
+.roll-mode-switch .roll-toggle-btn.active,
+.roll-mode-switch .roll-toggle-btn:not(.active) {
+  box-shadow: 0 3px 0 var(--sombra-modo);
+}
+.roll-mode-switch .roll-toggle-btn:active {
+  transform: translateY(3px);
+  box-shadow: none;
+}
+.roll-mode-switch .roll-toggle-btn i {
+  font-size: 0.85rem;
+}
+.roll-footer-mod {
+  flex-basis: 90px;
+  max-width: 110px;
+}
+
+/* Campo da fórmula com o botão de limpar ao lado. */
+.formula-campo {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.formula-campo-corpo {
+  flex: 1;
+  min-width: 0;
+}
+.formula-campo > .btn-rect {
+  height: 42px;
+}
+.formula-preview.anterior span {
+  font-weight: 400;
+  color: var(--text-sec);
+}
+
+/* Campo da fórmula e botão de limpar sempre com a mesma altura. */
+.formula-preview,
+.formula-edicao input {
+  height: 42px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.formula-preview span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
