@@ -1995,7 +1995,7 @@ export function AcoesTab({
                     if (golpe?.atq) {
                       empilharD20(
                         golpe.atq.bonus - penD20,
-                        `Atacar ${acao.nome} (${golpe.arma.nome})`,
+                        `Atacar ${acao.nome} · ${golpe.arma.nome}`,
                         {
                           tipo: "ataque",
                           alcance: golpe.atq.alcance,
@@ -2026,7 +2026,7 @@ export function AcoesTab({
                     empilharRolagem({
                       dados: x.d.dados,
                       modificador: x.d.modificador,
-                      nomePreset: `Dano ${acao.nome}${x.rotulo ? ` (${x.rotulo})` : ""}`,
+                      nomePreset: `Dano ${acao.nome}${x.rotulo ? ` · ${x.rotulo}` : ""}`,
                       // Contexto de dano pros efeitos de dano do Rolador.
                       contexto: {
                         tipo: "dano",

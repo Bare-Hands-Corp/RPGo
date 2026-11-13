@@ -392,12 +392,18 @@ export function PainelRolador({
   privado = false,
 }: Props) {
   // Rolagem privada (narrador, com o combate marcado assim): vai pro chat sem números.
-  const registrar: typeof registrarRolagem = (sessao, nome, rolagem) =>
-    registrarRolagem(
+  // De onde veio a rolagem em curso (ataque, dano, perícia, preset…): vai junto
+  // pro chat escolher o ícone. Fica num ref porque o "Manter" grava depois que o
+  // contexto do Rolador já foi limpo.
+  const origem = useRef<string | null>(null);
+  const registrar: typeof registrarRolagem = (sessao, nome, bruta) => {
+    const rolagem = { ...bruta, contexto: bruta.contexto ?? origem.current };
+    return registrarRolagem(
       sessao,
       nome,
       privado ? { ...rolagem, ocultarRolagem: true, ocultarResultado: true, somenteNarrador: true } : rolagem,
     );
+  };
   const [dados, setDados] = useState<Dado[]>([]);
   const [modificadorTexto, setModificadorTexto] = useState("0");
   const [negativo, setNegativo] = useState(false);
@@ -556,6 +562,7 @@ export function PainelRolador({
         modo: "normal",
         nomePreset: det.nomePreset,
         texto: detalhesHtml,
+        contexto: "cura",
       })
         .then((msg) => onMensagemCriada(msg))
         .catch((err) => console.error(err));
@@ -784,7 +791,7 @@ export function PainelRolador({
       const linhas = lote.execucoes
         .map(
           (execucao, indice) =>
-            `<div class="roll-batch-row"><span class="roll-batch-index">#${indice + 1}</span><span class="roll-batch-total">[${execucao.total}]</span><span class="roll-batch-formula">= ${formatarResultadoRolagemHtml(execucao)}</span></div>`,
+            `<div class="roll-batch-row"><span class="roll-batch-index">#${indice + 1}</span><span class="roll-batch-total">${execucao.total}</span><span class="roll-batch-formula">${formatarResultadoRolagemHtml(execucao)}</span></div>`,
         )
         .join("");
       const resumo = `${quantidadeUsar}x ${rotuloModo(modoUsar).toLowerCase()}`;
@@ -1086,7 +1093,7 @@ export function PainelRolador({
     const linhas = execucoes
       .map(
         (e, i) =>
-          `<div class="roll-batch-row"><span class="roll-batch-index">#${i + 1}</span><span class="roll-batch-total">[${e.total}]</span><span class="roll-batch-formula">= ${textoDoLance(e)}</span></div>`,
+          `<div class="roll-batch-row"><span class="roll-batch-index">#${i + 1}</span><span class="roll-batch-total">${e.total}</span><span class="roll-batch-formula">${textoDoLance(e)}</span></div>`,
       )
       .join("");
     setResultado({
@@ -1109,6 +1116,8 @@ export function PainelRolador({
         texto: textoDoLance(e),
       })),
       nomePreset: nomePreset || null,
+      // As fontes dos efeitos valem pro lote inteiro.
+      texto: notasHtml.trim() || null,
     })
       .then((msg) => onMensagemCriada(msg))
       .catch((err) => console.error(err));
@@ -1194,11 +1203,13 @@ export function PainelRolador({
     setPendente(null);
     // Nada montado: repete a última rolagem manual.
     if (vazio && ultimaRolagem) {
+      origem.current = null;
       executarRolagem(ultimaRolagem.dados, ultimaRolagem.modificador, null, quantidadeValida, modoRolagem);
       return;
     }
     // Com contexto empilhado, a rolagem é contextual (vant/floor/crit/reroll no
     // d20) e ignora o lote. Sem contexto, segue o fluxo manual (lote + modo).
+    origem.current = contexto?.tipo ?? null;
     if (contexto) rolarContextual(dados, modificador, nomeContexto);
     else {
       executarRolagem(dados, modificador, nomeContexto, quantidadeValida, modoRolagem);
@@ -1262,6 +1273,7 @@ export function PainelRolador({
 
   async function executarPreset(p: Preset) {
     if (modoGravacao) cancelarGravacao();
+    origem.current = "preset";
     executarRolagem(p.dados, p.modificador, p.nome, p.quantidade, p.modoRolagem);
   }
 

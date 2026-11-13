@@ -8,7 +8,15 @@ import {
   type MensagemSerializada,
 } from "@/lib/mensagens";
 import type { DadoRolado, ModoRolagem } from "@/lib/dice";
+import { acessoASessao } from "@/lib/acesso-sessao";
+import { sanitizarHtmlRolagem } from "@/lib/sanitizar-rolagem";
 import type { Prisma } from "@prisma/client";
+
+const LIMITE_MENSAGEM = 2000;
+const LIMITE_NOME = 80;
+const LIMITE_ROTULO = 160;
+const LIMITE_EXECUCOES = 100;
+const LIMITE_DADOS = 400;
 
 async function requireUser() {
   const user = await usuarioDaRequest();
@@ -16,8 +24,71 @@ async function requireUser() {
   return user;
 }
 
+// Usuário logado que participa da sessão (membro da mesa, narrador ou dono da ficha).
+async function requireSessao(sessionId: string) {
+  const user = await requireUser();
+  const acesso = await acessoASessao(sessionId, user.id);
+  if (!acesso) throw new Error("Você não participa desta sessão.");
+  return { user, acesso };
+}
+
+function nomeLimpo(nome: unknown): string {
+  return (typeof nome === "string" ? nome.trim().slice(0, LIMITE_NOME) : "") || "Anônimo";
+}
+
+function rotulo(valor: unknown): string | null {
+  return typeof valor === "string" && valor.trim() ? valor.trim().slice(0, LIMITE_ROTULO) : null;
+}
+
+function inteiro(valor: unknown): number {
+  const n = Math.trunc(Number(valor));
+  return Number.isFinite(n) ? Math.max(-1_000_000, Math.min(1_000_000, n)) : 0;
+}
+
+// Dados rolados só com números: o chat monta HTML a partir deles.
+function dadosLimpos(lista: unknown): DadoRolado[] {
+  if (!Array.isArray(lista)) return [];
+  return lista.slice(0, LIMITE_DADOS).map((bruto) => {
+    const d = (bruto ?? {}) as { faces?: unknown; sinal?: unknown; resultado?: unknown; vantagem?: unknown };
+    const v = d.vantagem as
+      | { descartado?: unknown; modo?: unknown; candidatos?: unknown }
+      | null
+      | undefined;
+    const limpo: Record<string, unknown> = {
+      faces: Math.max(1, Math.min(1000, inteiro(d.faces))),
+      sinal: Number(d.sinal) === -1 ? -1 : 1,
+      resultado: inteiro(d.resultado),
+    };
+    if (v && typeof v === "object") {
+      limpo.vantagem = {
+        ...(v.modo === "vantagem" || v.modo === "desvantagem" ? { modo: v.modo } : {}),
+        ...(Array.isArray(v.candidatos)
+          ? { candidatos: [inteiro(v.candidatos[0]), inteiro(v.candidatos[1])] }
+          : {}),
+        descartado: inteiro(v.descartado),
+      };
+    }
+    return limpo as unknown as DadoRolado;
+  });
+}
+
+function modoLimpo(modo: unknown): ModoRolagem {
+  return modo === "vantagem" || modo === "desvantagem" ? modo : "normal";
+}
+
+const CONTEXTOS = new Set([
+  "ataque",
+  "dano",
+  "pericia",
+  "salvaguarda",
+  "teste-atributo",
+  "iniciativa",
+  "cura",
+  "preset",
+]);
+
 export async function listarMensagens(sessionId: string): Promise<MensagemSerializada[]> {
-  await requireUser();
+  await requireSessao(sessionId);
   return listarMensagensSessao(sessionId);
 }
 
@@ -28,14 +99,17 @@ export async function enviarMensagemTexto(
   nome: string,
   mensagem: string,
 ): Promise<MensagemSerializada> {
-  const user = await requireUser();
-  const texto = mensagem.trim();
+  const { user } = await requireSessao(sessionId);
+  const texto = typeof mensagem === "string" ? mensagem.trim() : "";
   if (!texto) throw new Error("Mensagem vazia.");
+  if (texto.length > LIMITE_MENSAGEM) {
+    throw new Error(`Mensagem longa demais (máximo de ${LIMITE_MENSAGEM} caracteres).`);
+  }
   const nova = await prisma.mensagem.create({
     data: {
       sessionId,
       uid: user.id,
-      nome: nome || "Anônimo",
+      nome: nomeLimpo(nome),
       mensagem: texto,
       tipo: "texto",
     },
@@ -74,6 +148,8 @@ type BaseRolagemPayload = {
   bonusTotal?: number | null;
   solicitacaoTesteId?: string | null;
   alvoNome?: string | null;
+  // De onde veio a rolagem (ataque, dano, perícia, preset…): escolhe o ícone no chat.
+  contexto?: string | null;
 };
 
 type RolagemUnitariaPayload = BaseRolagemPayload & {
@@ -125,7 +201,39 @@ export async function registrarRolagem(
   nome: string,
   rolagem: RolagemPayload,
 ): Promise<MensagemSerializada> {
-  const user = await requireUser();
+  const { user } = await requireSessao(sessionId);
+  // Nada do payload é confiável: o HTML passa pela lista do que o Rolador usa,
+  // e os números e rótulos são normalizados antes de gravar.
+  rolagem = {
+    ...rolagem,
+    total: rolagem.total == null ? null : inteiro(rolagem.total),
+    modificador: inteiro(rolagem.modificador),
+    modo: modoLimpo(rolagem.modo),
+    nomePreset: rotulo(rolagem.nomePreset),
+    pericia: rotulo(rolagem.pericia),
+    bonusDetalhe: rotulo(rolagem.bonusDetalhe),
+    alvoNome: rotulo(rolagem.alvoNome),
+    texto: rolagem.texto ? sanitizarHtmlRolagem(rolagem.texto) : null,
+    cd: rolagem.cd == null ? null : inteiro(rolagem.cd),
+    bonusTotal: rolagem.bonusTotal == null ? null : inteiro(rolagem.bonusTotal),
+    contexto: typeof rolagem.contexto === "string" && CONTEXTOS.has(rolagem.contexto) ? rolagem.contexto : null,
+    solicitacaoTesteId:
+      typeof rolagem.solicitacaoTesteId === "string" ? rolagem.solicitacaoTesteId.slice(0, 64) : null,
+    ...(rolagem.tipo === "lote"
+      ? {
+          quantidade: Math.max(1, Math.min(LIMITE_EXECUCOES, inteiro(rolagem.quantidade))),
+          execucoes: (Array.isArray(rolagem.execucoes) ? rolagem.execucoes : [])
+            .slice(0, LIMITE_EXECUCOES)
+            .map((e) => ({
+              total: inteiro(e?.total),
+              modificador: inteiro(e?.modificador),
+              modo: modoLimpo(e?.modo),
+              detalhes: dadosLimpos(e?.detalhes),
+              texto: e?.texto ? sanitizarHtmlRolagem(e.texto) : null,
+            })),
+        }
+      : { detalhes: dadosLimpos(rolagem.detalhes) }),
+  } as RolagemPayload;
   const privada = rolagem.somenteNarrador === true;
   if (privada) {
     // Tira os números antes de montar a mensagem.
@@ -148,7 +256,7 @@ export async function registrarRolagem(
     data: {
       sessionId,
       uid: user.id,
-      nome: nome || "Anônimo",
+      nome: nomeLimpo(nome),
       tipo: "rolagem",
       total: privada ? null : rolagem.total,
       modificador: rolagem.modificador,
@@ -166,10 +274,13 @@ export async function registrarRolagem(
                 texto: execucao.texto ?? null,
               })),
               nomePreset: rolagem.nomePreset || null,
-              tipoTeste: rolagem.tipoTeste || null,
+              // Anotações das fontes dos efeitos (HTML já filtrado).
+              texto: rolagem.texto || null,
+              contexto: rolagem.contexto ?? null,
+              tipoTeste: rolagem.tipoTeste === true || null,
               pericia: rolagem.pericia || null,
               cd: rolagem.cd ?? null,
-              sucesso: rolagem.sucesso ?? null,
+              sucesso: typeof rolagem.sucesso === "boolean" ? rolagem.sucesso : null,
               privacidadeResultado: rolagem.privacidadeResultado ?? null,
               ocultarRolagem: rolagem.ocultarRolagem ?? null,
               ocultarResultado: rolagem.ocultarResultado ?? null,
@@ -185,10 +296,11 @@ export async function registrarRolagem(
               // String HTML já formatada (vantagem, crit, fontes) da rolagem
               // contextual. O chat a renderiza direto quando presente.
               texto: rolagem.texto || null,
-              tipoTeste: rolagem.tipoTeste || null,
+              contexto: rolagem.contexto ?? null,
+              tipoTeste: rolagem.tipoTeste === true || null,
               pericia: rolagem.pericia || null,
               cd: rolagem.cd ?? null,
-              sucesso: rolagem.sucesso ?? null,
+              sucesso: typeof rolagem.sucesso === "boolean" ? rolagem.sucesso : null,
               privacidadeResultado: rolagem.privacidadeResultado ?? null,
               ocultarRolagem: rolagem.ocultarRolagem ?? null,
               ocultarResultado: rolagem.ocultarResultado ?? null,
@@ -203,9 +315,11 @@ export async function registrarRolagem(
   if (rolagem.solicitacaoTesteId && rolagem.alvoNome) {
     const solicitacao = await prisma.mensagem.findUnique({
       where: { id: rolagem.solicitacaoTesteId },
-      select: { detalhes: true },
+      select: { detalhes: true, sessionId: true, tipo: true },
     });
-    const detalhesSolicitacao = (solicitacao?.detalhes as {
+    // Só responde a pedido de teste desta mesma sessão.
+    const valida = solicitacao && solicitacao.sessionId === sessionId && solicitacao.tipo === "teste";
+    const detalhesSolicitacao = ((valida ? solicitacao.detalhes : null) as {
       statusPorNome?: Record<string, string>;
       pericia?: string | null;
       cd?: number | null;
@@ -238,6 +352,7 @@ export async function registrarRolagem(
 }
 
 export async function limparMensagens(sessionId: string): Promise<void> {
-  await requireUser();
+  const { acesso } = await requireSessao(sessionId);
+  if (!acesso.administra) throw new Error("Só o narrador pode apagar as mensagens da mesa.");
   await prisma.mensagem.deleteMany({ where: { sessionId } });
 }

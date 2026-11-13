@@ -2,7 +2,7 @@
 
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import { PainelRolador } from "./painel-rolador";
-import { PainelChat, type PainelChatHandle } from "./painel-chat";
+import { PainelChat, type NaoLidas, type PainelChatHandle } from "./painel-chat";
 import type { MensagemSerializada } from "@/lib/mensagens";
 import {
   EVENTO_EMPILHAR,
@@ -29,13 +29,20 @@ type Props = {
   rolagensPrivadas?: boolean;
 };
 
-type Aba = "rolador" | "chat";
+type Aba = "rolador" | "chat" | "rolagens";
+
+const ABAS: { id: Aba; nome: string; icone: string }[] = [
+  { id: "rolador", nome: "Rolador", icone: "fa-dice-d20" },
+  { id: "chat", nome: "Chat", icone: "fa-comment" },
+  { id: "rolagens", nome: "Rolagens", icone: "fa-scroll" },
+];
 type Dock = "bottom" | "side-left" | "side-right" | "float";
 
 const SNAP_THRESHOLD = 80;
 const DRAG_THRESHOLD = 5;
 const MARGIN = 20;
-const BANDEJA_W = 320;
+// Largura da bandeja aberta (a mesma do CSS; em tela estreita ela ocupa a tela).
+const BANDEJA_W = 372;
 
 export function Bandeja({
   userId,
@@ -57,6 +64,10 @@ export function Bandeja({
   const [dock, setDock] = useState<Dock>("bottom");
   // x relevante quando dock === "float" ou "bottom"; y quando "float" ou "side-*".
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [naoLidas, setNaoLidas] = useState<NaoLidas>({ chat: 0, rolagens: 0 });
+  const aoContarNaoLidas = useCallback((n: NaoLidas) => {
+    setNaoLidas((atual) => (atual.chat === n.chat && atual.rolagens === n.rolagens ? atual : n));
+  }, []);
 
   // Estado de arrasto fica num ref — mousemove não re-renderiza.
   const dragRef = useRef({
@@ -73,7 +84,8 @@ export function Bandeja({
     const header = headerRef.current;
     if (!bandeja || !header) return;
 
-    function onMouseDown(e: MouseEvent) {
+    function onMouseDown(e: PointerEvent) {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
       if ((e.target as HTMLElement).closest(".switch-btn")) return;
       const rect = bandeja!.getBoundingClientRect();
       dragRef.current = {
@@ -86,7 +98,7 @@ export function Bandeja({
       };
     }
 
-    function onMouseMove(e: MouseEvent) {
+    function onMouseMove(e: PointerEvent) {
       const d = dragRef.current;
       if (!d.dragging) return;
       const dx = e.clientX - d.startX;
@@ -130,6 +142,7 @@ export function Bandeja({
       const distLeft = rect.left;
       const distRight = W - (rect.left + rect.width);
       const distBottom = H - (rect.top + rect.height);
+      const largura = Math.min(BANDEJA_W, W);
 
       // Limpa overrides inline — vão ser substituídos pelo style derivado do state.
       bandeja!.style.left = "";
@@ -140,7 +153,7 @@ export function Bandeja({
       if (distBottom < SNAP_THRESHOLD) {
         setDock("bottom");
         setCollapsed(true);
-        setPos({ x: Math.max(0, Math.min(rect.left, W - BANDEJA_W)), y: 0 });
+        setPos({ x: Math.max(0, Math.min(rect.left, W - largura)), y: 0 });
       } else if (distLeft < SNAP_THRESHOLD) {
         setDock("side-left");
         setCollapsed(true);
@@ -151,7 +164,7 @@ export function Bandeja({
         setPos({ x: 0, y: Math.max(MARGIN, Math.min(rect.top, H - 100)) });
       } else {
         let finalLeft = rect.left;
-        if (finalLeft + BANDEJA_W > W) finalLeft = W - BANDEJA_W - MARGIN;
+        if (finalLeft + largura > W) finalLeft = W - largura - MARGIN;
         setDock("float");
         setPos({
           x: Math.max(MARGIN, finalLeft),
@@ -166,16 +179,19 @@ export function Bandeja({
       setCollapsed((c) => !c);
     }
 
-    header.addEventListener("mousedown", onMouseDown);
+    // Ponteiro cobre mouse, toque e caneta: no celular a bandeja também arrasta.
+    header.addEventListener("pointerdown", onMouseDown);
     header.addEventListener("click", onHeaderClick);
-    document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseup", onMouseUp);
+    document.addEventListener("pointermove", onMouseMove);
+    document.addEventListener("pointerup", onMouseUp);
+    document.addEventListener("pointercancel", onMouseUp);
 
     return () => {
-      header.removeEventListener("mousedown", onMouseDown);
+      header.removeEventListener("pointerdown", onMouseDown);
       header.removeEventListener("click", onHeaderClick);
-      document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", onMouseUp);
+      document.removeEventListener("pointermove", onMouseMove);
+      document.removeEventListener("pointerup", onMouseUp);
+      document.removeEventListener("pointercancel", onMouseUp);
     };
   }, []);
 
@@ -217,10 +233,14 @@ export function Bandeja({
     if (pos.x > 0) style.left = pos.x;
   }
 
+  const abaAtual = ABAS.find((a) => a.id === aba) ?? ABAS[0];
+  const totalNaoLidas = naoLidas.chat + naoLidas.rolagens;
+  const conversa = aba === "rolador" ? null : aba;
+
   function iconeHeader(): string {
     const isSide = dock === "side-left" || dock === "side-right";
     if (isSide && collapsed) {
-      return aba === "chat" ? "fas fa-comment" : "fas fa-dice-d20";
+      return `fas ${abaAtual.icone}`;
     }
     if (!collapsed) {
       return dock === "bottom" ? "fas fa-chevron-down" : "fas fa-times";
@@ -252,36 +272,50 @@ export function Bandeja({
     <div ref={bandejaRef} className={className} style={style} id="bandeja">
       <div ref={headerRef} className="bandeja-header">
         <div className="header-left">
-          <i className={aba === "rolador" ? "fas fa-dice-d20" : "fas fa-comment"} />
-          <span className="bandeja-titulo">{aba === "rolador" ? "Rolador" : "Chat"}</span>
+          {collapsed ? (
+            <>
+              <i className={`fas ${abaAtual.icone}`} />
+              <span className="bandeja-titulo">{abaAtual.nome}</span>
+              {totalNaoLidas > 0 && (
+                <span className="aba-badge" aria-label={`${totalNaoLidas} novas`}>
+                  {totalNaoLidas > 99 ? "99+" : totalNaoLidas}
+                </span>
+              )}
+            </>
+          ) : (
+            <div className="bandeja-abas" role="tablist">
+              {ABAS.map((a) => {
+                const novas = a.id === "rolador" ? 0 : naoLidas[a.id];
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={aba === a.id}
+                    className={"switch-btn" + (aba === a.id ? " active" : "")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setAba(a.id);
+                    }}
+                  >
+                    <i className={`fas ${a.icone}`} />
+                    <span>{a.nome}</span>
+                    {novas > 0 && aba !== a.id && (
+                      <span className="aba-badge" aria-label={`${novas} novas`}>
+                        {novas > 99 ? "99+" : novas}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
+        {collapsed && totalNaoLidas > 0 && <span className="bandeja-ponto" aria-hidden="true" />}
         <i className={iconeHeader()} />
       </div>
 
       <div className="bandeja-body">
-        <div className="bandeja-switch">
-          <button
-            type="button"
-            className={"switch-btn" + (aba === "rolador" ? " active" : "")}
-            onClick={(e) => {
-              e.stopPropagation();
-              setAba("rolador");
-            }}
-          >
-            <i className="fas fa-dice-d20" /> Rolador
-          </button>
-          <button
-            type="button"
-            className={"switch-btn" + (aba === "chat" ? " active" : "")}
-            onClick={(e) => {
-              e.stopPropagation();
-              setAba("chat");
-            }}
-          >
-            <i className="fas fa-comment" /> Chat
-          </button>
-        </div>
-
         <div
           className={"painel-bandeja" + (aba === "rolador" ? " active" : "")}
           style={{ display: aba === "rolador" ? "flex" : "none" }}
@@ -297,8 +331,8 @@ export function Bandeja({
         </div>
 
         <div
-          className={"painel-bandeja" + (aba === "chat" ? " active" : "")}
-          style={{ display: aba === "chat" ? "flex" : "none" }}
+          className={"painel-bandeja painel-conversa" + (conversa ? " active" : "")}
+          style={{ display: conversa ? "flex" : "none" }}
         >
           <PainelChat
             ref={chatRef}
@@ -307,6 +341,9 @@ export function Bandeja({
             sessionId={sessionId}
             personagemId={personagemId || null}
             mensagensIniciais={mensagensIniciais}
+            aba={conversa ?? "chat"}
+            visivel={!collapsed && conversa !== null}
+            onNaoLidas={aoContarNaoLidas}
           />
         </div>
       </div>

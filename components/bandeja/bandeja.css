@@ -88,13 +88,6 @@
 }
 
 /* ─── Switch de painéis ──────────────────────────────────── */
-.bandeja-switch {
-  display: flex;
-  background: rgba(0, 0, 0, 0.07);
-  border-radius: 8px;
-  padding: 4px;
-  gap: 4px;
-}
 .switch-btn {
   flex: 1;
   background: transparent;
@@ -526,99 +519,6 @@
   text-decoration: line-through;
 }
 
-/* ─── Chat ───────────────────────────────────────────────── */
-.painel-bandeja .chat-messages {
-  min-height: 180px;
-  max-height: 350px;
-  height: 350px;
-  flex-shrink: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  background: var(--bg-card);
-  border-radius: 6px;
-  padding: 8px;
-  border: 1px solid var(--border);
-}
-
-.chat-message {
-  font-size: 0.85rem;
-  color: var(--text-main);
-  padding: 6px 10px;
-  background: var(--bg-card);
-  border-radius: 6px;
-  border-left: 3px solid var(--primary);
-  word-break: break-word;
-  flex-shrink: 0;
-}
-
-.roll-message {
-  padding: 0;
-  overflow: hidden;
-  border-left: 3px solid var(--primary);
-  flex-shrink: 0;
-}
-.roll-message.success {
-  border-left-color: var(--success);
-}
-.roll-message.fail {
-  border-left-color: var(--danger);
-}
-.roll-header {
-  font-size: 0.78rem;
-  color: var(--text-sec);
-  padding: 5px 10px 3px;
-}
-.roll-box {
-  background: var(--bg-card);
-  padding: 8px 12px;
-  text-align: center;
-  min-height: 70px;
-}
-.roll-total {
-  font-size: 2rem;
-  font-weight: 900;
-  color: var(--primary);
-  line-height: 1.1;
-}
-.roll-details {
-  font-size: 0.78rem;
-  color: var(--text-sec);
-  margin-top: 2px;
-  word-break: break-all;
-}
-/* Dano recebido / cura manual. */
-.vida-message.dano {
-  border-left-color: var(--color-danger);
-}
-.vida-message.dano .roll-total {
-  color: var(--color-danger);
-}
-.vida-message.cura {
-  border-left-color: var(--color-success);
-}
-.vida-message.cura .roll-total {
-  color: var(--color-success);
-}
-.vida-message.turno {
-  border-left-color: var(--color-bonus);
-}
-.vida-message.turno .roll-box {
-  min-height: 0;
-}
-.vida-linhas {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: 4px;
-  font-size: 0.78rem;
-  color: var(--text-sec);
-}
-.vida-caiu {
-  color: var(--color-danger);
-  font-weight: 700;
-}
 .roll-batch-list {
   display: flex;
   flex-direction: column;
@@ -645,267 +545,11 @@
   color: var(--primary);
 }
 
-.roll-mode-tag {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 700;
-  color: var(--text-main);
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  padding: 6px 10px;
-  border-radius: 8px;
-  width: fit-content;
-  font-size: 0.78rem;
-  letter-spacing: 0.01em;
-}
-.roll-mode-tag i {
-  color: var(--primary);
-}
 .roll-toggle-btn.active i {
   color: inherit;
 }
 
-@media (max-width: 640px) {
 
-  .roll-batch-row {
-    grid-template-columns: auto 1fr;
-  }
-
-  .roll-batch-formula {
-    grid-column: 1 / -1;
-  }
-}
-
-.teste-message {
-  padding: 0;
-  overflow: hidden;
-  flex-shrink: 0;
-}
-.teste-box {
-  background: var(--bg-card);
-  padding: 12px 14px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.teste-pericia-tag {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 700;
-  color: var(--text-main);
-  background: color-mix(in oklch, var(--primary) 18%, transparent);
-  border: 1px solid var(--primary);
-  padding: 6px 10px;
-  border-radius: 8px;
-  width: fit-content;
-  font-size: 0.78rem;
-  letter-spacing: 0.01em;
-}
-.teste-pericia-tag i {
-  color: var(--primary);
-}
-.teste-envolvidos {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.teste-envolvido-chip {
-  background: color-mix(in oklch, var(--primary) 14%, var(--bg-card));
-  border: 1px solid color-mix(in oklch, var(--primary) 32%, var(--border));
-  color: var(--text-main);
-  font-size: 0.72rem;
-  font-weight: 800;
-  padding: 4px 8px;
-  border-radius: 999px;
-}
-.teste-cd {
-  font-size: 0.78rem;
-  color: var(--text-sec);
-  font-weight: 700;
-}
-.teste-status-label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 0.75rem;
-  color: var(--text-sec);
-  font-weight: 700;
-}
-.teste-status-label input,
-.teste-status-label select {
-  width: 100%;
-  padding: 7px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-surface);
-  color: var(--text-main);
-  font-family: inherit;
-}
-.teste-btn {
-  border: none;
-  border-radius: 6px;
-  background: var(--primary);
-  color: var(--on-primary);
-  padding: 8px 10px;
-  font-weight: 800;
-  cursor: pointer;
-  font-family: inherit;
-}
-.teste-btn:disabled {
-  background: var(--bg-surface);
-  color: var(--text-sec);
-  opacity: 1;
-  box-shadow: none;
-  border: 1px solid var(--border);
-  cursor: not-allowed;
-}
-.teste-btn-done {
-  background: var(--bg-surface);
-  color: var(--text-sec);
-  border: 1px solid var(--border);
-}
-.teste-notificacao {
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  color: var(--text-main);
-  font-size: 0.85rem;
-  font-weight: 700;
-  line-height: 1.35;
-  border-radius: 8px;
-  padding: 10px 12px;
-}
-.teste-notificacao-narrador {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: 100%;
-  text-align: left;
-  font: inherit;
-}
-.teste-notificacao-topo {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 800;
-}
-.teste-notificacao-topo i {
-  color: var(--primary);
-}
-.teste-notificacao-subtexto {
-  font-size: 0.8rem;
-  color: var(--text-sec);
-  line-height: 1.35;
-}
-.teste-dropdown-icone {
-  margin-left: auto;
-  transition: transform 0.18s ease;
-}
-.teste-acompanhamento-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-surface);
-  color: var(--text-main);
-  padding: 9px 12px;
-  font: inherit;
-  font-size: 0.8rem;
-  font-weight: 800;
-  cursor: pointer;
-}
-.teste-acompanhamento-toggle .teste-dropdown-icone {
-  margin-left: auto;
-}
-.teste-acompanhamento-toggle.open .teste-dropdown-icone {
-  transform: rotate(180deg);
-}
-.teste-acompanhamento {
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows 0.22s ease;
-}
-.teste-acompanhamento.open {
-  grid-template-rows: 1fr;
-}
-.teste-acompanhamento-lista {
-  overflow: hidden;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.teste-acompanhamento-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  margin-top: 8px;
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--text-main);
-}
-.teste-acompanhamento-item .status {
-  color: var(--text-sec);
-  font-weight: 600;
-}
-.teste-acompanhamento-item.vazia {
-  justify-content: center;
-  color: var(--text-sec);
-}
-.teste-meta-linha {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-.teste-select {
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-surface);
-  color: var(--text-main);
-  font-family: inherit;
-}
-.chat-input-row {
-  display: flex;
-  gap: 8px;
-}
-.chat-input-row input {
-  flex: 1;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: 0.9rem;
-  outline: none;
-  background: var(--bg-card);
-  color: var(--text-main);
-  font-family: inherit;
-}
-.chat-input-row input:focus {
-  border-color: var(--primary);
-}
-.chat-input-row button {
-  background: var(--primary);
-  color: var(--on-primary);
-  border: none;
-  padding: 8px 14px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 1rem;
-  transition: 0.2s;
-  font-family: inherit;
-}
-.chat-input-row button:hover {
-  filter: brightness(1.15);
-}
 
 /* ─── Presets ────────────────────────────────────────────── */
 .preset-rec-banner {
@@ -1490,31 +1134,6 @@
   width: 100%;
   text-align: center;
 }
-/* Mensagem de rolagem no chat: o mesmo arranjo. */
-.roll-box:has(> .roll-details .rd-res) {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  text-align: left;
-}
-.roll-box:has(> .roll-details .rd-res) .roll-total {
-  flex-shrink: 0;
-  padding-right: 12px;
-  border-right: 1px solid var(--border);
-}
-.roll-box:has(> .roll-details .rd-res) .roll-details {
-  flex: 1;
-  min-width: 0;
-  margin-top: 0;
-}
-.roll-box:has(> .roll-details .rd-res) .rd-res {
-  align-items: flex-start;
-}
-.roll-box:has(> .roll-details .rd-res) .rd-grupo,
-.roll-box:has(> .roll-details .rd-res) .rd-linha {
-  justify-content: flex-start;
-}
 
 /* Botões de dado no formato do dado (SVG com as cores do tema). */
 .dice-btn.dado-forma {
@@ -1624,4 +1243,725 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* ─── Tamanho da bandeja e abas no cabeçalho ───────────────────────
+   Vem depois das regras antigas de propósito: ajusta largura, altura e o
+   cabeçalho sem mexer no que o Rolador já usa. */
+.bandeja {
+  width: min(372px, 100vw);
+  grid-template-rows: 48px minmax(0, 1fr);
+}
+.bandeja.collapsed {
+  grid-template-rows: 48px minmax(0, 0fr);
+}
+.bandeja-header {
+  position: relative;
+  padding: 0 12px 0 8px;
+  /* Arrastar pelo cabeçalho no toque, sem a página rolar junto. */
+  touch-action: none;
+}
+.bandeja.collapsed .bandeja-header {
+  padding-left: 15px;
+}
+.bandeja-body {
+  padding: 12px;
+  gap: 12px;
+  max-height: calc(100vh - 60px);
+  max-height: calc(100dvh - 60px);
+}
+
+.bandeja-abas {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--on-primary) 14%, transparent);
+}
+.bandeja-abas .switch-btn {
+  min-width: 0;
+  padding: 6px 4px;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--on-primary) 80%, transparent);
+}
+.bandeja-abas .switch-btn > span:not(.aba-badge) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bandeja-abas .switch-btn.active {
+  background: var(--bg-card);
+  color: var(--primary);
+}
+.bandeja-abas .switch-btn:hover:not(.active) {
+  background: color-mix(in srgb, var(--on-primary) 14%, transparent);
+  color: var(--on-primary);
+}
+.bandeja-abas .switch-btn:focus-visible {
+  outline: 2px solid var(--on-primary);
+  outline-offset: 1px;
+}
+.aba-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--color-danger);
+  color: #fff;
+  font-size: 0.64rem;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+/* Recolhida na lateral vira um círculo: as novas viram um ponto. */
+.bandeja-ponto {
+  display: none;
+}
+.bandeja.dock-side-left.collapsed .bandeja-ponto,
+.bandeja.dock-side-right.collapsed .bandeja-ponto {
+  display: block;
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-danger);
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
+/* ─── Chat e Rolagens ──────────────────────────────────────────────── */
+.painel-bandeja.painel-conversa {
+  gap: 10px;
+}
+.chat-lista {
+  position: relative;
+  min-height: 0;
+}
+.chat-messages {
+  /* Ocupa a altura da tela: sobra pro cabeçalho, pro campo e pra ver a ficha. */
+  height: clamp(220px, calc(100vh - 215px), 620px);
+  height: clamp(220px, calc(100dvh - 215px), 620px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 4px 2px 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.chat-messages > * {
+  flex-shrink: 0;
+}
+/* Poucas mensagens encostam embaixo, perto do campo de texto. */
+.chat-messages > :first-child {
+  margin-top: auto;
+}
+
+.chat-vazio {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--text-sec);
+}
+.chat-vazio i {
+  font-size: 1.6rem;
+  opacity: 0.45;
+  margin-bottom: 6px;
+}
+.chat-vazio p {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+.chat-vazio span {
+  font-size: 0.78rem;
+}
+
+.chat-dia {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0 2px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-sec);
+}
+.chat-dia::before,
+.chat-dia::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.chat-hora {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 400;
+  color: var(--text-sec);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Fala: balão; as próprias à direita. */
+.chat-fala {
+  align-self: flex-start;
+  max-width: 88%;
+  padding: 6px 10px 7px;
+  border-radius: 4px 12px 12px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  font-size: 0.86rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.chat-fala.propria {
+  align-self: flex-end;
+  border-radius: 12px 4px 12px 12px;
+  background: color-mix(in srgb, var(--primary) 11%, var(--bg-card));
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
+}
+.chat-fala.continua {
+  margin-top: -3px;
+  border-radius: 12px;
+}
+.chat-fala-topo {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 1px;
+  font-size: 0.74rem;
+}
+.chat-fala-topo strong {
+  font-weight: 700;
+  color: var(--primary);
+  overflow-wrap: anywhere;
+}
+.chat-fala-texto {
+  white-space: pre-wrap;
+}
+
+/* Aviso do combate no registro: uma linha, sem cartão. */
+.log-linha {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 1px 4px 1px 6px;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--text-sec);
+  overflow-wrap: anywhere;
+}
+.log-linha strong {
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.chat-novas {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--on-primary);
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.25);
+}
+
+/* ─── Cartão de rolagem ────────────────────────────────────────────── */
+.rc {
+  --rc-cor: var(--primary);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px 9px;
+  border-radius: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--rc-cor);
+  color: var(--text-main);
+  overflow-wrap: anywhere;
+}
+.rc-dano {
+  --rc-cor: var(--color-power);
+}
+.rc-cura {
+  --rc-cor: var(--color-success);
+}
+.rc-ferida {
+  --rc-cor: var(--color-danger);
+}
+.rc-turno {
+  --rc-cor: var(--color-bonus);
+}
+.rc-teste {
+  --rc-cor: var(--info);
+}
+.rc-preset,
+.rc-livre {
+  --rc-cor: color-mix(in srgb, var(--text-sec) 70%, var(--bg-card));
+}
+.rc.sucesso {
+  --rc-cor: var(--color-success);
+}
+.rc.falha {
+  --rc-cor: var(--color-danger);
+}
+
+.rc-topo {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.rc-icone {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-top: 1px;
+  border-radius: 7px;
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  /* Puxa pro texto: amarelo e laranja puros somem no fundo claro. */
+  color: color-mix(in srgb, var(--rc-cor) 72%, var(--text-main));
+  background: color-mix(in srgb, var(--rc-cor) 16%, transparent);
+}
+.rc-titulos {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.rc-titulo {
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.rc-sub {
+  font-size: 0.72rem;
+  line-height: 1.3;
+  color: var(--text-sec);
+}
+.rc-topo .chat-hora {
+  margin-top: 3px;
+}
+
+.rc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.rc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-sec);
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.rc-chip i {
+  font-size: 0.6rem;
+}
+.rc-chip.bom {
+  color: color-mix(in srgb, var(--color-success) 80%, var(--text-main));
+  border-color: color-mix(in srgb, var(--color-success) 40%, var(--border));
+  background: color-mix(in srgb, var(--color-success) 10%, var(--bg-card));
+}
+.rc-chip.ruim {
+  color: color-mix(in srgb, var(--color-danger) 85%, var(--text-main));
+  border-color: color-mix(in srgb, var(--color-danger) 40%, var(--border));
+  background: color-mix(in srgb, var(--color-danger) 9%, var(--bg-card));
+}
+
+.rc-corpo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.rc-total {
+  flex-shrink: 0;
+  min-width: 2.4ch;
+  padding-right: 10px;
+  border-right: 1px solid var(--border);
+  text-align: center;
+  font-size: 1.6rem;
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-main);
+}
+.rc.sucesso .rc-total,
+.rc-cura .rc-total {
+  color: color-mix(in srgb, var(--color-success) 85%, var(--text-main));
+}
+.rc.falha .rc-total,
+.rc-ferida .rc-total {
+  color: var(--color-danger);
+}
+.rc-oculto {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-style: italic;
+  color: var(--text-sec);
+}
+
+/* Os dados desenhados, menores e em linha dentro do cartão. */
+.rc-dados {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.78rem;
+  color: var(--text-sec);
+}
+.rc-dados .rd-res {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.rc-dados details.rd-res {
+  display: block;
+}
+.rc-dados .rd-grupo,
+.rc-dados .rd-linha {
+  justify-content: flex-start;
+}
+.rc-dados .rd-dado {
+  width: 30px;
+  height: 30px;
+}
+.rc-dados .rd-mod {
+  font-size: 0.92rem;
+}
+.rc-dados .roll-fontes,
+.rc-notas .roll-fontes {
+  margin-top: 3px;
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+.rc-notas {
+  font-size: 0.7rem;
+  color: var(--text-sec);
+}
+
+/* Lote: uma linha por lance. */
+.rc-lote {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rc-lote-linha {
+  display: grid;
+  grid-template-columns: 20px 2.6ch minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: var(--bg-surface);
+}
+.rc-lote-n {
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: var(--text-sec);
+}
+.rc-lote-total {
+  text-align: center;
+  font-size: 1.08rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Dano, cura e turno. */
+.vida-linhas {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--text-sec);
+}
+.vida-caiu {
+  color: var(--color-danger);
+  font-weight: 700;
+}
+.turno-efeitos {
+  display: flex;
+  flex-direction: column;
+}
+.rc .turno-efeito {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px 10px;
+  padding: 5px 0;
+}
+.rc .turno-efeito:first-child {
+  padding-top: 0;
+}
+.rc .turno-efeito:last-child {
+  padding-bottom: 0;
+}
+.rc .turno-efeito-total {
+  font-size: 0.95rem;
+  text-align: right;
+}
+.rc .turno-efeito > .rc-dados,
+.turno-efeito-detalhe {
+  grid-column: 1 / -1;
+}
+.turno-efeito-detalhe {
+  font-size: 0.74rem;
+  color: var(--text-sec);
+}
+
+/* Pedido de teste. */
+.teste-bonus {
+  font-size: 0.74rem;
+  line-height: 1.35;
+  color: var(--text-sec);
+}
+.teste-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: var(--primary);
+  color: var(--on-primary);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+.teste-btn:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+.teste-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.teste-feito {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--color-success) 80%, var(--text-main));
+}
+.teste-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.teste-lista-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  background: var(--bg-surface);
+  font-size: 0.78rem;
+}
+.teste-lista-item .nome {
+  font-weight: 700;
+  min-width: 0;
+}
+.teste-lista-item .status {
+  flex-shrink: 0;
+  color: var(--text-sec);
+}
+.teste-lista-item .status.bom {
+  font-weight: 700;
+  color: color-mix(in srgb, var(--color-success) 80%, var(--text-main));
+}
+.teste-lista-item .status.ruim {
+  font-weight: 700;
+  color: var(--color-danger);
+}
+.teste-lista-item.vazia {
+  justify-content: center;
+  color: var(--text-sec);
+}
+
+/* Campo de mensagem. */
+.chat-input-row {
+  display: flex;
+  gap: 8px;
+}
+.chat-input-row input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  outline: none;
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+.chat-input-row input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
+}
+.chat-input-row button {
+  flex-shrink: 0;
+  width: 44px;
+  height: 40px;
+  border: none;
+  border-radius: 10px;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: filter 0.15s, opacity 0.15s;
+}
+.chat-input-row button:hover:not(:disabled) {
+  filter: brightness(1.15);
+}
+.chat-input-row button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Lote no resultado do Rolador: número do lance, total e dados numa linha. */
+.roll-batch-row .rd-res {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.roll-batch-total {
+  min-width: 2.4ch;
+  text-align: center;
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Celular ──────────────────────────────────────────────────────── */
+@media (max-width: 520px) {
+  /* Aberta, a bandeja ocupa a largura da tela. */
+  .bandeja.dock-bottom,
+  .bandeja.dock-float {
+    left: 0 !important;
+    right: 0;
+    width: 100%;
+  }
+  .bandeja.dock-bottom {
+    border-left: 0;
+    border-right: 0;
+  }
+  .bandeja.dock-side-left:not(.collapsed),
+  .bandeja.dock-side-right:not(.collapsed) {
+    width: 100%;
+    border-radius: 12px 12px 0 0;
+  }
+  .chat-messages {
+    height: clamp(200px, calc(100vh - 190px), 620px);
+    height: clamp(200px, calc(100dvh - 190px), 620px);
+  }
+  /* Abaixo de 16px o iOS dá zoom ao focar o campo. */
+  .chat-input-row input {
+    font-size: 16px;
+  }
+  .chat-fala {
+    max-width: 92%;
+  }
+}
+@media (max-width: 340px) {
+  .bandeja-abas .switch-btn i {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bandeja {
+    transition: none;
+  }
+}
+
+/* O conteúdo da rolagem vem filtrado, mas ainda é de quem rolou: não pode
+   esticar o cartão nem empurrar a lista pro lado. */
+.chat-messages {
+  overflow-x: hidden;
+}
+.rc-dados,
+.rc-notas {
+  max-height: 340px;
+  overflow: hidden auto;
+  overflow-wrap: anywhere;
+}
+.rc-dados svg {
+  width: 30px;
+  height: 30px;
+  max-width: 100%;
+  flex-shrink: 0;
+}
+
+/* Dano dentro do cartão do ataque. */
+.rc-bloco-dano {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 7px;
+  border-top: 1px dashed var(--border);
+}
+.rc-bloco-topo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-sec);
+}
+.rc-bloco-topo i {
+  color: color-mix(in srgb, var(--color-power) 80%, var(--text-main));
+  font-size: 0.7rem;
+}
+.rc-bloco-topo span:first-of-type {
+  flex: 1;
+  min-width: 0;
+}
+.rc-bloco-dano .rc-total {
+  color: color-mix(in srgb, var(--color-power) 70%, var(--text-main));
 }
