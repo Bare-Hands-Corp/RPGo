@@ -1,6 +1,6 @@
 "use client";
 
-// Pacotes: exportar habilidades, ações e árvores por código e importar o de outro usuário.
+// Pacotes: exportar habilidades, ações, árvores e itens por código e importar o de outro usuário.
 
 import { createContext, useContext, useEffect, useMemo, useState, useTransition } from "react";
 import Swal from "sweetalert2";
@@ -28,6 +28,7 @@ export type FichaDoPacote = {
   habilidades: (Record<string, unknown> & { id: string; nome: string; formaDe?: string | null })[];
   acoes: (Record<string, unknown> & { id: string; nome: string; formaDe?: string | null })[];
   arvores: { id: string; nome: string; icone: string; nos: { habilidadeId: string | null }[] }[];
+  itens: (Record<string, unknown> & { id: string; nome: string })[];
   recursos: { id: string; nome: string }[];
 };
 
@@ -78,6 +79,21 @@ async function copiar(codigo: string) {
 
 function plural(n: number, um: string, varios: string): string {
   return `${n} ${n === 1 ? um : varios}`;
+}
+
+const TIPO_DO_ITEM: Record<string, string> = { arma: "Arma", municao: "Munição", armadura: "Armadura" };
+
+// Linha de apoio do item: tipo, dano ou CA e quantas unidades.
+function resumoDoItem(d: Record<string, unknown>): string {
+  const qtd = Number(d.quantidade) || 1;
+  return [
+    TIPO_DO_ITEM[String(d.tipo)] ?? null,
+    typeof d.dano === "string" && d.dano ? d.dano : null,
+    Number(d.ca) > 0 ? `+${d.ca} CA` : null,
+    qtd > 1 ? `×${qtd}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 // As chaves marcadas de um tipo ("h:", "a:", "t:"), sem o prefixo.
@@ -155,7 +171,8 @@ export function ModalPacotes({
   onFechar: () => void;
   acoes?: typeof ACOES;
 }) {
-  const temOQueExportar = ficha.habilidades.length + ficha.acoes.length + ficha.arvores.length > 0;
+  const temOQueExportar =
+    ficha.habilidades.length + ficha.acoes.length + ficha.arvores.length + ficha.itens.length > 0;
   const [modo, setModo] = useState<Modo>(temOQueExportar ? "exportar" : "importar");
   // Códigos do usuário; `null` enquanto não carregou.
   const [pacotes, setPacotes] = useState<PacoteView[] | null>(null);
@@ -347,6 +364,12 @@ function Exportar({
           };
         }),
       },
+      {
+        titulo: "Itens",
+        linhas: ficha.itens
+          .filter((i) => !ehTemporario(i.id))
+          .map((i) => ({ chave: `i:${i.id}`, nome: i.nome, resumo: resumoDoItem(i), icone: "fa-sack-dollar" })),
+      },
     ];
   }, [ficha]);
   const total = grupos.reduce((n, g) => n + g.linhas.length, 0);
@@ -382,6 +405,7 @@ function Exportar({
             habilidadeIds: marcadosDe(marcados, "h:"),
             acaoIds: marcadosDe(marcados, "a:"),
             arvoreIds: marcadosDe(marcados, "t:"),
+            itemIds: marcadosDe(marcados, "i:"),
           }),
         );
         setGerado(r.pacote);
@@ -498,6 +522,16 @@ function gruposDoPacote(dados: PacoteDados, ficha: FichaDoPacote): Grupo[] {
         jaTem: jaTem(ficha.arvores, a.nome),
       })),
     },
+    {
+      titulo: "Itens",
+      linhas: dados.itens.map((i) => ({
+        chave: `i:${i.ref}`,
+        nome: nomeDe(i.dados),
+        resumo: resumoDoItem(i.dados),
+        icone: "fa-sack-dollar",
+        jaTem: jaTem(ficha.itens, nomeDe(i.dados)),
+      })),
+    },
   ];
 }
 
@@ -524,6 +558,7 @@ function Importar({
     habilidades: marcadosDe(marcados, "h:"),
     acoes: marcadosDe(marcados, "a:"),
     arvores: marcadosDe(marcados, "t:"),
+    itens: marcadosDe(marcados, "i:"),
   };
   // Recursos que a ficha não tem e chegam junto.
   const recursosNovos = pacote

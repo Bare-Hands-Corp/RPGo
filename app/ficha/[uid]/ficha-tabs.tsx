@@ -3,6 +3,7 @@
 import type { CombateVisto } from "@/lib/combate";
 import { useEffect, useMemo, useState } from "react";
 import { EVENTO_GASTAR_CONDICAO } from "@/lib/condicoes";
+import { EVENTO_ABRIR_ARVORE } from "@/lib/pontos";
 import { gastarCondicaoDaRolagem } from "./actions";
 import { AcoesTab } from "./acoes-tab";
 import { ArvoresTab, type Arvore, type ArvoreCopiavel } from "./arvores-tab";
@@ -10,13 +11,16 @@ import { HabilidadesTab } from "./habilidades-tab";
 import { InventarioTab } from "./inventario-tab";
 import { ObjetivosTab, type Objetivo } from "./objetivos-tab";
 import { PacotesContext } from "./pacotes";
+import { TagsDaFichaContext } from "./estilo-cor-picker";
+import { tagsDaFicha } from "@/lib/estilos-cor";
+import { AlvosCustomContext, PontosDaFichaContext } from "./efeitos-editor";
 import { PericiasTab } from "./pericias-tab";
 import { SubfichasTab } from "./subfichas-tab";
 import { TripulacaoTab, type Tripulante } from "./tripulacao-tab";
 import { CalendarioView } from "@/app/calendario/[mesaId]/calendario-view";
 import { CalendarioRealtime } from "@/app/calendario/[mesaId]/realtime-refresher";
 import type { CalendarioCarregado } from "@/lib/calendario/carregar";
-import type { Atributo, EfeitosAgregados } from "@/lib/op-rpg";
+import { alvosPericiaCustom, type Atributo, type EfeitosAgregados } from "@/lib/op-rpg";
 import type { SubfichaCard } from "@/lib/resumo-personagem";
 import { ABAS, type AbaFicha } from "@/lib/subficha";
 
@@ -25,12 +29,16 @@ type Item = React.ComponentProps<typeof InventarioTab>["itens"][number];
 type RecursoRef = React.ComponentProps<typeof AcoesTab>["recursos"][number] & {
   valorAtual: number;
   valorMax: number;
+  tipo?: string;
+  sigla?: string | null;
 };
 type Habilidade = React.ComponentProps<typeof HabilidadesTab>["habilidades"][number];
 type PericiaCustom = React.ComponentProps<typeof PericiasTab>["periciasCustom"][number];
 
 type Props = {
   personagemId: string;
+  // Ficha de veículo: ações de Combate e de Manobra.
+  veiculo?: boolean;
   personagemNome: string;
   /** Abas que a ficha mostra (lib/subficha.ts). */
   abas: AbaFicha[];
@@ -71,6 +79,7 @@ type Props = {
 
 export function FichaTabs({
   personagemId,
+  veiculo,
   personagemNome,
   abas,
   abaInicial,
@@ -129,6 +138,26 @@ export function FichaTabs({
     else url.searchParams.set("aba", id);
     window.history.replaceState(null, "", url);
   }
+  // "Gastar no Haki" (pontos, subir de nível) abre a aba de árvores.
+  useEffect(() => {
+    function ouvir() {
+      setAtivaEstado("arvores");
+      const url = new URL(window.location.href);
+      url.searchParams.set("aba", "arvores");
+      window.history.replaceState(null, "", url);
+    }
+    window.addEventListener(EVENTO_ABRIR_ARVORE, ouvir);
+    return () => window.removeEventListener(EVENTO_ABRIR_ARVORE, ouvir);
+  }, []);
+
+  // Ponto não paga ação nem habilidade: só árvore.
+  const recursosDeAcao = useMemo(() => recursos.filter((r) => r.tipo !== "ponto"), [recursos]);
+  const pontosDaFicha = useMemo(
+    () => recursos.filter((r) => r.tipo === "ponto").map((r) => ({ id: r.id, nome: r.nome })),
+    [recursos],
+  );
+  const alvosCustom = useMemo(() => alvosPericiaCustom(periciasCustom), [periciasCustom]);
+  const tagsFicha = useMemo(() => tagsDaFicha([...itens, ...habilidades]), [itens, habilidades]);
 
   // Graus das técnicas, pra resolver GRAU nos chips fora da técnica.
   const grausTecnicas = useMemo(
@@ -155,8 +184,8 @@ export function FichaTabs({
   );
 
   const fichaDoPacote = useMemo(
-    () => ({ personagemId, habilidades, acoes, arvores, recursos }),
-    [personagemId, habilidades, acoes, arvores, recursos],
+    () => ({ personagemId, habilidades, acoes, arvores, itens, recursos }),
+    [personagemId, habilidades, acoes, arvores, itens, recursos],
   );
 
   function navegarPorSeta(e: React.KeyboardEvent, indice: number) {
@@ -179,6 +208,9 @@ export function FichaTabs({
 
   return (
     <PacotesContext.Provider value={fichaDoPacote}>
+    <TagsDaFichaContext.Provider value={tagsFicha}>
+    <PontosDaFichaContext.Provider value={pontosDaFicha}>
+    <AlvosCustomContext.Provider value={alvosCustom}>
     <main className="ficha-main">
       {/* Realtime do calendário fica sempre ativo enquanto a ficha está aberta,
           pra que mudanças cheguem mesmo quando outra aba estiver visível. */}
@@ -215,12 +247,13 @@ export function FichaTabs({
       >
         <AcoesTab
           personagemId={personagemId}
+          veiculo={veiculo}
           acoes={acoes}
           nivel={nivel}
           exaustao={exaustao}
           penalidadeDesArmadura={penalidadeDesArmadura}
           atributos={atributos}
-          recursos={recursos}
+          recursos={recursosDeAcao}
           efeitosAgregados={efeitosAgregados}
           itens={itens}
           habilidades={habilidades}
@@ -242,10 +275,9 @@ export function FichaTabs({
         <HabilidadesTab
           personagemId={personagemId}
           habilidades={habilidades}
-          recursos={recursos}
+          recursos={recursosDeAcao}
           atributos={atributos}
           nivel={nivel}
-          periciasCustom={periciasCustom}
           travadas={habilidadesTravadas}
           itens={itens}
           tripulantes={alvos}
@@ -324,8 +356,7 @@ export function FichaTabs({
           penalidadeDesArmadura={penalidadeDesArmadura}
           atributos={atributos}
           efeitosAgregados={efeitosAgregados}
-          recursos={recursos}
-          periciasCustom={periciasCustom}
+          recursos={recursosDeAcao}
           acoes={acoes}
           habilidades={habilidades}
           tripulantes={alvos}
@@ -386,6 +417,9 @@ export function FichaTabs({
         </div>
       )}
     </main>
+    </AlvosCustomContext.Provider>
+    </PontosDaFichaContext.Provider>
+    </TagsDaFichaContext.Provider>
     </PacotesContext.Provider>
   );
 }

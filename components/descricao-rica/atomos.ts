@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import { mesmoTipo } from "@/lib/dano";
 import { estiloAplicado, normalizarEfeitoCor, varsEstiloCor, EFEITOS_COR, type EfeitoCor } from "@/lib/estilos-cor";
-import { META_EFEITOS, nomeDoEfeito, type EfeitoHabilidade, type TipoEfeito } from "@/lib/op-rpg";
+import { META_EFEITOS, iconeDoEfeito, nomeDoEfeito, type EfeitoHabilidade, type TipoEfeito } from "@/lib/op-rpg";
 import { CATALOGO_PADRAO, type TipoDanoCatalogo } from "@/lib/tipos-dano";
 import { condicaoNoCatalogo, corDaCondicao, type CondicaoCatalogo } from "@/lib/condicoes";
 import { EFEITO_COR_PADRAO } from "@/lib/estilos-cor";
@@ -101,7 +101,7 @@ export function efeitosDaAcao(ctx?: ContextoRico): OpcaoEfeitoAcao[] {
       i,
       slug: e.tipo,
       nome: nomeDoEfeito(e),
-      icone: m?.icone ?? "fa-wand-magic-sparkles",
+      icone: m ? iconeDoEfeito(e) : "fa-wand-magic-sparkles",
       cor: m?.cor,
       resumo: ctx?.resumoEfeito?.(e, true) || undefined,
     };
@@ -244,7 +244,7 @@ export function aparenciaDoAtomo(
           };
         }
         return {
-          icone: m?.icone ?? "fa-wand-magic-sparkles",
+          icone: m ? iconeDoEfeito(daAcao.e) : "fa-wand-magic-sparkles",
           rotulo: nomeDoEfeito(daAcao.e),
           detalhe: ctx?.resumoEfeito?.(daAcao.e, true) || undefined,
           classe: "desc-chip--efeito",

@@ -12,7 +12,7 @@
 // Os efeitos entram na ordem em que foram escolhidos (a ordem da lista).
 
 import type { Duracao } from "./duracao";
-import type { EfeitoHabilidade } from "./op-rpg";
+import { alvoDaCura, type EfeitoHabilidade } from "./op-rpg";
 
 export type EntradaGerador = {
   efeitos: EfeitoHabilidade[];
@@ -48,7 +48,8 @@ export const FRASE_GATILHO: Record<string, string | null> = {
   ataque: "você é alvo de uma jogada de ataque",
   salvaguarda: "você é alvo de uma salvaguarda para evitar dano",
   dano: "você vai receber dano",
-  aliado_ataque: "um aliado é alvo de uma jogada de ataque",
+  voce_ou_aliado_dano: "você ou um aliado vai receber dano",
+  aliado_ataque: "um ataque vai acertar um aliado",
   outro: null,
 };
 
@@ -183,10 +184,17 @@ function frase(e: EfeitoHabilidade, i: number, op: OpcoesGerador, salvDaAcao?: s
         : { verbo: "adiciona", resto: chip };
     case "deslocamento":
       return { verbo: "adiciona", resto: chip };
-    case "cura":
-      return quem === "aliado"
-        ? { verbo: "cura", resto: `um aliado em ${chip}` }
-        : { verbo: "recupera", resto: `${chip} de vida` };
+    case "cura": {
+      // O chip já diz o pool: PV temporário se ganha, PP se recupera.
+      const onde = alvoDaCura(e);
+      if (onde === "hp") {
+        return quem === "aliado"
+          ? { verbo: "cura", resto: `um aliado em ${chip}` }
+          : { verbo: "recupera", resto: `${chip} de vida` };
+      }
+      if (quem === "aliado") return { verbo: "concede", resto: `${chip} a um aliado` };
+      return { verbo: onde === "hp-temp" ? "ganha" : "recupera", resto: chip };
+    }
     case "condicao_aplicar": {
       const c = `{{cond:${e.condicao}}}`;
       if (e.emVoce) return { verbo: null, resto: `você fica ${c}${e.quando === "fim" ? " ao fim da ação" : ""}` };

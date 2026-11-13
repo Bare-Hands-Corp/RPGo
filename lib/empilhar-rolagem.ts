@@ -5,7 +5,7 @@
 // ajusta e confirma com "ROLAR!". Mesmo padrão dos eventos `rpgo:patch-*`.
 
 import { rolarDados, type Dado, type ModoRolagem, type ResultadoRolagem } from "@/lib/dice";
-import type { ContextoRolagem, EfeitosContexto } from "@/lib/op-rpg";
+import { textoDaCura, type ContextoRolagem, type EfeitosContexto } from "@/lib/op-rpg";
 import type { MensagemSerializada } from "@/lib/mensagens";
 
 export const EVENTO_EMPILHAR = "rpgo:empilhar-rolagem";
@@ -56,7 +56,10 @@ export function rolarCuras(
     }
     const resultado = rolarDados(f.dados, f.modificador);
     rolagens[c.idx] = resultado.total;
-    feitas.push({ resultado, nomePreset: `${nome}: ${c.valor}${soma ? ` + ${soma.texto}` : ""}` });
+    feitas.push({
+      resultado,
+      nomePreset: `${nome}: ${textoDaCura({ alvoCura: c.alvo }, `${c.valor}${soma ? ` + ${soma.texto}` : ""}`)}`,
+    });
   }
   return {
     rolagens,

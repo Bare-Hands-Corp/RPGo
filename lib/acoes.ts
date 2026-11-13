@@ -1,5 +1,7 @@
 // Retorno padrão das Server Actions: erro previsto volta como dado, não como throw.
 
+import { marcarMutacaoLocal } from "./mutacao-local";
+
 export type Resultado<T = object> = ({ ok: true } & T) | { ok: false; erro: string };
 
 // Erro com mensagem pro usuário; os outros viram mensagem genérica.
@@ -31,6 +33,7 @@ export async function executar<T extends object = object>(
 // Cliente: lança o erro do Resultado pro try/catch que mostra `err.message`.
 export function exigir<T extends object>(r: Resultado<T>): T {
   if (!r.ok) throw new Error(r.erro);
+  marcarMutacaoLocal();
   const { ok: _ok, ...dados } = r;
   return dados as unknown as T;
 }

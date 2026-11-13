@@ -4,10 +4,13 @@ import { Tooltip } from "@/components/tooltip";
 import { useContext, useEffect, useOptimistic, useState, useTransition } from "react";
 import Swal from "sweetalert2";
 import { ehTemporario, exigir, idTemporario } from "@/lib/acoes";
-import { atualizarRecurso, criarRecurso, deletarRecurso } from "./actions";
+import { atualizarRecurso, criarRecurso, deletarRecurso, dispararGatilhosDeRolagem } from "./actions";
+import { EVENTO_ROLAGEM_D20, type RolagemD20 } from "@/lib/rolagem-d20";
 import { CampoFormula, FormulaContext } from "./campo-formula";
 import { lerNumeroOuFormula, maximoDoRecurso } from "@/lib/op-rpg";
 import { EstiloPicker } from "./estilo-cor-picker";
+import { PontosBloco, formDeConversao, type FormPonto } from "./pontos-sidebar";
+import { ehPonto, type ArvoreQuePaga, type GanhoDeEfeito } from "@/lib/pontos";
 import {
   EFEITO_COR_PADRAO,
   estiloAplicado,
@@ -27,6 +30,14 @@ export type Recurso = {
   cor2: string | null;
   efeito: string;
   resetEm: string;
+  // Ponto (lib/pontos.ts): valorAtual são os livres, calculados na página.
+  tipo?: string;
+  sigla?: string | null;
+  icone?: string | null;
+  ganhoPorNivel?: unknown;
+  ajustes?: unknown;
+  tetoLivre?: number | null;
+  deEfeitos?: GanhoDeEfeito[];
 };
 
 type Patch =
@@ -64,6 +75,13 @@ function mostrarErro(err: unknown) {
   });
 }
 
+// Chip de quando o recurso volta (manual não mostra).
+const RECUPERACAO: Record<string, { nome: string; icone: string }> = {
+  encontro: { nome: "Fim do encontro", icone: "fa-flag-checkered" },
+  descansoCurto: { nome: "Descanso curto", icone: "fa-mug-hot" },
+  descansoLongo: { nome: "Descanso longo", icone: "fa-moon" },
+};
+
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
@@ -71,9 +89,13 @@ function clamp(n: number, min: number, max: number) {
 export function RecursosSidebar({
   personagemId,
   recursos,
+  arvores,
+  nivel,
 }: {
   personagemId: string;
   recursos: Recurso[];
+  arvores: ArvoreQuePaga[];
+  nivel: number;
 }) {
   // Patch cross-tab vindo do HabilidadesTab (efeito `recurso_delta` de uma
   // habilidade ativa). Mapa id → valorAtual otimista, sobrescreve o valor
@@ -94,7 +116,8 @@ export function RecursosSidebar({
           const base = recursos.find((r) => r.id === id);
           if (!base) continue;
           const atual = next[id] ?? base.valorAtual;
-          next[id] = clamp(atual + delta, 0, base.valorMax);
+          // Ponto não tem máximo: a compra na árvore só tira dos livres.
+          next[id] = ehPonto(base) ? atual + delta : clamp(atual + delta, 0, base.valorMax);
         }
         return next;
       });
@@ -102,6 +125,48 @@ export function RecursosSidebar({
     window.addEventListener("rpgo:patch-recurso", ouvir);
     return () => window.removeEventListener("rpgo:patch-recurso", ouvir);
   }, [recursos]);
+
+  // Efeito Gatilho: o d20 que o Rolador avisou mexe no recurso (o servidor confere e grava).
+  useEffect(() => {
+    function ouvir(e: Event) {
+      const det = (e as CustomEvent<RolagemD20>).detail;
+      if (!det) return;
+      void (async () => {
+        try {
+          const { disparados, deltas } = exigir(await dispararGatilhosDeRolagem(personagemId, det));
+          if (disparados.length === 0 || !deltas) return;
+          if (Object.keys(deltas.recursos).length > 0) {
+            window.dispatchEvent(new CustomEvent("rpgo:patch-recurso", { detail: deltas.recursos }));
+          }
+          if (deltas.ppAtual || deltas.exaustao || deltas.hpAtual) {
+            window.dispatchEvent(
+              new CustomEvent("rpgo:patch-personagem", {
+                detail: {
+                  deltaPpAtual: deltas.ppAtual || undefined,
+                  deltaExaustao: deltas.exaustao || undefined,
+                  deltaHpAtual: deltas.hpAtual || undefined,
+                },
+              }),
+            );
+          }
+          void Swal.fire({
+            toast: true,
+            position: "bottom",
+            icon: "info",
+            title: disparados.map((d) => `${d.fonte}: ${d.texto}`).join(" · "),
+            showConfirmButton: false,
+            timer: 2600,
+            background: "var(--bg-card)",
+            color: "var(--text-main)",
+          });
+        } catch (err) {
+          mostrarErro(err);
+        }
+      })();
+    }
+    window.addEventListener(EVENTO_ROLAGEM_D20, ouvir);
+    return () => window.removeEventListener(EVENTO_ROLAGEM_D20, ouvir);
+  }, [personagemId]);
 
   // Máximo por fórmula acompanha o nível e os atributos de agora.
   const ctxFormula = useContext(FormulaContext);
@@ -120,6 +185,7 @@ export function RecursosSidebar({
   const [, startTransition] = useTransition();
   const [modalAberto, setModalAberto] = useState(false);
   const [form, setForm] = useState<FormState>(FORM_VAZIO);
+  const [formPonto, setFormPonto] = useState<FormPonto | null>(null);
 
   function abrirNovo() {
     setForm(FORM_VAZIO);
@@ -245,11 +311,23 @@ export function RecursosSidebar({
     });
   }
 
-  const ordenados = [...lista].sort(
+  const todos = [...lista].sort(
     (a, b) => a.ordem - b.ordem || a.nome.localeCompare(b.nome),
   );
+  const pontos = todos.filter(ehPonto);
+  const ordenados = todos.filter((r) => !ehPonto(r));
 
   return (
+    <>
+    <PontosBloco
+      personagemId={personagemId}
+      pontos={pontos}
+      arvores={arvores}
+      nivel={nivel}
+      aplicarPatch={aplicarPatch}
+      form={formPonto}
+      setForm={setFormPonto}
+    />
     <div className="recursos-bloco">
       <div className="recursos-header">
         <span>Recursos</span>
@@ -265,7 +343,7 @@ export function RecursosSidebar({
 
       {ordenados.length === 0 && (
         <div className="recursos-vazio">
-          Sem recursos. Crie um pra trackear pools como Pontos de Carateca, PA, etc.
+          Sem recursos. Crie um pra trackear pools como Pontos de Carateca.
         </div>
       )}
 
@@ -287,6 +365,15 @@ export function RecursosSidebar({
               >
                 {r.nome}
               </span>
+              {RECUPERACAO[r.resetEm] && (
+                <span
+                  className="recurso-volta"
+                  title={`Recupera: ${RECUPERACAO[r.resetEm].nome}`}
+                  aria-label={`Recupera: ${RECUPERACAO[r.resetEm].nome}`}
+                >
+                  <i className={`fas ${RECUPERACAO[r.resetEm].icone}`} />
+                </span>
+              )}
               <div className="recurso-card-acoes">
                 <button
                   type="button"
@@ -421,6 +508,20 @@ export function RecursosSidebar({
               />
 
               <div className="modal-actions">
+                {form.id && (
+                  <button
+                    type="button"
+                    className="modal-btn-cancel recurso-virar-ponto"
+                    onClick={() => {
+                      const r = lista.find((x) => x.id === form.id);
+                      if (!r) return;
+                      setModalAberto(false);
+                      setFormPonto(formDeConversao(r, arvores));
+                    }}
+                  >
+                    Virar ponto
+                  </button>
+                )}
                 <button
                   type="button"
                   className="modal-btn-cancel"
@@ -437,5 +538,6 @@ export function RecursosSidebar({
         </div>
       )}
     </div>
+    </>
   );
 }

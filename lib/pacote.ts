@@ -1,8 +1,9 @@
-// Pacote: habilidades, ações e árvores exportadas por código, pra outro usuário importar.
+// Pacote: habilidades, ações, árvores e itens exportados por código, pra outro usuário importar.
 // Puro (cliente e servidor).
 
 import { MAX_RANKS_TETO, lerRequisitos, type CamadaArvore, type NoArvore, type RamoArvore } from "./arvore";
 import { doModelo, mesmoNome, paraModelo, recursosDoModelo, type RecursoRef } from "./pastas";
+import { ehPonto, lerGanhoPorNivel } from "./pontos";
 
 export const MAX_NOME_PACOTE = 60;
 export const MAX_PACOTES = 50;
@@ -55,6 +56,12 @@ export type RecursoPacote = {
   cor2: string | null;
   efeito: string;
   resetEm: string;
+  // Ponto (lib/pontos.ts): vai sem os ajustes, que são da ficha.
+  tipo?: string;
+  sigla?: string | null;
+  icone?: string | null;
+  ganhoPorNivel?: number[];
+  tetoLivre?: number | null;
 };
 
 export type PacoteDados = {
@@ -64,6 +71,7 @@ export type PacoteDados = {
   habilidades: HabilidadePacote[];
   acoes: AcaoPacote[];
   arvores: ArvorePacote[];
+  itens: ItemPacote[];
   // Recursos próprios que o conteúdo cita.
   recursos: RecursoPacote[];
 };
@@ -75,9 +83,10 @@ export type PacoteView = {
   habilidades: number;
   acoes: number;
   arvores: number;
+  itens: number;
 };
 
-export type Escolha = { habilidades: string[]; acoes: string[]; arvores: string[] };
+export type Escolha = { habilidades: string[]; acoes: string[]; arvores: string[]; itens: string[] };
 
 // ─── Código ────────────────────────────────────────────────
 
@@ -142,7 +151,8 @@ export function montarPacote(origem: {
   habilidades: Linha[];
   acoes: Linha[];
   arvores: ArvoreDaFicha[];
-  recursos: (RecursoPacote & { id: string })[];
+  itens?: Linha[];
+  recursos: (Omit<RecursoPacote, "ganhoPorNivel"> & { id: string; ganhoPorNivel?: unknown })[];
 }): PacoteDados {
   const refHabilidade = new Map(origem.habilidades.map((h, i) => [h.id, `h${i}`]));
   const refAcao = new Map(origem.acoes.map((a, i) => [a.id, `a${i}`]));
@@ -207,7 +217,12 @@ export function montarPacote(origem: {
     };
   });
 
-  const citados = recursosCitados({ habilidades, acoes, arvores });
+  const itens = (origem.itens ?? []).map((item, i) => ({
+    ref: `i${i}`,
+    dados: paraModelo("item", item, origem.recursos),
+  }));
+
+  const citados = recursosCitados({ habilidades, acoes, arvores, itens });
   const recursos = origem.recursos
     .filter((r) => citados.some((nome) => mesmoNome(nome, r.nome)))
     .map((r) => ({
@@ -218,15 +233,25 @@ export function montarPacote(origem: {
       cor2: r.cor2,
       efeito: r.efeito,
       resetEm: r.resetEm,
+      ...(ehPonto(r)
+        ? {
+            tipo: "ponto",
+            sigla: r.sigla ?? null,
+            icone: r.icone ?? null,
+            ganhoPorNivel: lerGanhoPorNivel(r.ganhoPorNivel),
+            tetoLivre: r.tetoLivre ?? null,
+          }
+        : {}),
     }));
 
-  return { versao: 1, de: origem.de, habilidades, acoes, arvores, recursos };
+  return { versao: 1, de: origem.de, habilidades, acoes, arvores, itens, recursos };
 }
 
-function recursosCitados(conteudo: Pick<PacoteDados, "habilidades" | "acoes" | "arvores">): string[] {
+function recursosCitados(conteudo: Pick<PacoteDados, "habilidades" | "acoes" | "arvores" | "itens">): string[] {
   return [
     ...conteudo.habilidades.flatMap((h) => recursosDoModelo(h.dados)),
     ...conteudo.acoes.flatMap((a) => recursosDoModelo(a.dados)),
+    ...conteudo.itens.flatMap((i) => recursosDoModelo(i.dados)),
     ...conteudo.arvores.flatMap((a) => (a.recursoCusto ? [a.recursoCusto] : [])),
   ];
 }
@@ -340,6 +365,7 @@ export function lerPacote(raw: unknown): PacoteDados {
       }),
     ),
     arvores: semNulos(lista(o.arvores, MAX_ARVORES_PACOTE).map(lerArvore)),
+    itens: semNulos(lista(o.itens, MAX_ITENS_PACOTE).map(lerItem)),
     recursos: lista(o.recursos, 60).flatMap((raw) => {
       const r = objeto(raw);
       const nome = texto(r?.nome, 80).trim();
@@ -353,6 +379,15 @@ export function lerPacote(raw: unknown): PacoteDados {
           cor2: textoOuNulo(r.cor2, 40),
           efeito: texto(r.efeito, 20) || "solido",
           resetEm: texto(r.resetEm, 20) || "manual",
+          ...(r.tipo === "ponto"
+            ? {
+                tipo: "ponto",
+                sigla: textoOuNulo(r.sigla, 4),
+                icone: textoOuNulo(r.icone, 40),
+                ganhoPorNivel: lerGanhoPorNivel(r.ganhoPorNivel),
+                tetoLivre: r.tetoLivre == null ? null : inteiro(r.tetoLivre, 0, 999),
+              }
+            : {}),
         },
       ];
     }),
@@ -387,6 +422,7 @@ export type PlanoImportacao = {
   habilidades: { id: string; input: Record<string, unknown> }[];
   acoes: { id: string; input: Record<string, unknown> }[];
   arvores: ArvoreImportada[];
+  itens: { id: string; input: Record<string, unknown> }[];
 };
 
 // Vínculo de dentro do pacote ganha o id novo; o de fora casa pelo nome com a ficha.
@@ -403,8 +439,9 @@ export function planejarImportacao(
   const habilidades = escolhidos(pacote.habilidades, escolha.habilidades);
   const acoes = escolhidos(pacote.acoes, escolha.acoes);
   const arvores = escolhidos(pacote.arvores, escolha.arvores);
+  const itens = escolhidos(pacote.itens, escolha.itens);
 
-  const citados = recursosCitados({ habilidades, acoes, arvores });
+  const citados = recursosCitados({ habilidades, acoes, arvores, itens });
   const recursos = pacote.recursos
     .filter(
       (r) =>
@@ -490,24 +527,29 @@ export function planejarImportacao(
         })),
       };
     }),
+    itens: itens.map((i) => ({ id: novoId(), input: doModelo("item", i.dados, recursosDaFicha) })),
   };
 }
 
-export function contarPacote(dados: PacoteDados): Pick<PacoteView, "habilidades" | "acoes" | "arvores"> {
+export type ContagemPacote = Pick<PacoteView, "habilidades" | "acoes" | "arvores" | "itens">;
+
+export function contarPacote(dados: PacoteDados): ContagemPacote {
   return {
     habilidades: dados.habilidades.length,
     acoes: dados.acoes.length,
     arvores: dados.arvores.length,
+    itens: dados.itens.length,
   };
 }
 
 // "3 habilidades, 1 árvore"
-export function resumoDaContagem(c: Pick<PacoteView, "habilidades" | "acoes" | "arvores">): string {
+export function resumoDaContagem(c: ContagemPacote): string {
   const parte = (n: number, um: string, varios: string) => (n > 0 ? `${n} ${n === 1 ? um : varios}` : null);
   return [
     parte(c.habilidades, "habilidade", "habilidades"),
     parte(c.acoes, "ação", "ações"),
     parte(c.arvores, "árvore", "árvores"),
+    parte(c.itens, "item", "itens"),
   ]
     .filter(Boolean)
     .join(", ");

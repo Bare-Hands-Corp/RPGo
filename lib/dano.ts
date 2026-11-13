@@ -193,6 +193,22 @@ export function tiposDoDano(texto: string): string[] {
   return juntarTipos(out);
 }
 
+// "1d8 cortante" → fórmula "1d8" e tipo "cortante"; com mais de um tipo, ou
+// sem tipo no fim, tudo fica na fórmula.
+export function separarTipoDoDano(texto: string): { formula: string; tipo: string } {
+  const t = texto.trim();
+  const tipos = tiposDoDano(t);
+  if (tipos.length !== 1 || !semAcento(t).endsWith(semAcento(tipos[0]))) return { formula: t, tipo: "" };
+  return { formula: t.slice(0, t.length - tipos[0].length).trim(), tipo: tipos[0] };
+}
+
+// Volta pro texto do banco ("1d8 cortante"); fórmula que já diz o tipo fica como está.
+export function juntarTipoNoDano(formula: string, tipo: string): string {
+  const f = formula.trim();
+  if (!f || !tipo.trim() || tiposDoDano(f).length > 0) return f;
+  return `${f} ${tipo.trim().toLowerCase()}`;
+}
+
 // Tipos citados nos efeitos: dano extra, troca de dano e defesas.
 export function tiposDosEfeitos(efeitos: EfeitoHabilidade[]): string[] {
   return juntarTipos(

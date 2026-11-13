@@ -32,6 +32,7 @@ import {
 import { exigir } from "@/lib/acoes";
 import { EstiloPicker } from "./estilo-cor-picker";
 import { IconePicker } from "@/components/icone-picker";
+import { EVENTO_ABRIR_ARVORE } from "@/lib/pontos";
 import { BotaoPacotes } from "./pacotes";
 import {
   EFEITO_COR_PADRAO,
@@ -98,6 +99,9 @@ type RecursoRef = {
   nome: string;
   valorAtual: number;
   valorMax: number;
+  // "ponto": valorAtual são os livres, sem teto (lib/pontos.ts).
+  tipo?: string;
+  sigla?: string | null;
 };
 
 type HabilidadeRef = { id: string; nome: string };
@@ -223,10 +227,26 @@ export function ArvoresTab({
     (state, p: { id: string; delta: number }) =>
       state.map((r) =>
         r.id === p.id
-          ? { ...r, valorAtual: Math.min(r.valorMax, r.valorAtual + p.delta) }
+          ? {
+              ...r,
+              valorAtual:
+                r.tipo === "ponto" ? r.valorAtual + p.delta : Math.min(r.valorMax, r.valorAtual + p.delta),
+            }
           : r,
       ),
   );
+
+  // Pontos e subir de nível pedem uma árvore pelo id.
+  useEffect(() => {
+    function ouvir(e: Event) {
+      const id = (e as CustomEvent<string>).detail;
+      if (typeof id !== "string") return;
+      setSelecionadaId(id);
+      setMontando(false);
+    }
+    window.addEventListener(EVENTO_ABRIR_ARVORE, ouvir);
+    return () => window.removeEventListener(EVENTO_ABRIR_ARVORE, ouvir);
+  }, []);
   const recursoCusto = arvore?.recursoCustoId
     ? recursosOt.find((r) => r.id === arvore.recursoCustoId) ?? null
     : null;
@@ -530,7 +550,15 @@ export function ArvoresTab({
               {recursoCusto && (
                 <span className="arvore-metrica">
                   <i className="fas fa-coins" /> {recursoCusto.nome}:{" "}
-                  <strong>{recursoCusto.valorAtual}</strong>/{recursoCusto.valorMax}
+                  {recursoCusto.tipo === "ponto" ? (
+                    <>
+                      <strong>{recursoCusto.valorAtual}</strong> livres
+                    </>
+                  ) : (
+                    <>
+                      <strong>{recursoCusto.valorAtual}</strong>/{recursoCusto.valorMax}
+                    </>
+                  )}
                 </span>
               )}
               <Tooltip
@@ -2171,7 +2199,7 @@ function ArvoreModal({
             ))}
           </select>
 
-          <label style={{ marginTop: 10 }}>Recurso que paga os talentos</label>
+          <label style={{ marginTop: 10 }}>Paga com</label>
           <select
             value={recursoCustoId}
             onChange={(e) => setRecursoCustoId(e.target.value)}
@@ -2179,7 +2207,8 @@ function ArvoreModal({
             <option value="">Nenhum</option>
             {recursos.map((r) => (
               <option key={r.id} value={r.id}>
-                {r.nome} ({r.valorAtual}/{r.valorMax})
+                {r.nome} (
+                {r.tipo === "ponto" ? `${r.valorAtual} livres` : `${r.valorAtual}/${r.valorMax}`})
               </option>
             ))}
           </select>

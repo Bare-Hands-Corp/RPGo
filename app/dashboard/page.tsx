@@ -9,6 +9,7 @@ import { BotaoNovaMesa } from "./nova-mesa";
 import { BotaoEntrarMesa } from "./entrar-mesa";
 import { LogoutButton } from "./logout-button";
 import { RealtimeRefresher } from "./realtime-refresher";
+import { BotaoNovidades } from "./novidades";
 import { ThemeButton } from "@/components/temas/theme-button";
 import { Logo } from "@/components/marca/logo";
 import "./dashboard.css";
@@ -41,6 +42,7 @@ export default async function DashboardPage() {
         </h1>
         <div className="dashboard-header-actions">
           <BotaoEntrarMesa personagens={personagens} />
+          <BotaoNovidades />
           <ThemeButton />
           <LogoutButton />
         </div>

@@ -217,13 +217,19 @@ export type OpcaoReacao = {
 
 // ─── Gatilho de reação ─────────────────────────────────────────────────────
 // Em que situação a reação é oferecida a quem foi pego por uma ação.
+// `texto`: o que acontece e como a reação aparece (oferecida pelo combate ou à mão).
 export const GATILHOS_REACAO = [
-  { slug: "qualquer", nome: "Qualquer ação", texto: "Alvo de qualquer ação" },
-  { slug: "ataque", nome: "Ataque", texto: "Alvo de uma jogada de ataque" },
-  { slug: "salvaguarda", nome: "Salvaguarda", texto: "Alvo de uma salvaguarda para evitar dano" },
-  { slug: "dano", nome: "Dano", texto: "Vai receber dano" },
-  { slug: "aliado_ataque", nome: "Aliado alvo de ataque", texto: "Um aliado é alvo de uma jogada de ataque" },
-  { slug: "outro", nome: "Outra situação", texto: "Outra situação (usada à mão, fora da janela)" },
+  { slug: "qualquer", nome: "Uma ação te pega", texto: "Uma ação vai te pegar (oferecida no combate)" },
+  { slug: "ataque", nome: "Um ataque vai te acertar", texto: "Um ataque vai te acertar (oferecida no combate)" },
+  { slug: "salvaguarda", nome: "Salvaguarda contra dano", texto: "Você faz salvaguarda contra dano (oferecida no combate)" },
+  { slug: "dano", nome: "Você vai receber dano", texto: "Você vai receber dano (oferecida no combate)" },
+  {
+    slug: "voce_ou_aliado_dano",
+    nome: "Você ou aliado vai receber dano",
+    texto: "Você ou um aliado vai receber dano (oferecida no combate)",
+  },
+  { slug: "aliado_ataque", nome: "Um aliado vai ser acertado", texto: "Um ataque vai acertar um aliado (oferecida no combate)" },
+  { slug: "outro", nome: "Outra situação", texto: "Outra situação (ativada manualmente)" },
 ] as const;
 export type GatilhoReacao = (typeof GATILHOS_REACAO)[number]["slug"];
 
@@ -244,6 +250,7 @@ export function gatilhoCabe(
   deAliado = false,
 ): boolean {
   if (gatilho === "aliado_ataque") return deAliado && acao.modo === "ataque";
+  if (gatilho === "voce_ou_aliado_dano") return acao.temDano || acao.modo === "ataque";
   if (deAliado) return false;
   if (gatilho === "qualquer") return true;
   if (gatilho === "ataque") return acao.modo === "ataque";
@@ -451,7 +458,8 @@ export type ResolucaoVista = {
   nome: string;
   modo: ModoResolucao;
   etapa: Resolucao["etapa"];
-  alvos: { nome: string; resultado: ResultadoAlvo | null; danoAplicado: boolean }[];
+  corpoACorpo?: boolean;
+  alvos: { instanciaId: string; nome: string; resultado: ResultadoAlvo | null; danoAplicado: boolean }[];
 };
 
 // `pelo`: salvaguarda de estrutura do navio que este personagem comanda.

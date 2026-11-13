@@ -34,7 +34,13 @@ type Mesa = {
   tiposDano: string[];
   personagens: ResumoPersonagem[];
   // Quem pode entrar no combate: jogadores e subfichas (`de` = de quem é).
-  fichasDoCombate: (ResumoPersonagem & { de: string | null })[];
+  fichasDoCombate: (ResumoPersonagem & {
+    de: string | null;
+    donoId: string | null;
+    entraJunto: boolean;
+    segueDono: boolean;
+    iniciativaCombate: number;
+  })[];
   navios: NavioDoNarrador[];
 };
 
@@ -196,8 +202,12 @@ export function NarradorShell({
                   hpAtual: p.hpAtual,
                   hpMax: p.hpMax,
                   destreza: p.destreza,
-                  iniciativa: p.iniciativa,
+                  iniciativa: p.iniciativaCombate,
                   fotoUrl: p.fotoUrl,
+                  subficha: p.de !== null,
+                  donoId: p.donoId,
+                  entraJunto: p.entraJunto,
+                  segueDono: p.segueDono,
                 }))}
                 encontros={encontros}
               />

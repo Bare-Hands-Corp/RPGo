@@ -8,6 +8,9 @@ import {
 } from "@/lib/calendario/carregar";
 import { serializarCriatura } from "@/app/bestiario/utils";
 import { resumirPersonagem } from "@/lib/resumo-personagem";
+import { combateDaSubficha, ehSubficha } from "@/lib/subficha";
+import { lerNavio } from "@/lib/navio";
+import { modificador } from "@/lib/op-rpg";
 import { SELECT_ACAO_QUE_DURA, recebidasDaMesa } from "@/lib/efeitos-servidor";
 import { NarradorShell } from "./painel-narrador";
 import { catalogoTiposDoNarrador } from "@/lib/tipos-dano-servidor";
@@ -81,10 +84,30 @@ export default async function NarradorPage({ params }: Params) {
   }
 
   // `de`: de quem é a subficha (a da mesa é da própria mesa); null = jogador.
-  const fichas = mesa.personagens.map((p) => ({
-    ...resumirPersonagem(p, recebidas.get(p.id)),
-    de: p.dono?.nome ?? (p.donoMesaId ? (p.doNarrador ? "Narrador" : mesa.nome) : null),
-  }));
+  const resumos = new Map(mesa.personagens.map((p) => [p.id, resumirPersonagem(p, recebidas.get(p.id))]));
+  const porId = new Map(mesa.personagens.map((p) => [p.id, p]));
+  const fichas = mesa.personagens.map((p) => {
+    const resumo = resumos.get(p.id)!;
+    const combate = ehSubficha(p) ? combateDaSubficha(p, !!p.donoMesaId) : null;
+    // Navio: teste de PRE de quem comanda (sem comandante, o dono).
+    const capitao = porId.get(lerNavio(p.navio)?.comandanteId ?? p.donoPersonagemId ?? "");
+    const iniciativaCombate =
+      combate?.iniciativa === "capitao"
+        ? capitao
+          ? modificador(capitao.presenca)
+          : 0
+        : combate?.iniciativa === "dono" && p.donoPersonagemId
+          ? (resumos.get(p.donoPersonagemId)?.iniciativa ?? resumo.iniciativa)
+          : resumo.iniciativa;
+    return {
+      ...resumo,
+      de: p.dono?.nome ?? (p.donoMesaId ? (p.doNarrador ? "Narrador" : mesa.nome) : null),
+      donoId: p.donoPersonagemId,
+      entraJunto: combate?.entra === "junto",
+      segueDono: combate?.iniciativa === "dono" && !!p.donoPersonagemId,
+      iniciativaCombate,
+    };
+  });
 
   return (
     <NarradorShell

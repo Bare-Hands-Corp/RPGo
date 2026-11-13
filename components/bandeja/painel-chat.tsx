@@ -583,7 +583,7 @@ function TesteMensagemView({
     bonusPorAlvo?: Record<string, number>;
     bonusDetalhesPorAlvo?: Record<string, string>;
     dadosPorAlvo?: Record<string, Array<{ faces: number; sinal: 1 | -1 }>>;
-    progressivosPorAlvo?: Record<string, Array<{ fonte: string; formula: string; em: string }>>;
+    progressivosPorAlvo?: Record<string, Array<{ fonte: string; formula: string; em: string; soma?: number; passos?: number }>>;
   };
   const [rolando, setRolando] = useState(false);
   const [acompanhamentoAberto, setAcompanhamentoAberto] = useState(false);
@@ -610,7 +610,7 @@ function TesteMensagemView({
   const bonusDetalhado = personagemId ? detalhes.bonusDetalhesPorAlvo?.[personagemId] ?? null : null;
   // Dados a mais dos efeitos (ex.: +1d4 em testes), rolados junto do d20.
   const dadosExtras = personagemId ? detalhes.dadosPorAlvo?.[personagemId] ?? [] : [];
-  // Bônus progressivos que sobem um passo a cada rolagem.
+  // Bônus progressivos que sobem, perdem ou zeram a cada rolagem.
   const progressivos = personagemId ? detalhes.progressivosPorAlvo?.[personagemId] ?? [] : [];
   const cdInterna =
     typeof detalhes.cdInterna === "number"
@@ -663,7 +663,12 @@ function TesteMensagemView({
       // A aba dona do efeito grava a contagem, como na rolagem do Rolador.
       for (const p of progressivos) {
         window.dispatchEvent(
-          new CustomEvent<PassosDoRolador>(EVENTO_PASSOS, { detail: { ...p, soma: 1 } }),
+          new CustomEvent<PassosDoRolador>(EVENTO_PASSOS, {
+            detail:
+              typeof p.passos === "number"
+                ? { fonte: p.fonte, formula: p.formula, em: p.em, passos: p.passos }
+                : { fonte: p.fonte, formula: p.formula, em: p.em, soma: p.soma ?? 1 },
+          }),
         );
       }
     } catch (error) {

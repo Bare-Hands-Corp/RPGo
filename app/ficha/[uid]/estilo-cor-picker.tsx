@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { createContext, useContext, useState } from "react";
 import { SeletorCor } from "@/components/cor/seletor-cor";
 import { Tooltip } from "@/components/tooltip";
+import { Sugestoes } from "./campos-modal";
+import { SeletorBusca } from "./seletor-busca";
 import {
   EFEITOS_COR,
   EFEITO_COR_PADRAO,
@@ -13,7 +15,11 @@ import {
   type EfeitoCor,
   type EstiloCor,
   type MapaEstilosTag,
+  type TagDaFicha,
 } from "@/lib/estilos-cor";
+
+// Tags já usadas na ficha: o editor oferece cada uma com um clique.
+export const TagsDaFichaContext = createContext<TagDaFicha[]>([]);
 
 // Hex: o seletor de cor trabalha em hex, não aceita var().
 export const SWATCHES_COR = [
@@ -227,6 +233,12 @@ export function TagsEditor({
 }) {
   const [selecionada, setSelecionada] = useState<string | null>(null);
   const lista = separarTags(tags);
+  const disponiveis = useContext(TagsDaFichaContext).filter((t) => !lista.includes(t.nome));
+
+  function adicionar(t: TagDaFicha) {
+    onTags(lista.length > 0 ? `${lista.join(", ")}, ${t.nome}` : t.nome);
+    if (t.estilo && !estilos[t.nome]) onEstilos({ ...estilos, [t.nome]: t.estilo });
+  }
   const alvo = selecionada && lista.includes(selecionada) ? selecionada : null;
   const estiloAlvo: EstiloCor = alvo
     ? estilos[alvo] ?? { cor: null, efeito: EFEITO_COR_PADRAO }
@@ -284,6 +296,51 @@ export function TagsEditor({
               </span>
             );
           })}
+        </div>
+      )}
+
+      {disponiveis.length > 0 && (
+        <div className="tags-editor-ficha" role="group" aria-label="Tags da ficha">
+          <Sugestoes className="tags-editor-chips" limite={7}>
+            {disponiveis.map((t) => {
+              const { className: fx, style } = estiloAplicado(t.estilo ?? undefined, "chip");
+              return (
+                <span
+                  key={t.nome}
+                  role="button"
+                  tabIndex={0}
+                  title={`Adicionar ${t.nome}`}
+                  className={`tag ${t.estilo?.cor ? "" : classePadraoChip} ${fx}`.replace(/\s+/g, " ").trim()}
+                  style={style}
+                  onClick={() => adicionar(t)}
+                  onKeyDown={(ev) => {
+                    if (ev.key === "Enter" || ev.key === " ") {
+                      ev.preventDefault();
+                      adicionar(t);
+                    }
+                  }}
+                >
+                  <i className="fas fa-plus" /> <span className="fx-texto">{t.nome}</span>
+                </span>
+              );
+            })}
+          </Sugestoes>
+          {disponiveis.length > 7 && (
+            <SeletorBusca
+              valor=""
+              opcoes={disponiveis.map((t) => ({ slug: t.nome, nome: t.nome }))}
+              onChange={(nome) => {
+                const t = disponiveis.find((d) => d.nome === nome);
+                if (t) adicionar(t);
+              }}
+              titulo="Tags da ficha"
+              gatilho={
+                <>
+                  <i className="fas fa-magnifying-glass" /> Buscar tag
+                </>
+              }
+            />
+          )}
         </div>
       )}
 

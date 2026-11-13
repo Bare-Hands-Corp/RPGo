@@ -62,9 +62,16 @@ export type PersonagemParaCombate = {
   hpAtual: number;
   hpMax: number;
   destreza: number;
-  // Bônus de iniciativa como está na ficha (atributo, efeitos, exaustão).
+  // Bônus de iniciativa como está na ficha (atributo, efeitos, exaustão); na
+  // subficha, o do modo dela (o do dono, o próprio ou a PRE do capitão).
   iniciativa: number;
   fotoUrl: string | null;
+  // Subficha de um personagem: o dono, se entra junto com ele e se a
+  // iniciativa é o mesmo valor que o dono tirar.
+  subficha?: boolean;
+  donoId?: string | null;
+  entraJunto?: boolean;
+  segueDono?: boolean;
 };
 export type EncontroParaCombate = {
   id: string;

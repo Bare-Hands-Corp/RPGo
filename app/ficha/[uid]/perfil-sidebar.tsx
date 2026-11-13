@@ -9,6 +9,7 @@ import { EditFichaModal } from "./edit-ficha-modal";
 import { Tooltip } from "@/components/tooltip";
 import { AvatarUploadModal } from "./avatar-upload-modal";
 import { RecursosSidebar, type Recurso } from "./recursos-sidebar";
+import { pontosAoSubir, type ArvoreQuePaga } from "@/lib/pontos";
 import { FormulaContext } from "./campo-formula";
 import { CrEditavel } from "./cr-editavel";
 import { ExaustaoControle } from "./exaustao-controle";
@@ -75,7 +76,9 @@ import {
   atributoDeCalculo,
   atributosEfetivos as somarBonusDeAtributo,
   bonusProficiencia,
+  bonusNoContexto,
   bonusTesteAmplo,
+  estadoDaFicha,
   ATRIBUTOS,
   cdTecnica,
   comValoresIguais,
@@ -142,6 +145,8 @@ type Personagem = {
   // Atributo da CD das técnicas (padrão das ações com salvaguarda).
   atributoCdTecnicas?: string | null;
   recursos: Recurso[];
+  // Pro saldo dos pontos (lib/pontos.ts).
+  arvores?: ArvoreQuePaga[];
   itens: Array<{
     id: string;
     nome: string;
@@ -586,12 +591,18 @@ export function PerfilSidebar({
         ],
         slugs,
         undefined,
-        { nivel, atributos: { forca, destreza, constituicao, sabedoria, vontade, presenca } },
+        {
+          nivel,
+          atributos: { forca, destreza, constituicao, sabedoria, vontade, presenca },
+          estado: estadoDaFicha({ hpAtual: p.hpAtual, hpMax: p.hpMax, nivel }, condicoes, itensComOverlay),
+        },
       ),
       emCurso,
       slugs,
     );
   }, [
+    p.hpAtual,
+    p.hpMax,
     condicoes,
     emCurso,
     habilidades,
@@ -723,8 +734,12 @@ export function PerfilSidebar({
       outros: profManual.outrosSalvaguardas.constituicao ?? 0,
       agg: efeitosAgregados,
     });
+    // Bônus de alvo em lista que pega a concentração e não a salvaguarda de CON.
+    const soConcentracao =
+      bonusNoContexto(efeitosAgregados, { tipo: "salvaguarda", atributo: "constituicao", concentracao: true }).valor -
+      bonusNoContexto(efeitosAgregados, { tipo: "salvaguarda", atributo: "constituicao" }).valor;
     empilharD20(
-      t.bonus + efeitosAgregados.bonusConcentracao.valor - penD20,
+      t.bonus + efeitosAgregados.bonusConcentracao.valor + soConcentracao - penD20,
       `Concentração (CD ${cd})`,
       { tipo: "salvaguarda", atributo: "constituicao", concentracao: true },
       undefined,
@@ -1380,7 +1395,12 @@ export function PerfilSidebar({
       </div>
 
       <FormulaContext.Provider value={ctxTurno}>
-        <RecursosSidebar personagemId={p.id} recursos={p.recursos} />
+        <RecursosSidebar
+          personagemId={p.id}
+          recursos={p.recursos}
+          arvores={p.arvores ?? []}
+          nivel={p.nivel}
+        />
       </FormulaContext.Provider>
 
       <div className="derivados-grid">
@@ -1415,7 +1435,7 @@ export function PerfilSidebar({
         {mostra("testes") && (() => {
           const iniAtrib = atributoDeCalculo("iniciativa", "destreza", subs, atributosParaTeste);
           const iniDesReduz = iniAtrib.atributo === "destreza" && desReduz;
-          const iniAmplo = bonusTesteAmplo(efeitosAgregados, "destreza");
+          const iniAmplo = bonusTesteAmplo(efeitosAgregados, "destreza", { tipo: "iniciativa" });
           const iniBruta =
             iniciativa(atributosParaTeste[iniAtrib.atributo]) +
             efeitosAgregados.bonusIniciativa.valor +
@@ -1715,7 +1735,7 @@ export function PerfilSidebar({
             iguais.length > 0 && valor > Math.max(p[slug] + (bonus?.valor ?? 0), fixo?.valor ?? 0);
           // Teste puro: atributo trocado por "Testes de X" e bônus de alvos largos.
           const subTeste = atributoDeCalculo(`teste-${slug}`, slug, subs, atributosParaTeste);
-          const amplo = bonusTesteAmplo(efeitosAgregados, slug);
+          const amplo = bonusTesteAmplo(efeitosAgregados, slug, { tipo: "teste-atributo", atributo: slug });
           // DES com armadura: o teste perde a penalidade dela.
           const armaduraReduz = subTeste.atributo === "destreza" && desReduz;
           const modEf = modificador(atributosParaTeste[subTeste.atributo]) + amplo.valor - penD20;
@@ -1793,6 +1813,7 @@ export function PerfilSidebar({
           atributosBase={{ forca, destreza, constituicao, sabedoria, vontade, presenca }}
           bonusTetoAtributo={efeitosAgregados.bonusTetoAtributo}
           camadasQueAbrem={camadasQueAbrem}
+          pontos={pontosAoSubir(p.recursos, p.arvores ?? [], p.nivel)}
           onFechar={() => setModalNivel(false)}
         />
       )}

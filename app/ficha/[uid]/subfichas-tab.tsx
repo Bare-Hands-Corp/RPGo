@@ -5,34 +5,29 @@ import Link from "next/link";
 import Swal from "sweetalert2";
 import { ehTemporario, exigir, idTemporario, type Resultado } from "@/lib/acoes";
 import {
-  CANHOES_NAVIO,
   FORTIFICACOES_NAVIO,
-  LEMES_NAVIO,
-  MADEIRAS_NAVIO,
-  MOTORES_NAVIO,
-  MASTROS_NAVIO,
-  TAMANHOS_NAVIO,
-  VELAS_NAVIO,
-  metrosPorRodada,
   montagemPadrao,
   presetDeNavio,
   statsMadeira,
-  statsTamanho,
-  velocidadeDoNavio,
   type MontagemNavio,
 } from "@/lib/navio";
 import type { SubfichaCard } from "@/lib/resumo-personagem";
 import {
   ABAS_DE_SUBFICHA,
+  ENTRADAS_COMBATE,
+  INICIATIVAS_SUBFICHA,
   MAX_COPIAS,
   MAX_NOME_SUBFICHA,
   PERFIS_DE_SUBFICHA,
+  combateDaSubficha,
   nomesDasCopias,
   perfilDe,
   type AbaFicha,
+  type CombateSubficha,
   type PerfilFicha,
 } from "@/lib/subficha";
 import { CampoPasso, Segmentos } from "./campos-modal";
+import { CamposMontagemNavio } from "./montagem-navio";
 import {
   apagarSubficha,
   atualizarSubficha,
@@ -60,6 +55,7 @@ export type DadosSubficha = {
   hpMax: number;
   navio: MontagemNavio | null;
   abas: AbaFicha[];
+  combate: CombateSubficha;
 };
 
 type Mudanca =
@@ -101,6 +97,12 @@ function fichaProvisoria(d: DadosSubficha, daMesa: boolean): SubfichaCard {
     daMesa,
     deslocamento: preset?.deslocamento ?? 0,
     recursos: [],
+    combate: d.combate,
+    acoes: [],
+    municao: [],
+    canhoes: d.navio?.canhoes ?? null,
+    comandanteId: null,
+    emCombate: null,
   };
 }
 
@@ -130,12 +132,13 @@ export function useSubfichas(personagemId: string, doServidor: SubfichaCard[], d
           molde: d.molde,
           hpMax: d.hpMax,
           navio: d.navio,
+          combate: d.combate,
           daMesa,
         }),
       );
     },
     editar(ficha: SubfichaCard, d: DadosSubficha) {
-      const patch = { nome: d.nome, perfil: d.perfil, molde: d.molde, abas: d.abas };
+      const patch = { nome: d.nome, perfil: d.perfil, molde: d.molde, abas: d.abas, combate: d.combate };
       rodar({ tipo: "mudar", id: ficha.id, patch }, () => atualizarSubficha(ficha.id, patch));
     },
     pv(ficha: SubfichaCard, hpAtual: number) {
@@ -262,6 +265,48 @@ function Avatar({ ficha }: { ficha: SubfichaCard }) {
   );
 }
 
+// Ícone e cor de cada tipo de ação, pros atalhos.
+const TIPO_DA_ACAO: Record<string, { icone: string; cor: string }> = {
+  padrao: { icone: "fa-gavel", cor: "var(--color-padrao)" },
+  bonus: { icone: "fa-bolt", cor: "var(--color-bonus)" },
+  power: { icone: "fa-bomb", cor: "var(--color-power)" },
+  react: { icone: "fa-shield-alt", cor: "var(--color-react)" },
+  livre: { icone: "fa-feather", cor: "var(--color-livre)" },
+};
+
+const MAX_ATALHOS = 6;
+
+const comSinal = (n: number) => (n >= 0 ? `+${n}` : `−${Math.abs(n)}`);
+
+// Como ela entra no combate e de onde vem a iniciativa, em chips.
+function SituacaoCombate({ ficha }: { ficha: SubfichaCard }) {
+  const { entra, iniciativa } = ficha.combate;
+  const textoIniciativa =
+    iniciativa === "dono"
+      ? "Iniciativa do dono"
+      : iniciativa === "capitao"
+        ? `Iniciativa: PRE ${ficha.comandante ? `de ${ficha.comandante}` : "do capitão"}`
+        : `Iniciativa ${comSinal(ficha.iniciativa)}`;
+  return (
+    <div className="subficha-chips">
+      {ficha.emCombate ? (
+        <span className={`subficha-chip combate${ficha.emCombate.vez ? " vez" : ""}`}>
+          <i className="fas fa-khanda" /> {ficha.emCombate.vez ? "Na vez" : "Em combate"} ·{" "}
+          {ficha.emCombate.iniciativa}
+        </span>
+      ) : (
+        <span className="subficha-chip" title={entra === "junto" ? "Entra quando o narrador põe o dono" : undefined}>
+          <i className={`fas ${entra === "junto" ? "fa-link" : "fa-hand"}`} />{" "}
+          {entra === "junto" ? "Entra com o dono" : "Entra pelo narrador"}
+        </span>
+      )}
+      <span className="subficha-chip">
+        <i className="fas fa-bolt" /> {textoIniciativa}
+      </span>
+    </div>
+  );
+}
+
 // Card de uma subficha; `children` entra embaixo (as cópias do molde).
 export function CardSubficha({
   ficha,
@@ -281,9 +326,14 @@ export function CardSubficha({
   const veiculo = perfil.slug === "veiculo";
   const pvPct =
     ficha.hpMax > 0 ? Math.max(0, Math.min(100, (ficha.hpAtual / ficha.hpMax) * 100)) : 0;
+  const atalhos = ficha.molde ? [] : ficha.acoes.slice(0, MAX_ATALHOS);
+  const outras = ficha.molde ? 0 : ficha.acoes.length - atalhos.length;
 
   return (
-    <div className={`subficha-card${pendente ? " item-pendente" : ""}`} inert={pendente}>
+    <div
+      className={`subficha-card${pendente ? " item-pendente" : ""}${ficha.emCombate?.vez ? " na-vez" : ""}`}
+      inert={pendente}
+    >
       <div className="subficha-cabecalho">
         <Avatar ficha={ficha} />
         <div className="subficha-titulo">
@@ -308,6 +358,8 @@ export function CardSubficha({
           </button>
         </div>
       </div>
+
+      {!ficha.molde && <SituacaoCombate ficha={ficha} />}
 
       {/* O molde fica guardado: mostra os números, sem controle. */}
       {!ficha.molde && (
@@ -343,6 +395,19 @@ export function CardSubficha({
             valor={`${ficha.deslocamento.toLocaleString("pt-BR")} ${perfil.deslocamento.unidade}`}
           />
         )}
+        {/* Iniciativa do dono ou do capitão já está no chip de cima. */}
+        {!veiculo && ficha.combate.iniciativa === "propria" && (
+          <Stat icone="fa-bolt" rotulo="Iniciativa" valor={comSinal(ficha.iniciativa)} />
+        )}
+        {!veiculo && <Stat icone="fa-eye" rotulo="Percepção passiva" valor={ficha.percepcaoPassiva} />}
+        {ficha.ppMax > 0 && <Stat icone="fa-fire" rotulo="PP" valor={`${ficha.ppAtual} / ${ficha.ppMax}`} />}
+        {veiculo && ficha.canhoes != null && ficha.canhoes > 0 && (
+          <Stat icone="fa-bomb" rotulo="Canhões" valor={ficha.canhoes} />
+        )}
+        {ficha.municao.map((m) => (
+          <Stat key={m.nome} icone="fa-circle-dot" rotulo={m.nome} valor={m.quantidade} />
+        ))}
+        {veiculo && ficha.comandante && <Stat icone="fa-user-tie" rotulo="Comandante" valor={ficha.comandante} />}
         {veiculo &&
           ficha.recursos.map((r) => (
             <Stat
@@ -353,6 +418,30 @@ export function CardSubficha({
             />
           ))}
       </div>
+
+      {atalhos.length > 0 && (
+        <div className="subficha-atalhos" aria-label={`Ações de ${ficha.nome}`}>
+          {atalhos.map((a) => {
+            const tipo = TIPO_DA_ACAO[a.tipo] ?? TIPO_DA_ACAO.padrao;
+            return (
+              <Link
+                key={a.id}
+                href={`/ficha/${ficha.id}?aba=combate&acao=${a.id}`}
+                className="subficha-atalho"
+                style={{ "--atalho-cor": tipo.cor } as React.CSSProperties}
+                title={`Abrir ${a.nome} na ficha de ${ficha.nome}`}
+              >
+                <i className={`fas ${tipo.icone}`} /> {a.nome}
+              </Link>
+            );
+          })}
+          {outras > 0 && (
+            <Link href={`/ficha/${ficha.id}?aba=combate`} className="subficha-atalho mais" title="Todas as ações">
+              +{outras}
+            </Link>
+          )}
+        </div>
+      )}
 
       {children}
     </div>
@@ -530,22 +619,23 @@ export function ModalSubficha({
   const [doLivro, setDoLivro] = useState(daMesa);
   const [montagem, setMontagem] = useState<MontagemNavio>(() => montagemPadrao("pequeno"));
   const [abas, setAbas] = useState<AbaFicha[]>(inicial?.abas ?? perfilDe(perfil).abas);
+  const [combate, setCombate] = useState<CombateSubficha>(
+    () => inicial?.combate ?? combateDaSubficha({ perfil }, daMesa),
+  );
 
   const veiculo = perfil === "veiculo";
+  // "A do dono" só com dono; "Do capitão", só no navio.
+  const iniciativas = INICIATIVAS_SUBFICHA.filter(
+    (i) => (i.slug !== "dono" || !daMesa) && (i.slug !== "capitao" || veiculo),
+  );
   const navio = !inicial && veiculo && doLivro ? montagem : null;
-  const tamanhoNavio = statsTamanho(montagem.tamanho);
-  const velocidade = velocidadeDoNavio(montagem);
-  const mudarNavio = (patch: Partial<MontagemNavio>) => setMontagem((m) => ({ ...m, ...patch }));
-  // Outro tamanho começa do modelo do livro daquele tamanho.
-  function trocarTamanho(slug: string) {
-    setMontagem(montagemPadrao(slug));
-  }
   // Cópia e subficha da mesa não viram molde.
   const podeSerMolde = !daMesa && !inicial?.moldeId;
 
   function trocarPerfil(novo: PerfilFicha) {
     setPerfil(novo);
     setAbas(perfilDe(novo).abas);
+    setCombate(combateDaSubficha({ perfil: novo }, daMesa));
   }
 
   function submeter(e: React.FormEvent) {
@@ -558,12 +648,13 @@ export function ModalSubficha({
       hpMax: Math.max(0, Math.trunc(hpMax) || 0),
       navio,
       abas,
+      combate,
     });
   }
 
   return (
     <div className="modal-overlay" onClick={onCancelar}>
-      <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+      <div className={`modal-box${navio ? " modal-box-lg" : ""}`} onClick={(e) => e.stopPropagation()}>
         <button type="button" className="modal-close" onClick={onCancelar} aria-label="Fechar">
           <i className="fas fa-times" />
         </button>
@@ -630,143 +721,30 @@ export function ModalSubficha({
           )}
 
           {navio && (
-            <>
-              <div className="subficha-campo">
-                <label>Tamanho</label>
-                <div className="opcoes-grade">
-                  {TAMANHOS_NAVIO.map((t) => (
-                    <button
-                      type="button"
-                      key={t.slug}
-                      className={`opcao-card${montagem.tamanho === t.slug ? " ativo" : ""}`}
-                      aria-pressed={montagem.tamanho === t.slug}
-                      onClick={() => trocarTamanho(t.slug)}
-                    >
-                      <strong>{t.nome}</strong>
-                      <span>{t.pvMax} PV</span>
-                      <span>{t.canhoesMax} canhões</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="subficha-campo">
-                <label>Madeira</label>
-                <div className="opcoes-grade">
-                  {MADEIRAS_NAVIO.map((m) => (
-                    <button
-                      type="button"
-                      key={m.slug}
-                      className={`opcao-card${montagem.madeira === m.slug ? " ativo" : ""}`}
-                      aria-pressed={montagem.madeira === m.slug}
-                      onClick={() => mudarNavio({ madeira: m.slug })}
-                    >
-                      <strong>{m.nome}</strong>
-                      <span>CR {m.cr}</span>
-                      <span>Redução {m.br}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="subficha-campo">
-                <label>Mastros</label>
-                <div className="subficha-linha">
-                  <CampoPasso
-                    valor={montagem.mastros}
-                    onChange={(n) => mudarNavio({ mastros: n })}
-                    rotulo="Mastros"
-                    min={1}
-                    max={tamanhoNavio.mastrosMax}
-                  />
-                  <Segmentos
-                    rotulo="Tipo de mastro"
-                    valor={montagem.mastro}
-                    opcoes={MASTROS_NAVIO.map((x) => ({ valor: x.slug, rotulo: x.nome }))}
-                    onChange={(v) => mudarNavio({ mastro: v })}
-                  />
-                </div>
-              </div>
-              <div className="subficha-campo">
-                <label>Velas</label>
-                <div className="opcoes-grade">
-                  {VELAS_NAVIO.map((v) => (
-                    <button
-                      type="button"
-                      key={v.slug}
-                      className={`opcao-card${montagem.vela === v.slug ? " ativo" : ""}`}
-                      aria-pressed={montagem.vela === v.slug}
-                      onClick={() => mudarNavio({ vela: v.slug })}
-                    >
-                      <strong>{v.nome}</strong>
-                      <span>+{v.nos[montagem.mastro]} nós por mastro</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="subficha-campo">
-                <label>Canhões</label>
-                <CampoPasso
-                  valor={montagem.canhoes}
-                  onChange={(n) => mudarNavio({ canhoes: n })}
-                  rotulo="Canhões"
-                  max={tamanhoNavio.canhoesMax}
-                />
-                <div className="opcoes-grade" style={{ marginTop: 6 }}>
-                  {CANHOES_NAVIO.map((c) => (
-                    <button
-                      type="button"
-                      key={c.slug}
-                      className={`opcao-card${montagem.canhao === c.slug ? " ativo" : ""}`}
-                      aria-pressed={montagem.canhao === c.slug}
-                      onClick={() => mudarNavio({ canhao: c.slug })}
-                    >
-                      <strong>{c.nome}</strong>
-                      <span>+{c.bonus} · {c.alcance} m</span>
-                      <span>{c.dano === 1 ? "Dano da munição" : c.dano > 1 ? "Dobro da munição" : "Metade da munição"}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="subficha-campo">
-                <label>Fortificação</label>
-                <Segmentos
-                  rotulo="Fortificação"
-                  valor={montagem.fortificacao}
-                  opcoes={FORTIFICACOES_NAVIO.map((f) => ({
-                    valor: f.slug,
-                    rotulo: f.nome,
-                    ...(f.cr ? { sub: `+${f.cr} CR` } : {}),
-                  }))}
-                  onChange={(v) => mudarNavio({ fortificacao: v })}
-                />
-              </div>
-              <div className="subficha-campo">
-                <label>Motor</label>
-                <Segmentos
-                  rotulo="Motor"
-                  valor={montagem.motor}
-                  opcoes={MOTORES_NAVIO.map((x) => ({
-                    valor: x.slug,
-                    rotulo: x.nome,
-                    ...(x.nos ? { sub: `+${x.nos} nós` } : {}),
-                  }))}
-                  onChange={(v) => mudarNavio({ motor: v })}
-                />
-              </div>
-              <div className="subficha-campo">
-                <label>Leme</label>
-                <Segmentos
-                  rotulo="Leme"
-                  valor={montagem.leme}
-                  opcoes={LEMES_NAVIO.map((x) => ({ valor: x.slug, rotulo: x.nome }))}
-                  onChange={(v) => mudarNavio({ leme: v })}
-                />
-              </div>
-              <p className="subficha-velocidade">
-                <i className="fas fa-wind" /> {velocidade.nos} nós · {metrosPorRodada(velocidade.nos).toLocaleString("pt-BR")} m por
-                rodada <small>(velas +{velocidade.velas}, peso {velocidade.peso})</small>
-              </p>
-            </>
+            <CamposMontagemNavio montagem={montagem} onChange={setMontagem} aoTrocarTamanho={montagemPadrao} />
           )}
+
+          {!daMesa && (
+            <div className="subficha-campo">
+              <label>No combate</label>
+              <Segmentos
+                rotulo="No combate"
+                valor={combate.entra}
+                opcoes={ENTRADAS_COMBATE.map((e) => ({ valor: e.slug, rotulo: e.nome, sub: e.sub }))}
+                onChange={(entra) => setCombate((c) => ({ ...c, entra }))}
+              />
+            </div>
+          )}
+
+          <div className="subficha-campo">
+            <label>Iniciativa</label>
+            <Segmentos
+              rotulo="Iniciativa"
+              valor={combate.iniciativa}
+              opcoes={iniciativas.map((i) => ({ valor: i.slug, rotulo: i.nome, sub: i.sub }))}
+              onChange={(iniciativa) => setCombate((c) => ({ ...c, iniciativa }))}
+            />
+          </div>
 
           {!inicial && !navio && (
             <div className="subficha-campo">

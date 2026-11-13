@@ -22,6 +22,7 @@ import {
 } from "@/lib/op-rpg";
 import { rolarDados } from "@/lib/dice";
 import { empilharRolagem } from "@/lib/empilhar-rolagem";
+import { abrirArvore, type PontoAoSubir } from "@/lib/pontos";
 
 export type CamadaQueAbre = { arvore: string; camada: string };
 
@@ -34,6 +35,7 @@ export function NivelModal({
   atributosBase,
   bonusTetoAtributo,
   camadasQueAbrem,
+  pontos,
   onFechar,
 }: {
   personagemId: string;
@@ -46,6 +48,7 @@ export function NivelModal({
   atributosBase: Record<Atributo, number>;
   bonusTetoAtributo: EfeitosAgregados["bonusTetoAtributo"];
   camadasQueAbrem: CamadaQueAbre[];
+  pontos: PontoAoSubir[];
   onFechar: () => void;
 }) {
   const proposta = useMemo(
@@ -203,6 +206,56 @@ export function NivelModal({
             </li>
           ))}
         </ul>
+
+        {pontos.length > 0 && (
+          <>
+            <h3 className="modal-secao">
+              <i className="fas fa-coins" /> Pontos
+            </h3>
+            {pontos.map((pt) => {
+              const depois = pt.livres + pt.ganho;
+              const acima = pt.tetoLivre !== null && depois > pt.tetoLivre ? depois - pt.tetoLivre : 0;
+              const arvore = pt.arvore;
+              return (
+                <div
+                  key={pt.id}
+                  className="nivel-ponto"
+                  style={{ "--ponto-cor": pt.cor || "var(--primary)" } as React.CSSProperties}
+                >
+                  <div className="nivel-ponto-topo">
+                    <span className="ponto-icone">
+                      <i className={`fas ${pt.icone || "fa-star"}`} />
+                    </span>
+                    <span className="ponto-info">
+                      <span className="ponto-nome">{pt.nome}</span>
+                      <span className="ponto-sub">
+                        {pt.livres} → {depois} livres
+                      </span>
+                    </span>
+                    <strong className="nivel-ponto-ganho">+{pt.ganho}</strong>
+                  </div>
+                  {acima > 0 && (
+                    <p className="ponto-aviso">
+                      <i className="fas fa-triangle-exclamation" /> {acima} acima do teto de {pt.tetoLivre}
+                    </p>
+                  )}
+                  {arvore && (
+                    <button
+                      type="button"
+                      className="btn-rect outline nivel-ponto-gastar"
+                      onClick={() => {
+                        abrirArvore(arvore.id);
+                        onFechar();
+                      }}
+                    >
+                      Gastar no {arvore.nome} <i className="fas fa-arrow-right" />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </>
+        )}
 
         <h3 className="modal-secao">
           <i className="fas fa-dumbbell" /> Aprimoramento de Atributo

@@ -114,6 +114,50 @@ export function abasDaFicha(ficha: {
   }).map((a) => a.id);
 }
 
+// ─── No combate ────────────────────────────────────────────
+
+// Entra junto quando o narrador põe o dono, ou só se ele puser a subficha.
+export type EntradaCombate = "junto" | "manual";
+// A iniciativa: o mesmo valor do dono, d20 + a da própria ficha ou d20 + PRE do
+// capitão (navio, cap. 14).
+export type IniciativaSubficha = "dono" | "propria" | "capitao";
+export type CombateSubficha = { entra: EntradaCombate; iniciativa: IniciativaSubficha };
+
+export const ENTRADAS_COMBATE: { slug: EntradaCombate; nome: string; sub: string }[] = [
+  { slug: "junto", nome: "Com o dono", sub: "entra junto" },
+  { slug: "manual", nome: "Pelo narrador", sub: "só se ele puser" },
+];
+
+export const INICIATIVAS_SUBFICHA: { slug: IniciativaSubficha; nome: string; sub: string }[] = [
+  { slug: "dono", nome: "A do dono", sub: "mesmo valor" },
+  { slug: "propria", nome: "Própria", sub: "d20 + a ficha" },
+  { slug: "capitao", nome: "Do capitão", sub: "d20 + PRE" },
+];
+
+// Sem escolha gravada, o do livro: animal e lacaio agem na iniciativa do dono
+// (Adestrador, cap. 4); navio entra com o teste de PRE do capitão (cap. 14).
+// Subficha da mesa não tem dono pra seguir.
+export function combateDaSubficha(
+  ficha: { perfil: unknown; combate?: unknown },
+  daMesa = false,
+): CombateSubficha {
+  const veiculo = perfilDe(ficha.perfil).slug === "veiculo";
+  const raw = ficha.combate && typeof ficha.combate === "object" ? (ficha.combate as Record<string, unknown>) : {};
+  const entra = ENTRADAS_COMBATE.find((e) => e.slug === raw.entra)?.slug ?? (veiculo ? "manual" : "junto");
+  const iniciativa =
+    INICIATIVAS_SUBFICHA.find((i) => i.slug === raw.iniciativa)?.slug ?? (veiculo ? "capitao" : "dono");
+  if (!daMesa) return { entra, iniciativa };
+  return { entra: "manual", iniciativa: iniciativa === "dono" ? (veiculo ? "capitao" : "propria") : iniciativa };
+}
+
+// Gravado na ficha: só o que casa com as opções.
+export function lerCombateSubficha(raw: unknown): CombateSubficha | null {
+  const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+  const entra = ENTRADAS_COMBATE.find((e) => e.slug === o?.entra)?.slug;
+  const iniciativa = INICIATIVAS_SUBFICHA.find((i) => i.slug === o?.iniciativa)?.slug;
+  return entra && iniciativa ? { entra, iniciativa } : null;
+}
+
 export const MAX_SUBFICHAS = 30;
 export const MAX_SUBFICHAS_DA_MESA = 10;
 export const MAX_COPIAS = 20;
