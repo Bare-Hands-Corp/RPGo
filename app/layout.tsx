@@ -5,7 +5,8 @@ import "./globals.css";
 import "./estilos-cor.css";
 
 export const metadata: Metadata = {
-  title: "RPGo",
+  title: { default: "Handrolls", template: "%s · Handrolls" },
+  applicationName: "Handrolls",
   description:
     "Ficha de RPG online (One Piece) com chat, rolador de dados e mesas em tempo real.",
 };

@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { Logo } from "@/components/marca/logo";
 
 type Modo = "login" | "cadastro";
 type ToastTipo = "erro" | "sucesso";
@@ -124,9 +125,16 @@ export function LoginForm() {
 
       <form className="auth-card" onSubmit={handleSubmit}>
         <div style={{ textAlign: "center", marginBottom: 20 }}>
-          <h1 style={{ color: "var(--primary)", marginBottom: 5 }}>
-            {isCadastro ? "Cadastro" : "Hand Rolls"}
-          </h1>
+          {isCadastro ? (
+            <>
+              <Logo variante="icone" tamanho={64} titulo="" style={{ marginBottom: 10 }} />
+              <h1 style={{ color: "var(--primary)", marginBottom: 5 }}>Cadastro</h1>
+            </>
+          ) : (
+            <h1 style={{ color: "var(--text-main)", margin: "4px 0 12px", lineHeight: 0 }}>
+              <Logo variante="completo" tamanho={46} style={{ maxWidth: "100%" }} />
+            </h1>
+          )}
           <p style={{ color: "var(--text-sec)", fontSize: "0.9rem" }}>
             {isCadastro ? "Crie sua conta para jogar" : "Acesse sua conta para continuar"}
           </p>
