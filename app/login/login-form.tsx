@@ -7,6 +7,7 @@ import { AvisoAuth, type Aviso } from "@/components/auth/aviso-auth";
 import { exigir } from "@/lib/acoes";
 import { destinoSeguro, traduzirErroAuth } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/client";
+import { Logo } from "@/components/marca/logo";
 import { cadastrar } from "./actions";
 
 type Modo = "login" | "cadastro";
@@ -89,7 +90,16 @@ export function LoginForm() {
 
       <form className="auth-card" onSubmit={handleSubmit}>
         <div className="auth-cabecalho">
-          <h1>{isCadastro ? "Cadastro" : "Hand Rolls"}</h1>
+          {isCadastro ? (
+            <>
+              <Logo variante="icone" tamanho={64} titulo="" style={{ marginBottom: 10 }} />
+              <h1>Cadastro</h1>
+            </>
+          ) : (
+            <h1 style={{ color: "var(--text-main)", margin: "4px 0 12px", lineHeight: 0 }}>
+              <Logo variante="completo" tamanho={46} style={{ maxWidth: "100%" }} />
+            </h1>
+          )}
           <p>{isCadastro ? "Crie sua conta para jogar" : "Acesse sua conta para continuar"}</p>
         </div>
 

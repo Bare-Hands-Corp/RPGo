@@ -11,6 +11,7 @@ import { LogoutButton } from "./logout-button";
 import { RealtimeRefresher } from "./realtime-refresher";
 import { BotaoNovidades } from "./novidades";
 import { ThemeButton } from "@/components/temas/theme-button";
+import { Logo } from "@/components/marca/logo";
 import "./dashboard.css";
 
 export default async function DashboardPage() {
@@ -36,8 +37,8 @@ export default async function DashboardPage() {
       <RealtimeRefresher userId={user.id} />
 
       <header className="dashboard-header">
-        <h1>
-          <i className="fa-solid fa-dice-d20" /> Hand Rolls
+        <h1 className="dashboard-marca">
+          <Logo variante="completo" tamanho={36} />
         </h1>
         <div className="dashboard-header-actions">
           <BotaoEntrarMesa personagens={personagens} />

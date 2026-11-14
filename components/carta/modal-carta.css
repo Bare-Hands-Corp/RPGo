@@ -1,0 +1,110 @@
+/* Modal da carta (components/carta/modal-carta.tsx). */
+/* Modal */
+.cartas-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: radial-gradient(circle at 50% 40%, rgba(20, 14, 8, 0.75), rgba(0, 0, 0, 0.92));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  animation: cartas-fade 0.25s ease-out;
+}
+.cartas-modal-palco {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  animation: cartas-sobe 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.cartas-modal-seta {
+  all: unset;
+  cursor: pointer;
+  color: #fff;
+  font-size: 48px;
+  opacity: 0.5;
+  padding: 0 8px;
+}
+.cartas-modal-seta:hover {
+  opacity: 1;
+}
+.cartas-modal-acoes {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cartas-modal-acoes button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+.cartas-modal-acoes button:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+.cartas-aviso {
+  position: fixed;
+  bottom: 24px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: #fff;
+  color: #222;
+  font-weight: 600;
+}
+
+@media (max-width: 520px) {
+  .cartas-modal-carta {
+    --escala: 0.95 !important;
+  }
+  .cartas-modal-seta {
+    display: none;
+  }
+}
+
+@keyframes cartas-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes cartas-sobe {
+  from {
+    transform: translateY(40px) scale(0.85);
+    opacity: 0;
+  }
+}
+
+
+.cartas-modal-acoes button.primario {
+  background: var(--accent, #e67e22);
+  border-color: transparent;
+  font-weight: 700;
+}
+.cartas-modal-acoes button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Papel | Tema, dentro da fileira de botões. */
+.cartas-modal-tema {
+  display: inline-flex;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.cartas-modal-acoes .cartas-modal-tema button {
+  border: 0;
+  border-radius: 0;
+}
+.cartas-modal-acoes .cartas-modal-tema button[aria-pressed="true"] {
+  background: rgba(255, 255, 255, 0.85);
+  color: #222;
+}

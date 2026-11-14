@@ -13,6 +13,8 @@ import {
   rolarLote,
   resolverD20,
 } from "@/lib/dice";
+import { botaoDadoSvg, dadosRoladosHtml, type DadoVisual } from "@/lib/dados-html";
+import { avaliarFormula, formulaVariavel } from "@/lib/formula";
 import { addPreset, getPresets, removePreset, type Preset } from "@/lib/presets";
 import { registrarRolagem } from "./actions";
 import { anunciarGastoMunicao } from "@/lib/municao";
@@ -46,6 +48,10 @@ type Props = {
   efeitosContexto?: EfeitosContexto;
   // Rolagens saem sem os números no chat.
   privado?: boolean;
+  // A rolagem é privada porque o combate está assim (o narrador não desliga aqui).
+  privadoPeloCombate?: boolean;
+  // Só o narrador recebe: mostra o botão de rolar em privado.
+  onAlternarPrivado?: () => void;
 };
 
 // Escapa partes dinâmicas (nomes de habilidade) antes de entrar na string HTML
@@ -317,15 +323,13 @@ function montarUmLance(
 ): Lance {
   const idxPrimario = primarioD20(dadosUsar);
   let total = modUsar;
-  let stringDados = "";
   let critico: Lance["critico"] = null;
   let natural: number | null = null;
   const rolls: DadoRolado[] = [];
+  const visuais: DadoVisual[] = [];
   let outro = 0;
 
   dadosUsar.forEach((d, i) => {
-    const op =
-      i === 0 ? (d.sinal === -1 ? "- " : "") : d.sinal === 1 ? " + " : " - ";
     if (i === idxPrimario) {
       const r = resolverD20(valores.d20, {
         vantagem: opc.vantagem,
@@ -337,47 +341,41 @@ function montarUmLance(
       rolls.push({ faces: 20, sinal: d.sinal, resultado: r.resultado });
       critico = r.critico;
       natural = r.mantido;
-      const cls =
-        r.critico === "sucesso"
-          ? "crit-success"
-          : r.critico === "falha"
-            ? "crit-fail"
-            : null;
-      const resHtml = cls ? `<span class="${cls}">${r.resultado}</span>` : `${r.resultado}`;
-      let extra = "";
-      // Dado descartado da vantagem/desvantagem (riscado).
-      if (r.descartado != null)
-        extra += ` <span class="dado-descartado">${r.descartado}</span>`;
-      // Valor cru antes do floor (riscado) — deixa claro o quanto o piso elevou.
-      if (r.comFloor)
-        extra += ` <span class="dado-descartado" title="elevado pelo mínimo">${r.mantido}</span>`;
-      stringDados += `${op}(${resHtml}${extra}) 1d20`;
+      const riscados: NonNullable<DadoVisual["riscados"]> = [];
+      // Dado descartado da vantagem/desvantagem.
+      if (r.descartado != null) riscados.push({ valor: r.descartado, titulo: "descartado" });
+      // Valor cru antes do floor — deixa claro o quanto o piso elevou.
+      if (r.comFloor) riscados.push({ valor: r.mantido, titulo: "elevado pelo mínimo" });
+      visuais.push({
+        faces: 20,
+        sinal: d.sinal,
+        valor: r.resultado,
+        destaque: r.critico,
+        riscados,
+      });
     } else {
       const { resultado, cru, extras = [] } = valores.outros[outro++] ?? rolarDadoDeDano(d, opc);
       total += (resultado + extras.reduce((s, x) => s + x, 0)) * d.sinal;
       rolls.push({ faces: d.faces, sinal: d.sinal, resultado });
       for (const x of extras) rolls.push({ faces: d.faces, sinal: d.sinal, resultado: x });
-      let resHtml = `${resultado}`;
-      if (resultado === 1) resHtml = `<span class="crit-fail">${resultado}</span>`;
-      else if (resultado === d.faces)
-        resHtml = `<span class="crit-success">${resultado}</span>`;
-      // Valor cru antes do dado mínimo (riscado).
-      if (cru != null) resHtml += ` <span class="dado-descartado" title="dado mínimo">${cru}</span>`;
-      // Dados que a explosão somou.
-      for (const x of extras) resHtml += ` <span class="dado-explosao" title="explosão">+${x}</span>`;
-      stringDados += `${op}(${resHtml}) 1d${d.faces}`;
+      visuais.push({
+        faces: d.faces,
+        sinal: d.sinal,
+        valor: resultado,
+        // Valor cru antes do dado mínimo (riscado).
+        riscados: cru != null ? [{ valor: cru, titulo: "dado mínimo" }] : undefined,
+        extras,
+      });
     }
   });
 
-  if (modUsar !== 0) {
-    stringDados += ` ${modUsar >= 0 ? "+" : "-"} ${Math.abs(modUsar)}`;
-  }
-
   // Piso de dano: eleva o total ao mínimo garantido, mostrando o cru riscado.
+  let sufixo = "";
   if (opc.danoMinFloor > 0 && total < opc.danoMinFloor) {
-    stringDados += ` <span class="dado-descartado" title="elevado pelo piso de dano">${total}</span>`;
+    sufixo = ` <span class="dado-descartado" title="elevado pelo piso de dano">${total}</span>`;
     total = opc.danoMinFloor;
   }
+  const stringDados = dadosRoladosHtml(visuais, modUsar, sufixo);
 
   return { total, rolls, stringDados, critico, natural, valores };
 }
@@ -396,14 +394,22 @@ export function PainelRolador({
   onMensagemCriada,
   efeitosContexto,
   privado = false,
+  privadoPeloCombate = false,
+  onAlternarPrivado,
 }: Props) {
   // Rolagem privada (narrador, com o combate marcado assim): vai pro chat sem números.
-  const registrar: typeof registrarRolagem = (sessao, nome, rolagem) =>
-    registrarRolagem(
+  // De onde veio a rolagem em curso (ataque, dano, perícia, preset…): vai junto
+  // pro chat escolher o ícone. Fica num ref porque o "Manter" grava depois que o
+  // contexto do Rolador já foi limpo.
+  const origem = useRef<string | null>(null);
+  const registrar: typeof registrarRolagem = (sessao, nome, bruta) => {
+    const rolagem = { ...bruta, contexto: bruta.contexto ?? origem.current };
+    return registrarRolagem(
       sessao,
       nome,
-      privado ? { ...rolagem, ocultarRolagem: true, ocultarResultado: true, somenteNarrador: true } : rolagem,
+      privado ? { ...rolagem, somenteNarrador: true } : rolagem,
     );
+  };
   const [dados, setDados] = useState<Dado[]>([]);
   const [modificadorTexto, setModificadorTexto] = useState("0");
   const [negativo, setNegativo] = useState(false);
@@ -411,6 +417,12 @@ export function PainelRolador({
   const [quantidadeTexto, setQuantidadeTexto] = useState("1");
   const [modoGravacao, setModoGravacao] = useState(false);
   const [resultado, setResultado] = useState<Resultado>({ tipo: "preview" });
+  // Fórmula sendo digitada na prévia (null = não está editando).
+  const [editandoFormula, setEditandoFormula] = useState<string | null>(null);
+  const [erroFormula, setErroFormula] = useState<string | null>(null);
+  // Última rolagem manual: fica como texto fraco no campo da fórmula e o ROLAR!
+  // a repete quando não há nada montado.
+  const [ultimaRolagem, setUltimaRolagem] = useState<{ dados: Dado[]; modificador: number } | null>(null);
   const [presetsAbertos, setPresetsAbertos] = useState(false);
   const [presets, setPresets] = useState<Preset[]>([]);
   const [pedindoNome, setPedindoNome] = useState(false);
@@ -546,7 +558,7 @@ export function PainelRolador({
       const det = (e as CustomEvent<PublicarRolagemDetail>).detail;
       if (!det) return;
       const r = det.resultado;
-      const detalhesHtml = `[${r.total}] = ${formatarResultadoRolagemHtml(r)}`;
+      const detalhesHtml = `${formatarResultadoRolagemHtml(r)}`;
       setResultado({ tipo: "rolado", total: String(r.total), detalhesHtml });
       registrar(sessionId, userName, {
         tipo: "rolagem",
@@ -556,6 +568,7 @@ export function PainelRolador({
         modo: "normal",
         nomePreset: det.nomePreset,
         texto: detalhesHtml,
+        contexto: "cura",
       })
         .then((msg) => onMensagemCriada(msg))
         .catch((err) => console.error(err));
@@ -567,6 +580,7 @@ export function PainelRolador({
   const modificador = Number(modificadorTexto || 0);
   const quantidade = Number(quantidadeTexto || 1);
   const vazio = dados.length === 0 && modificador === 0;
+  const podeRepetir = vazio && !modoGravacao && ultimaRolagem !== null;
   const quantidadeValida = Math.max(1, Math.trunc(quantidade || 0));
   // Multiataque ligado rola o ataque várias vezes de uma vez (com mais de um chip, o maior).
   const vezesMulti = Math.max(
@@ -584,21 +598,73 @@ export function PainelRolador({
           ? "Monte a rolagem do preset..."
           : loteAtivo
             ? `Lote ${repeticoes}x · ${rotuloModo(modoRolagem).toLowerCase()}`
-            : "Selecione dados...",
+            : ultimaRolagem
+              ? formulaTexto(ultimaRolagem.dados, ultimaRolagem.modificador)
+              : "",
+        anterior: podeRepetir && !loteAtivo,
       };
     }
     return {
+      anterior: false,
       total: "??",
       detalhes: `${formulaTexto(dados, modificador)}${loteAtivo ? ` ×${repeticoes}` : ""}${
         modoRolagem !== "normal" ? ` · ${rotuloModo(modoRolagem)}` : ""
       }`,
     };
-  }, [vazio, dados, modificador, modoGravacao, loteAtivo, repeticoes, modoRolagem]);
+  }, [vazio, dados, modificador, modoGravacao, loteAtivo, repeticoes, modoRolagem, ultimaRolagem, podeRepetir]);
 
   const display =
     resultado.tipo === "rolado"
       ? { total: String(resultado.total), detalhes: resultado.detalhesHtml }
       : preview;
+
+  // Editar a fórmula escrevendo ("10d12 + 4") em vez de clicar dado por dado.
+  function abrirEdicaoFormula() {
+    setErroFormula(null);
+    setEditandoFormula(
+      vazio
+        ? ultimaRolagem
+          ? formulaTexto(ultimaRolagem.dados, ultimaRolagem.modificador)
+          : ""
+        : formulaTexto(dados, modificador),
+    );
+  }
+
+  function fecharEdicaoFormula() {
+    setEditandoFormula(null);
+    setErroFormula(null);
+  }
+
+  // Devolve false (e mostra o motivo) quando a fórmula não vale.
+  function confirmarFormula(): boolean {
+    const texto = (editandoFormula ?? "").trim();
+    if (texto === "") {
+      setDados([]);
+      setModificadorTexto("0");
+      setResultado({ tipo: "preview" });
+      fecharEdicaoFormula();
+      return true;
+    }
+    if (formulaVariavel(texto)) {
+      setErroFormula("Siglas e funções (FOR, PROF, min…) só valem nas rolagens da ficha.");
+      return false;
+    }
+    const r = avaliarFormula(texto, { valor: () => 0, nivel: 1 });
+    if (!r.ok) {
+      setErroFormula(r.erro);
+      return false;
+    }
+    if (r.rolagem.dados.length === 0 && r.rolagem.modificador === 0) {
+      setErroFormula("Nenhum dado na fórmula.");
+      return false;
+    }
+    setDados(r.rolagem.dados);
+    setModificadorTexto(String(r.rolagem.modificador));
+    setNegativo(false);
+    setResultado({ tipo: "preview" });
+    fecharEdicaoFormula();
+    return true;
+  }
 
   function adicionarDado(faces: number) {
     setDados((d) => [...d, { faces, sinal: negativo ? -1 : 1 }]);
@@ -646,6 +712,7 @@ export function PainelRolador({
   }
 
   function limpar() {
+    setUltimaRolagem(null);
     aoConcluir.current = null;
     modosEmpilhados.current = null;
     setDados([]);
@@ -700,7 +767,7 @@ export function PainelRolador({
     stringFinal: string,
     nomePreset: string | null,
   ) {
-    const detalhesHtml = `[${total}] = ${stringFinal}`;
+    const detalhesHtml = `${stringFinal}`;
     setResultado({ tipo: "rolado", total: String(total), detalhesHtml });
 
     registrar(sessionId, userName, {
@@ -730,7 +797,7 @@ export function PainelRolador({
       const linhas = lote.execucoes
         .map(
           (execucao, indice) =>
-            `<div class="roll-batch-row"><span class="roll-batch-index">#${indice + 1}</span><span class="roll-batch-total">[${execucao.total}]</span><span class="roll-batch-formula">= ${formatarResultadoRolagemHtml(execucao)}</span></div>`,
+            `<div class="roll-batch-row"><span class="roll-batch-index">#${indice + 1}</span><span class="roll-batch-total">${execucao.total}</span><span class="roll-batch-formula">${formatarResultadoRolagemHtml(execucao)}</span></div>`,
         )
         .join("");
       const resumo = `${quantidadeUsar}x ${rotuloModo(modoUsar).toLowerCase()}`;
@@ -738,7 +805,7 @@ export function PainelRolador({
       setResultado({
         tipo: "rolado",
         total: `${quantidadeUsar}x`,
-        detalhesHtml: `[${resumo}] ${formulaTexto(dadosUsar, modUsar)}${modUsar !== 0 ? ` ${modUsar >= 0 ? "+" : "-"} ${Math.abs(modUsar)}` : ""}<div class="roll-batch-list">${linhas}</div>`,
+        detalhesHtml: `[${resumo}] ${formulaTexto(dadosUsar, modUsar)}<div class="roll-batch-list">${linhas}</div>`,
       });
 
       registrar(sessionId, userName, {
@@ -766,7 +833,7 @@ export function PainelRolador({
     setResultado({
       tipo: "rolado",
       total: String(r.total),
-      detalhesHtml: `[${r.total}] = ${stringFinal}`,
+      detalhesHtml: `${stringFinal}`,
     });
 
     registrar(sessionId, userName, {
@@ -955,7 +1022,7 @@ export function PainelRolador({
       gastarMunicao(1);
       // Segura no preview "rolado" e espera a decisão; nada vai pro chat ainda.
       const stringFinal = montarStringFinal(r.stringDados, notas);
-      setResultado({ tipo: "rolado", total: String(r.total), detalhesHtml: `[${r.total}] = ${stringFinal}` });
+      setResultado({ tipo: "rolado", total: String(r.total), detalhesHtml: `${stringFinal}` });
       setPendente({
         dadosUsar: [...dadosUsar],
         modUsar,
@@ -1032,7 +1099,7 @@ export function PainelRolador({
     const linhas = execucoes
       .map(
         (e, i) =>
-          `<div class="roll-batch-row"><span class="roll-batch-index">#${i + 1}</span><span class="roll-batch-total">[${e.total}]</span><span class="roll-batch-formula">= ${textoDoLance(e)}</span></div>`,
+          `<div class="roll-batch-row"><span class="roll-batch-index">#${i + 1}</span><span class="roll-batch-total">${e.total}</span><span class="roll-batch-formula">${textoDoLance(e)}</span></div>`,
       )
       .join("");
     setResultado({
@@ -1055,6 +1122,8 @@ export function PainelRolador({
         texto: textoDoLance(e),
       })),
       nomePreset: nomePreset || null,
+      // As fontes dos efeitos valem pro lote inteiro.
+      texto: notasHtml.trim() || null,
     })
       .then((msg) => onMensagemCriada(msg))
       .catch((err) => console.error(err));
@@ -1081,7 +1150,7 @@ export function PainelRolador({
     const usados = pendente.rerollsUsados + 1;
     const notas = [...pendente.notas, `rerrolado ${usados}×`];
     const stringFinal = montarStringFinal(r.stringDados, notas);
-    setResultado({ tipo: "rolado", total: String(r.total), detalhesHtml: `[${r.total}] = ${stringFinal}` });
+    setResultado({ tipo: "rolado", total: String(r.total), detalhesHtml: `${stringFinal}` });
     setPendente({
       ...pendente,
       stringDados: r.stringDados,
@@ -1131,18 +1200,30 @@ export function PainelRolador({
   }
 
   function clicarRolar() {
-    if (vazio) return;
+    if (vazio && !podeRepetir) return;
     if (modoGravacao) {
       setPedindoNome(true);
       setNomePresetTmp("");
       return;
     }
     setPendente(null);
+    // Nada montado: repete a última rolagem manual.
+    if (vazio && ultimaRolagem) {
+      origem.current = null;
+      executarRolagem(ultimaRolagem.dados, ultimaRolagem.modificador, null, quantidadeValida, modoRolagem);
+      return;
+    }
     // Com contexto empilhado, a rolagem é contextual (vant/floor/crit/reroll no
     // d20) e ignora o lote. Sem contexto, segue o fluxo manual (lote + modo).
+    origem.current = contexto?.tipo ?? null;
     if (contexto) rolarContextual(dados, modificador, nomeContexto);
-    else executarRolagem(dados, modificador, nomeContexto, quantidadeValida, modoRolagem);
-    // Mantém modificador, limpa só os dados (igual legacy). Contexto foi
+    else {
+      executarRolagem(dados, modificador, nomeContexto, quantidadeValida, modoRolagem);
+      // O modificador vai junto na fórmula guardada; zera pra não somar de novo.
+      setUltimaRolagem({ dados: [...dados], modificador });
+      setModificadorTexto("0");
+    }
+    // Limpa os dados (o modificador das rolagens da ficha segue). Contexto foi
     // consumido nesta rolagem — zera pra não vazar pro próximo lance manual.
     // (rolarContextual já guardou o snapshot necessário na pendência.)
     setDados([]);
@@ -1198,6 +1279,7 @@ export function PainelRolador({
 
   async function executarPreset(p: Preset) {
     if (modoGravacao) cancelarGravacao();
+    origem.current = "preset";
     executarRolagem(p.dados, p.modificador, p.nome, p.quantidade, p.modoRolagem);
   }
 
@@ -1232,10 +1314,15 @@ export function PainelRolador({
           <button
             type="button"
             key={f}
-            className="dice-btn"
+            className="dice-btn dado-forma"
+            aria-label={`d${f}`}
             onClick={() => adicionarDado(f)}
           >
-            d{f}
+            <svg
+              viewBox="0 0 36 36"
+              aria-hidden="true"
+              dangerouslySetInnerHTML={{ __html: botaoDadoSvg(f) }}
+            />
           </button>
         ))}
       </div>
@@ -1274,16 +1361,10 @@ export function PainelRolador({
           />
         </label>
 
-        <button type="button" className="btn-rect neutro sm" title="Limpar" onClick={limpar}>
-          <i className="fas fa-trash" />
-        </button>
-      </div>
-
-      <div className="roll-settings">
         <div className="roll-mode-switch" role="group" aria-label="Modo de rolagem">
           {([
-            ["vantagem", "Vant.", "fa-clone", "vantagem"],
-            ["desvantagem", "Desv.", "fa-clone", "desvantagem"],
+            ["vantagem", "Vantagem", "fa-arrow-up", "vantagem"],
+            ["desvantagem", "Desvantagem", "fa-arrow-down", "desvantagem"],
           ] as const).map(([modo, texto, icone, tipo]) => (
             <button
               key={modo}
@@ -1291,9 +1372,10 @@ export function PainelRolador({
               className={"roll-toggle-btn " + tipo + (modoRolagem === modo ? " active" : "")}
               onClick={() => alternarModoRolagem(modo)}
               aria-pressed={modoRolagem === modo}
+              aria-label={texto}
+              title={texto}
             >
               <i className={`fas ${icone}`} />
-              <span>{texto}</span>
             </button>
           ))}
         </div>
@@ -1399,23 +1481,121 @@ export function PainelRolador({
         </div>
       )}
 
+      <div className="formula-campo">
+        <div className="formula-campo-corpo">
+        {editandoFormula !== null ? (
+          <div className="formula-edicao">
+            <input
+              type="text"
+              autoFocus
+              spellCheck={false}
+              aria-label="Fórmula da rolagem"
+              aria-invalid={erroFormula !== null}
+              placeholder="ex.: 10d12 + 4"
+              value={editandoFormula}
+              onChange={(e) => {
+                setEditandoFormula(e.target.value);
+                setErroFormula(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  confirmarFormula();
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  fecharEdicaoFormula();
+                }
+              }}
+              onBlur={() => {
+                if (!confirmarFormula()) fecharEdicaoFormula();
+              }}
+            />
+            {erroFormula && (
+              <div className="formula-erro" role="alert">
+                {erroFormula}
+              </div>
+            )}
+          </div>
+        ) : (
+          <button
+            type="button"
+            className={
+              "formula-preview" + (preview.detalhes ? "" : " vazia") + (preview.anterior ? " anterior" : "")
+            }
+            title={
+              preview.anterior
+                ? "Última rolagem: ROLAR! repete, clique para editar"
+                : "Clique para escrever a fórmula (ex.: 10d12 + 4)"
+            }
+            onClick={abrirEdicaoFormula}
+          >
+            <span>{preview.detalhes || "Clique e digite, ex.: 10d12 + 4"}</span>
+            <i className="fas fa-pen" aria-hidden="true" />
+          </button>
+        )}
+        </div>
+        <button type="button" className="btn-rect neutro sm" title="Limpar tudo" onClick={limpar}>
+          <i className="fas fa-trash" />
+        </button>
+      </div>
+
+      {onAlternarPrivado && (
+        <button
+          type="button"
+          className={"rolador-privado" + (privado ? " ligado" : "")}
+          aria-pressed={privado}
+          disabled={privadoPeloCombate}
+          onClick={onAlternarPrivado}
+          title={
+            privadoPeloCombate
+              ? "O combate está com as rolagens privadas (mude na aba Sessão)"
+              : privado
+                ? "Só você vê estas rolagens; os jogadores nem sabem que rolou"
+                : "Rolar só para você, sem aparecer no chat dos jogadores"
+          }
+        >
+          <i className={`fas ${privado ? "fa-eye-slash" : "fa-eye"}`} />
+          <span>
+            {privadoPeloCombate
+              ? "Rolagem privada (combate)"
+              : privado
+                ? "Rolagem privada"
+                : "Rolagem aberta"}
+          </span>
+          <span className="rolador-privado-chave" aria-hidden="true" />
+        </button>
+      )}
+
       <button
         type="button"
         ref={botaoRolar}
         className={"roll-btn" + (modoGravacao ? " recording" : "")}
         onClick={clicarRolar}
-        disabled={vazio}
+        disabled={vazio && !podeRepetir}
+        title={podeRepetir ? "Repete a última rolagem" : undefined}
       >
         {modoGravacao ? "SALVAR PRESET" : loteAtivo ? `ROLAR X${repeticoes}` : "ROLAR!"}
       </button>
 
       <div className="tray-result-box">
-        <div style={{ fontSize: "0.8rem", color: "var(--text-sec)" }}>Resultado:</div>
-        <div style={{ fontSize: "2rem", fontWeight: 800, color: "var(--primary)" }}>{display.total}</div>
+        <div className="tray-result-label">Resultado:</div>
         <div
-          style={{ fontSize: "0.85rem", color: "var(--text-sec)", marginTop: 5 }}
-          dangerouslySetInnerHTML={{ __html: display.detalhes }}
-        />
+          className={
+            "tray-result-row" +
+            (resultado.tipo === "rolado" && resultado.detalhesHtml.includes("roll-batch-list")
+              ? " empilhado"
+              : "")
+          }
+        >
+          <div className="tray-result-total">{display.total}</div>
+          {resultado.tipo === "rolado" && (
+            <div
+              className="tray-result-dice"
+              dangerouslySetInnerHTML={{ __html: display.detalhes }}
+            />
+          )}
+        </div>
       </div>
 
       {pendente && (

@@ -5,7 +5,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { carregarJwks } from "./jwks";
 
 // Rotas acessíveis sem login. Tudo mais exige sessão válida.
-const ROTAS_PUBLICAS = ["/login", "/auth/callback", "/recuperar-senha"];
+// Manifest: o navegador busca sem sessão (instalar o app, ícone da aba).
+const ROTAS_PUBLICAS = ["/login", "/auth/callback", "/recuperar-senha", "/manifest.webmanifest"];
 // Única rota liberada pra conta logada que ainda não confirmou o e-mail.
 const ROTA_VERIFICAR = "/verificar-codigo";
 

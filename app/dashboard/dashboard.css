@@ -647,3 +647,15 @@
   flex: 1 1 160px;
   min-width: 0;
 }
+
+.dashboard-header h1.dashboard-marca {
+  margin: 0;
+  line-height: 0;
+  color: var(--text-main);
+}
+
+@media (max-width: 640px) {
+  .dashboard-header h1.dashboard-marca svg {
+    height: 28px !important;
+  }
+}

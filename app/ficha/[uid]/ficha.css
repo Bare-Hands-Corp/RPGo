@@ -9969,3 +9969,19 @@ form > .turno-campo,
   margin-top: auto;
   padding-top: 8px;
 }
+
+/* Busca + o que vai ao lado dela (ex.: Lista/Cartas). */
+.filtros-linha {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.filtros-linha .filtros-busca {
+  flex: 1 1 260px;
+}
+.filtros-ao-lado {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

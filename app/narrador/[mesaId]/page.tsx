@@ -50,7 +50,8 @@ export default async function NarradorPage({ params }: Params) {
         },
       },
     }),
-    listarMensagensSessao(mesaId),
+    // O narrador vê também as próprias rolagens privadas.
+    listarMensagensSessao(mesaId, { comPrivadas: true }),
     carregarCalendario(mesaId, { isNarrador: true }),
     carregarObjetivosComPrazo(mesaId, { userId: user.id, isNarrador: true }),
     prisma.sessao.findFirst({

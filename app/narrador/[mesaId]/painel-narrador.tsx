@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { MensagemSerializada } from "@/lib/mensagens";
 import type { ResumoPersonagem } from "@/lib/resumo-personagem";
 import { dataParaDias } from "@/lib/calendario/engine";
@@ -86,6 +86,20 @@ export function NarradorShell({
     setAlvoTeste(personagemId ?? null);
     setModalTesteAberto(true);
   }
+
+  // Atalho T: pede um teste de qualquer aba, sem sair do que está fazendo.
+  useEffect(() => {
+    function aoTeclar(e: KeyboardEvent) {
+      if (e.key.toLowerCase() !== "t" || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+      const alvo = e.target as HTMLElement | null;
+      if (alvo?.closest("input, textarea, select, [contenteditable='true'], [role='dialog']")) return;
+      e.preventDefault();
+      setAlvoTeste(null);
+      setModalTesteAberto(true);
+    }
+    window.addEventListener("keydown", aoTeclar);
+    return () => window.removeEventListener("keydown", aoTeclar);
+  }, []);
 
   const abas: { id: Aba; rotulo: string; icone: string; ponto?: boolean }[] = [
     { id: "visao", rotulo: "Visão geral", icone: "fa-house" },
@@ -246,6 +260,17 @@ export function NarradorShell({
           bannerAtual={mesa.bannerUrl}
           onFechar={() => setEditandoMesa(false)}
         />
+      )}
+
+      {!modalTesteAberto && (
+        <button
+          type="button"
+          className="narrador-pedir-teste"
+          onClick={() => pedirTeste()}
+          title="Pedir um teste (atalho T)"
+        >
+          <i className="fas fa-dice-d20" /> Pedir teste <kbd>T</kbd>
+        </button>
       )}
 
       <ModalSolicitarTeste

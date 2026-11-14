@@ -55,6 +55,7 @@ export function BarraFiltros<F extends string>({
   onPasta,
   grupos,
   children,
+  aoLado,
 }: {
   busca: string;
   onBusca: (v: string) => void;
@@ -69,6 +70,8 @@ export function BarraFiltros<F extends string>({
   grupos?: GrupoFiltro[];
   // O que dá pra fazer com a pasta aberta (ativar tudo).
   children?: React.ReactNode;
+  // Ao lado da busca (ex.: alternar lista/cartas).
+  aoLado?: React.ReactNode;
 }) {
   // Os filtros ficam recolhidos atrás do ícone; o número diz quantos estão valendo.
   const [aberto, setAberto] = useState(false);
@@ -82,6 +85,7 @@ export function BarraFiltros<F extends string>({
   }
   return (
     <div className="filtros-barra">
+      <div className="filtros-linha">
       <div className="filtros-busca">
         <i className="fas fa-magnifying-glass" />
         <input
@@ -120,6 +124,8 @@ export function BarraFiltros<F extends string>({
           <i className="fas fa-filter" />
           {ativos > 0 && <span className="filtros-toggle-total">{ativos}</span>}
         </button>
+      </div>
+      {aoLado && <div className="filtros-ao-lado">{aoLado}</div>}
       </div>
       {aberto && (
       <div className="filtros-painel">
